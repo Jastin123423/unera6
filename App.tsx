@@ -8,7 +8,7 @@ import { UserProfile } from './components/UserProfile';
 import { MarketplacePage } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
 import { ChatWindow } from './components/Chat';
-import { ImageViewer, Spinner } from './components/Common';
+import { ImageViewer, ProfessionalLoader } from './components/Common';
 import { EventsPage, BirthdaysPage, MemoriesPage, SettingsPage } from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
@@ -128,7 +128,8 @@ export default function App() {
         } catch (error) {
             console.error("Critical Data Fetch Error:", error);
         } finally {
-            setIsLoading(false);
+            // Artificial delay to show off the cool new loader
+            setTimeout(() => setIsLoading(false), 2000);
         }
     }, []);
 
@@ -261,7 +262,7 @@ export default function App() {
         window.scrollTo(0, 0);
     };
 
-    if (isLoading) return <div className="h-screen flex items-center justify-center bg-[#18191A]"><Spinner /></div>;
+    if (isLoading) return <ProfessionalLoader />;
 
     return (
         <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
