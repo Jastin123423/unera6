@@ -1,0 +1,10 @@
+
+
+name = "unera"
+pages_build_output_dir = "./dist"  # ← Add this for Pages
+compatibility_date = "2025-01-13"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "unera3"
+database_id = "9fc679a8-c734-4322-a205-ae91a5a318dd"
