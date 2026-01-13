@@ -1,5 +1,8 @@
+
+
 name = "unera"
-compatibility_date = "2026-01-13"
+pages_build_output_dir = "./dist"  # ← Add this for Pages
+compatibility_date = "2025-01-13"
 
 [[d1_databases]]
 binding = "DB"
