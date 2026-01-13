@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Copy of Copy of UNERA Social Network 1",
+  "description": "A fully functional social network application with feed, reels, stories, chat, and multi-language support.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
