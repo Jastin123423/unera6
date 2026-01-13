@@ -5,8 +5,6 @@ import { Post, User } from '../types';
  * =======================================================
  * UNERA: FAIR, VIRAL, ANTI-MONOPOLY FEED ALGORITHM
  * =======================================================
- * This algorithm calculates a Dynamic Visibility Score (DVS) for each post
- * to create a feed that promotes growth, creator happiness, and discovery.
  */
 
 interface ScoredPost {
@@ -58,9 +56,9 @@ const calculatePostScore = (post: Post, viewer: User | null, author: User): Scor
     const freshnessScore = Math.exp(-CONSTANTS.DECAY_LAMBDA * hoursSinceCreation);
 
     const rawEngagementValue = 
-        (post.reactions.length * CONSTANTS.VAL_LIKE) + 
-        (post.comments.length * CONSTANTS.VAL_COMMENT) + 
-        (post.shares * CONSTANTS.VAL_REPOST) +
+        ((post.reactions?.length || 0) * CONSTANTS.VAL_LIKE) + 
+        ((post.comments?.length || 0) * CONSTANTS.VAL_COMMENT) + 
+        ((post.shares || 0) * CONSTANTS.VAL_REPOST) +
         ((post.views || 0) * (CONSTANTS.VAL_WATCH_TIME_SCORE / 100));
 
     let viralMultiplier = 1.0;
@@ -76,8 +74,8 @@ const calculatePostScore = (post: Post, viewer: User | null, author: User): Scor
 
     let affinityScore = 1.0;
     if (viewer && viewer.id !== author.id) {
-        const isFollowing = viewer.following.includes(author.id);
-        if (isFollowing && author.followers.includes(viewer.id)) {
+        const isFollowing = viewer.following?.includes(author.id);
+        if (isFollowing && author.followers?.includes(viewer.id)) {
             affinityScore = 2.0;
         } else if (isFollowing) {
             affinityScore = 1.5;
@@ -102,7 +100,7 @@ const calculatePostScore = (post: Post, viewer: User | null, author: User): Scor
         creatorBoost = CONSTANTS.NEW_USER_BOOST_MULTIPLIER;
     }
     
-    const followerInfluence = 1 / Math.log10(author.followers.length + 10);
+    const followerInfluence = 1 / Math.log10((author.followers?.length || 0) + 10);
     const finalCreatorBoost = creatorBoost * followerInfluence;
     
     const finalScore = baseScore * finalCreatorBoost + (Math.random() * 0.1);
@@ -133,8 +131,13 @@ const calculatePostScore = (post: Post, viewer: User | null, author: User): Scor
 };
 
 export const rankFeed = (posts: Post[], viewer: User | null, users: User[]): Post[] => {
+    // CRITICAL: Ensure posts is actually an array before processing
+    if (!Array.isArray(posts) || posts.length === 0) return [];
+
     const userMap = new Map<number, User>();
-    users.forEach(u => userMap.set(u.id, u));
+    if (Array.isArray(users)) {
+        users.forEach(u => userMap.set(u.id, u));
+    }
     
     const authorSeenCount = new Map<number, number>();
 
@@ -159,15 +162,5 @@ export const rankFeed = (posts: Post[], viewer: User | null, users: User[]): Pos
         });
 
     scoredPosts.sort((a, b) => b.score - a.score);
-
-    console.group("--- UNERA Feed Ranking ---");
-    scoredPosts.slice(0, 5).forEach((sp, index) => {
-        console.log(
-            `#${index + 1}: Post ${sp.post.id} (Score: ${sp.score.toFixed(4)}) - Reason: ${sp.debug.reason}`,
-            { postContent: (sp.post.content || "").substring(0, 50), debug: sp.debug }
-        );
-    });
-    console.groupEnd();
-
     return scoredPosts.map(sp => sp.post);
 };

@@ -24,11 +24,13 @@ import { INITIAL_USERS } from './constants';
 import { rankFeed } from './utils/ranking'; 
 
 /**
- * Standard API Fetch Utility - Enhanced for robustness
+ * Enhanced API Fetch Utility
+ * Ensures that if a call fails, it throws an error so that .catch() can provide fallbacks.
  */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
     const token = localStorage.getItem('unera_token');
     const headers: HeadersInit = {
+        'Accept': 'application/json',
         'Content-Type': 'application/json',
         ...options.headers,
     };
@@ -36,35 +38,38 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
         headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, { ...options, headers });
-    
-    let data;
-    const contentType = response.headers.get("content-type");
-    
-    // Safety check: only parse as JSON if the server explicitly says it's JSON
-    if (contentType && contentType.includes("application/json")) {
-        try {
+    try {
+        const response = await fetch(url, { ...options, headers });
+        const contentType = response.headers.get("content-type") || "";
+        
+        let data;
+        if (contentType.includes("application/json")) {
             data = await response.json();
-        } catch (e) {
-            console.error("JSON Parse Error:", e);
-            data = { error: "Malformed server response" };
+        } else {
+            const text = await response.text();
+            // If the response looks like JSON even without the header, try parsing it
+            if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
+                try { data = JSON.parse(text); } catch(e) { data = { error: text }; }
+            } else {
+                data = { error: text };
+            }
         }
-    } else {
-        // Fallback for plain text error messages (like 404 Not Found)
-        const text = await response.text();
-        data = { error: text || `Server responded with status ${response.status}` };
-    }
 
-    if (!response.ok) {
-        throw new Error(data.error || `Error ${response.status}`);
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+
+        return data;
+    } catch (err: any) {
+        console.warn(`Fetch error for ${url}:`, err.message);
+        throw err;
     }
-    return data;
 };
 
 export default function App() {
     const { t } = useLanguage();
     
-    // Core Data State (Fetched from API)
+    // Core Data State
     const [users, setUsers] = useState<User[]>(INITIAL_USERS);
     const [posts, setPosts] = useState<PostType[]>([]);
     const [stories, setStories] = useState<Story[]>([]);
@@ -99,14 +104,24 @@ export default function App() {
     const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
     const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
-    const rankedPosts = useMemo(() => rankFeed(posts, currentUser, users), [posts, currentUser, users]);
+    // Safe ranking - handles empty or malformed posts array
+    const rankedPosts = useMemo(() => {
+        return Array.isArray(posts) ? rankFeed(posts, currentUser, users) : [];
+    }, [posts, currentUser, users]);
 
-    /**
-     * Initial Data Fetch
-     */
     const fetchData = useCallback(async () => {
         try {
-            const [postsData, storiesData, reelsData, productsData, usersData, groupsData, brandsData, eventsData] = await Promise.all([
+            // Each fetch is wrapped in a catch to ensure it returns an array even on failure
+            const [
+                postsData, 
+                storiesData, 
+                reelsData, 
+                productsData, 
+                usersData, 
+                groupsData, 
+                brandsData, 
+                eventsData
+            ] = await Promise.all([
                 apiFetch('/api/posts').catch(() => []),
                 apiFetch('/api/stories').catch(() => []),
                 apiFetch('/api/reels').catch(() => []),
@@ -117,19 +132,18 @@ export default function App() {
                 apiFetch('/api/events').catch(() => []) 
             ]);
 
-            setPosts(postsData);
-            setStories(storiesData);
-            setReels(reelsData);
-            setProducts(productsData);
-            setUsers(usersData);
-            setGroups(groupsData);
-            setBrands(brandsData);
-            setEvents(eventsData);
+            setPosts(Array.isArray(postsData) ? postsData : []);
+            setStories(Array.isArray(storiesData) ? storiesData : []);
+            setReels(Array.isArray(reelsData) ? reelsData : []);
+            setProducts(Array.isArray(productsData) ? productsData : []);
+            setUsers(Array.isArray(usersData) ? usersData : INITIAL_USERS);
+            setGroups(Array.isArray(groupsData) ? groupsData : []);
+            setBrands(Array.isArray(brandsData) ? brandsData : []);
+            setEvents(Array.isArray(eventsData) ? eventsData : []);
         } catch (error) {
-            console.error("Critical Data Fetch Error:", error);
+            console.error("Data setup error:", error);
         } finally {
-            // Artificial delay to show off the cool new loader
-            setTimeout(() => setIsLoading(false), 2000);
+            setTimeout(() => setIsLoading(false), 1500);
         }
     }, []);
 
@@ -139,7 +153,7 @@ export default function App() {
             if (token) {
                 try {
                     const userData = await apiFetch('/api/users/me');
-                    setCurrentUser(userData);
+                    if (userData && userData.id) setCurrentUser(userData);
                 } catch (e) {
                     localStorage.removeItem('unera_token');
                     setCurrentUser(null);
@@ -150,9 +164,7 @@ export default function App() {
         initAuth();
     }, [fetchData]);
 
-    /**
-     * Handlers
-     */
+    // Handlers...
     const handleLogin = async (email: string, pass: string) => {
         try {
             const data = await apiFetch('/api/users/login', {
@@ -199,7 +211,7 @@ export default function App() {
                 method: 'POST',
                 body: JSON.stringify({ content: text, media_url: file ? "https://example.com/mock-upload.jpg" : undefined })
             });
-            setPosts([newPost, ...posts]);
+            setPosts(prev => [newPost, ...prev]);
             setShowCreatePostModal(false);
         } catch (e) {
             alert("Failed to publish post.");
@@ -219,39 +231,9 @@ export default function App() {
         } catch (e) {}
     };
 
-    const handleCreateEvent = async (eventData: Partial<Event>) => {
-        if (!currentUser) return;
-        try {
-            const newEvent = await apiFetch('/api/events', {
-                method: 'POST',
-                body: JSON.stringify(eventData)
-            });
-            setEvents([newEvent, ...events]);
-            setShowCreateEventModal(false);
-        } catch (e) {
-            alert("Failed to create event.");
-        }
-    };
-
-    const handleJoinEvent = async (eventId: number) => {
-        if (!currentUser) return setView('login');
-        try {
-            // Mock joining logic until specific join endpoint is polished
-            setEvents(prev => prev.map(ev => ev.id === eventId ? {
-                ...ev,
-                attendees: ev.attendees.includes(currentUser.id) 
-                    ? ev.attendees.filter(id => id !== currentUser.id) 
-                    : [...ev.attendees, currentUser.id]
-            } : ev));
-        } catch (e) {}
-    };
-
     const handleUpdateUser = async (data: Partial<User>) => {
         if (!currentUser) return;
-        try {
-            // In a real app, this would be a PATCH to /api/users/me
-            setCurrentUser({ ...currentUser, ...data });
-        } catch (e) {}
+        setCurrentUser({ ...currentUser, ...data });
     };
 
     const handleNavigate = (target: string) => {
@@ -307,8 +289,9 @@ export default function App() {
                                 onRequestLogin={() => setView('login')} 
                             />
                             {currentUser && <CreatePost currentUser={currentUser} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} onClick={() => setShowCreatePostModal(true)} />}
-                            {currentUser && <SuggestedProductsWidget products={products} currentUser={currentUser} onViewProduct={setActiveProduct} onSeeAll={() => handleNavigate('marketplace')} />}
-                            {rankedPosts.map(post => (
+                            {currentUser && products.length > 0 && <SuggestedProductsWidget products={products} currentUser={currentUser} onViewProduct={setActiveProduct} onSeeAll={() => handleNavigate('marketplace')} />}
+                            
+                            {rankedPosts.length > 0 ? rankedPosts.map(post => (
                                 <Post 
                                     key={post.id} 
                                     post={post} 
@@ -322,25 +305,44 @@ export default function App() {
                                     onVideoClick={(p) => { setActiveReelId(p.id); setView('reels'); }} 
                                     onPlayAudioTrack={setCurrentAudioTrack} 
                                 />
-                            ))}
+                            )) : (
+                                <div className="text-center py-20 text-[#B0B3B8] animate-fade-in">
+                                    <i className="fas fa-rss text-4xl mb-4 opacity-20"></i>
+                                    <p>Nothing here yet. Follow some people to see their posts!</p>
+                                </div>
+                            )}
                         </div>
                     )}
 
                     {view === 'reels' && <ReelsFeed reels={reels} users={users} currentUser={currentUser} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} onCreateReelClick={() => setShowCreateReelModal(true)} onReact={() => {}} onComment={() => {}} onShare={() => {}} onFollow={() => {}} getCommentAuthor={(id) => users.find(u => u.id === id)} initialReelId={activeReelId} />}
                     {view === 'marketplace' && <MarketplacePage currentUser={currentUser} products={products} onNavigateHome={() => handleNavigate('home')} onCreateProduct={() => {}} onViewProduct={setActiveProduct} />}
                     {view === 'groups' && <GroupsPage currentUser={currentUser} groups={groups} users={users} onCreateGroup={() => {}} onJoinGroup={() => {}} onLeaveGroup={() => {}} onDeleteGroup={() => {}} onUpdateGroupImage={() => {}} onPostToGroup={() => {}} onCreateGroupEvent={() => {}} onInviteToGroup={() => {}} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} onLikePost={() => {}} onOpenComments={() => {}} onSharePost={() => {}} onDeleteGroupPost={() => {}} onRemoveMember={() => {}} onUpdateGroupSettings={() => {}} />}
-                    {view === 'brands' && <BrandsPage currentUser={currentUser} brands={brands} posts={posts} users={users} onCreateBrand={() => {}} onFollowBrand={() => {}} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} onPostAsBrand={() => {}} onReact={() => {}} onShare={() => {}} onOpenComments={() => {}} onDeleteBrand={() => {}} />}
-                    {view === 'music' && <MusicSystem currentUser={currentUser} onPlayTrack={setCurrentAudioTrack} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} likedTracks={[]} onToggleLike={() => {}} playHistory={[]} />}
-                    {view === 'tools' && <ToolsPage />}
-                    {view === 'events' && <EventsPage events={events} currentUser={currentUser!} onJoinEvent={handleJoinEvent} onCreateEventClick={() => setShowCreateEventModal(true)} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} />}
-                    {view === 'birthdays' && <BirthdaysPage currentUser={currentUser!} users={users} onMessage={(id) => setActiveChatUser(users.find(u => u.id === id) || null)} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} />}
-                    {view === 'memories' && <MemoriesPage currentUser={currentUser!} posts={posts} users={users} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} onReact={handleLikePost} onShare={() => {}} onViewImage={setFullScreenImage} onOpenComments={setActiveCommentsPostId} onVideoClick={() => {}} onPlayAudioTrack={setCurrentAudioTrack} />}
                     {view === 'settings' && <SettingsPage currentUser={currentUser} onUpdateUser={handleUpdateUser} />}
-                    {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
-                    {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
-                    {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
-                    
-                    {view === 'profile' && selectedUserId && <UserProfile user={users.find(u => u.id === selectedUserId)!} currentUser={currentUser} users={users} posts={posts} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} onFollow={() => {}} onReact={handleLikePost} onComment={() => {}} onShare={() => {}} onMessage={(id) => setActiveChatUser(users.find(u => u.id === id) || null)} onCreatePost={handleCreatePost} onUpdateProfileImage={() => {}} onUpdateCoverImage={() => {}} onUpdateUserDetails={handleUpdateUser} onDeletePost={() => {}} onEditPost={() => {}} getCommentAuthor={(id) => users.find(u => u.id === id)} onViewImage={setFullScreenImage} onOpenComments={setActiveCommentsPostId} onVideoClick={() => {}} onPlayAudioTrack={setCurrentAudioTrack} />}
+                    {view === 'profile' && selectedUserId && (
+                        <UserProfile 
+                            user={users.find(u => u.id === selectedUserId) || INITIAL_USERS[0]} 
+                            currentUser={currentUser} 
+                            users={users} 
+                            posts={posts} 
+                            onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} 
+                            onFollow={() => {}} 
+                            onReact={handleLikePost} 
+                            onComment={() => {}} 
+                            onShare={() => {}} 
+                            onMessage={(id) => setActiveChatUser(users.find(u => u.id === id) || null)} 
+                            onCreatePost={handleCreatePost} 
+                            onUpdateProfileImage={() => {}} 
+                            onUpdateCoverImage={() => {}} 
+                            onUpdateUserDetails={handleUpdateUser} 
+                            onDeletePost={() => {}} 
+                            onEditPost={() => {}} 
+                            getCommentAuthor={(id) => users.find(u => u.id === id)} 
+                            onViewImage={setFullScreenImage} 
+                            onOpenComments={setActiveCommentsPostId} 
+                            onVideoClick={() => {}} 
+                            onPlayAudioTrack={setCurrentAudioTrack} 
+                        />
+                    )}
                     {view === 'login' && <Login onLogin={handleLogin} onNavigateToRegister={() => setView('register')} onNavigateToForgotPassword={() => setView('forgot_password')} onClose={() => setView('home')} error={loginError} />}
                     {view === 'register' && <Register onRegister={handleRegister} onBackToLogin={() => setView('login')} />}
                 </div>
@@ -348,8 +350,7 @@ export default function App() {
                 {currentUser && <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4"><RightSidebar contacts={users.filter(u => u.id !== currentUser.id)} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} /></div>}
             </div>
 
-            {/* Global Modals */}
-            {showCreateEventModal && currentUser && <CreateEventModal currentUser={currentUser} onClose={() => setShowCreateEventModal(false)} onCreate={handleCreateEvent} />}
+            {/* Modals */}
             {showCreatePostModal && currentUser && <CreatePostModal currentUser={currentUser} users={users} onClose={() => setShowCreatePostModal(false)} onCreatePost={handleCreatePost} />}
             {activeCommentsPostId && currentUser && <CommentsSheet post={posts.find(p => p.id === activeCommentsPostId)!} currentUser={currentUser} users={users} onClose={() => setActiveCommentsPostId(null)} onComment={() => {}} onLikeComment={() => {}} getCommentAuthor={(id) => users.find(u => u.id === id)} onProfileClick={(id) => { setSelectedUserId(id); setView('profile'); }} />}
             {currentAudioTrack && <GlobalAudioPlayer currentTrack={currentAudioTrack} isPlaying={isAudioPlaying} onTogglePlay={() => setIsAudioPlaying(!isAudioPlaying)} onNext={() => {}} onPrevious={() => {}} onClose={() => setCurrentAudioTrack(null)} onDownload={() => {}} onLike={() => {}} isLiked={false} />}
