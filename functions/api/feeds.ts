@@ -1,32 +1,167 @@
-import { Env } from "../env"
+// functions/api/feeds.ts
+import type { PagesFunction } from '@cloudflare/workers-types';
 
-export async function handleFeed(req: Request, env: Env) {
-  if (req.method !== "GET") return new Response("Method not allowed", { status: 405 })
+type Env = { DB: D1Database };
 
-  const url = new URL(req.url)
-  const userId = url.searchParams.get("userId")
-  const limit = Number(url.searchParams.get("limit") || 20)
+const json = (data: any, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  });
 
-  if (!userId) return new Response("Missing userId", { status: 400 })
+const toInt = (v: any, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
 
-  const query = `
-    SELECT posts.id, posts.content, posts.media_url, posts.media_type, posts.created_at,
-           users.id AS user_id, users.username, users.profile_image_url
-    FROM posts
-    JOIN users ON users.id = posts.user_id
-    WHERE posts.user_id = ?
-       OR posts.user_id IN (
-         SELECT following_id
-         FROM user_follows
-         WHERE follower_id = ?
-       )
-    ORDER BY posts.created_at DESC
-    LIMIT ?
-  `
+export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
+  try {
+    const url = new URL(request.url);
 
-  const { results } = await env.DB.prepare(query).bind(userId, userId, limit).all()
+    const userId = toInt(url.searchParams.get('userId'), 0);
+    const limit = Math.min(100, Math.max(1, toInt(url.searchParams.get('limit'), 30)));
 
-  return new Response(JSON.stringify({ success: true, feed: results }), {
-    headers: { "Content-Type": "application/json" }
-  })
-}
+    if (!userId) return json({ success: false, error: 'Missing userId' }, 400);
+
+    // Mix ratios (simple early-stage)
+    const followingLimit = Math.max(5, Math.floor(limit * 0.5)); // 50%
+    const suggestedLimit = Math.max(5, Math.floor(limit * 0.3)); // 30%
+    const trendingLimit = Math.max(0, limit - followingLimit - suggestedLimit); // remaining
+
+    const query = `
+      WITH
+      my_following AS (
+        SELECT following_id
+        FROM user_follows
+        WHERE follower_id = ?
+      ),
+
+      follower_counts AS (
+        SELECT following_id AS user_id, COUNT(*) AS follower_count
+        FROM user_follows
+        GROUP BY following_id
+      ),
+
+      -- 1) Following + self posts (recent)
+      following_posts AS (
+        SELECT
+          p.id,
+          p.user_id,
+          p.content,
+          p.media_url,
+          p.media_type,
+          p.created_at,
+          COALESCE(p.shares, 0) AS shares,
+          COALESCE(p.views, 0) AS views,
+
+          u.username,
+          u.profile_image_url,
+          u.is_verified,
+          u.role,
+          COALESCE(fc.follower_count, 0) AS follower_count,
+
+          'following' AS pool
+        FROM posts p
+        JOIN users u ON u.id = p.user_id
+        LEFT JOIN follower_counts fc ON fc.user_id = u.id
+        WHERE
+          p.user_id = ?
+          OR p.user_id IN (SELECT following_id FROM my_following)
+        ORDER BY p.created_at DESC
+        LIMIT ${followingLimit}
+      ),
+
+      -- 2) Suggested small creators (not followed)
+      suggested_authors AS (
+        SELECT
+          u.id AS author_id,
+          COALESCE(fc.follower_count, 0) AS follower_count
+        FROM users u
+        LEFT JOIN follower_counts fc ON fc.user_id = u.id
+        WHERE
+          u.id != ?
+          AND u.id NOT IN (SELECT following_id FROM my_following)
+          AND (u.role IS NULL OR u.role != 'admin')
+        ORDER BY
+          COALESCE(fc.follower_count, 0) ASC,
+          COALESCE(u.joined_date, u.created_at) DESC,
+          RANDOM()
+        LIMIT ${Math.max(40, suggestedLimit * 6)}
+      ),
+
+      suggested_posts AS (
+        SELECT
+          p.id,
+          p.user_id,
+          p.content,
+          p.media_url,
+          p.media_type,
+          p.created_at,
+          COALESCE(p.shares, 0) AS shares,
+          COALESCE(p.views, 0) AS views,
+
+          u.username,
+          u.profile_image_url,
+          u.is_verified,
+          u.role,
+          sa.follower_count AS follower_count,
+
+          'suggested' AS pool
+        FROM posts p
+        JOIN users u ON u.id = p.user_id
+        JOIN suggested_authors sa ON sa.author_id = p.user_id
+        WHERE p.created_at >= datetime('now', '-14 days')
+        ORDER BY p.created_at DESC
+        LIMIT ${suggestedLimit}
+      ),
+
+      -- 3) Trending (early-stage simple)
+      trending_posts AS (
+        SELECT
+          p.id,
+          p.user_id,
+          p.content,
+          p.media_url,
+          p.media_type,
+          p.created_at,
+          COALESCE(p.shares, 0) AS shares,
+          COALESCE(p.views, 0) AS views,
+
+          u.username,
+          u.profile_image_url,
+          u.is_verified,
+          u.role,
+          COALESCE(fc.follower_count, 0) AS follower_count,
+
+          'trending' AS pool
+        FROM posts p
+        JOIN users u ON u.id = p.user_id
+        LEFT JOIN follower_counts fc ON fc.user_id = u.id
+        WHERE p.created_at >= datetime('now', '-2 days')
+        ORDER BY (COALESCE(p.shares, 0) * 3.0 + COALESCE(p.views, 0) * 0.02) DESC,
+                 p.created_at DESC
+        LIMIT ${trendingLimit}
+      )
+
+      SELECT * FROM following_posts
+      UNION ALL
+      SELECT * FROM suggested_posts
+      UNION ALL
+      SELECT * FROM trending_posts
+      ORDER BY created_at DESC
+      LIMIT ?
+    `;
+
+    const { results } = await env.DB.prepare(query).bind(userId, userId, userId, limit).all();
+
+    return json({
+      success: true,
+      userId,
+      limit,
+      mix: { following: followingLimit, suggested: suggestedLimit, trending: trendingLimit },
+      feed: Array.isArray(results) ? results : [],
+    });
+  } catch (e: any) {
+    return json({ success: false, error: e?.message || 'Server error' }, 500);
+  }
+};
