@@ -1,5 +1,6 @@
-name = "unera"
-compatibility_date = "2025-01-13"
+name = "unera6"
+compatibility_date = "2026-01-14"
+pages_build_output_dir = "dist"
 
 [[d1_databases]]
 binding = "DB"
