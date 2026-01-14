@@ -87,10 +87,13 @@ const normalizeUser = (u: any): User => {
     ...u,
     id: resolvedId,
     name: safeString(u?.name, safeString(u?.username, 'User')),
+    username: safeString(u?.username, safeString(u?.name, 'user')),
     followers: safeArray<number>(u?.followers),
     following: safeArray<number>(u?.following),
-    profile_image_url: u?.profile_image_url ?? u?.avatar_url ?? '',
-    cover_image_url: u?.cover_image_url ?? '',
+    profile_image_url: u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '',
+    cover_image_url: u?.cover_image_url ?? u?.coverImage ?? '',
+    is_verified: Boolean(u?.is_verified ?? u?.isVerified),
+    role: u?.role ?? 'user',
   } as any;
 };
 
@@ -98,9 +101,12 @@ const normalizeUser = (u: any): User => {
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const headers: HeadersInit = {
     Accept: 'application/json',
-    'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
+
+  // If using JSON body, set content-type
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
 
   const response = await fetch(url, { ...options, headers });
 
@@ -156,6 +162,14 @@ type View =
 
 const LS_USER_KEY = 'user';
 
+const fileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+
 export default function App() {
   useLanguage();
 
@@ -200,7 +214,7 @@ export default function App() {
 
   const activePost = useMemo(() => {
     if (!activeCommentsPostId) return null;
-    return posts.find((p) => p.id === activeCommentsPostId) || null;
+    return posts.find((p) => Number(p.id) === Number(activeCommentsPostId)) || null;
   }, [posts, activeCommentsPostId]);
 
   /** ---------- Auth gate ---------- */
@@ -246,14 +260,21 @@ export default function App() {
       setBrands(safeArray(b));
       setEvents(safeArray(e));
     } finally {
-      setTimeout(() => setIsLoading(false), 1200);
+      setTimeout(() => setIsLoading(false), 600);
     }
   }, []);
+
+  /** ---------- Poll feed for near real-time ---------- */
+  useEffect(() => {
+    const t = setInterval(() => {
+      fetchData().catch(() => {});
+    }, 15000);
+    return () => clearInterval(t);
+  }, [fetchData]);
 
   /** ---------- Restore session ---------- */
   useEffect(() => {
     const init = async () => {
-      // Load saved user first (instant)
       try {
         const raw = localStorage.getItem(LS_USER_KEY);
         if (raw) {
@@ -279,7 +300,7 @@ export default function App() {
     init();
   }, [fetchData]);
 
-  /** ---------- Login (matches your backend output) ---------- */
+  /** ---------- Login ---------- */
   const handleLogin = async (email: string, password: string) => {
     try {
       setLoginError('');
@@ -297,13 +318,10 @@ export default function App() {
       const normalized = normalizeUser(data.user);
       if (!normalized?.id) throw new Error('Login failed: invalid user id');
 
-      // Save
       localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
 
-      // Update state
       setCurrentUser(normalized);
 
-      // Ensure in users[] list
       setUsers((prev) => {
         const arr = Array.isArray(prev) ? prev : [];
         const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
@@ -311,7 +329,6 @@ export default function App() {
         return [normalized, ...arr];
       });
 
-      // Force show YOUR profile
       setSelectedUserId(Number(normalized.id));
       setView('profile');
     } catch (error: any) {
@@ -350,26 +367,265 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
-  /** ---------- Interaction stubs ---------- */
-  const onReactPost = async (postId: number, type: ReactionType) => {
-    if (!requireAuth('Reacting')) return;
-  };
+  /** ---------- API actions ---------- */
 
-  const onSharePost = async (postId: number) => {
-    if (!requireAuth('Sharing')) return;
-  };
+  const createPost = useCallback(
+    async (
+      text: string,
+      file: File | null,
+      meta?: {
+        type?: 'text' | 'image' | 'video';
+        visibility?: string;
+        location?: string;
+        feeling?: string;
+        taggedUsers?: number[];
+        background?: string;
+        linkPreview?: any;
+      }
+    ) => {
+      if (!requireAuth('Creating posts')) return;
+
+      const trimmed = (text || '').trim();
+      if (!trimmed && !file && !meta?.background) return;
+
+      // Upload strategy:
+      // - If file exists, convert to data URL (works without a separate upload endpoint).
+      //   Later you can replace with R2 upload endpoint and store real URL.
+      let media_url: string | null = null;
+      let media_type: string | null = null;
+
+      if (file) {
+        media_url = await fileToDataUrl(file);
+        media_type = file.type || null;
+      }
+
+      const payload: any = {
+        user_id: currentUser!.id,
+        content: trimmed,
+        media_url,
+        media_type,
+        visibility: meta?.visibility ?? 'public',
+        // optional extras (your backend can ignore safely)
+        location: meta?.location,
+        feeling: meta?.feeling,
+        tagged_users: meta?.taggedUsers,
+        background: meta?.background,
+        link_preview: meta?.linkPreview,
+      };
+
+      const data = await apiFetch('/api/posts', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      // backend may return {success:true, post: {...}} or {post_id: ...}
+      const newPostRaw = data?.post ?? { ...payload, id: data?.post_id ?? Date.now(), created_at: new Date().toISOString() };
+      const normalized = normalizePost(newPostRaw);
+
+      setPosts((prev) => [normalized, ...safeArray(prev)]);
+      setShowCreatePostModal(false);
+    },
+    [currentUser, requireAuth]
+  );
+
+  const onReactPost = useCallback(
+    async (postId: number, type: ReactionType) => {
+      if (!requireAuth('Reacting')) return;
+
+      // optimistic update
+      setPosts((prev) =>
+        safeArray(prev).map((p: any) => {
+          if (Number(p.id) !== Number(postId)) return p;
+          const reactions = safeArray(p.reactions);
+          const existing = reactions.find((r: any) => Number(r.user_id) === Number(currentUser!.id));
+
+          // toggle same reaction off; otherwise set/replace
+          let next = reactions.filter((r: any) => Number(r.user_id) !== Number(currentUser!.id));
+          if (!existing || existing.type !== type) {
+            next = [...next, { user_id: currentUser!.id, type }];
+          }
+          return normalizePost({ ...p, reactions: next });
+        })
+      );
+
+      try {
+        await apiFetch(`/api/posts/${postId}/react`, {
+          method: 'POST',
+          body: JSON.stringify({ type }),
+        });
+      } catch (e) {
+        // rollback by refetching post list (safest)
+        fetchData().catch(() => {});
+      }
+    },
+    [currentUser, requireAuth, fetchData]
+  );
+
+  const onSharePost = useCallback(
+    async (postId: number) => {
+      if (!requireAuth('Sharing')) return;
+
+      // optimistic
+      setPosts((prev) =>
+        safeArray(prev).map((p: any) => (Number(p.id) === Number(postId) ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) : p))
+      );
+
+      try {
+        await apiFetch(`/api/posts/${postId}/share`, { method: 'POST' });
+      } catch {
+        fetchData().catch(() => {});
+      }
+    },
+    [requireAuth, fetchData]
+  );
 
   const onOpenComments = (postId: number) => {
     if (!requireAuth('Commenting')) return;
     setActiveCommentsPostId(postId);
   };
 
+  const deletePost = useCallback(
+    async (postId: number) => {
+      if (!requireAuth('Deleting posts')) return;
+
+      // optimistic remove
+      const prevPosts = posts;
+      setPosts((prev) => safeArray(prev).filter((p) => Number(p.id) !== Number(postId)));
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+      } catch {
+        setPosts(prevPosts);
+      }
+    },
+    [requireAuth, posts]
+  );
+
+  const editPost = useCallback(
+    async (postId: number, content: string) => {
+      if (!requireAuth('Editing posts')) return;
+
+      const trimmed = (content || '').trim();
+      if (!trimmed) return;
+
+      // optimistic
+      const prevPosts = posts;
+      setPosts((prev) =>
+        safeArray(prev).map((p: any) => (Number(p.id) === Number(postId) ? normalizePost({ ...p, content: trimmed }) : p))
+      );
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ content: trimmed }),
+        });
+      } catch {
+        setPosts(prevPosts);
+      }
+    },
+    [requireAuth, posts]
+  );
+
+  const followUser = useCallback(
+    async (targetUserId: number) => {
+      if (!requireAuth('Following')) return;
+      if (!currentUser) return;
+      if (Number(targetUserId) === Number(currentUser.id)) return;
+
+      // Your special follow logic: BOTH users gain/lose a follower.
+      // We implement it purely from UI state; backend should be the source of truth.
+      setUsers((prev) => {
+        const arr = safeArray(prev).map(normalizeUser);
+        const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
+        const target = arr.find((u) => Number(u.id) === Number(targetUserId));
+        if (!me || !target) return arr;
+
+        const meFollowers = new Set<number>(safeArray<number>((me as any).followers));
+        const targetFollowers = new Set<number>(safeArray<number>((target as any).followers));
+
+        const isFollowingNow = meFollowers.has(targetUserId) && targetFollowers.has(currentUser.id);
+
+        if (isFollowingNow) {
+          meFollowers.delete(targetUserId);
+          targetFollowers.delete(currentUser.id);
+        } else {
+          meFollowers.add(targetUserId);
+          targetFollowers.add(currentUser.id);
+        }
+
+        return arr.map((u) => {
+          if (Number(u.id) === Number(me.id)) return normalizeUser({ ...u, followers: Array.from(meFollowers) });
+          if (Number(u.id) === Number(target.id)) return normalizeUser({ ...u, followers: Array.from(targetFollowers) });
+          return u;
+        });
+      });
+
+      // also update currentUser object so profile buttons calculate correctly
+      setCurrentUser((prev) => (prev ? normalizeUser({ ...prev }) : prev));
+
+      try {
+        await apiFetch(`/api/users/${targetUserId}/follow`, { method: 'POST' });
+        // refresh to match backend truth
+        fetchData().catch(() => {});
+      } catch {
+        fetchData().catch(() => {});
+      }
+    },
+    [requireAuth, currentUser, fetchData]
+  );
+
+  const updateUserDetails = useCallback(
+    async (data: Partial<User>) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      const payload: any = { ...data };
+
+      const updated = await apiFetch(`/api/users/${currentUser.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+
+      const normalized = normalizeUser(updated?.user ?? updated);
+      setCurrentUser(normalized);
+
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+
+      setUsers((prev) =>
+        safeArray(prev).map((u) => (Number(u.id) === Number(normalized.id) ? normalized : u))
+      );
+    },
+    [requireAuth, currentUser]
+  );
+
+  const updateProfileImage = useCallback(
+    async (file: File) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      const url = await fileToDataUrl(file);
+      await updateUserDetails({ profile_image_url: url } as any);
+    },
+    [requireAuth, currentUser, updateUserDetails]
+  );
+
+  const updateCoverImage = useCallback(
+    async (file: File) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      const url = await fileToDataUrl(file);
+      await updateUserDetails({ cover_image_url: url } as any);
+    },
+    [requireAuth, currentUser, updateUserDetails]
+  );
+
   /** ---------- Render ---------- */
   if (isLoading) return <ProfessionalLoader />;
 
   const profileUser =
     (selectedUserId ? users.find((u) => Number(u.id) === Number(selectedUserId)) : null) ||
-    (currentUser as any) ||
+    currentUser ||
     users[0];
 
   return (
@@ -443,7 +699,11 @@ export default function App() {
                   <Post
                     key={post.id}
                     post={post}
-                    author={users.find((u) => u.id === (post as any).user_id) || users[0] || INITIAL_USERS[0]}
+                    author={
+                      users.find((u) => Number(u.id) === Number((post as any).user_id)) ||
+                      users[0] ||
+                      INITIAL_USERS[0]
+                    }
                     currentUser={currentUser}
                     onProfileClick={(id) => openProfile(id)}
                     onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
@@ -478,7 +738,7 @@ export default function App() {
               onReact={() => requireAuth('Reacting')}
               onComment={() => requireAuth('Commenting')}
               onShare={() => requireAuth('Sharing')}
-              onFollow={() => requireAuth('Following')}
+              onFollow={(id: number) => followUser(id)}
               getCommentAuthor={(id) => users.find((u) => u.id === id)}
               initialReelId={activeReelId}
             />
@@ -556,7 +816,7 @@ export default function App() {
             <SuggestedProfilesPage
               currentUser={currentUser as any}
               users={users}
-              onFollow={() => requireAuth('Following')}
+              onFollow={(id: number) => followUser(id)}
               onProfileClick={(id) => openProfile(id)}
             />
           )}
@@ -617,20 +877,20 @@ export default function App() {
               posts={posts}
               reels={reels}
               onProfileClick={(id) => openProfile(id)}
-              onFollow={() => requireAuth('Following')}
-              onReact={() => requireAuth('Reacting')}
+              onFollow={(id: number) => followUser(id)}
+              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
               onComment={() => requireAuth('Commenting')}
-              onShare={() => requireAuth('Sharing')}
+              onShare={(postId: number) => onSharePost(postId)}
               onMessage={(id) => {
                 if (!requireAuth('Messaging')) return;
                 setActiveChatUser(users.find((u) => u.id === id) || null);
               }}
-              onCreatePost={() => requireAuth('Creating posts')}
-              onUpdateProfileImage={() => requireAuth('Updating profile')}
-              onUpdateCoverImage={() => requireAuth('Updating profile')}
-              onUpdateUserDetails={() => requireAuth('Updating profile')}
-              onDeletePost={() => requireAuth('Deleting posts')}
-              onEditPost={() => requireAuth('Editing posts')}
+              onCreatePost={createPost as any}
+              onUpdateProfileImage={updateProfileImage as any}
+              onUpdateCoverImage={updateCoverImage as any}
+              onUpdateUserDetails={updateUserDetails as any}
+              onDeletePost={(postId: number) => deletePost(postId)}
+              onEditPost={(postId: number, content: string) => editPost(postId, content)}
               getCommentAuthor={(id) => users.find((u) => u.id === id)}
               onViewImage={setFullScreenImage}
               onOpenComments={(postId) => onOpenComments(postId)}
@@ -657,7 +917,10 @@ export default function App() {
 
         {currentUser && (
           <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
-            <RightSidebar contacts={users.filter((u) => u.id !== currentUser.id)} onProfileClick={(id) => openProfile(id)} />
+            <RightSidebar
+              contacts={users.filter((u) => u.id !== currentUser.id)}
+              onProfileClick={(id) => openProfile(id)}
+            />
           </div>
         )}
       </div>
@@ -681,7 +944,12 @@ export default function App() {
       )}
 
       {showCreatePostModal && currentUser && (
-        <CreatePostModal currentUser={currentUser} users={users} onClose={() => setShowCreatePostModal(false)} onCreatePost={() => {}} />
+        <CreatePostModal
+          currentUser={currentUser}
+          users={users}
+          onClose={() => setShowCreatePostModal(false)}
+          onCreatePost={(text: string, file: File | null, meta?: any) => createPost(text, file, meta)}
+        />
       )}
 
       {activePost && currentUser && (
@@ -690,8 +958,8 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           onClose={() => setActiveCommentsPostId(null)}
-          onComment={() => requireAuth('Commenting')}
-          onLikeComment={() => requireAuth('Liking')}
+          onComment={() => {}}
+          onLikeComment={() => {}}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
         />
