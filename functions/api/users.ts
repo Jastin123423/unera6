@@ -5,7 +5,7 @@ export async function onRequest(context: any) {
   const url = new URL(request.url);
 
   // ----------------------------
-  // CORS (adjust origin if needed)
+  // CORS
   // ----------------------------
   const corsHeaders: Record<string, string> = {
     "Access-Control-Allow-Origin": "*",
@@ -26,8 +26,7 @@ export async function onRequest(context: any) {
     new Response(JSON.stringify(data), { status, headers: corsHeaders });
 
   async function hashPassword(password: string) {
-    // Simple hashing for early stage (better than storing plain passwords)
-    // Later you can upgrade to stronger hashing (bcrypt/argon2 via separate service).
+    // Simple early-stage hashing (better than storing plain passwords)
     const enc = new TextEncoder();
     const buf = await crypto.subtle.digest("SHA-256", enc.encode(password));
     return Array.from(new Uint8Array(buf))
@@ -35,12 +34,6 @@ export async function onRequest(context: any) {
       .join("");
   }
 
-  // ----------------------------
-  // ROUTING
-  // ----------------------------
-  // Single-file approach:
-  // - Signup: POST /api/users
-  // - Login:  POST /api/users?action=login
   const action = url.searchParams.get("action"); // e.g. "login"
 
   try {
@@ -54,26 +47,22 @@ export async function onRequest(context: any) {
         return json({ error: "email and password are required" }, 400);
       }
 
-      const user = await env.DB.prepare(
-        "SELECT * FROM users WHERE email = ?"
-      )
-        .bind(email)
+      const user = await env.DB.prepare("SELECT * FROM users WHERE email = ?")
+        .bind(String(email).trim().toLowerCase())
         .first();
 
       if (!user) {
         return json({ error: "Invalid email or password" }, 401);
       }
 
-      const incomingHash = await hashPassword(password);
-
-      if (incomingHash !== user.password_hash) {
+      const incomingHash = await hashPassword(String(password));
+      if (incomingHash !== (user as any).password_hash) {
         return json({ error: "Invalid email or password" }, 401);
       }
 
       // Never return password_hash
       delete (user as any).password_hash;
 
-      // If you want tokens later, generate JWT here.
       return json({ success: true, user });
     }
 
@@ -84,37 +73,40 @@ export async function onRequest(context: any) {
       const {
         username,
         email,
-        password, // frontend sends password
+        password,
         bio,
         location,
         nationality,
         gender,
         birth_date,
+        profile_image_url,
+        cover_image_url,
       } = await request.json();
 
       if (!username || !email || !password) {
         return json({ error: "username, email and password are required" }, 400);
       }
 
-      // basic normalization
       const cleanEmail = String(email).trim().toLowerCase();
       const cleanUsername = String(username).trim();
 
-      // hash password on backend
       const password_hash = await hashPassword(String(password));
 
       const result = await env.DB.prepare(`
           INSERT INTO users (
             username, email, password_hash,
+            profile_image_url, cover_image_url,
             bio, location, nationality, gender, birth_date,
             is_verified, role, joined_date, created_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'user', datetime('now'), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'user', datetime('now'), datetime('now'))
         `)
         .bind(
           cleanUsername,
           cleanEmail,
           password_hash,
+          profile_image_url ?? null,
+          cover_image_url ?? null,
           bio ?? null,
           location ?? null,
           nationality ?? null,
@@ -127,9 +119,27 @@ export async function onRequest(context: any) {
     }
 
     // ================================
-    // GET USER (GET /api/users?id= OR ?username=)
+    // GET USER / LIST USERS
     // ================================
     if (method === "GET") {
+      // ---- Facebook-like list: GET /api/users?list=1
+      const list = url.searchParams.get("list");
+      if (list === "1") {
+        const { results } = await env.DB
+          .prepare(
+            `SELECT id, username, email,
+                    profile_image_url, cover_image_url,
+                    bio, location, joined_date, created_at
+             FROM users
+             ORDER BY created_at DESC
+             LIMIT 50`
+          )
+          .all();
+
+        return json(results);
+      }
+
+      // ---- Single user by id or username
       const id = url.searchParams.get("id");
       const username = url.searchParams.get("username");
 
@@ -143,7 +153,7 @@ export async function onRequest(context: any) {
         query = "SELECT * FROM users WHERE username = ?";
         param = username;
       } else {
-        return json({ error: "Provide id or username" }, 400);
+        return json({ error: "Provide id or username (or use ?list=1)" }, 400);
       }
 
       const user = await env.DB.prepare(query).bind(param).first();
@@ -215,7 +225,6 @@ export async function onRequest(context: any) {
     // ================================
     if (method === "DELETE") {
       const id = url.searchParams.get("id");
-
       if (!id) {
         return json({ error: "User id required" }, 400);
       }
