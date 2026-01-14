@@ -26,15 +26,74 @@ import {
   Event,
   Product,
   AudioTrack,
+  ReactionType,
 } from './types';
 import { INITIAL_USERS } from './constants';
 import { rankFeed } from './utils/ranking';
 
+/** ---------- Safety helpers (prevents blank-screen crashes) ---------- */
+const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+const safeNumber = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+
 /**
- * API helpers
- * - Uses relative URLs like /api/posts for Cloudflare Pages Functions: functions/api/posts.ts
- * - Always attempts to parse JSON even if server returns text/html by mistake
+ * Normalize raw D1 rows to UI-safe PostType shape.
+ * This is the #1 fix when enabling posts.ts causes blank screen.
  */
+const normalizePost = (p: any): PostType => {
+  const mediaType = p?.media_type ?? p?.mediaType ?? null;
+  const mediaUrl = p?.media_url ?? p?.mediaUrl ?? null;
+
+  return {
+    ...p,
+    id: safeNumber(p?.id),
+    user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
+    content: safeString(p?.content),
+    media_url: mediaUrl,
+    media_type: mediaType,
+
+    // Critical: ensure arrays exist
+    reactions: safeArray(p?.reactions),
+    comments: safeArray(p?.comments),
+
+    // Critical: ensure numbers exist
+    shares: safeNumber(p?.shares),
+    views: safeNumber(p?.views),
+
+    // Optional shape fields many UIs rely on
+    visibility: p?.visibility ?? 'public',
+    type:
+      p?.type ??
+      (mediaType
+        ? String(mediaType).includes('image')
+          ? 'image'
+          : String(mediaType).includes('video')
+          ? 'video'
+          : 'post'
+        : 'post'),
+    created_at: p?.created_at ?? new Date().toISOString(),
+  } as any;
+};
+
+/**
+ * Normalize user so followers/following arrays exist (prevents crashes in UserProfile and others)
+ */
+const normalizeUser = (u: any): User => {
+  return {
+    ...u,
+    id: safeNumber(u?.id),
+    name: safeString(u?.name, safeString(u?.username, 'User')),
+    followers: safeArray<number>(u?.followers),
+    following: safeArray<number>(u?.following),
+    profile_image_url: u?.profile_image_url ?? u?.avatar_url ?? '',
+    cover_image_url: u?.cover_image_url ?? '',
+  } as any;
+};
+
+/** ---------- API helper ---------- */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('unera_token');
 
@@ -49,14 +108,13 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   const response = await fetch(url, { ...options, headers });
 
   const contentType = response.headers.get('content-type') || '';
-  let data: any = null;
+  let data: any;
 
   try {
     if (contentType.includes('application/json')) {
       data = await response.json();
     } else {
       const text = await response.text();
-      // Some backends mistakenly return JSON with text/plain
       if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
         try {
           data = JSON.parse(text);
@@ -97,14 +155,13 @@ type View =
   | 'help'
   | 'profile'
   | 'login'
-  | 'register'
-  | 'forgot_password'; // reserved if you add it back later
+  | 'register';
 
 export default function App() {
   const { t } = useLanguage();
 
-  // Data
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
+  /** ---------- State ---------- */
+  const [users, setUsers] = useState<User[]>(INITIAL_USERS.map(normalizeUser));
   const [posts, setPosts] = useState<PostType[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
@@ -113,43 +170,44 @@ export default function App() {
   const [brands, setBrands] = useState<any[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
 
-  // UI/Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
   const [isLoading, setIsLoading] = useState(true);
   const [loginError, setLoginError] = useState('');
 
-  // Selection state
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [activeReelId, setActiveReelId] = useState<number | null>(null);
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
-  const [activeChatUser, setActiveChatUser] = useState<User | null>(null); // kept for future
+  const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
-  const [activeStory, setActiveStory] = useState<Story | null>(null); // kept for future
+  const [activeStory, setActiveStory] = useState<Story | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
 
-  // Modals
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
 
-  // Audio
   const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
-  /**
-   * Facebook logic:
-   * - Guests can browse EVERYTHING (home, profiles, groups, brands, marketplace, reels, etc)
-   * - Guests cannot perform actions: like, comment, share, follow, join, create, post, message, etc.
-   * - On any blocked action -> redirect to login (or open login view), keeping their browsing intact.
-   */
+  /** ---------- Derived ---------- */
+  const rankedPosts = useMemo(
+    () => (Array.isArray(posts) ? rankFeed(posts, currentUser, users) : []),
+    [posts, currentUser, users]
+  );
+
+  const activePost = useMemo(() => {
+    if (!activeCommentsPostId) return null;
+    return posts.find((p) => p.id === activeCommentsPostId) || null;
+  }, [posts, activeCommentsPostId]);
+
+  /** ---------- Facebook logic: guests can browse, but cannot interact ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
       if (currentUser) return true;
-      // Optional: you can set a nicer UI message somewhere.
       setLoginError(`${actionName} requires login.`);
       setView('login');
       return false;
@@ -157,17 +215,13 @@ export default function App() {
     [currentUser]
   );
 
-  const rankedPosts = useMemo(
-    () => (Array.isArray(posts) ? rankFeed(posts, currentUser, users) : []),
-    [posts, currentUser, users]
-  );
+  const openProfile = useCallback((id: number) => {
+    setSelectedUserId(id);
+    setView('profile');
+    window.scrollTo(0, 0);
+  }, []);
 
-  // Avoid crashes in CommentsSheet (never use ! on find result)
-  const activePost = useMemo(() => {
-    if (!activeCommentsPostId) return null;
-    return posts.find((p) => p.id === activeCommentsPostId) || null;
-  }, [posts, activeCommentsPostId]);
-
+  /** ---------- Data fetching (normalized to prevent crashes) ---------- */
   const fetchData = useCallback(async () => {
     try {
       const [p, s, r, pr, u, g, b, e] = await Promise.all([
@@ -181,45 +235,51 @@ export default function App() {
         apiFetch('/api/events').catch(() => []),
       ]);
 
-      setPosts(Array.isArray(p) ? p : []);
-      setStories(Array.isArray(s) ? s : []);
-      setReels(Array.isArray(r) ? r : []);
-      setProducts(Array.isArray(pr) ? pr : []);
-      setUsers(Array.isArray(u) ? u : INITIAL_USERS);
-      setGroups(Array.isArray(g) ? g : []);
-      setBrands(Array.isArray(b) ? b : []);
-      setEvents(Array.isArray(e) ? e : []);
+      // Normalize EVERYTHING that can crash the UI
+      setPosts(safeArray(p).map(normalizePost));
+      setStories(safeArray(s));
+      setReels(safeArray(r));
+      setProducts(safeArray(pr));
+
+      const normalizedUsers = safeArray(u).map(normalizeUser);
+      setUsers(normalizedUsers.length ? normalizedUsers : INITIAL_USERS.map(normalizeUser));
+
+      setGroups(safeArray(g));
+      setBrands(safeArray(b));
+      setEvents(safeArray(e));
     } finally {
-      // keep your smooth loader behavior
       setTimeout(() => setIsLoading(false), 1200);
     }
   }, []);
 
   useEffect(() => {
-    const initAuth = async () => {
+    const init = async () => {
       const token = localStorage.getItem('unera_token');
       if (token) {
         try {
-          const userData = await apiFetch('/api/users/me');
-          if (userData && userData.id) setCurrentUser(userData);
+          const me = await apiFetch('/api/users/me');
+          if (me && me.id) setCurrentUser(normalizeUser(me));
         } catch {
           localStorage.removeItem('unera_token');
         }
       }
       await fetchData();
     };
-    initAuth();
+    init();
   }, [fetchData]);
 
-  // Auth handlers
+  /** ---------- Auth ---------- */
   const handleLogin = async (email: string, pass: string) => {
     try {
       const data = await apiFetch('/api/users/login', {
         method: 'POST',
         body: JSON.stringify({ email, password: pass }),
       });
+
       if (data?.token) localStorage.setItem('unera_token', data.token);
-      setCurrentUser(data?.user || null);
+
+      const normalized = data?.user ? normalizeUser(data.user) : null;
+      setCurrentUser(normalized);
       setLoginError('');
       setView('home');
     } catch (error: any) {
@@ -230,27 +290,27 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('unera_token');
     setCurrentUser(null);
-    setView('home'); // FB-like: logout returns to browsing
+    setView('home'); // FB-like browsing after logout
   };
 
+  /** ---------- Navigation ---------- */
   const handleNavigate = (target: View) => {
-    // Guest can browse all pages; only block user-specific "settings/memories" like FB.
+    // Guests can browse most pages; protect user-private pages
     if (['settings', 'memories'].includes(target) && !currentUser) {
       setLoginError(`Please login to view ${target}.`);
       return setView('login');
     }
 
     if (target === 'profile') {
-      // profile without id -> go to own profile if logged in, else login
       if (!currentUser) {
         setLoginError('Please login to view your profile.');
         return setView('login');
       }
-      setSelectedUserId(currentUser.id);
-      setView('profile');
-    } else {
-      setView(target);
+      openProfile(currentUser.id);
+      return;
     }
+
+    setView(target);
 
     if (['home', 'reels', 'marketplace', 'groups'].includes(target)) {
       setActiveTab(target as any);
@@ -258,62 +318,31 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
-  // Action stubs (wire your real APIs later)
-  const onReactPost = async () => {
+  /** ---------- Interaction stubs (blocked for guests) ---------- */
+  const onReactPost = async (postId: number, type: ReactionType) => {
     if (!requireAuth('Reacting')) return;
-    // TODO: call /api/post-reactions (or your endpoint)
+    // TODO: call reaction API
   };
 
-  const onSharePost = async () => {
+  const onSharePost = async (postId: number) => {
     if (!requireAuth('Sharing')) return;
     // TODO
   };
 
   const onOpenComments = (postId: number) => {
-    // Viewing comments is allowed (guest can read), but your CommentsSheet currently requires currentUser.
-    // Facebook allows reading comments too, but you designed CommentsSheet needing currentUser.
-    // So: if guest tries to open comments, take them to login (as requested: can't like/comment).
-    if (!currentUser) return requireAuth('Commenting');
+    // In your UI, commenting is a restricted action; so login required
+    if (!requireAuth('Commenting')) return;
     setActiveCommentsPostId(postId);
   };
 
-  const onCreatePostClick = () => {
-    if (!requireAuth('Creating posts')) return;
-    setShowCreatePostModal(true);
-  };
-
-  const onCreateStoryClick = () => {
-    if (!requireAuth('Creating stories')) return;
-    setShowCreateStoryModal(true);
-  };
-
-  const onCreateReelClick = () => {
-    if (!requireAuth('Creating reels')) return;
-    setShowCreateReelModal(true);
-  };
-
-  const onCreateEventClick = () => {
-    if (!requireAuth('Creating events')) return;
-    setShowCreateEventModal(true);
-  };
-
-  // Optional: allow guest to view profile pages by clicking user
-  const openProfile = (id: number) => {
-    setSelectedUserId(id);
-    setView('profile');
-    window.scrollTo(0, 0);
-  };
-
+  /** ---------- Render ---------- */
   if (isLoading) return <ProfessionalLoader />;
 
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
       <Header
         onHomeClick={() => handleNavigate('home')}
-        onProfileClick={(id) => {
-          // Header profile click should open that profile even for guests
-          openProfile(id);
-        }}
+        onProfileClick={(id: number) => openProfile(id)}
         onReelsClick={() => handleNavigate('reels')}
         onMarketplaceClick={() => handleNavigate('marketplace')}
         onGroupsClick={() => handleNavigate('groups')}
@@ -328,7 +357,6 @@ export default function App() {
       />
 
       <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
-        {/* Facebook-like: sidebar is visible only when logged in (you can change if you want) */}
         {currentUser && (
           <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
             <Sidebar
@@ -347,18 +375,23 @@ export default function App() {
               <StoryReel
                 stories={stories}
                 onProfileClick={(id) => openProfile(id)}
-                onCreateStory={onCreateStoryClick}
+                onCreateStory={() => {
+                  if (!requireAuth('Creating stories')) return;
+                  setShowCreateStoryModal(true);
+                }}
                 onViewStory={(s) => setActiveStory(s)}
                 currentUser={currentUser}
                 onRequestLogin={() => setView('login')}
               />
 
-              {/* Guest can browse, but cannot create */}
               {currentUser && (
                 <CreatePost
                   currentUser={currentUser}
                   onProfileClick={(id) => openProfile(id)}
-                  onClick={() => onCreatePostClick()}
+                  onClick={() => {
+                    if (!requireAuth('Creating posts')) return;
+                    setShowCreatePostModal(true);
+                  }}
                 />
               )}
 
@@ -376,14 +409,14 @@ export default function App() {
                   <Post
                     key={post.id}
                     post={post}
-                    author={users.find((u) => u.id === post.user_id) || INITIAL_USERS[0]}
+                    author={users.find((u) => u.id === (post as any).user_id) || users[0] || INITIAL_USERS[0]}
                     currentUser={currentUser}
                     onProfileClick={(id) => openProfile(id)}
-                    onReact={onReactPost}
-                    onShare={onSharePost}
+                    onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                    onShare={(postId: number) => onSharePost(postId)}
                     onViewImage={setFullScreenImage}
-                    onOpenComments={onOpenComments}
-                    onVideoClick={(p) => {
+                    onOpenComments={(postId: number) => onOpenComments(postId)}
+                    onVideoClick={(p: any) => {
                       setActiveReelId(p.id);
                       setView('reels');
                     }}
@@ -404,7 +437,10 @@ export default function App() {
               users={users}
               currentUser={currentUser}
               onProfileClick={(id) => openProfile(id)}
-              onCreateReelClick={onCreateReelClick}
+              onCreateReelClick={() => {
+                if (!requireAuth('Creating reels')) return;
+                setShowCreateReelModal(true);
+              }}
               onReact={() => requireAuth('Reacting')}
               onComment={() => requireAuth('Commenting')}
               onShare={() => requireAuth('Sharing')}
@@ -461,8 +497,7 @@ export default function App() {
               onReact={() => requireAuth('Reacting')}
               onShare={() => requireAuth('Sharing')}
               onOpenComments={(id: any) => {
-                // Some components pass postId here; keep flexible
-                if (!currentUser) return requireAuth('Commenting');
+                if (!requireAuth('Commenting')) return;
                 setActiveCommentsPostId(Number(id));
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
@@ -497,7 +532,10 @@ export default function App() {
               events={events}
               currentUser={currentUser as any}
               onJoinEvent={() => requireAuth('Joining events')}
-              onCreateEventClick={onCreateEventClick}
+              onCreateEventClick={() => {
+                if (!requireAuth('Creating events')) return;
+                setShowCreateEventModal(true);
+              }}
               onProfileClick={(id) => openProfile(id)}
             />
           )}
@@ -539,15 +577,16 @@ export default function App() {
 
           {view === 'profile' && selectedUserId && (
             <UserProfile
-              user={users.find((u) => u.id === selectedUserId) || INITIAL_USERS[0]}
+              user={users.find((u) => u.id === selectedUserId) || INITIAL_USERS.map(normalizeUser)[0]}
               currentUser={currentUser}
               users={users}
               posts={posts}
+              reels={reels}
               onProfileClick={(id) => openProfile(id)}
               onFollow={() => requireAuth('Following')}
-              onReact={() => requireAuth('Reacting')}
+              onReact={(postId, type) => onReactPost(postId, type)}
               onComment={() => requireAuth('Commenting')}
-              onShare={() => requireAuth('Sharing')}
+              onShare={(postId) => onSharePost(postId)}
               onMessage={(id) => {
                 if (!requireAuth('Messaging')) return;
                 setActiveChatUser(users.find((u) => u.id === id) || null);
@@ -560,8 +599,11 @@ export default function App() {
               onEditPost={() => requireAuth('Editing posts')}
               getCommentAuthor={(id) => users.find((u) => u.id === id)}
               onViewImage={setFullScreenImage}
-              onOpenComments={(id) => onOpenComments(id)}
-              onVideoClick={() => {}}
+              onOpenComments={(postId) => onOpenComments(postId)}
+              onVideoClick={(p) => {
+                setActiveReelId((p as any).id);
+                setView('reels');
+              }}
               onPlayAudioTrack={setCurrentAudioTrack}
             />
           )}
@@ -570,42 +612,13 @@ export default function App() {
             <Login
               onLogin={handleLogin}
               onNavigateToRegister={() => setView('register')}
-              onNavigateToForgotPassword={() => setView('forgot_password')}
+              onNavigateToForgotPassword={() => setView('login')}
               onClose={() => setView('home')}
               error={loginError}
             />
           )}
 
-          {view === 'register' && (
-            <Register onRegister={() => {}} onBackToLogin={() => setView('login')} />
-          )}
-
-          {/* If you add ForgotPassword component again, wire it here */}
-          {view === 'forgot_password' && (
-            <div className="p-6 text-[#E4E6EB]">
-              <div className="bg-[#242526] rounded-xl p-5">
-                <h2 className="text-lg font-semibold mb-2">{t('Forgot Password')}</h2>
-                <p className="text-[#B0B3B8]">
-                  You haven’t connected password reset UI here yet. For now, please login or create a new
-                  account.
-                </p>
-                <div className="mt-4 flex gap-2">
-                  <button
-                    className="px-4 py-2 rounded-lg bg-[#3A3B3C] text-white"
-                    onClick={() => setView('login')}
-                  >
-                    Back to Login
-                  </button>
-                  <button
-                    className="px-4 py-2 rounded-lg bg-[#2D88FF] text-white"
-                    onClick={() => setView('register')}
-                  >
-                    Create Account
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          {view === 'register' && <Register onRegister={() => {}} onBackToLogin={() => setView('login')} />}
         </div>
 
         {currentUser && (
@@ -633,11 +646,7 @@ export default function App() {
       )}
 
       {showCreateEventModal && currentUser && (
-        <CreateEventModal
-          currentUser={currentUser}
-          onClose={() => setShowCreateEventModal(false)}
-          onCreate={() => {}}
-        />
+        <CreateEventModal currentUser={currentUser} onClose={() => setShowCreateEventModal(false)} onCreate={() => {}} />
       )}
 
       {showCreatePostModal && currentUser && (
@@ -649,7 +658,6 @@ export default function App() {
         />
       )}
 
-      {/* Comments: only when logged in, and only if activePost exists */}
       {activePost && currentUser && (
         <CommentsSheet
           post={activePost}
@@ -671,9 +679,7 @@ export default function App() {
           onNext={() => {}}
           onPrevious={() => {}}
           onClose={() => setCurrentAudioTrack(null)}
-          onDownload={() => {
-            // downloading can be allowed for guests if you want; keep it open
-          }}
+          onDownload={() => {}}
           onLike={() => requireAuth('Liking')}
           isLiked={false}
         />
@@ -681,21 +687,12 @@ export default function App() {
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
-      {/* Create Story / Reel modals can be added back when you wire their components */}
       {showCreateStoryModal && currentUser && (
-        <CreateStoryModal
-          currentUser={currentUser}
-          onClose={() => setShowCreateStoryModal(false)}
-          onCreate={() => {}}
-        />
+        <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
       )}
 
       {showCreateReelModal && currentUser && (
-        <CreateReelModal
-          currentUser={currentUser}
-          onClose={() => setShowCreateReelModal(false)}
-          onCreate={() => {}}
-        />
+        <CreateReelModal currentUser={currentUser} onClose={() => setShowCreateReelModal(false)} onCreate={() => {}} />
       )}
     </div>
   );
