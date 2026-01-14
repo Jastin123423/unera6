@@ -2,25 +2,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
-import {
-  CreatePost,
-  Post,
-  CommentsSheet,
-  CreatePostModal,
-  SuggestedProductsWidget,
-} from './components/Feed';
+import { CreatePost, Post, CommentsSheet, CreatePostModal, SuggestedProductsWidget } from './components/Feed';
 import { StoryReel, CreateStoryModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
 import { ImageViewer, ProfessionalLoader } from './components/Common';
-import {
-  EventsPage,
-  BirthdaysPage,
-  MemoriesPage,
-  SettingsPage,
-  SuggestedProfilesPage,
-} from './components/MenuPages';
+import { EventsPage, BirthdaysPage, MemoriesPage, SettingsPage, SuggestedProfilesPage } from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
@@ -170,7 +158,7 @@ type View =
 const LS_USER_KEY = 'user';
 
 export default function App() {
-  const { t } = useLanguage();
+  useLanguage(); // t not used in this file, but keep context init
 
   /** ---------- State ---------- */
   const [users, setUsers] = useState<User[]>(INITIAL_USERS.map(normalizeUser));
@@ -247,7 +235,6 @@ export default function App() {
         apiFetch('/api/events').catch(() => []),
       ]);
 
-      // Normalize EVERYTHING that can crash the UI
       setPosts(safeArray(p).map(normalizePost));
       setStories(safeArray(s));
       setReels(safeArray(r));
@@ -264,15 +251,25 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- Restore session on load ---------- */
+  /** ---------- Restore session on load (WebView/refresh safe) ---------- */
   useEffect(() => {
     const init = async () => {
-      // ✅ instant restore for WebView / refresh (no network needed)
       try {
         const raw = localStorage.getItem(LS_USER_KEY);
         if (raw) {
           const saved = JSON.parse(raw);
-          if (saved?.id) setCurrentUser(normalizeUser(saved));
+          if (saved?.id) {
+            const normalized = normalizeUser(saved);
+            setCurrentUser(normalized);
+
+            // ensure saved user exists inside users[] list
+            setUsers((prev) => {
+              const safePrev = Array.isArray(prev) ? prev : [];
+              const exists = safePrev.some((u) => Number(u.id) === Number(normalized.id));
+              if (exists) return safePrev.map((u) => (Number(u.id) === Number(normalized.id) ? normalized : u));
+              return [normalized, ...safePrev];
+            });
+          }
         }
       } catch {
         // ignore
@@ -287,6 +284,8 @@ export default function App() {
   /** ---------- Auth (matches your backend: { success:true, user }) ---------- */
   const handleLogin = async (email: string, password: string) => {
     try {
+      setLoginError('');
+
       const res = await fetch('/api/users/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -295,17 +294,32 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Login failed');
+      if (!data?.user) throw new Error('Login failed: user missing from response');
 
-      const normalized = data?.user ? normalizeUser(data.user) : null;
-      if (!normalized) throw new Error('Login failed: user missing');
+      const normalized = normalizeUser(data.user);
+      if (!normalized?.id || Number.isNaN(Number(normalized.id))) {
+        throw new Error('Login failed: invalid user id');
+      }
 
-      // ✅ SAVE SESSION (Facebook-like)
+      // ✅ Save session (Facebook-like)
       localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
 
-      // ✅ UPDATE APP STATE
+      // ✅ Update app state
       setCurrentUser(normalized);
-      setLoginError('');
-      setView('home');
+
+      // ✅ Ensure your user exists in users[] so profile lookup never points to another user
+      setUsers((prev) => {
+        const safePrev = Array.isArray(prev) ? prev : [];
+        const exists = safePrev.some((u) => Number(u.id) === Number(normalized.id));
+        if (exists) {
+          return safePrev.map((u) => (Number(u.id) === Number(normalized.id) ? normalized : u));
+        }
+        return [normalized, ...safePrev];
+      });
+
+      // ✅ Force open YOUR profile (prevents opening someone else)
+      setSelectedUserId(Number(normalized.id));
+      setView('profile');
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -314,12 +328,11 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
     setCurrentUser(null);
-    setView('home'); // FB-like browsing after logout
+    setView('home'); // guests can browse
   };
 
   /** ---------- Navigation ---------- */
   const handleNavigate = (target: View) => {
-    // Guests can browse most pages; protect user-private pages
     if (['settings', 'memories'].includes(target) && !currentUser) {
       setLoginError(`Please login to view ${target}.`);
       return setView('login');
@@ -354,7 +367,6 @@ export default function App() {
   };
 
   const onOpenComments = (postId: number) => {
-    // In your UI, commenting is a restricted action; so login required
     if (!requireAuth('Commenting')) return;
     setActiveCommentsPostId(postId);
   };
