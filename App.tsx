@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -42,14 +41,17 @@ const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallb
 
 /**
  * Normalize raw D1 rows to UI-safe PostType shape.
+ * ✅ accepts id OR post_id (and common variants)
  */
 const normalizePost = (p: any): PostType => {
   const mediaType = p?.media_type ?? p?.mediaType ?? null;
   const mediaUrl = p?.media_url ?? p?.mediaUrl ?? null;
 
+  const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
+
   return {
     ...p,
-    id: safeNumber(p?.id),
+    id: resolvedId,
     user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
     content: safeString(p?.content),
     media_url: mediaUrl,
@@ -166,13 +168,7 @@ const fileToDataUrl = (file: File) =>
   });
 
 /**
- * ✅ Normalize FEED rows returned by /api/feeds:
- * It returns a joined row like:
- * { id, user_id, content, created_at, media_url,..., username, profile_image_url, is_verified, follower_count, pool }
- *
- * We convert it into:
- * - PostType shape (post fields)
- * - and we also merge/insert author into users state
+ * ✅ Normalize FEED rows returned by /api/feeds
  */
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -184,7 +180,6 @@ const normalizeFeedRowToPost = (row: any): PostType => {
     media_type: row?.media_type ?? null,
     shares: row?.shares ?? 0,
     views: row?.views ?? 0,
-    // keep pool + follower_count if you want to debug later
     pool: row?.pool,
     follower_count: row?.follower_count,
   });
@@ -198,7 +193,6 @@ const authorFromFeedRow = (row: any): User => {
     profile_image_url: row?.profile_image_url ?? '',
     is_verified: row?.is_verified ?? 0,
     role: row?.role ?? 'user',
-    // we don't have arrays in DB; leave empty for now
     followers: [],
     following: [],
     created_at: row?.joined_date ?? row?.created_at ?? null,
@@ -259,10 +253,7 @@ export default function App() {
   }, []);
 
   /**
-   * ✅ Fetch users list:
-   * Your backend /api/users might currently require ?id or ?username.
-   * If you upgraded it to return list by default, this will work.
-   * If not upgraded, it will fallback to INITIAL_USERS.
+   * ✅ Fetch users list
    */
   const fetchUsersList = useCallback(async () => {
     try {
@@ -276,52 +267,43 @@ export default function App() {
   }, []);
 
   /**
-   * ✅ Fetch posts for homepage:
-   * - Logged in: use /api/feeds?userId=... (mixed pool)
-   * - Guest: use /api/posts (public timeline)
+   * ✅ Fetch posts for homepage
    */
-  const fetchPostsForHome = useCallback(
-    async (viewer: User | null) => {
-      if (viewer?.id) {
-        const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`).catch(() => ({ feed: [] }));
-        const rows = safeArray<any>(data?.feed);
+  const fetchPostsForHome = useCallback(async (viewer: User | null) => {
+    if (viewer?.id) {
+      const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`).catch(() => ({ feed: [] }));
+      const rows = safeArray<any>(data?.feed);
 
-        // Merge authors from feed into users list so Post card can display correct author
-        if (rows.length) {
-          setUsers((prev) => {
-            const map = new Map<number, User>();
-            safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
+      if (rows.length) {
+        setUsers((prev) => {
+          const map = new Map<number, User>();
+          safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
 
-            rows.forEach((r) => {
-              const author = authorFromFeedRow(r);
-              if (!author?.id) return;
-              if (!map.has(author.id)) map.set(author.id, author);
-              else {
-                // merge basic fields
-                const existing = map.get(author.id)!;
-                map.set(author.id, normalizeUser({ ...existing, ...author }));
-              }
-            });
-
-            return Array.from(map.values());
+          rows.forEach((r) => {
+            const author = authorFromFeedRow(r);
+            if (!author?.id) return;
+            if (!map.has(author.id)) map.set(author.id, author);
+            else {
+              const existing = map.get(author.id)!;
+              map.set(author.id, normalizeUser({ ...existing, ...author }));
+            }
           });
-        }
 
-        // Convert feed rows into posts
-        const normalized = rows.map(normalizeFeedRowToPost);
-        setPosts(normalized);
-        return;
+          return Array.from(map.values());
+        });
       }
 
-      // Guest timeline
-      const p = await apiFetch('/api/posts').catch(() => []);
-      setPosts(safeArray(p).map(normalizePost));
-    },
-    []
-  );
+      const normalized = rows.map(normalizeFeedRowToPost);
+      setPosts(normalized);
+      return;
+    }
+
+    const p = await apiFetch('/api/posts').catch(() => []);
+    setPosts(safeArray(p).map(normalizePost));
+  }, []);
 
   /**
-   * ✅ Fetch other data (stories, reels, products, groups, brands, events)
+   * ✅ Fetch other data
    */
   const fetchOtherData = useCallback(async () => {
     const [s, r, pr, g, b, e] = await Promise.all([
@@ -342,10 +324,7 @@ export default function App() {
   }, []);
 
   /**
-   * ✅ One fetch pipeline:
-   * - fetch users
-   * - fetch posts based on viewer
-   * - fetch other data
+   * ✅ One fetch pipeline
    */
   const fetchData = useCallback(
     async (viewer: User | null) => {
@@ -373,7 +352,6 @@ export default function App() {
             setCurrentUser(normalized);
             setSelectedUserId(Number(normalized.id));
 
-            // Merge into users state early
             setUsers((prev) => {
               const arr = safeArray(prev);
               const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
@@ -395,7 +373,6 @@ export default function App() {
   /** ---------- Poll feed (light) ---------- */
   useEffect(() => {
     const t = setInterval(() => {
-      // Refresh posts using current viewer
       fetchPostsForHome(currentUser).catch(() => {});
     }, 15000);
     return () => clearInterval(t);
@@ -403,7 +380,6 @@ export default function App() {
 
   /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
-    // rankFeed expects authors to exist in users; we merge authors from /api/feeds above.
     return Array.isArray(posts) ? rankFeed(posts, currentUser, users) : [];
   }, [posts, currentUser, users]);
 
@@ -444,7 +420,6 @@ export default function App() {
       setSelectedUserId(Number(normalized.id));
       setView('home');
 
-      // ✅ IMPORTANT: after login, load mixed feed
       await fetchPostsForHome(normalized);
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
@@ -456,8 +431,6 @@ export default function App() {
     setCurrentUser(null);
     setSelectedUserId(null);
     setView('home');
-
-    // guest timeline
     fetchPostsForHome(null).catch(() => {});
   };
 
@@ -530,15 +503,13 @@ export default function App() {
 
       // backend may return {success:true, post: {...}} or {post_id: ...}
       const newPostRaw =
-        data?.post ?? { ...payload, id: data?.post_id ?? Date.now(), created_at: new Date().toISOString() };
+        data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
 
       const normalized = normalizePost(newPostRaw);
 
-      // optimistic insert
       setPosts((prev) => [normalized, ...safeArray(prev)]);
       setShowCreatePostModal(false);
 
-      // ✅ re-fetch mixed feed so homepage matches /api/feeds logic (following + suggested)
       fetchPostsForHome(currentUser).catch(() => {});
     },
     [currentUser, requireAuth, fetchPostsForHome]
@@ -565,7 +536,6 @@ export default function App() {
       try {
         await apiFetch(`/api/posts/${postId}/react`, { method: 'POST', body: JSON.stringify({ type }) });
       } catch {
-        // safest: refresh feed
         fetchPostsForHome(currentUser).catch(() => {});
       }
     },
@@ -619,7 +589,11 @@ export default function App() {
       if (!trimmed) return;
 
       const prev = posts;
-      setPosts((p) => safeArray(p).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x)));
+      setPosts((p) =>
+        safeArray(p).map((x: any) =>
+          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+        )
+      );
 
       try {
         await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
@@ -636,7 +610,6 @@ export default function App() {
       if (!currentUser) return;
       if (Number(targetUserId) === Number(currentUser.id)) return;
 
-      // Your special follow logic: BOTH users gain/lose a follower (UI-side).
       setUsers((prev) => {
         const arr = safeArray(prev).map(normalizeUser);
         const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
@@ -664,21 +637,17 @@ export default function App() {
       });
 
       try {
-        // Your actual follow API expects follower_id, following_id
         await apiFetch('/api/user-follows', {
           method: 'POST',
           body: JSON.stringify({ follower_id: currentUser.id, following_id: targetUserId }),
         }).catch(async () => {
-          // if already following, attempt unfollow
           await apiFetch(`/api/user-follows?follower_id=${currentUser.id}&following_id=${targetUserId}`, {
             method: 'DELETE',
           });
         });
 
-        // refresh mixed feed (because following changes feed pool)
         fetchPostsForHome(currentUser).catch(() => {});
       } catch {
-        // refresh anyway
         fetchPostsForHome(currentUser).catch(() => {});
       }
     },
@@ -690,13 +659,11 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
-      const updated = await apiFetch(`/api/users`, {
+      await apiFetch(`/api/users`, {
         method: 'PUT',
         body: JSON.stringify({ id: currentUser.id, ...data }),
       });
 
-      // Your /api/users PUT returns {success:true} in your code.
-      // So we locally merge what we updated:
       const merged = normalizeUser({ ...currentUser, ...data });
 
       setCurrentUser(merged);
@@ -804,7 +771,8 @@ export default function App() {
               {rankedPosts.length > 0 ? (
                 rankedPosts.map((post) => (
                   <Post
-                    key={post.id}
+                    // ✅ fallback key prevents blank feed when id is missing/0
+                    key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
                     post={post}
                     author={
                       users.find((u) => Number(u.id) === Number((post as any).user_id)) ||
