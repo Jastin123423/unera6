@@ -42,7 +42,6 @@ const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallb
 
 /**
  * Normalize raw D1 rows to UI-safe PostType shape.
- * This is the #1 fix when enabling posts.ts causes blank screen.
  */
 const normalizePost = (p: any): PostType => {
   const mediaType = p?.media_type ?? p?.mediaType ?? null;
@@ -56,15 +55,12 @@ const normalizePost = (p: any): PostType => {
     media_url: mediaUrl,
     media_type: mediaType,
 
-    // Critical: ensure arrays exist
     reactions: safeArray(p?.reactions),
     comments: safeArray(p?.comments),
 
-    // Critical: ensure numbers exist
     shares: safeNumber(p?.shares),
     views: safeNumber(p?.views),
 
-    // Optional shape fields many UIs rely on
     visibility: p?.visibility ?? 'public',
     type:
       p?.type ??
@@ -80,12 +76,16 @@ const normalizePost = (p: any): PostType => {
 };
 
 /**
- * Normalize user so followers/following arrays exist (prevents crashes in UserProfile and others)
+ * ✅ FIXED Normalize user:
+ * - Accepts id OR user_id OR userId
+ * - Prevents profile opening wrong user
  */
 const normalizeUser = (u: any): User => {
+  const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
+
   return {
     ...u,
-    id: safeNumber(u?.id),
+    id: resolvedId,
     name: safeString(u?.name, safeString(u?.username, 'User')),
     followers: safeArray<number>(u?.followers),
     following: safeArray<number>(u?.following),
@@ -154,11 +154,10 @@ type View =
   | 'login'
   | 'register';
 
-/** ---------- Session keys ---------- */
 const LS_USER_KEY = 'user';
 
 export default function App() {
-  useLanguage(); // t not used in this file, but keep context init
+  useLanguage();
 
   /** ---------- State ---------- */
   const [users, setUsers] = useState<User[]>(INITIAL_USERS.map(normalizeUser));
@@ -204,7 +203,7 @@ export default function App() {
     return posts.find((p) => p.id === activeCommentsPostId) || null;
   }, [posts, activeCommentsPostId]);
 
-  /** ---------- Facebook logic: guests can browse, but cannot interact ---------- */
+  /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
       if (currentUser) return true;
@@ -216,12 +215,12 @@ export default function App() {
   );
 
   const openProfile = useCallback((id: number) => {
-    setSelectedUserId(id);
+    setSelectedUserId(Number(id));
     setView('profile');
     window.scrollTo(0, 0);
   }, []);
 
-  /** ---------- Data fetching (normalized to prevent crashes) ---------- */
+  /** ---------- Fetch data ---------- */
   const fetchData = useCallback(async () => {
     try {
       const [p, s, r, pr, u, g, b, e] = await Promise.all([
@@ -251,23 +250,22 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- Restore session on load (WebView/refresh safe) ---------- */
+  /** ---------- Restore session ---------- */
   useEffect(() => {
     const init = async () => {
+      // Load saved user first (instant)
       try {
         const raw = localStorage.getItem(LS_USER_KEY);
         if (raw) {
           const saved = JSON.parse(raw);
-          if (saved?.id) {
-            const normalized = normalizeUser(saved);
+          const normalized = normalizeUser(saved);
+          if (normalized?.id) {
             setCurrentUser(normalized);
-
-            // ensure saved user exists inside users[] list
             setUsers((prev) => {
-              const safePrev = Array.isArray(prev) ? prev : [];
-              const exists = safePrev.some((u) => Number(u.id) === Number(normalized.id));
-              if (exists) return safePrev.map((u) => (Number(u.id) === Number(normalized.id) ? normalized : u));
-              return [normalized, ...safePrev];
+              const arr = Array.isArray(prev) ? prev : [];
+              const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
+              if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+              return [normalized, ...arr];
             });
           }
         }
@@ -281,7 +279,7 @@ export default function App() {
     init();
   }, [fetchData]);
 
-  /** ---------- Auth (matches your backend: { success:true, user }) ---------- */
+  /** ---------- Login (matches your backend output) ---------- */
   const handleLogin = async (email: string, password: string) => {
     try {
       setLoginError('');
@@ -294,30 +292,26 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Login failed');
-      if (!data?.user) throw new Error('Login failed: user missing from response');
+      if (!data?.user) throw new Error('Login failed: user missing');
 
       const normalized = normalizeUser(data.user);
-      if (!normalized?.id || Number.isNaN(Number(normalized.id))) {
-        throw new Error('Login failed: invalid user id');
-      }
+      if (!normalized?.id) throw new Error('Login failed: invalid user id');
 
-      // ✅ Save session (Facebook-like)
+      // Save
       localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
 
-      // ✅ Update app state
+      // Update state
       setCurrentUser(normalized);
 
-      // ✅ Ensure your user exists in users[] so profile lookup never points to another user
+      // Ensure in users[] list
       setUsers((prev) => {
-        const safePrev = Array.isArray(prev) ? prev : [];
-        const exists = safePrev.some((u) => Number(u.id) === Number(normalized.id));
-        if (exists) {
-          return safePrev.map((u) => (Number(u.id) === Number(normalized.id) ? normalized : u));
-        }
-        return [normalized, ...safePrev];
+        const arr = Array.isArray(prev) ? prev : [];
+        const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
+        if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+        return [normalized, ...arr];
       });
 
-      // ✅ Force open YOUR profile (prevents opening someone else)
+      // Force show YOUR profile
       setSelectedUserId(Number(normalized.id));
       setView('profile');
     } catch (error: any) {
@@ -328,7 +322,8 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
     setCurrentUser(null);
-    setView('home'); // guests can browse
+    setSelectedUserId(null);
+    setView('home');
   };
 
   /** ---------- Navigation ---------- */
@@ -355,15 +350,13 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
-  /** ---------- Interaction stubs (blocked for guests) ---------- */
+  /** ---------- Interaction stubs ---------- */
   const onReactPost = async (postId: number, type: ReactionType) => {
     if (!requireAuth('Reacting')) return;
-    // TODO: call reaction API
   };
 
   const onSharePost = async (postId: number) => {
     if (!requireAuth('Sharing')) return;
-    // TODO
   };
 
   const onOpenComments = (postId: number) => {
@@ -373,6 +366,11 @@ export default function App() {
 
   /** ---------- Render ---------- */
   if (isLoading) return <ProfessionalLoader />;
+
+  const profileUser =
+    (selectedUserId ? users.find((u) => Number(u.id) === Number(selectedUserId)) : null) ||
+    (currentUser as any) ||
+    users[0];
 
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
@@ -611,18 +609,18 @@ export default function App() {
           {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
           {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
 
-          {view === 'profile' && selectedUserId && (
+          {view === 'profile' && selectedUserId && profileUser && (
             <UserProfile
-              user={users.find((u) => u.id === selectedUserId) || INITIAL_USERS.map(normalizeUser)[0]}
+              user={profileUser}
               currentUser={currentUser}
               users={users}
               posts={posts}
               reels={reels}
               onProfileClick={(id) => openProfile(id)}
               onFollow={() => requireAuth('Following')}
-              onReact={(postId, type) => onReactPost(postId, type)}
+              onReact={() => requireAuth('Reacting')}
               onComment={() => requireAuth('Commenting')}
-              onShare={(postId) => onSharePost(postId)}
+              onShare={() => requireAuth('Sharing')}
               onMessage={(id) => {
                 if (!requireAuth('Messaging')) return;
                 setActiveChatUser(users.find((u) => u.id === id) || null);
@@ -659,10 +657,7 @@ export default function App() {
 
         {currentUser && (
           <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
-            <RightSidebar
-              contacts={users.filter((u) => u.id !== currentUser.id)}
-              onProfileClick={(id) => openProfile(id)}
-            />
+            <RightSidebar contacts={users.filter((u) => u.id !== currentUser.id)} onProfileClick={(id) => openProfile(id)} />
           </div>
         )}
       </div>
@@ -686,12 +681,7 @@ export default function App() {
       )}
 
       {showCreatePostModal && currentUser && (
-        <CreatePostModal
-          currentUser={currentUser}
-          users={users}
-          onClose={() => setShowCreatePostModal(false)}
-          onCreatePost={() => {}}
-        />
+        <CreatePostModal currentUser={currentUser} users={users} onClose={() => setShowCreatePostModal(false)} onCreatePost={() => {}} />
       )}
 
       {activePost && currentUser && (
