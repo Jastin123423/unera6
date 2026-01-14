@@ -1,214 +1,1000 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { User, Post as PostType, ReactionType, Comment, Product, LinkPreview, Group, Brand, AudioTrack } from '../types';
+import {
+  User,
+  Post as PostType,
+  ReactionType,
+  Product,
+  LinkPreview,
+  Group,
+  Brand,
+  AudioTrack,
+} from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
-import { LOCATIONS_DATA, REACTION_ICONS, REACTION_COLORS, GIF_CATEGORIES, MARKETPLACE_COUNTRIES, MARKETPLACE_CATEGORIES } from '../constants';
+import {
+  LOCATIONS_DATA,
+  MARKETPLACE_COUNTRIES,
+} from '../constants';
 import { StickerPicker, EmojiPicker } from './Pickers';
 
 /**
  * Standard API Fetch Helper
  */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
-    const token = localStorage.getItem('unera_token');
-    const headers: HeadersInit = { 'Content-Type': 'application/json', ...options.headers };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(url, { ...options, headers });
-    if (!res.ok) throw new Error("API Error");
-    return res.json();
+  const token = localStorage.getItem('unera_token');
+  const headers: HeadersInit = { 'Content-Type': 'application/json', ...options.headers };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(url, { ...options, headers });
+  if (!res.ok) {
+    let msg = 'API Error';
+    try {
+      const j = await res.json();
+      msg = j?.error || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
 };
 
-const RichText = ({ text, users, onProfileClick, onHashtagClick }: { text: string, users?: User[], onProfileClick: (id: number) => void, onHashtagClick?: (tag: string) => void }) => {
-    if (!text) return null;
-    const parts = text.split(/(#[a-zA-Z0-9_]+|@\w+(?:\s\w+)?)/g);
-    return (
-        <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words">
-            {parts.map((part, index) => {
-                if (part.startsWith('@')) {
-                    const name = part.substring(1);
-                    const user = users?.find(u => u.username.toLowerCase() === name.toLowerCase() || u.name?.toLowerCase() === name.toLowerCase());
-                    if (user) {
-                        return (
-                            <span key={index} className="text-[#1877F2] font-semibold cursor-pointer hover:underline" onClick={(e) => { e.stopPropagation(); onProfileClick(user.id); }}>
-                                {part}
-                            </span>
-                        );
-                    }
-                    return <span key={index} className="text-[#1877F2] font-semibold">{part}</span>;
-                }
-                if (part.startsWith('#')) {
-                    return (
-                        <span key={index} className="text-[#1877F2] cursor-pointer hover:underline" onClick={(e) => { e.stopPropagation(); onHashtagClick && onHashtagClick(part); }}>
-                            {part}
-                        </span>
-                    );
-                }
-                return <span key={index}>{part}</span>;
-            })}
-        </span>
-    );
+// --- LINK PREVIEW (simple heuristic like the “old Feed.tsx”) ---
+const getLinkPreview = (text: string): LinkPreview | null => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const match = text.match(urlRegex);
+  if (!match?.[0]) return null;
+
+  const url = match[0];
+  let domain = '';
+  try {
+    domain = new URL(url).hostname;
+  } catch {
+    return null;
+  }
+
+  if (domain.includes('youtube')) {
+    return {
+      url,
+      title: 'YouTube Video',
+      description: 'Watch this video on YouTube.',
+      image:
+        'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&w=800&q=80',
+      domain: 'youtube.com',
+    };
+  }
+
+  if (domain.includes('github')) {
+    return {
+      url,
+      title: 'GitHub Repository',
+      description: 'Open source project on GitHub.',
+      image:
+        'https://images.unsplash.com/photo-1618401471353-b98afee0b2eb?auto=format&fit=crop&w=800&q=80',
+      domain: 'github.com',
+    };
+  }
+
+  return {
+    url,
+    title: 'Website Link',
+    description: `Link from ${domain}.`,
+    image:
+      'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
+    domain,
+  };
 };
 
-export const ReactionButton: React.FC<{ currentUserReactions: ReactionType | undefined; reactionCount: number; onReact: (type: ReactionType) => void; isGuest?: boolean; }> = ({ currentUserReactions, reactionCount, onReact, isGuest }) => {
-    const [showDock, setShowDock] = useState(false);
-    const timerRef = useRef<any>(null);
-    const handleMouseEnter = () => { if(isGuest) return; timerRef.current = setTimeout(() => setShowDock(true), 500); };
-    const handleMouseLeave = () => { if (timerRef.current) clearTimeout(timerRef.current); setTimeout(() => setShowDock(false), 300); };
-    const handleClick = () => { if (isGuest) return alert("Please login to react."); onReact('like'); };
-    const reactionConfig = [{ type: 'like', icon: '👍', color: '#1877F2' }, { type: 'love', icon: '❤️', color: '#F3425F' }, { type: 'haha', icon: '😆', color: '#F7B928' }, { type: 'wow', icon: '😮', color: '#F7B928' }, { type: 'sad', icon: '😢', color: '#F7B928' }, { type: 'angry', icon: '😡', color: '#E41E3F' }] as const;
-    const activeReaction = currentUserReactions ? reactionConfig.find(r => r.type === currentUserReactions) : null;
-    return (
-        <div className="flex-1 relative group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-            {showDock && (
-                <div className="absolute -top-12 left-0 bg-[#242526] rounded-full shadow-xl p-1.5 flex gap-2 animate-fade-in border border-[#3E4042] z-50">
-                    {reactionConfig.map(r => (
-                        <div key={r.type} className="text-2xl hover:scale-125 transition-transform cursor-pointer hover:-translate-y-2 duration-200" onClick={(e) => { e.stopPropagation(); onReact(r.type); setShowDock(false); }}>{r.icon}</div>
-                    ))}
-                </div>
-            )}
-            <button onClick={handleClick} className="w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors active:scale-95">{activeReaction ? (<><span className="text-[20px]">{activeReaction.icon}</span><span className="text-[17px] font-medium" style={{ color: activeReaction.color }}>{activeReaction.type}</span></>) : (<><i className="far fa-thumbs-up text-[20px] text-[#B0B3B8]"></i><span className="text-[17px] font-medium text-[#B0B3B8]">Like</span></>)}</button>
-        </div>
-    );
+const BACKGROUNDS = [
+  { id: 'none', value: '' },
+  { id: 'red', value: 'linear-gradient(45deg, #FF0057, #E64C4C)' },
+  { id: 'blue', value: 'linear-gradient(45deg, #00C6FF, #0072FF)' },
+  { id: 'green', value: 'linear-gradient(45deg, #a8ff78, #78ffd6)' },
+  { id: 'purple', value: 'linear-gradient(45deg, #e65c00, #F9D423)' },
+  {
+    id: 'heart',
+    value:
+      'url("https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=500&q=60")',
+  },
+  { id: 'dark', value: 'linear-gradient(to right, #434343 0%, black 100%)' },
+  { id: 'fire', value: 'linear-gradient(120deg, #f6d365 0%, #fda085 100%)' },
+];
+
+const FEELINGS = ['Happy', 'Blessed', 'Loved', 'Sad', 'Excited', 'Thankful', 'Crazy', 'Tired', 'Cool', 'Relaxed'];
+
+const RichText = ({
+  text,
+  users,
+  onProfileClick,
+  onHashtagClick,
+}: {
+  text: string;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+}) => {
+  if (!text) return null;
+  const parts = text.split(/(#[a-zA-Z0-9_]+|@\w+(?:\s\w+)?)/g);
+
+  return (
+    <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words">
+      {parts.map((part, index) => {
+        if (part.startsWith('@')) {
+          const name = part.substring(1);
+          const user = users?.find(
+            (u) =>
+              (u as any).username?.toLowerCase() === name.toLowerCase() ||
+              (u as any).name?.toLowerCase() === name.toLowerCase()
+          );
+          if (user) {
+            return (
+              <span
+                key={index}
+                className="text-[#1877F2] font-semibold cursor-pointer hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onProfileClick((user as any).id);
+                }}
+              >
+                {part}
+              </span>
+            );
+          }
+          return (
+            <span key={index} className="text-[#1877F2] font-semibold">
+              {part}
+            </span>
+          );
+        }
+
+        if (part.startsWith('#')) {
+          return (
+            <span
+              key={index}
+              className="text-[#1877F2] cursor-pointer hover:underline"
+              onClick={(e) => {
+                e.stopPropagation();
+                onHashtagClick && onHashtagClick(part);
+              }}
+            >
+              {part}
+            </span>
+          );
+        }
+
+        return <span key={index}>{part}</span>;
+      })}
+    </span>
+  );
 };
 
-export const Post: React.FC<{ post: PostType; author: User | Brand; currentUser: User | null; users?: User[]; onProfileClick: (id: number) => void; onReact: (id: number, type: ReactionType) => void; onShare: (id: number) => void; onDelete?: (id: number) => void; onViewImage: (url: string) => void; onOpenComments: (id: number) => void; onVideoClick: (p: PostType) => void; onPlayAudioTrack?: (t: AudioTrack) => void; }> = ({ post, author, currentUser, users, onProfileClick, onReact, onShare, onDelete, onViewImage, onOpenComments, onVideoClick, onPlayAudioTrack }) => {
-    const myReaction = currentUser ? post.reactions?.find(r => r.user_id === currentUser.id)?.type : undefined;
-    return (
-        <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
-            <div className="p-3 md:p-4 flex items-center justify-between">
-                <div className="flex items-center gap-2 flex-1 min-w-0" onClick={() => onProfileClick(author.id)}>
-                    <img src={author.profile_image_url} alt="" className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]" />
-                    <div className="min-w-0">
-                        <div className="flex items-center gap-1 flex-wrap">
-                            <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">{author.name}</h4>
-                            {'is_verified' in author && author.is_verified && <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>}
-                        </div>
-                        <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                            <span>{new Date(post.created_at).toLocaleDateString() || 'Recently'}</span>
-                            <span>•</span>
-                            <i className="fas fa-globe-americas text-[12px]"></i>
-                        </div>
-                    </div>
-                </div>
+export const ReactionButton: React.FC<{
+  currentUserReactions: ReactionType | undefined;
+  reactionCount: number;
+  onReact: (type: ReactionType) => void;
+  isGuest?: boolean;
+}> = ({ currentUserReactions, reactionCount, onReact, isGuest }) => {
+  const [showDock, setShowDock] = useState(false);
+  const timerRef = useRef<any>(null);
+
+  const handleMouseEnter = () => {
+    if (isGuest) return;
+    timerRef.current = setTimeout(() => setShowDock(true), 500);
+  };
+
+  const handleMouseLeave = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setTimeout(() => setShowDock(false), 300);
+  };
+
+  const handleClick = () => {
+    if (isGuest) return alert('Please login to react.');
+    onReact('like');
+  };
+
+  const reactionConfig = [
+    { type: 'like', icon: '👍', color: '#1877F2' },
+    { type: 'love', icon: '❤️', color: '#F3425F' },
+    { type: 'haha', icon: '😆', color: '#F7B928' },
+    { type: 'wow', icon: '😮', color: '#F7B928' },
+    { type: 'sad', icon: '😢', color: '#F7B928' },
+    { type: 'angry', icon: '😡', color: '#E41E3F' },
+  ] as const;
+
+  const activeReaction = currentUserReactions
+    ? reactionConfig.find((r) => r.type === currentUserReactions)
+    : null;
+
+  return (
+    <div className="flex-1 relative group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      {showDock && (
+        <div className="absolute -top-12 left-0 bg-[#242526] rounded-full shadow-xl p-1.5 flex gap-2 animate-fade-in border border-[#3E4042] z-50">
+          {reactionConfig.map((r) => (
+            <div
+              key={r.type}
+              className="text-2xl hover:scale-125 transition-transform cursor-pointer hover:-translate-y-2 duration-200"
+              onClick={(e) => {
+                e.stopPropagation();
+                onReact(r.type as ReactionType);
+                setShowDock(false);
+              }}
+            >
+              {r.icon}
             </div>
-            {post.content && <div className="px-3 md:px-4 pb-2 text-[#E4E6EB] text-[17px]"><RichText text={post.content} users={users} onProfileClick={onProfileClick} /></div>}
-            {post.media_url && post.type === 'image' && <div className="cursor-pointer bg-black" onClick={() => onViewImage(post.media_url!)}><img src={post.media_url} alt="" className="w-full h-auto max-h-[600px] object-contain" /></div>}
-            {post.media_url && post.type === 'video' && <div className="cursor-pointer relative h-[500px]" onClick={() => onVideoClick(post)}><video src={post.media_url} className="w-full h-full object-cover" /><div className="absolute inset-0 flex items-center justify-center"><i className="fas fa-play text-white text-4xl opacity-50"></i></div></div>}
-            <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-                <div className="flex items-center gap-1.5">{post.reactions.length > 0 && <span className="hover:underline">{post.reactions.length} Reactions</span>}</div>
-                <div className="flex gap-4"><span className="hover:underline cursor-pointer" onClick={() => onOpenComments(post.id)}>{post.comments.length} Comments</span></div>
-            </div>
-            <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-                <ReactionButton currentUserReactions={myReaction} reactionCount={post.reactions.length} onReact={(type) => onReact(post.id, type)} isGuest={!currentUser} />
-                <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]" onClick={() => onOpenComments(post.id)}><i className="far fa-comment-alt text-[20px]"></i><span className="text-[17px] font-medium">Comment</span></button>
-                <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]" onClick={() => onShare(post.id)}><i className="fas fa-share text-[20px]"></i><span className="text-[17px] font-medium">Share</span></button>
-            </div>
+          ))}
         </div>
-    );
-};
+      )}
 
-export const CreatePost: React.FC<{ currentUser: User; onProfileClick: (id: number) => void; onClick: () => void; }> = ({ currentUser, onProfileClick, onClick }) => (
-    <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
-        <div className="flex gap-2 mb-3">
-            <img src={currentUser.profile_image_url} alt="" className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]" onClick={() => onProfileClick(currentUser.id)} />
-            <div className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center" onClick={onClick}><span className="text-[#B0B3B8] text-[17px]">What's on your mind, {currentUser.name?.split(' ')[0]}?</span></div>
-        </div>
+      <button
+        onClick={handleClick}
+        className="w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors active:scale-95"
+      >
+        {activeReaction ? (
+          <>
+            <span className="text-[20px]">{activeReaction.icon}</span>
+            <span className="text-[17px] font-medium" style={{ color: activeReaction.color }}>
+              {activeReaction.type}
+            </span>
+          </>
+        ) : (
+          <>
+            <i className="far fa-thumbs-up text-[20px] text-[#B0B3B8]"></i>
+            <span className="text-[17px] font-medium text-[#B0B3B8]">Like</span>
+          </>
+        )}
+      </button>
     </div>
+  );
+};
+
+export const Post: React.FC<{
+  post: PostType;
+  author: User | Brand;
+  currentUser: User | null;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onReact: (id: number, type: ReactionType) => void;
+  onShare: (id: number) => void;
+  onDelete?: (id: number) => void;
+  onViewImage: (url: string) => void;
+  onOpenComments: (id: number) => void;
+  onVideoClick: (p: PostType) => void;
+  onPlayAudioTrack?: (t: AudioTrack) => void;
+}> = ({
+  post,
+  author,
+  currentUser,
+  users,
+  onProfileClick,
+  onReact,
+  onShare,
+  onDelete,
+  onViewImage,
+  onOpenComments,
+  onVideoClick,
+  onPlayAudioTrack,
+}) => {
+  const reactions = (post as any).reactions || [];
+  const comments = (post as any).comments || [];
+
+  const myReaction = currentUser
+    ? reactions.find((r: any) => r.user_id === (currentUser as any).id)?.type
+    : undefined;
+
+  return (
+    <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+      <div className="p-3 md:p-4 flex items-center justify-between">
+        <div className="flex items-center gap-2 flex-1 min-w-0" onClick={() => onProfileClick((author as any).id)}>
+          <img
+            src={(author as any).profile_image_url}
+            alt=""
+            className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1 flex-wrap">
+              <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
+                {(author as any).name}
+              </h4>
+              {'is_verified' in (author as any) && (author as any).is_verified && (
+                <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+              <span>{(post as any).created_at ? new Date((post as any).created_at).toLocaleDateString() : 'Recently'}</span>
+              <span>•</span>
+              <i className="fas fa-globe-americas text-[12px]"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {(post as any).content && (
+        <div className="px-3 md:px-4 pb-2 text-[#E4E6EB] text-[17px]">
+          <RichText text={(post as any).content} users={users} onProfileClick={onProfileClick} />
+        </div>
+      )}
+
+      {(post as any).linkPreview && !(post as any).media_url && (
+        <div
+          className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+          onClick={() => window.open((post as any).linkPreview.url, '_blank')}
+        >
+          <img src={(post as any).linkPreview.image} alt="" className="w-full h-48 object-cover" />
+          <div className="p-3 bg-[#3A3B3C]">
+            <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{(post as any).linkPreview.domain}</div>
+            <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{(post as any).linkPreview.title}</div>
+            <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{(post as any).linkPreview.description}</div>
+          </div>
+        </div>
+      )}
+
+      {(post as any).background && (
+        <div
+          className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
+          style={{ background: (post as any).background, backgroundSize: 'cover' }}
+        >
+          {(post as any).content}
+        </div>
+      )}
+
+      {(post as any).media_url && (post as any).type === 'image' && !(post as any).background && (
+        <div className="cursor-pointer bg-black" onClick={() => onViewImage((post as any).media_url)}>
+          <img src={(post as any).media_url} alt="" className="w-full h-auto max-h-[600px] object-contain" />
+        </div>
+      )}
+
+      {(post as any).media_url && (post as any).type === 'video' && (
+        <div className="cursor-pointer relative h-[500px]" onClick={() => onVideoClick(post)}>
+          <video src={(post as any).media_url} className="w-full h-full object-cover" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <i className="fas fa-play text-white text-4xl opacity-50"></i>
+          </div>
+        </div>
+      )}
+
+      <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+        <div className="flex items-center gap-1.5">
+          {reactions.length > 0 && <span className="hover:underline">{reactions.length} Reactions</span>}
+        </div>
+        <div className="flex gap-4">
+          <span className="hover:underline cursor-pointer" onClick={() => onOpenComments((post as any).id)}>
+            {comments.length} Comments
+          </span>
+        </div>
+      </div>
+
+      <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
+        <ReactionButton
+          currentUserReactions={myReaction}
+          reactionCount={reactions.length}
+          onReact={(type) => onReact((post as any).id, type)}
+          isGuest={!currentUser}
+        />
+        <button
+          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+          onClick={() => onOpenComments((post as any).id)}
+        >
+          <i className="far fa-comment-alt text-[20px]"></i>
+          <span className="text-[17px] font-medium">Comment</span>
+        </button>
+        <button
+          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+          onClick={() => onShare((post as any).id)}
+        >
+          <i className="fas fa-share text-[20px]"></i>
+          <span className="text-[17px] font-medium">Share</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * ✅ Facebook-like CreatePost card
+ */
+export const CreatePost: React.FC<{
+  currentUser: User;
+  onProfileClick: (id: number) => void;
+  onClick: () => void;
+  onCreateEventClick?: () => void;
+}> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
+  <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
+    <div className="flex gap-2 mb-3">
+      <img
+        src={(currentUser as any).profile_image_url}
+        alt=""
+        className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+        onClick={() => onProfileClick((currentUser as any).id)}
+      />
+      <div
+        className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
+        onClick={onClick}
+      >
+        <span className="text-[#B0B3B8] text-[17px] truncate">
+          What's on your mind, {(currentUser as any).name?.split(' ')[0] || 'there'}?
+        </span>
+      </div>
+    </div>
+
+    <div className="border-t border-[#3E4042] pt-2 flex justify-between">
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onCreateEventClick}
+      >
+        <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
+      </div>
+    </div>
+  </div>
 );
 
-export const CreatePostModal: React.FC<{ currentUser: User; users: User[]; onClose: () => void; onCreatePost: (t: string, f: File | null) => void; }> = ({ currentUser, users, onClose, onCreatePost }) => {
-    const [text, setText] = useState('');
-    const [file, setFile] = useState<File | null>(null);
-    return (
-        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
-            <div className="bg-[#242526] w-full max-w-[500px] rounded-xl border border-[#3E4042] overflow-hidden flex flex-col">
-                <div className="p-4 border-b border-[#3E4042] flex justify-between items-center"><h3 className="text-xl font-bold text-white">Create Post</h3><i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i></div>
-                <div className="p-4 flex-1 overflow-y-auto"><textarea className="w-full bg-transparent outline-none text-white text-lg placeholder-[#B0B3B8] resize-none h-40" placeholder={`What's on your mind, ${currentUser.name}?`} value={text} onChange={e => setText(e.target.value)} /><input type="file" onChange={e => setFile(e.target.files?.[0] || null)} className="text-[#B0B3B8] text-sm mt-4" /></div>
-                <div className="p-4 border-t border-[#3E4042]"><button onClick={() => onCreatePost(text, file)} disabled={!text.trim() && !file} className="w-full bg-[#1877F2] text-white font-bold py-2 rounded-lg disabled:opacity-50">Post</button></div>
-            </div>
-        </div>
-    );
-};
+/**
+ * ✅ FULL Facebook-like CreatePostModal
+ * - Background colors for text posts
+ * - Tag people
+ * - Feeling
+ * - Check-in location via /api/locations/search (your backend)
+ * - Link preview
+ */
+export const CreatePostModal: React.FC<{
+  currentUser: User;
+  users: User[];
+  onClose: () => void;
+  onCreatePost: (
+    t: string,
+    f: File | null,
+    meta?: {
+      type?: 'text' | 'image' | 'video';
+      visibility?: string;
+      location?: string;
+      feeling?: string;
+      taggedUsers?: number[];
+      background?: string;
+      linkPreview?: LinkPreview | null;
+    }
+  ) => void;
+}> = ({ currentUser, users, onClose, onCreatePost }) => {
+  const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
+  const [text, setText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [type, setType] = useState<'text' | 'image' | 'video'>('text');
 
-export const CommentsSheet: React.FC<{ post: PostType; currentUser: User; users: User[]; onClose: () => void; onComment: (id: number, text: string) => void; onLikeComment: (id: number) => void; getCommentAuthor: (id: number) => User | undefined; onProfileClick: (id: number) => void; }> = ({ post, currentUser, users, onClose, getCommentAuthor, onProfileClick }) => {
-    const [text, setText] = useState('');
-    const [comments, setComments] = useState<any[]>([]);
+  const [visibility] = useState<'Public' | 'Friends'>('Public');
+  const [activeBackground, setActiveBackground] = useState('');
+  const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
 
-    useEffect(() => {
-        apiFetch(`/api/posts/${post.id}/comments`).then(setComments);
-    }, [post.id]);
+  const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
+  const [feeling, setFeeling] = useState('');
+  const [location, setLocation] = useState('');
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!text.trim()) return;
-        try {
-            const data = await apiFetch(`/api/posts/${post.id}/comment`, {
-                method: 'POST',
-                body: JSON.stringify({ text })
-            });
-            setComments([...comments, { ...data.comment, author_name: currentUser.name, author_image: currentUser.profile_image_url }]);
-            setText('');
-        } catch (e) { alert("Failed to comment"); }
+  const [locQuery, setLocQuery] = useState('');
+  const [locResults, setLocResults] = useState<any[]>([]);
+  const [locLoading, setLocLoading] = useState(false);
+  const searchTimeout = useRef<any>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLinkPreview(getLinkPreview(text));
+  }, [text]);
+
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview);
     };
+  }, [preview]);
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+
+    setFile(f);
+    const url = URL.createObjectURL(f);
+    setPreview(url);
+    setType(f.type.startsWith('image') ? 'image' : 'video');
+    setActiveBackground('');
+    setView('main');
+  };
+
+  const handleLocationSearch = async (q: string) => {
+    if (q.trim().length < 3) {
+      setLocResults([]);
+      return;
+    }
+    setLocLoading(true);
+    try {
+      const data = await apiFetch(`/api/locations/search?q=${encodeURIComponent(q)}`);
+      setLocResults(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Location search failed', err);
+      setLocResults([]);
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
+  const onLocQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setLocQuery(val);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
+  };
+
+  const canPost = !!text.trim() || !!file || !!activeBackground;
+
+  const submit = () => {
+    if (!canPost) return;
+
+    onCreatePost(text, file, {
+      type: file ? type : 'text',
+      visibility,
+      location: location || undefined,
+      feeling: feeling || undefined,
+      taggedUsers: taggedUsers.length ? taggedUsers : undefined,
+      background: activeBackground || undefined,
+      linkPreview: linkPreview || null,
+    });
+
+    onClose();
+  };
+
+  const OptionsItem = ({
+    icon,
+    color,
+    label,
+    onClick,
+  }: {
+    icon: string;
+    color: string;
+    label: string;
+    onClick?: () => void;
+  }) => (
+    <div className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors" onClick={onClick}>
+      <i className={`${icon} text-[24px] w-8 text-center`} style={{ color }}></i>
+      <span className="text-[#E4E6EB] text-[17px] font-medium">{label}</span>
+    </div>
+  );
+
+  // TAG PEOPLE
+  if (view === 'tag') {
     return (
-        <div className="fixed inset-0 z-[200] flex flex-col justify-end md:items-center md:justify-center">
-            <div className="absolute inset-0 bg-black/60" onClick={onClose}></div>
-            <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
-                <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]"><h3 className="font-bold text-[#E4E6EB]">Comments</h3><i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i></div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {comments.map(c => (
-                        <div key={c.id} className="flex gap-2">
-                            <img src={c.author_image || 'https://ui-avatars.com/api/?name=User'} className="w-8 h-8 rounded-full object-cover" alt="" />
-                            <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1">
-                                <p className="font-bold text-white text-sm">{c.author_name || 'Anonymous'}</p>
-                                <p className="text-white text-[15px]">{c.text}</p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-                <form className="p-3 border-t border-[#3E4042] flex gap-2" onSubmit={handleSubmit}>
-                    <input type="text" className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none" placeholder="Write a comment..." value={text} onChange={e => setText(e.target.value)} />
-                    <button type="submit" className="text-[#1877F2] font-bold">Post</button>
-                </form>
-            </div>
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={() => setView('main')}></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">Tag People</h3>
+          <button onClick={() => setView('main')} className="ml-auto text-[#1877F2] font-bold">
+            Done
+          </button>
         </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {users
+            .filter((u) => (u as any).id !== (currentUser as any).id)
+            .map((u) => (
+              <div
+                key={(u as any).id}
+                className="flex items-center justify-between p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
+                onClick={() =>
+                  setTaggedUsers((prev) =>
+                    prev.includes((u as any).id)
+                      ? prev.filter((uid) => uid !== (u as any).id)
+                      : [...prev, (u as any).id]
+                  )
+                }
+              >
+                <div className="flex items-center gap-3">
+                  <img src={(u as any).profile_image_url} className="w-10 h-10 rounded-full object-cover" alt="" />
+                  <span className="text-[#E4E6EB] font-semibold">{(u as any).name}</span>
+                </div>
+                {taggedUsers.includes((u as any).id) && <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>}
+              </div>
+            ))}
+        </div>
+      </div>
     );
+  }
+
+  // FEELING
+  if (view === 'feeling') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={() => setView('main')}></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">How are you feeling?</h3>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-2">
+          {FEELINGS.map((f) => (
+            <div
+              key={f}
+              className="p-3 bg-[#242526] rounded-lg text-center cursor-pointer hover:bg-[#3A3B3C] text-[#E4E6EB]"
+              onClick={() => {
+                setFeeling(f);
+                setView('main');
+              }}
+            >
+              {f}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // LOCATION (via your backend endpoint)
+  if (view === 'location') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={() => setView('main')}></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">Search Location</h3>
+        </div>
+
+        <div className="p-4 flex-1 flex flex-col overflow-hidden">
+          <div className="relative mb-4">
+            <input
+              type="text"
+              placeholder="Where are you?"
+              className="w-full bg-[#3A3B3C] rounded-xl p-4 pl-12 text-[#E4E6EB] outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+              autoFocus
+              value={locQuery}
+              onChange={onLocQueryChange}
+            />
+            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+            {locLoading && <i className="fas fa-spinner fa-spin absolute right-4 top-1/2 -translate-y-1/2 text-[#1877F2]"></i>}
+          </div>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            {locResults.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {locResults.map((loc, i) => {
+                  const display =
+                    loc.display_name ||
+                    loc.name ||
+                    loc.label ||
+                    `${loc.city || ''}${loc.country ? `, ${loc.country}` : ''}`.trim();
+
+                  const title = (display || '').split(',')[0] || 'Location';
+
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-4 p-4 hover:bg-[#3A3B3C] rounded-xl cursor-pointer border border-[#3E4042]/30 transition-colors group"
+                      onClick={() => {
+                        setLocation(display);
+                        setView('main');
+                      }}
+                    >
+                      <div className="w-12 h-12 bg-[#3A3B3C] rounded-xl flex items-center justify-center group-hover:bg-[#1877F2] transition-colors">
+                        <i className="fas fa-location-dot text-[#E4E6EB]"></i>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[#E4E6EB] font-bold block truncate">{title}</span>
+                        <span className="text-[#B0B3B8] text-xs block truncate">{display}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : locQuery.length >= 3 && !locLoading ? (
+              <div className="text-center py-10">
+                <i className="fas fa-map-marked-alt text-4xl text-[#3A3B3C] mb-4"></i>
+                <p className="text-[#B0B3B8]">No matching locations found.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
+                  Nearby Suggestions
+                </p>
+                {LOCATIONS_DATA.slice(0, 6).map((loc) => (
+                  <div
+                    key={loc.name}
+                    className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors"
+                    onClick={() => {
+                      setLocation(loc.name);
+                      setView('main');
+                    }}
+                  >
+                    <div className="w-10 h-10 bg-[#3A3B3C] rounded-full flex items-center justify-center text-xl">
+                      {loc.flag}
+                    </div>
+                    <span className="text-[#E4E6EB] font-semibold">{loc.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // MAIN CREATE POST
+  return (
+    <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+      <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+        <div className="flex items-center gap-4">
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={onClose}></i>
+          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Create Post</h3>
+        </div>
+        <button
+          onClick={submit}
+          disabled={!canPost}
+          className="text-[#E4E6EB] font-bold text-[17px] disabled:text-[#B0B3B8]"
+        >
+          POST
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="p-4">
+          <div className="flex items-center gap-3 mb-4">
+            <img src={(currentUser as any).profile_image_url} alt="" className="w-12 h-12 rounded-full object-cover" />
+            <div>
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[17px]">{(currentUser as any).name}</h4>
+                {feeling && <span className="text-[#E4E6EB] text-[15px]"> is feeling {feeling}</span>}
+                {location && <span className="text-[#E4E6EB] text-[15px]"> in {location.split(',')[0]}</span>}
+                {taggedUsers.length > 0 && <span className="text-[#E4E6EB] text-[15px]"> with {taggedUsers.length} others</span>}
+              </div>
+
+              <div className="flex items-center gap-2 mt-0.5">
+                <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[13px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
+                  <i className={`fas ${visibility === 'Public' ? 'fa-globe-americas' : 'fa-user-friends'} text-[12px]`}></i>
+                  <span>{visibility}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`relative min-h-[150px] mb-4 transition-all ${
+              activeBackground ? 'flex items-center justify-center p-8 rounded-lg text-center min-h-[300px]' : ''
+            }`}
+            style={{ background: activeBackground, backgroundSize: 'cover' }}
+          >
+            <textarea
+              className={`w-full bg-transparent outline-none text-[#E4E6EB] placeholder-[#B0B3B8] resize-none ${
+                activeBackground ? 'text-center font-bold text-3xl drop-shadow-md placeholder-white/70' : 'text-[24px]'
+              }`}
+              placeholder="What's on your mind?"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={activeBackground ? 4 : 5}
+            />
+          </div>
+
+          {/* Link preview (only when no file and no background) */}
+          {linkPreview && !file && !activeBackground && (
+            <div
+              className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+              onClick={() => window.open(linkPreview.url, '_blank')}
+            >
+              <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
+              <div className="p-3 bg-[#3A3B3C]">
+                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{linkPreview.domain}</div>
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{linkPreview.title}</div>
+                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{linkPreview.description}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Background picker only when no file */}
+          {!preview && (
+            <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+              <div
+                className={`w-8 h-8 rounded-lg cursor-pointer border-2 bg-[#3A3B3C] flex items-center justify-center flex-shrink-0 ${
+                  !activeBackground ? 'border-white' : 'border-[#3E4042]'
+                }`}
+                onClick={() => setActiveBackground('')}
+              >
+                <div className="w-6 h-6 bg-white rounded flex items-center justify-center">
+                  <i className="fas fa-font text-black text-xs"></i>
+                </div>
+              </div>
+
+              {BACKGROUNDS.filter((b) => b.id !== 'none').map((bg) => (
+                <div
+                  key={bg.id}
+                  className={`w-8 h-8 rounded-lg cursor-pointer border-2 flex-shrink-0 ${
+                    activeBackground === bg.value ? 'border-white' : 'border-transparent'
+                  }`}
+                  style={{ background: bg.value, backgroundSize: 'cover' }}
+                  onClick={() => setActiveBackground(bg.value)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Media preview */}
+          {preview && (
+            <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
+              <div
+                onClick={() => {
+                  setFile(null);
+                  setPreview(null);
+                  setType('text');
+                }}
+                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
+              >
+                <i className="fas fa-times text-white"></i>
+              </div>
+              {type === 'image' ? (
+                <img src={preview} alt="preview" className="w-full h-auto max-h-[400px] object-contain bg-black" />
+              ) : (
+                <video src={preview} controls className="w-full h-auto max-h-[400px] bg-black" />
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-[#3E4042]">
+          <OptionsItem icon="fas fa-images" color="#45BD62" label="Photo/video" onClick={() => fileInputRef.current?.click()} />
+          <OptionsItem icon="fas fa-user-tag" color="#1877F2" label="Tag people" onClick={() => setView('tag')} />
+          <OptionsItem icon="far fa-smile" color="#F7B928" label="Feeling/activity" onClick={() => setView('feeling')} />
+          <OptionsItem icon="fas fa-map-marker-alt" color="#F02849" label="Check in" onClick={() => setView('location')} />
+        </div>
+      </div>
+
+      <div className="p-4 border-t border-[#3E4042]">
+        <button
+          onClick={submit}
+          disabled={!canPost}
+          className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors disabled:bg-[#3A3B3C] text-lg shadow-sm"
+        >
+          POST
+        </button>
+      </div>
+
+      <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileChange} />
+    </div>
+  );
 };
 
-// @google/genai-api-fix: Defined SuggestedProductsWidget which was being exported without a definition.
-export const SuggestedProductsWidget: React.FC<{ 
-    products: Product[]; 
-    currentUser: User; 
-    onViewProduct: (product: Product) => void; 
-    onSeeAll: () => void; 
-}> = ({ products, currentUser, onViewProduct, onSeeAll }) => {
-    const suggested = products.filter(p => p.seller_id !== currentUser.id).slice(0, 4);
+export const CommentsSheet: React.FC<{
+  post: PostType;
+  currentUser: User;
+  users: User[];
+  onClose: () => void;
+  onComment: (id: number, text: string) => void;
+  onLikeComment: (id: number) => void;
+  getCommentAuthor: (id: number) => User | undefined;
+  onProfileClick: (id: number) => void;
+}> = ({ post, currentUser, users, onClose }) => {
+  const [text, setText] = useState('');
+  const [comments, setComments] = useState<any[]>([]);
 
-    if (suggested.length === 0) return null;
+  useEffect(() => {
+    apiFetch(`/api/posts/${(post as any).id}/comments`).then(setComments).catch(() => setComments([]));
+  }, [(post as any).id]);
 
-    return (
-        <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
-            <div className="flex justify-between items-center mb-3">
-                <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
-                <button onClick={onSeeAll} className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors">See all</button>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-                {suggested.map(product => {
-                    const countryData = MARKETPLACE_COUNTRIES.find(c => product.address.toLowerCase().includes(c.name.toLowerCase()));
-                    const symbol = countryData ? countryData.symbol : '$';
-                    return (
-                        <div key={product.id} className="cursor-pointer group" onClick={() => onViewProduct(product)}>
-                            <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
-                                <img src={product.images[0]} alt={product.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
-                                    {symbol}{product.main_price}
-                                </div>
-                            </div>
-                            <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">{product.title}</h4>
-                        </div>
-                    );
-                })}
-            </div>
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+
+    try {
+      const data = await apiFetch(`/api/posts/${(post as any).id}/comment`, {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      });
+
+      setComments([
+        ...comments,
+        {
+          ...(data?.comment || { id: Date.now(), text }),
+          author_name: (currentUser as any).name,
+          author_image: (currentUser as any).profile_image_url,
+        },
+      ]);
+      setText('');
+    } catch {
+      alert('Failed to comment');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col justify-end md:items-center md:justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose}></div>
+
+      <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
+        <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]">
+          <h3 className="font-bold text-[#E4E6EB]">Comments</h3>
+          <i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i>
         </div>
-    );
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {comments.map((c) => (
+            <div key={c.id} className="flex gap-2">
+              <img
+                src={c.author_image || 'https://ui-avatars.com/api/?name=User'}
+                className="w-8 h-8 rounded-full object-cover"
+                alt=""
+              />
+              <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1">
+                <p className="font-bold text-white text-sm">{c.author_name || 'Anonymous'}</p>
+                <p className="text-white text-[15px] whitespace-pre-wrap break-words">{c.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <form className="p-3 border-t border-[#3E4042] flex gap-2" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none"
+            placeholder="Write a comment..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <button type="submit" className="text-[#1877F2] font-bold">
+            Post
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export const SuggestedProductsWidget: React.FC<{
+  products: Product[];
+  currentUser: User;
+  onViewProduct: (product: Product) => void;
+  onSeeAll: () => void;
+}> = ({ products, currentUser, onViewProduct, onSeeAll }) => {
+  const suggested = products.filter((p: any) => p.seller_id !== (currentUser as any).id).slice(0, 4);
+  if (suggested.length === 0) return null;
+
+  return (
+    <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
+        <button
+          onClick={onSeeAll}
+          className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
+        >
+          See all
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {suggested.map((product: any) => {
+          const countryData = MARKETPLACE_COUNTRIES.find((c) =>
+            (product.address || '').toLowerCase().includes(c.name.toLowerCase())
+          );
+          const symbol = countryData ? countryData.symbol : '$';
+
+          return (
+            <div key={product.id} className="cursor-pointer group" onClick={() => onViewProduct(product)}>
+              <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
+                <img
+                  src={product.images?.[0]}
+                  alt={product.title}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                />
+                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
+                  {symbol}
+                  {product.main_price}
+                </div>
+              </div>
+              <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">{product.title}</h4>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 };
