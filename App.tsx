@@ -1,13 +1,26 @@
+// App.tsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
-import { CreatePost, Post, CommentsSheet, CreatePostModal, SuggestedProductsWidget } from './components/Feed';
+import {
+  CreatePost,
+  Post,
+  CommentsSheet,
+  CreatePostModal,
+  SuggestedProductsWidget,
+} from './components/Feed';
 import { StoryReel, CreateStoryModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
 import { ImageViewer, ProfessionalLoader } from './components/Common';
-import { EventsPage, BirthdaysPage, MemoriesPage, SettingsPage, SuggestedProfilesPage } from './components/MenuPages';
+import {
+  EventsPage,
+  BirthdaysPage,
+  MemoriesPage,
+  SettingsPage,
+  SuggestedProfilesPage,
+} from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
@@ -95,15 +108,11 @@ const normalizeUser = (u: any): User => {
 
 /** ---------- API helper ---------- */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
-  const token = localStorage.getItem('unera_token');
-
   const headers: HeadersInit = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
-
-  if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const response = await fetch(url, { ...options, headers });
 
@@ -156,6 +165,9 @@ type View =
   | 'profile'
   | 'login'
   | 'register';
+
+/** ---------- Session keys ---------- */
+const LS_USER_KEY = 'user';
 
 export default function App() {
   const { t } = useLanguage();
@@ -252,33 +264,45 @@ export default function App() {
     }
   }, []);
 
+  /** ---------- Restore session on load ---------- */
   useEffect(() => {
     const init = async () => {
-      const token = localStorage.getItem('unera_token');
-      if (token) {
-        try {
-          const me = await apiFetch('/api/users/me');
-          if (me && me.id) setCurrentUser(normalizeUser(me));
-        } catch {
-          localStorage.removeItem('unera_token');
+      // ✅ instant restore for WebView / refresh (no network needed)
+      try {
+        const raw = localStorage.getItem(LS_USER_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved?.id) setCurrentUser(normalizeUser(saved));
         }
+      } catch {
+        // ignore
       }
+
       await fetchData();
     };
+
     init();
   }, [fetchData]);
 
-  /** ---------- Auth ---------- */
-  const handleLogin = async (email: string, pass: string) => {
+  /** ---------- Auth (matches your backend: { success:true, user }) ---------- */
+  const handleLogin = async (email: string, password: string) => {
     try {
-      const data = await apiFetch('/api/users/login', {
+      const res = await fetch('/api/users/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password: pass }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       });
 
-      if (data?.token) localStorage.setItem('unera_token', data.token);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Login failed');
 
       const normalized = data?.user ? normalizeUser(data.user) : null;
+      if (!normalized) throw new Error('Login failed: user missing');
+
+      // ✅ SAVE SESSION (Facebook-like)
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+
+      // ✅ UPDATE APP STATE
       setCurrentUser(normalized);
       setLoginError('');
       setView('home');
@@ -288,7 +312,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('unera_token');
+    localStorage.removeItem(LS_USER_KEY);
     setCurrentUser(null);
     setView('home'); // FB-like browsing after logout
   };
