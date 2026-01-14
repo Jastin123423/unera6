@@ -1,4 +1,15 @@
 // functions/api/users.ts
+// Cloudflare Pages Function (single file route): /api/users
+// Supports:
+// - GET  /api/users              -> list latest 50 users (Facebook-like default)
+// - GET  /api/users?list=1       -> list latest 50 users
+// - GET  /api/users?id=1         -> get user by id
+// - GET  /api/users?username=xx  -> get user by username
+// - POST /api/users              -> signup (create user)
+// - POST /api/users?action=login -> login
+// - PUT  /api/users              -> update user
+// - DELETE /api/users?id=1       -> delete user
+
 export async function onRequest(context: any) {
   const { request, env } = context;
   const method = request.method;
@@ -25,6 +36,24 @@ export async function onRequest(context: any) {
   const json = (data: any, status = 200) =>
     new Response(JSON.stringify(data), { status, headers: corsHeaders });
 
+  // Normalize email: trim + lowercase + remove spaces inside accidentally
+  // Example: " ChapChaputz@Gmail.com  " -> "chapchaputz@gmail.com"
+  // Example: "chapchaputz@gmail.com  " -> "chapchaputz@gmail.com"
+  // Example: " chap chaputz@gmail.com " -> "chapchaputz@gmail.com" (removes ALL spaces)
+  function normalizeEmail(email: any) {
+    return String(email ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ""); // remove all spaces to keep uniform
+  }
+
+  // Normalize username: trim front/back, collapse multiple spaces inside to one
+  function normalizeUsername(username: any) {
+    return String(username ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
   async function hashPassword(password: string) {
     // Simple early-stage hashing (better than storing plain passwords)
     const enc = new TextEncoder();
@@ -41,21 +70,24 @@ export async function onRequest(context: any) {
     // LOGIN  (POST /api/users?action=login)
     // ================================
     if (method === "POST" && action === "login") {
-      const { email, password } = await request.json();
+      const body = await request.json().catch(() => ({}));
+      const email = normalizeEmail(body.email);
+      const password = String(body.password ?? "");
 
       if (!email || !password) {
         return json({ error: "email and password are required" }, 400);
       }
 
       const user = await env.DB.prepare("SELECT * FROM users WHERE email = ?")
-        .bind(String(email).trim().toLowerCase())
+        .bind(email)
         .first();
 
       if (!user) {
         return json({ error: "Invalid email or password" }, 401);
       }
 
-      const incomingHash = await hashPassword(String(password));
+      const incomingHash = await hashPassword(password);
+
       if (incomingHash !== (user as any).password_hash) {
         return json({ error: "Invalid email or password" }, 401);
       }
@@ -70,27 +102,27 @@ export async function onRequest(context: any) {
     // SIGNUP / CREATE USER (POST /api/users)
     // ================================
     if (method === "POST" && !action) {
-      const {
-        username,
-        email,
-        password,
-        bio,
-        location,
-        nationality,
-        gender,
-        birth_date,
-        profile_image_url,
-        cover_image_url,
-      } = await request.json();
+      const body = await request.json().catch(() => ({}));
+
+      const username = normalizeUsername(body.username);
+      const email = normalizeEmail(body.email);
+      const password = String(body.password ?? "");
+
+      const bio = body.bio ?? null;
+      const location = body.location ?? null;
+      const nationality = body.nationality ?? null;
+      const gender = body.gender ?? null;
+      const birth_date = body.birth_date ?? null;
+
+      // Allow frontend to pass these, but optional
+      const profile_image_url = body.profile_image_url ?? null;
+      const cover_image_url = body.cover_image_url ?? null;
 
       if (!username || !email || !password) {
         return json({ error: "username, email and password are required" }, 400);
       }
 
-      const cleanEmail = String(email).trim().toLowerCase();
-      const cleanUsername = String(username).trim();
-
-      const password_hash = await hashPassword(String(password));
+      const password_hash = await hashPassword(password);
 
       const result = await env.DB.prepare(`
           INSERT INTO users (
@@ -102,16 +134,16 @@ export async function onRequest(context: any) {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'user', datetime('now'), datetime('now'))
         `)
         .bind(
-          cleanUsername,
-          cleanEmail,
+          username,
+          email,
           password_hash,
-          profile_image_url ?? null,
-          cover_image_url ?? null,
-          bio ?? null,
-          location ?? null,
-          nationality ?? null,
-          gender ?? null,
-          birth_date ?? null
+          profile_image_url,
+          cover_image_url,
+          bio,
+          location,
+          nationality,
+          gender,
+          birth_date
         )
         .run();
 
@@ -119,15 +151,43 @@ export async function onRequest(context: any) {
     }
 
     // ================================
-    // GET USER / LIST USERS
+    // GET USER / LIST USERS (Facebook-like default)
     // ================================
     if (method === "GET") {
-      // ---- Facebook-like list: GET /api/users?list=1
+      const id = url.searchParams.get("id");
+      const usernameParam = url.searchParams.get("username");
       const list = url.searchParams.get("list");
-      if (list === "1") {
+
+      // 1) Single user by id
+      if (id) {
+        const user = await env.DB.prepare("SELECT * FROM users WHERE id = ?")
+          .bind(id)
+          .first();
+
+        if (!user) return json({ error: "User not found" }, 404);
+
+        delete (user as any).password_hash;
+        return json(user);
+      }
+
+      // 2) Single user by username
+      if (usernameParam) {
+        const user = await env.DB
+          .prepare("SELECT * FROM users WHERE username = ?")
+          .bind(usernameParam)
+          .first();
+
+        if (!user) return json({ error: "User not found" }, 404);
+
+        delete (user as any).password_hash;
+        return json(user);
+      }
+
+      // 3) Default list users (either list=1 OR no params)
+      if (list === "1" || (!id && !usernameParam)) {
         const { results } = await env.DB
           .prepare(
-            `SELECT id, username, email,
+            `SELECT id, username,
                     profile_image_url, cover_image_url,
                     bio, location, joined_date, created_at
              FROM users
@@ -138,55 +198,40 @@ export async function onRequest(context: any) {
 
         return json(results);
       }
-
-      // ---- Single user by id or username
-      const id = url.searchParams.get("id");
-      const username = url.searchParams.get("username");
-
-      let query: string | null = null;
-      let param: any = null;
-
-      if (id) {
-        query = "SELECT * FROM users WHERE id = ?";
-        param = id;
-      } else if (username) {
-        query = "SELECT * FROM users WHERE username = ?";
-        param = username;
-      } else {
-        return json({ error: "Provide id or username (or use ?list=1)" }, 400);
-      }
-
-      const user = await env.DB.prepare(query).bind(param).first();
-
-      if (!user) {
-        return json({ error: "User not found" }, 404);
-      }
-
-      delete (user as any).password_hash;
-      return json(user);
     }
 
     // ================================
     // UPDATE USER (PUT /api/users)
     // ================================
     if (method === "PUT") {
-      const {
-        id,
-        bio,
-        work,
-        education,
-        website,
-        profile_image_url,
-        cover_image_url,
-        location,
-        nationality,
-        gender,
-        birth_date,
-      } = await request.json();
+      const body = await request.json().catch(() => ({}));
+
+      const id = body.id;
 
       if (!id) {
         return json({ error: "User id required" }, 400);
       }
+
+      // Updateable fields
+      const bio = body.bio ?? null;
+      const work = body.work ?? null;
+      const education = body.education ?? null;
+      const website = body.website ?? null;
+      const profile_image_url = body.profile_image_url ?? null;
+      const cover_image_url = body.cover_image_url ?? null;
+
+      const location = body.location ?? null;
+      const nationality = body.nationality ?? null;
+      const gender = body.gender ?? null;
+      const birth_date = body.birth_date ?? null;
+
+      // Optional: if you allow changing email, normalize it
+      const emailRaw = body.email;
+      const email = emailRaw !== undefined && emailRaw !== null ? normalizeEmail(emailRaw) : null;
+
+      // Optional: allow changing username, normalize it
+      const usernameRaw = body.username;
+      const username = usernameRaw !== undefined && usernameRaw !== null ? normalizeUsername(usernameRaw) : null;
 
       await env.DB.prepare(`
           UPDATE users SET
@@ -199,20 +244,24 @@ export async function onRequest(context: any) {
             location = COALESCE(?, location),
             nationality = COALESCE(?, nationality),
             gender = COALESCE(?, gender),
-            birth_date = COALESCE(?, birth_date)
+            birth_date = COALESCE(?, birth_date),
+            email = COALESCE(?, email),
+            username = COALESCE(?, username)
           WHERE id = ?
         `)
         .bind(
-          bio ?? null,
-          work ?? null,
-          education ?? null,
-          website ?? null,
-          profile_image_url ?? null,
-          cover_image_url ?? null,
-          location ?? null,
-          nationality ?? null,
-          gender ?? null,
-          birth_date ?? null,
+          bio,
+          work,
+          education,
+          website,
+          profile_image_url,
+          cover_image_url,
+          location,
+          nationality,
+          gender,
+          birth_date,
+          email,
+          username,
           id
         )
         .run();
