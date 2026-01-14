@@ -1,4 +1,4 @@
-// App.tsx
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -32,7 +32,7 @@ import {
 import { INITIAL_USERS } from './constants';
 import { rankFeed } from './utils/ranking';
 
-/** ---------- Safety helpers (prevents blank-screen crashes) ---------- */
+/** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
   const n = typeof v === 'number' ? v : Number(v);
@@ -76,9 +76,9 @@ const normalizePost = (p: any): PostType => {
 };
 
 /**
- * ✅ FIXED Normalize user:
+ * ✅ Normalize user:
  * - Accepts id OR user_id OR userId
- * - Prevents profile opening wrong user
+ * - Prevents wrong profile opening
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
@@ -94,6 +94,7 @@ const normalizeUser = (u: any): User => {
     cover_image_url: u?.cover_image_url ?? u?.coverImage ?? '',
     is_verified: Boolean(u?.is_verified ?? u?.isVerified),
     role: u?.role ?? 'user',
+    created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
   } as any;
 };
 
@@ -104,27 +105,21 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
     ...(options.headers || {}),
   };
 
-  // If using JSON body, set content-type
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
 
-  const response = await fetch(url, { ...options, headers });
+  const res = await fetch(url, { ...options, headers });
 
-  const contentType = response.headers.get('content-type') || '';
-  let data: any;
+  const contentType = res.headers.get('content-type') || '';
+  let data: any = null;
 
   try {
-    if (contentType.includes('application/json')) {
-      data = await response.json();
-    } else {
-      const text = await response.text();
-      if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = { error: text };
-        }
-      } else {
+    if (contentType.includes('application/json')) data = await res.json();
+    else {
+      const text = await res.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
         data = { error: text };
       }
     }
@@ -132,8 +127,8 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
     data = { error: e?.message || 'Failed to parse response' };
   }
 
-  if (!response.ok) {
-    const msg = data?.error || data?.message || `HTTP ${response.status}`;
+  if (!res.ok) {
+    const msg = data?.error || data?.message || `HTTP ${res.status}`;
     throw new Error(msg);
   }
 
@@ -169,6 +164,46 @@ const fileToDataUrl = (file: File) =>
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
+
+/**
+ * ✅ Normalize FEED rows returned by /api/feeds:
+ * It returns a joined row like:
+ * { id, user_id, content, created_at, media_url,..., username, profile_image_url, is_verified, follower_count, pool }
+ *
+ * We convert it into:
+ * - PostType shape (post fields)
+ * - and we also merge/insert author into users state
+ */
+const normalizeFeedRowToPost = (row: any): PostType => {
+  return normalizePost({
+    ...row,
+    user_id: safeNumber(row?.user_id),
+    content: row?.content ?? '',
+    created_at: row?.created_at,
+    media_url: row?.media_url ?? null,
+    media_type: row?.media_type ?? null,
+    shares: row?.shares ?? 0,
+    views: row?.views ?? 0,
+    // keep pool + follower_count if you want to debug later
+    pool: row?.pool,
+    follower_count: row?.follower_count,
+  });
+};
+
+const authorFromFeedRow = (row: any): User => {
+  return normalizeUser({
+    id: row?.user_id,
+    username: row?.username ?? 'user',
+    name: row?.username ?? 'User',
+    profile_image_url: row?.profile_image_url ?? '',
+    is_verified: row?.is_verified ?? 0,
+    role: row?.role ?? 'user',
+    // we don't have arrays in DB; leave empty for now
+    followers: [],
+    following: [],
+    created_at: row?.joined_date ?? row?.created_at ?? null,
+  });
+};
 
 export default function App() {
   useLanguage();
@@ -206,17 +241,6 @@ export default function App() {
   const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
-  /** ---------- Derived ---------- */
-  const rankedPosts = useMemo(
-    () => (Array.isArray(posts) ? rankFeed(posts, currentUser, users) : []),
-    [posts, currentUser, users]
-  );
-
-  const activePost = useMemo(() => {
-    if (!activeCommentsPostId) return null;
-    return posts.find((p) => Number(p.id) === Number(activeCommentsPostId)) || null;
-  }, [posts, activeCommentsPostId]);
-
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -234,56 +258,124 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
-  /** ---------- Fetch data ---------- */
-  const fetchData = useCallback(async () => {
+  /**
+   * ✅ Fetch users list:
+   * Your backend /api/users might currently require ?id or ?username.
+   * If you upgraded it to return list by default, this will work.
+   * If not upgraded, it will fallback to INITIAL_USERS.
+   */
+  const fetchUsersList = useCallback(async () => {
     try {
-      const [p, s, r, pr, u, g, b, e] = await Promise.all([
-        apiFetch('/api/posts').catch(() => []),
-        apiFetch('/api/stories').catch(() => []),
-        apiFetch('/api/reels').catch(() => []),
-        apiFetch('/api/products').catch(() => []),
-        apiFetch('/api/users').catch(() => INITIAL_USERS),
-        apiFetch('/api/groups').catch(() => []),
-        apiFetch('/api/brands').catch(() => []),
-        apiFetch('/api/events').catch(() => []),
-      ]);
-
-      setPosts(safeArray(p).map(normalizePost));
-      setStories(safeArray(s));
-      setReels(safeArray(r));
-      setProducts(safeArray(pr));
-
-      const normalizedUsers = safeArray(u).map(normalizeUser);
-      setUsers(normalizedUsers.length ? normalizedUsers : INITIAL_USERS.map(normalizeUser));
-
-      setGroups(safeArray(g));
-      setBrands(safeArray(b));
-      setEvents(safeArray(e));
-    } finally {
-      setTimeout(() => setIsLoading(false), 600);
+      const u = await apiFetch('/api/users').catch(() => []);
+      const arr = safeArray(u).map(normalizeUser);
+      if (arr.length) setUsers(arr);
+      else setUsers(INITIAL_USERS.map(normalizeUser));
+    } catch {
+      setUsers(INITIAL_USERS.map(normalizeUser));
     }
   }, []);
 
-  /** ---------- Poll feed for near real-time ---------- */
-  useEffect(() => {
-    const t = setInterval(() => {
-      fetchData().catch(() => {});
-    }, 15000);
-    return () => clearInterval(t);
-  }, [fetchData]);
+  /**
+   * ✅ Fetch posts for homepage:
+   * - Logged in: use /api/feeds?userId=... (mixed pool)
+   * - Guest: use /api/posts (public timeline)
+   */
+  const fetchPostsForHome = useCallback(
+    async (viewer: User | null) => {
+      if (viewer?.id) {
+        const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`).catch(() => ({ feed: [] }));
+        const rows = safeArray<any>(data?.feed);
 
-  /** ---------- Restore session ---------- */
+        // Merge authors from feed into users list so Post card can display correct author
+        if (rows.length) {
+          setUsers((prev) => {
+            const map = new Map<number, User>();
+            safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
+
+            rows.forEach((r) => {
+              const author = authorFromFeedRow(r);
+              if (!author?.id) return;
+              if (!map.has(author.id)) map.set(author.id, author);
+              else {
+                // merge basic fields
+                const existing = map.get(author.id)!;
+                map.set(author.id, normalizeUser({ ...existing, ...author }));
+              }
+            });
+
+            return Array.from(map.values());
+          });
+        }
+
+        // Convert feed rows into posts
+        const normalized = rows.map(normalizeFeedRowToPost);
+        setPosts(normalized);
+        return;
+      }
+
+      // Guest timeline
+      const p = await apiFetch('/api/posts').catch(() => []);
+      setPosts(safeArray(p).map(normalizePost));
+    },
+    []
+  );
+
+  /**
+   * ✅ Fetch other data (stories, reels, products, groups, brands, events)
+   */
+  const fetchOtherData = useCallback(async () => {
+    const [s, r, pr, g, b, e] = await Promise.all([
+      apiFetch('/api/stories').catch(() => []),
+      apiFetch('/api/reels').catch(() => []),
+      apiFetch('/api/products').catch(() => []),
+      apiFetch('/api/groups').catch(() => []),
+      apiFetch('/api/brands').catch(() => []),
+      apiFetch('/api/events').catch(() => []),
+    ]);
+
+    setStories(safeArray(s));
+    setReels(safeArray(r));
+    setProducts(safeArray(pr));
+    setGroups(safeArray(g));
+    setBrands(safeArray(b));
+    setEvents(safeArray(e));
+  }, []);
+
+  /**
+   * ✅ One fetch pipeline:
+   * - fetch users
+   * - fetch posts based on viewer
+   * - fetch other data
+   */
+  const fetchData = useCallback(
+    async (viewer: User | null) => {
+      try {
+        await Promise.all([fetchUsersList(), fetchPostsForHome(viewer), fetchOtherData()]);
+      } finally {
+        setTimeout(() => setIsLoading(false), 300);
+      }
+    },
+    [fetchUsersList, fetchPostsForHome, fetchOtherData]
+  );
+
+  /** ---------- Restore session + initial load ---------- */
   useEffect(() => {
     const init = async () => {
+      let viewer: User | null = null;
+
       try {
         const raw = localStorage.getItem(LS_USER_KEY);
         if (raw) {
           const saved = JSON.parse(raw);
           const normalized = normalizeUser(saved);
           if (normalized?.id) {
+            viewer = normalized;
             setCurrentUser(normalized);
+            setSelectedUserId(Number(normalized.id));
+
+            // Merge into users state early
             setUsers((prev) => {
-              const arr = Array.isArray(prev) ? prev : [];
+              const arr = safeArray(prev);
               const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
               if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
               return [normalized, ...arr];
@@ -294,11 +386,31 @@ export default function App() {
         // ignore
       }
 
-      await fetchData();
+      await fetchData(viewer);
     };
 
     init();
   }, [fetchData]);
+
+  /** ---------- Poll feed (light) ---------- */
+  useEffect(() => {
+    const t = setInterval(() => {
+      // Refresh posts using current viewer
+      fetchPostsForHome(currentUser).catch(() => {});
+    }, 15000);
+    return () => clearInterval(t);
+  }, [currentUser, fetchPostsForHome]);
+
+  /** ---------- Derived ---------- */
+  const rankedPosts = useMemo(() => {
+    // rankFeed expects authors to exist in users; we merge authors from /api/feeds above.
+    return Array.isArray(posts) ? rankFeed(posts, currentUser, users) : [];
+  }, [posts, currentUser, users]);
+
+  const activePost = useMemo(() => {
+    if (!activeCommentsPostId) return null;
+    return posts.find((p) => Number(p.id) === Number(activeCommentsPostId)) || null;
+  }, [posts, activeCommentsPostId]);
 
   /** ---------- Login ---------- */
   const handleLogin = async (email: string, password: string) => {
@@ -323,14 +435,17 @@ export default function App() {
       setCurrentUser(normalized);
 
       setUsers((prev) => {
-        const arr = Array.isArray(prev) ? prev : [];
+        const arr = safeArray(prev);
         const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
         if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
         return [normalized, ...arr];
       });
 
       setSelectedUserId(Number(normalized.id));
-      setView('profile');
+      setView('home');
+
+      // ✅ IMPORTANT: after login, load mixed feed
+      await fetchPostsForHome(normalized);
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -341,6 +456,9 @@ export default function App() {
     setCurrentUser(null);
     setSelectedUserId(null);
     setView('home');
+
+    // guest timeline
+    fetchPostsForHome(null).catch(() => {});
   };
 
   /** ---------- Navigation ---------- */
@@ -368,7 +486,6 @@ export default function App() {
   };
 
   /** ---------- API actions ---------- */
-
   const createPost = useCallback(
     async (
       text: string,
@@ -388,9 +505,6 @@ export default function App() {
       const trimmed = (text || '').trim();
       if (!trimmed && !file && !meta?.background) return;
 
-      // Upload strategy:
-      // - If file exists, convert to data URL (works without a separate upload endpoint).
-      //   Later you can replace with R2 upload endpoint and store real URL.
       let media_url: string | null = null;
       let media_type: string | null = null;
 
@@ -405,7 +519,6 @@ export default function App() {
         media_url,
         media_type,
         visibility: meta?.visibility ?? 'public',
-        // optional extras (your backend can ignore safely)
         location: meta?.location,
         feeling: meta?.feeling,
         tagged_users: meta?.taggedUsers,
@@ -413,70 +526,69 @@ export default function App() {
         link_preview: meta?.linkPreview,
       };
 
-      const data = await apiFetch('/api/posts', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
 
       // backend may return {success:true, post: {...}} or {post_id: ...}
-      const newPostRaw = data?.post ?? { ...payload, id: data?.post_id ?? Date.now(), created_at: new Date().toISOString() };
+      const newPostRaw =
+        data?.post ?? { ...payload, id: data?.post_id ?? Date.now(), created_at: new Date().toISOString() };
+
       const normalized = normalizePost(newPostRaw);
 
+      // optimistic insert
       setPosts((prev) => [normalized, ...safeArray(prev)]);
       setShowCreatePostModal(false);
+
+      // ✅ re-fetch mixed feed so homepage matches /api/feeds logic (following + suggested)
+      fetchPostsForHome(currentUser).catch(() => {});
     },
-    [currentUser, requireAuth]
+    [currentUser, requireAuth, fetchPostsForHome]
   );
 
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
 
-      // optimistic update
       setPosts((prev) =>
         safeArray(prev).map((p: any) => {
           if (Number(p.id) !== Number(postId)) return p;
-          const reactions = safeArray(p.reactions);
-          const existing = reactions.find((r: any) => Number(r.user_id) === Number(currentUser!.id));
 
-          // toggle same reaction off; otherwise set/replace
+          const reactions = safeArray(p.reactions);
+          const mine = reactions.find((r: any) => Number(r.user_id) === Number(currentUser!.id));
           let next = reactions.filter((r: any) => Number(r.user_id) !== Number(currentUser!.id));
-          if (!existing || existing.type !== type) {
-            next = [...next, { user_id: currentUser!.id, type }];
-          }
+
+          if (!mine || mine.type !== type) next = [...next, { user_id: currentUser!.id, type }];
+
           return normalizePost({ ...p, reactions: next });
         })
       );
 
       try {
-        await apiFetch(`/api/posts/${postId}/react`, {
-          method: 'POST',
-          body: JSON.stringify({ type }),
-        });
-      } catch (e) {
-        // rollback by refetching post list (safest)
-        fetchData().catch(() => {});
+        await apiFetch(`/api/posts/${postId}/react`, { method: 'POST', body: JSON.stringify({ type }) });
+      } catch {
+        // safest: refresh feed
+        fetchPostsForHome(currentUser).catch(() => {});
       }
     },
-    [currentUser, requireAuth, fetchData]
+    [currentUser, requireAuth, fetchPostsForHome]
   );
 
   const onSharePost = useCallback(
     async (postId: number) => {
       if (!requireAuth('Sharing')) return;
 
-      // optimistic
       setPosts((prev) =>
-        safeArray(prev).map((p: any) => (Number(p.id) === Number(postId) ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) : p))
+        safeArray(prev).map((p: any) =>
+          Number(p.id) === Number(postId) ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) : p
+        )
       );
 
       try {
         await apiFetch(`/api/posts/${postId}/share`, { method: 'POST' });
       } catch {
-        fetchData().catch(() => {});
+        fetchPostsForHome(currentUser).catch(() => {});
       }
     },
-    [requireAuth, fetchData]
+    [requireAuth, fetchPostsForHome, currentUser]
   );
 
   const onOpenComments = (postId: number) => {
@@ -488,14 +600,13 @@ export default function App() {
     async (postId: number) => {
       if (!requireAuth('Deleting posts')) return;
 
-      // optimistic remove
-      const prevPosts = posts;
-      setPosts((prev) => safeArray(prev).filter((p) => Number(p.id) !== Number(postId)));
+      const prev = posts;
+      setPosts((p) => safeArray(p).filter((x) => Number(x.id) !== Number(postId)));
 
       try {
         await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
       } catch {
-        setPosts(prevPosts);
+        setPosts(prev);
       }
     },
     [requireAuth, posts]
@@ -504,23 +615,16 @@ export default function App() {
   const editPost = useCallback(
     async (postId: number, content: string) => {
       if (!requireAuth('Editing posts')) return;
-
       const trimmed = (content || '').trim();
       if (!trimmed) return;
 
-      // optimistic
-      const prevPosts = posts;
-      setPosts((prev) =>
-        safeArray(prev).map((p: any) => (Number(p.id) === Number(postId) ? normalizePost({ ...p, content: trimmed }) : p))
-      );
+      const prev = posts;
+      setPosts((p) => safeArray(p).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x)));
 
       try {
-        await apiFetch(`/api/posts/${postId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ content: trimmed }),
-        });
+        await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
       } catch {
-        setPosts(prevPosts);
+        setPosts(prev);
       }
     },
     [requireAuth, posts]
@@ -532,8 +636,7 @@ export default function App() {
       if (!currentUser) return;
       if (Number(targetUserId) === Number(currentUser.id)) return;
 
-      // Your special follow logic: BOTH users gain/lose a follower.
-      // We implement it purely from UI state; backend should be the source of truth.
+      // Your special follow logic: BOTH users gain/lose a follower (UI-side).
       setUsers((prev) => {
         const arr = safeArray(prev).map(normalizeUser);
         const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
@@ -560,18 +663,26 @@ export default function App() {
         });
       });
 
-      // also update currentUser object so profile buttons calculate correctly
-      setCurrentUser((prev) => (prev ? normalizeUser({ ...prev }) : prev));
-
       try {
-        await apiFetch(`/api/users/${targetUserId}/follow`, { method: 'POST' });
-        // refresh to match backend truth
-        fetchData().catch(() => {});
+        // Your actual follow API expects follower_id, following_id
+        await apiFetch('/api/user-follows', {
+          method: 'POST',
+          body: JSON.stringify({ follower_id: currentUser.id, following_id: targetUserId }),
+        }).catch(async () => {
+          // if already following, attempt unfollow
+          await apiFetch(`/api/user-follows?follower_id=${currentUser.id}&following_id=${targetUserId}`, {
+            method: 'DELETE',
+          });
+        });
+
+        // refresh mixed feed (because following changes feed pool)
+        fetchPostsForHome(currentUser).catch(() => {});
       } catch {
-        fetchData().catch(() => {});
+        // refresh anyway
+        fetchPostsForHome(currentUser).catch(() => {});
       }
     },
-    [requireAuth, currentUser, fetchData]
+    [requireAuth, currentUser, fetchPostsForHome]
   );
 
   const updateUserDetails = useCallback(
@@ -579,21 +690,19 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
-      const payload: any = { ...data };
-
-      const updated = await apiFetch(`/api/users/${currentUser.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(payload),
+      const updated = await apiFetch(`/api/users`, {
+        method: 'PUT',
+        body: JSON.stringify({ id: currentUser.id, ...data }),
       });
 
-      const normalized = normalizeUser(updated?.user ?? updated);
-      setCurrentUser(normalized);
+      // Your /api/users PUT returns {success:true} in your code.
+      // So we locally merge what we updated:
+      const merged = normalizeUser({ ...currentUser, ...data });
 
-      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+      setCurrentUser(merged);
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(merged));
 
-      setUsers((prev) =>
-        safeArray(prev).map((u) => (Number(u.id) === Number(normalized.id) ? normalized : u))
-      );
+      setUsers((prev) => safeArray(prev).map((u) => (Number(u.id) === Number(merged.id) ? merged : u)));
     },
     [requireAuth, currentUser]
   );
@@ -624,9 +733,7 @@ export default function App() {
   if (isLoading) return <ProfessionalLoader />;
 
   const profileUser =
-    (selectedUserId ? users.find((u) => Number(u.id) === Number(selectedUserId)) : null) ||
-    currentUser ||
-    users[0];
+    (selectedUserId ? users.find((u) => Number(u.id) === Number(selectedUserId)) : null) || currentUser || users[0];
 
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
@@ -705,6 +812,7 @@ export default function App() {
                       INITIAL_USERS[0]
                     }
                     currentUser={currentUser}
+                    users={users}
                     onProfileClick={(id) => openProfile(id)}
                     onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
                     onShare={(postId: number) => onSharePost(postId)}
