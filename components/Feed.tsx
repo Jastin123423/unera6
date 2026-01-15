@@ -1993,14 +1993,3 @@ export default function Feed({
     </div>
   );
 }
-
-// ✅ EXPLICIT NAMED EXPORTS (fixes build error)
-export {
-  Post,
-  CreatePost,
-  CreatePostModal,
-  CommentsSheet,
-  ReactionButton,
-  RichText,
-  SuggestedProductsWidget
-};
