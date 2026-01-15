@@ -1,5 +1,4 @@
-
-
+// Feed.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -43,10 +42,12 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-// Optional upload helper
+// Optional upload helper: only works if you have an upload endpoint.
+// If you don't have it yet, media posts will show a friendly error.
 const uploadToR2IfAvailable = async (
   file: File
 ): Promise<{ url: string; media_type: 'image' | 'video' } | null> => {
+  // Change this to your real upload endpoint if different
   const endpoint = '/api/uploads';
 
   const form = new FormData();
@@ -153,6 +154,48 @@ const FEELINGS = [
 
 const safeUserId = (u: any) => Number(u?.id ?? u?.user_id ?? 0);
 const safePostId = (p: any) => Number(p?.id ?? 0);
+
+/**
+ * =========================
+ * ✅ RELATIVE TIME (FB-like)
+ * =========================
+ * Visual Logic:
+ * Under 1 minute: "Just now"
+ * Under 1 hour: "Xmin"
+ * Under 24 hours: "Xhrs"
+ * Under 7 days: "Xdays"
+ * Older: "MM/DD/YYYY"
+ */
+const formatRelativeTime = (dateInput: any): string => {
+  if (!dateInput) return 'Recently';
+
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  const t = d.getTime();
+  if (!Number.isFinite(t)) return 'Recently';
+
+  const now = Date.now();
+  let diffMs = now - t;
+
+  // Future timestamps (clock drift) → treat as Just now
+  if (diffMs < 0) diffMs = 0;
+
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'Just now';
+
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}min`;
+
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return `${diffHrs}hrs`;
+
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 7) return `${diffDays}days`;
+
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${mm}/${dd}/${yyyy}`;
+};
 
 /**
  * =========================
@@ -365,13 +408,10 @@ export const Post: React.FC<{
         ?.type
     : undefined;
 
-  const createdAtLabel = p.created_at
-    ? new Date(p.created_at).toLocaleString()
-    : 'Recently';
+  // ✅ FB-like relative time
+  const createdAtLabel = formatRelativeTime(p.created_at);
 
   const postId = safePostId(p);
-  const isOptimistic = !!p.__optimistic;
-  const pending = !!p.__pending;
 
   return (
     <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
@@ -391,30 +431,14 @@ export const Post: React.FC<{
             className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
           />
           <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1 flex-wrap min-w-0">
-                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
-                  {a.name || a.username || 'User'}
-                </h4>
-                {a.is_verified && (
-                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-                )}
-              </div>
-
-              {isOptimistic && (
-                <span className="text-[12px] px-2 py-0.5 rounded-full border border-[#3E4042] text-[#B0B3B8]">
-                  {pending ? (
-                    <>
-                      <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
-                      Posting…
-                    </>
-                  ) : (
-                    'Just posted'
-                  )}
-                </span>
+            <div className="flex items-center gap-1 flex-wrap">
+              <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
+                {a.name || a.username || 'User'}
+              </h4>
+              {a.is_verified && (
+                <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
               )}
             </div>
-
             <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
               <span>{createdAtLabel}</span>
               <span>•</span>
@@ -500,7 +524,10 @@ export const Post: React.FC<{
       {p.media_url &&
         (p.media_type === 'image' || p.type === 'image') &&
         !p.background && (
-          <div className="cursor-pointer bg-black" onClick={() => onViewImage(p.media_url)}>
+          <div
+            className="cursor-pointer bg-black"
+            onClick={() => onViewImage(p.media_url)}
+          >
             <img
               src={p.media_url}
               alt=""
@@ -510,7 +537,10 @@ export const Post: React.FC<{
         )}
 
       {p.media_url && (p.media_type === 'video' || p.type === 'video') && (
-        <div className="cursor-pointer relative h-[500px]" onClick={() => onVideoClick(post)}>
+        <div
+          className="cursor-pointer relative h-[500px]"
+          onClick={() => onVideoClick(post)}
+        >
           <video src={p.media_url} className="w-full h-full object-cover" />
           <div className="absolute inset-0 flex items-center justify-center">
             <i className="fas fa-play text-white text-4xl opacity-50"></i>
@@ -527,7 +557,7 @@ export const Post: React.FC<{
         <div className="flex gap-4">
           <span
             className="hover:underline cursor-pointer"
-            onClick={() => onOpenComments(Number(postId))} // ✅ force number
+            onClick={() => onOpenComments(Number(postId))}
           >
             {commentCount} Comments
           </span>
@@ -538,21 +568,21 @@ export const Post: React.FC<{
         <ReactionButton
           currentUserReactions={myReaction}
           reactionCount={reactions.length}
-          onReact={(type) => onReact(Number(postId), type)}
-          isGuest={!currentUser || pending} // optional: block while pending
+          onReact={(type) => onReact(postId, type)}
+          isGuest={!currentUser}
         />
         <button
           className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
           onClick={() =>
             currentUser ? onOpenComments(Number(postId)) : alert('Login first')
-          } // ✅ force number
+          }
         >
           <i className="far fa-comment-alt text-[20px]"></i>
           <span className="text-[17px] font-medium">Comment</span>
         </button>
         <button
           className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-          onClick={() => onShare(Number(postId))}
+          onClick={() => onShare(postId)}
         >
           <i className="fas fa-share text-[20px]"></i>
           <span className="text-[17px] font-medium">Share</span>
@@ -591,7 +621,8 @@ export const CreatePost: React.FC<{
         onClick={onClick}
       >
         <span className="text-[#B0B3B8] text-[17px] truncate">
-          What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
+          What's on your mind,{' '}
+          {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
         </span>
       </div>
     </div>
@@ -632,7 +663,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * CREATE POST MODAL (your reference UI)
+ * CREATE POST MODAL (WORKING)
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -653,8 +684,10 @@ export const CreatePostModal: React.FC<{
     }
   ) => void;
   onCreateEventClick?: () => void;
-}> = ({ currentUser, users, onClose, onCreatePost, onCreateEventClick }) => {
-  const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
+}> = ({ currentUser, users, onClose, onCreatePost }) => {
+  const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>(
+    'main'
+  );
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -706,9 +739,12 @@ export const CreatePostModal: React.FC<{
     }
     setLocLoading(true);
     try {
-      const data = await apiFetch(`/api/locations/search?q=${encodeURIComponent(q)}`);
+      const data = await apiFetch(
+        `/api/locations/search?q=${encodeURIComponent(q)}`
+      );
       setLocResults(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (err) {
+      console.error('Location search failed', err);
       setLocResults([]);
     } finally {
       setLocLoading(false);
@@ -794,18 +830,11 @@ export const CreatePostModal: React.FC<{
               >
                 <div className="flex items-center gap-3">
                   <img
-                    src={
-                      u.profile_image_url ||
-                      u.profileImage ||
-                      u.avatar ||
-                      'https://ui-avatars.com/api/?name=User'
-                    }
+                    src={u.profile_image_url}
                     className="w-10 h-10 rounded-full object-cover"
                     alt=""
                   />
-                  <span className="text-[#E4E6EB] font-semibold">
-                    {u.name || u.username || 'User'}
-                  </span>
+                  <span className="text-[#E4E6EB] font-semibold">{u.name}</span>
                 </div>
                 {taggedUsers.includes(safeUserId(u)) && (
                   <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>
@@ -883,7 +912,9 @@ export const CreatePostModal: React.FC<{
                     loc.display_name ||
                     loc.name ||
                     loc.label ||
-                    `${loc.city || ''}${loc.country ? `, ${loc.country}` : ''}`.trim();
+                    `${loc.city || ''}${
+                      loc.country ? `, ${loc.country}` : ''
+                    }`.trim();
 
                   const title = (display || '').split(',')[0] || 'Location';
 
@@ -921,7 +952,7 @@ export const CreatePostModal: React.FC<{
                 <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
                   Nearby Suggestions
                 </p>
-                {LOCATIONS_DATA.slice(0, 6).map((loc: any) => (
+                {LOCATIONS_DATA.slice(0, 6).map((loc) => (
                   <div
                     key={loc.name}
                     className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors"
@@ -954,7 +985,9 @@ export const CreatePostModal: React.FC<{
             className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
             onClick={onClose}
           ></i>
-          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Create Post</h3>
+          <h3 className="text-[#E4E6EB] text-[20px] font-medium">
+            Create Post
+          </h3>
         </div>
         <button
           onClick={submit}
@@ -969,19 +1002,14 @@ export const CreatePostModal: React.FC<{
         <div className="p-4">
           <div className="flex items-center gap-3 mb-4">
             <img
-              src={
-                (currentUser as any).profile_image_url ||
-                (currentUser as any).profileImage ||
-                (currentUser as any).avatar ||
-                'https://ui-avatars.com/api/?name=User'
-              }
+              src={(currentUser as any).profile_image_url}
               alt=""
               className="w-12 h-12 rounded-full object-cover"
             />
             <div>
               <div className="flex items-center gap-1 flex-wrap">
                 <h4 className="font-bold text-[#E4E6EB] text-[17px]">
-                  {(currentUser as any).name || (currentUser as any).username || 'User'}
+                  {(currentUser as any).name}
                 </h4>
                 {feeling && (
                   <span className="text-[#E4E6EB] text-[15px]">
@@ -1007,7 +1035,9 @@ export const CreatePostModal: React.FC<{
                 <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[13px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
                   <i
                     className={`fas ${
-                      visibility === 'Public' ? 'fa-globe-americas' : 'fa-user-friends'
+                      visibility === 'Public'
+                        ? 'fa-globe-americas'
+                        : 'fa-user-friends'
                     } text-[12px]`}
                   ></i>
                   <span>{visibility}</span>
@@ -1042,7 +1072,11 @@ export const CreatePostModal: React.FC<{
               className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
               onClick={() => window.open(linkPreview.url, '_blank')}
             >
-              <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
+              <img
+                src={linkPreview.image}
+                alt="Preview"
+                className="w-full h-48 object-cover"
+              />
               <div className="p-3 bg-[#3A3B3C]">
                 <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
                   {linkPreview.domain}
@@ -1074,7 +1108,9 @@ export const CreatePostModal: React.FC<{
                 <div
                   key={bg.id}
                   className={`w-8 h-8 rounded-lg cursor-pointer border-2 flex-shrink-0 ${
-                    activeBackground === bg.value ? 'border-white' : 'border-transparent'
+                    activeBackground === bg.value
+                      ? 'border-white'
+                      : 'border-transparent'
                   }`}
                   style={{ background: bg.value, backgroundSize: 'cover' }}
                   onClick={() => setActiveBackground(bg.value)}
@@ -1144,14 +1180,6 @@ export const CreatePostModal: React.FC<{
             label="Check in"
             onClick={() => setView('location')}
           />
-          {onCreateEventClick && (
-            <OptionsItem
-              icon="fas fa-flag"
-              color="#F7B928"
-              label="Life event"
-              onClick={onCreateEventClick}
-            />
-          )}
         </div>
       </div>
 
@@ -1186,7 +1214,7 @@ export const CreatePostModal: React.FC<{
 
 /**
  * =========================
- * COMMENTS SHEET (your style, loads comments)
+ * COMMENTS SHEET (WORKING + RELATIVE TIME)
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -1194,14 +1222,13 @@ export const CommentsSheet: React.FC<{
   currentUser: User;
   users: User[];
   onClose: () => void;
-  onComment?: (postId: number, text: string) => void;
-}> = ({ post, currentUser, users, onClose, onComment }) => {
+}> = ({ post, currentUser, users, onClose }) => {
   const p: any = post as any;
   const [text, setText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const postId = Number(p?.id ?? 0);
+  const postId = safePostId(p);
 
   useEffect(() => {
     let alive = true;
@@ -1231,37 +1258,42 @@ export const CommentsSheet: React.FC<{
     const t = text.trim();
     if (!t) return;
 
-    // optimistic add (local)
     const optimistic = {
       id: `tmp-${Date.now()}`,
       text: t,
-      author_name: (currentUser as any)?.name || 'You',
+      author_name: (currentUser as any).name || 'You',
       author_image:
-        (currentUser as any)?.profile_image_url ||
-        (currentUser as any)?.profileImage ||
-        (currentUser as any)?.avatar ||
+        (currentUser as any).profile_image_url ||
+        (currentUser as any).profileImage ||
+        (currentUser as any).avatar ||
         'https://ui-avatars.com/api/?name=User',
+      created_at: new Date().toISOString(),
       __pending: true,
     };
+
     setComments((prev) => [...prev, optimistic]);
     setText('');
 
     try {
-      await apiFetch(`/api/posts/${postId}/comment`, {
+      const data = await apiFetch(`/api/posts/${postId}/comment`, {
         method: 'POST',
         body: JSON.stringify({ text: t }),
-      }).catch(async () => {
-        await apiFetch(`/api/post-comments`, {
-          method: 'POST',
-          body: JSON.stringify({ post_id: postId, user_id: safeUserId(currentUser), text: t }),
-        });
       });
 
-      // refresh comments for truth
-      const data = await apiFetch(`/api/posts/${postId}/comments`).catch(() => null);
-      setComments(Array.isArray(data) ? data : data?.comments || []);
+      const serverComment = data?.comment;
+
+      if (serverComment) {
+        setComments((prev) =>
+          prev.map((c) => (c.id === optimistic.id ? serverComment : c))
+        );
+      } else {
+        setComments((prev) =>
+          prev.map((c) =>
+            c.id === optimistic.id ? { ...c, __pending: false } : c
+          )
+        );
+      }
     } catch (err: any) {
-      // remove optimistic if failed
       setComments((prev) => prev.filter((c) => c.id !== optimistic.id));
       alert(err?.message || 'Failed to comment');
     }
@@ -1274,7 +1306,10 @@ export const CommentsSheet: React.FC<{
       <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
         <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]">
           <h3 className="font-bold text-[#E4E6EB]">Comments</h3>
-          <i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i>
+          <i
+            className="fas fa-times text-[#B0B3B8] cursor-pointer"
+            onClick={onClose}
+          ></i>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -1293,8 +1328,11 @@ export const CommentsSheet: React.FC<{
                   alt=""
                 />
                 <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1">
-                  <p className="font-bold text-white text-sm flex items-center gap-2">
+                  <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
                     {c.author_name || 'Anonymous'}
+                    <span className="text-[12px] font-normal text-[#B0B3B8]">
+                      • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
+                    </span>
                     {c.__pending && (
                       <span className="text-[11px] text-[#B0B3B8]">
                         <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
@@ -1330,7 +1368,7 @@ export const CommentsSheet: React.FC<{
 
 /**
  * =========================
- * SUGGESTED PRODUCTS WIDGET (as your file)
+ * SUGGESTED PRODUCTS WIDGET
  * =========================
  */
 export const SuggestedProductsWidget: React.FC<{
@@ -1342,6 +1380,7 @@ export const SuggestedProductsWidget: React.FC<{
   const suggested = (products || [])
     .filter((p: any) => p.seller_id !== safeUserId(currentUser))
     .slice(0, 4);
+
   if (suggested.length === 0) return null;
 
   return (
@@ -1358,8 +1397,10 @@ export const SuggestedProductsWidget: React.FC<{
 
       <div className="grid grid-cols-2 gap-2">
         {suggested.map((product: any) => {
-          const countryData = MARKETPLACE_COUNTRIES.find((c: any) =>
-            String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
+          const countryData = MARKETPLACE_COUNTRIES.find((c) =>
+            String(product.address || '')
+              .toLowerCase()
+              .includes(c.name.toLowerCase())
           );
           const symbol = countryData ? countryData.symbol : '$';
 
@@ -1371,17 +1412,17 @@ export const SuggestedProductsWidget: React.FC<{
             >
               <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
                 <img
-                  src={product.images?.[0] || product.image || 'https://via.placeholder.com/400x300'}
+                  src={product.images?.[0]}
                   alt={product.title}
                   className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                 />
                 <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
                   {symbol}
-                  {product.main_price ?? product.price ?? ''}
+                  {product.main_price}
                 </div>
               </div>
               <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">
-                {product.title || product.name || 'Product'}
+                {product.title}
               </h4>
             </div>
           );
@@ -1393,7 +1434,7 @@ export const SuggestedProductsWidget: React.FC<{
 
 /**
  * =========================
- * FEED CONTAINER
+ * ✅ FULL FEED CONTAINER (API CONNECTED)
  * =========================
  */
 type FeedItem = {
@@ -1402,7 +1443,7 @@ type FeedItem = {
 };
 
 const normalizeFeed = (raw: any): FeedItem[] => {
-  const arr = Array.isArray(raw) ? raw : raw?.items || raw?.results || raw?.posts || raw?.feed || [];
+  const arr = Array.isArray(raw) ? raw : raw?.items || raw?.results || raw?.posts || [];
   if (!Array.isArray(arr)) return [];
 
   return arr.map((x: any) => {
@@ -1418,10 +1459,10 @@ const normalizeFeed = (raw: any): FeedItem[] => {
 
     const post = {
       ...x,
-      id: Number(x.id ?? x.post_id ?? x.postId ?? 0),
+      id: x.id,
       user_id: x.user_id ?? x.author_id,
       content: x.content ?? '',
-      created_at: x.created_at ?? x.timestamp ?? x.createdAt,
+      created_at: x.created_at ?? x.timestamp,
       media_url: x.media_url ?? x.image_url ?? x.video_url ?? null,
       media_type: x.media_type ?? x.type ?? null,
       reactions: x.reactions ?? [],
@@ -1435,34 +1476,6 @@ const normalizeFeed = (raw: any): FeedItem[] => {
 
     return { post, author };
   });
-};
-
-const isSameAsOptimistic = (serverPost: any, optimisticPost: any) => {
-  try {
-    const su = Number(serverPost?.user_id ?? 0);
-    const ou = Number(optimisticPost?.user_id ?? 0);
-    if (su !== ou) return false;
-
-    const sc = String(serverPost?.content ?? '').trim();
-    const oc = String(optimisticPost?.content ?? '').trim();
-    if (sc !== oc) return false;
-
-    const sm = String(serverPost?.media_url ?? '');
-    const om = String(optimisticPost?.media_url ?? '');
-    if (sm !== om) return false;
-
-    const sb = String(serverPost?.background ?? '');
-    const ob = String(optimisticPost?.background ?? '');
-    if (sb !== ob) return false;
-
-    // created_at close (within 2 minutes)
-    const st = Date.parse(serverPost?.created_at ?? '');
-    const ot = Date.parse(optimisticPost?.created_at ?? '');
-    if (!Number.isFinite(st) || !Number.isFinite(ot)) return true;
-    return Math.abs(st - ot) <= 120_000;
-  } catch {
-    return false;
-  }
 };
 
 export default function Feed({
@@ -1484,37 +1497,32 @@ export default function Feed({
 
   const [showCreate, setShowCreate] = useState(false);
 
-  // ✅ store numeric only
+  // ✅ numeric only (prevents "0"/string bugs)
   const [openCommentsFor, setOpenCommentsFor] = useState<number | null>(null);
 
-  // ✅ prevent double-submit duplicates
-  const createInFlightRef = useRef(false);
-
-  const mergeServerWithOptimistic = (serverItems: FeedItem[], prevItems: FeedItem[]) => {
-    const prevOptimistics = prevItems.filter((it) => it?.post?.__optimistic);
-    if (prevOptimistics.length === 0) return serverItems;
-
-    // Remove optimistic that already exists on server
-    const stillNeeded = prevOptimistics.filter((opt) => {
-      const exists = serverItems.some((srv) => isSameAsOptimistic(srv.post, opt.post));
-      return !exists && !!opt.post.__pending; // keep only pending ones
-    });
-
-    // Put remaining pending optimistic on top, then server items
-    return [...stillNeeded, ...serverItems];
-  };
+  // Optional: re-render time labels every minute (no refetch)
+  const [, setTimeTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTimeTick((x) => x + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   const fetchFeed = async () => {
+    setLoading(true);
     setError(null);
     try {
-      const data = currentUser?.id
-        ? await apiFetch(`/api/feeds?userId=${safeUserId(currentUser)}&limit=20`)
-        : await apiFetch(`/api/posts?limit=20`);
-
-      const normalized = normalizeFeed(data?.feed ?? data ?? []);
-      setItems((prev) => mergeServerWithOptimistic(normalized, prev));
+      if (currentUser?.id) {
+        const data = await apiFetch(
+          `/api/feeds?userId=${safeUserId(currentUser)}&limit=20`
+        );
+        setItems(normalizeFeed(data?.feed ?? data ?? []));
+      } else {
+        const data = await apiFetch(`/api/posts?limit=20`);
+        setItems(normalizeFeed(data ?? []));
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load feed');
+      setItems([]);
     } finally {
       setLoading(false);
     }
@@ -1542,87 +1550,65 @@ export default function Feed({
   ) => {
     if (!currentUser) return alert('Login first');
 
-    // guard duplicates
-    if (createInFlightRef.current) return;
-    createInFlightRef.current = true;
-
     const hasText = !!text?.trim();
     const hasBg = !!meta?.background;
     const hasFile = !!file;
-    if (!hasText && !hasBg && !hasFile) {
-      createInFlightRef.current = false;
-      return;
+
+    if (!hasText && !hasBg && !hasFile) return;
+
+    // Upload media if needed
+    let media_url: string | null = null;
+    let media_type: 'image' | 'video' | null = null;
+
+    if (file) {
+      const uploaded = await uploadToR2IfAvailable(file);
+      if (!uploaded) {
+        alert(
+          'Image/video upload is not set yet. Create an upload API endpoint (R2) first, then media posts will work.'
+        );
+        return;
+      }
+      media_url = uploaded.url;
+      media_type = uploaded.media_type;
     }
 
-    // ✅ optimistic item (shows immediately)
-    const tmpId = -Date.now();
-    const nowIso = new Date().toISOString();
-
-    const optimisticPost: any = {
-      id: tmpId,
+    // Optimistic post (shows immediately)
+    const optimisticId = `tmp-${Date.now()}`;
+    const optimisticPost = {
+      id: optimisticId,
       user_id: safeUserId(currentUser),
       content: text || '',
-      created_at: nowIso,
-      media_url: null,
-      media_type: null,
+      created_at: new Date().toISOString(),
+      media_url,
+      media_type,
       background: meta?.background || null,
       feeling: meta?.feeling || null,
       location: meta?.location || null,
+      visibility: meta?.visibility || 'Public',
+      tagged_users: meta?.taggedUsers || [],
       link_preview: meta?.linkPreview || null,
       reactions: [],
       comments: [],
       comment_count: 0,
-      __optimistic: true,
       __pending: true,
     };
 
-    const optimisticAuthor: any = {
+    const optimisticAuthor = {
       ...(currentUser as any),
       id: safeUserId(currentUser),
       name: (currentUser as any).name || (currentUser as any).username || 'User',
       profile_image_url:
         (currentUser as any).profile_image_url ||
         (currentUser as any).profileImage ||
-        (currentUser as any).avatar,
-      is_verified: (currentUser as any).is_verified,
+        (currentUser as any).avatar ||
+        'https://ui-avatars.com/api/?name=User',
     };
 
+    // Add optimistic post on top
     setItems((prev) => [{ post: optimisticPost, author: optimisticAuthor }, ...prev]);
 
-    // close modal immediately like FB
-    setShowCreate(false);
-
-    let media_url: string | null = null;
-    let media_type: 'image' | 'video' | null = null;
-
     try {
-      if (file) {
-        const uploaded = await uploadToR2IfAvailable(file);
-        if (!uploaded) {
-          // remove optimistic
-          setItems((prev) => prev.filter((it) => Number(it.post.id) !== tmpId));
-          alert(
-            'Image/video upload is not set yet. Create an upload API endpoint (R2) first, then media posts will work.'
-          );
-          return;
-        }
-        media_url = uploaded.url;
-        media_type = uploaded.media_type;
-
-        // update optimistic to show media immediately
-        setItems((prev) =>
-          prev.map((it) =>
-            Number(it.post.id) === tmpId
-              ? {
-                  ...it,
-                  post: { ...it.post, media_url, media_type },
-                }
-              : it
-          )
-        );
-      }
-
-      const resp = await apiFetch('/api/posts', {
+      const result = await apiFetch('/api/posts', {
         method: 'POST',
         body: JSON.stringify({
           user_id: safeUserId(currentUser),
@@ -1635,51 +1621,54 @@ export default function Feed({
           visibility: meta?.visibility || 'Public',
           tagged_users: meta?.taggedUsers || [],
           link_preview: meta?.linkPreview || null,
-          // (optional) helps debugging if you later store it in DB
-          client_tmp_id: String(tmpId),
         }),
       });
 
-      // Try to get new id from response
-      const newId =
-        Number(resp?.post_id ?? resp?.id ?? resp?.post?.id ?? 0) || null;
+      // Replace optimistic with server post if backend returns it
+      const serverPost = result?.post || result?.data || result;
 
-      // Mark optimistic as not pending and (if we got id) convert id
-      setItems((prev) =>
-        prev.map((it) => {
-          if (Number(it.post.id) !== tmpId) return it;
-          const updated = {
-            ...it,
-            post: {
-              ...it.post,
-              id: newId ?? it.post.id,
-              __pending: false,
-            },
-          };
-          return updated;
-        })
-      );
+      if (serverPost && serverPost.id != null) {
+        setItems((prev) =>
+          prev.map((it) =>
+            String(it.post.id) === optimisticId
+              ? { post: { ...optimisticPost, ...serverPost, __pending: false }, author: it.author }
+              : it
+          )
+        );
+      } else {
+        // No server object: just remove pending flag
+        setItems((prev) =>
+          prev.map((it) =>
+            String(it.post.id) === optimisticId
+              ? { ...it, post: { ...it.post, __pending: false } }
+              : it
+          )
+        );
+      }
 
-      // Refresh from server and dedupe optimistic vs server
+      setShowCreate(false);
+
+      // Refresh once to avoid duplicates / ensure correct id from DB
       await fetchFeed();
     } catch (e: any) {
-      // remove optimistic on failure
-      setItems((prev) => prev.filter((it) => Number(it.post.id) !== tmpId));
+      // Remove optimistic if failed
+      setItems((prev) => prev.filter((it) => String(it.post.id) !== optimisticId));
       alert(e?.message || 'Failed to post');
-    } finally {
-      createInFlightRef.current = false;
     }
   };
 
   const handleReact = async (postId: number, type: ReactionType) => {
     if (!currentUser) return alert('Login first');
-    const pid = Number(postId);
     try {
       await apiFetch('/api/post-reactions', {
         method: 'POST',
-        body: JSON.stringify({ post_id: pid, user_id: safeUserId(currentUser), type }),
+        body: JSON.stringify({
+          post_id: Number(postId),
+          user_id: safeUserId(currentUser),
+          type,
+        }),
       }).catch(async () => {
-        await apiFetch(`/api/posts/${pid}/react`, {
+        await apiFetch(`/api/posts/${Number(postId)}/react`, {
           method: 'POST',
           body: JSON.stringify({ type }),
         });
@@ -1705,13 +1694,27 @@ export default function Feed({
     window.open(url, '_blank');
   };
 
-  // ✅ FIXED comments panel selection (allows 0, blocks null/undefined)
+  // ✅ FIXED: allow 0 and ensure numeric matching
   const activeCommentPost = useMemo(() => {
     if (openCommentsFor == null) return null;
     const target = Number(openCommentsFor);
     const found = items.find((it) => Number(it?.post?.id) === target);
     return found?.post || null;
   }, [openCommentsFor, items]);
+
+  // Optional: de-dup by id (prevents duplicates if backend returns same post)
+  const dedupedItems = useMemo(() => {
+    const seen = new Set<string>();
+    const out: FeedItem[] = [];
+    for (const it of items) {
+      const id = String(it?.post?.id ?? '');
+      if (!id) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(it);
+    }
+    return out;
+  }, [items]);
 
   return (
     <div className="w-full">
@@ -1756,11 +1759,11 @@ export default function Feed({
         </div>
       )}
 
-      {!loading && !error && items.length === 0 && (
+      {!loading && !error && dedupedItems.length === 0 && (
         <div className="text-[#B0B3B8] text-center py-10">No posts yet.</div>
       )}
 
-      {items.map((it) => (
+      {dedupedItems.map((it) => (
         <Post
           key={String(it.post.id)}
           post={it.post}
@@ -1771,7 +1774,6 @@ export default function Feed({
           onReact={handleReact}
           onShare={handleShare}
           onViewImage={handleViewImage}
-          // ✅ always numeric (prevents mismatch bugs)
           onOpenComments={(id) => setOpenCommentsFor(Number(id))}
           onVideoClick={(p) => {
             const url = (p as any)?.media_url;
@@ -1797,9 +1799,7 @@ export default function Feed({
           />
           <div className="bg-[#242526] border border-[#3E4042] rounded-xl p-6 z-10 text-center text-[#E4E6EB]">
             <p className="font-bold text-lg mb-2">Login required</p>
-            <p className="text-[#B0B3B8]">
-              Please login to view and write comments.
-            </p>
+            <p className="text-[#B0B3B8]">Please login to view and write comments.</p>
             <button
               className="mt-4 bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-5 py-2 rounded-lg"
               onClick={() => setOpenCommentsFor(null)}
