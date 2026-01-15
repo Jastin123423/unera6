@@ -215,7 +215,10 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
-  const [isLoading, setIsLoading] = useState(true);
+
+  // ✅ OPTION B: Force loader off forever (keep component imported, but never show)
+  const [isLoading, setIsLoading] = useState(false);
+
   const [loginError, setLoginError] = useState('');
 
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -331,6 +334,8 @@ export default function App() {
       try {
         await Promise.all([fetchUsersList(), fetchPostsForHome(viewer), fetchOtherData()]);
       } finally {
+        // Loader is forced OFF, but we keep this to preserve existing logic.
+        // setTimeout(() => setIsLoading(false), 300);
         setTimeout(() => setIsLoading(false), 300);
       }
     },
