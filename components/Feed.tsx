@@ -159,7 +159,6 @@ const safePostId = (p: any) => Number(p?.id ?? 0);
  * =========================
  * ✅ RELATIVE TIME (FB-like)
  * =========================
- * Visual Logic:
  * Under 1 minute: "Just now"
  * Under 1 hour: "Xmin"
  * Under 24 hours: "Xhrs"
@@ -176,7 +175,6 @@ const formatRelativeTime = (dateInput: any): string => {
   const now = Date.now();
   let diffMs = now - t;
 
-  // Future timestamps (clock drift) → treat as Just now
   if (diffMs < 0) diffMs = 0;
 
   const diffSec = Math.floor(diffMs / 1000);
@@ -408,9 +406,7 @@ export const Post: React.FC<{
         ?.type
     : undefined;
 
-  // ✅ FB-like relative time
   const createdAtLabel = formatRelativeTime(p.created_at);
-
   const postId = safePostId(p);
 
   return (
@@ -455,6 +451,15 @@ export const Post: React.FC<{
                 <>
                   <span>•</span>
                   <span>feeling {p.feeling}</span>
+                </>
+              )}
+              {p.__pending && (
+                <>
+                  <span>•</span>
+                  <span className="text-[#B0B3B8]">
+                    <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
+                    posting…
+                  </span>
                 </>
               )}
             </div>
@@ -660,6 +665,7 @@ export const CreatePost: React.FC<{
     </div>
   </div>
 );
+
 
 /**
  * =========================
@@ -1214,7 +1220,7 @@ export const CreatePostModal: React.FC<{
 
 /**
  * =========================
- * COMMENTS SHEET (WORKING + RELATIVE TIME)
+ * COMMENTS SHEET (WORKING + REALTIME + CACHE + NO ANONYMOUS)
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -1222,7 +1228,20 @@ export const CommentsSheet: React.FC<{
   currentUser: User;
   users: User[];
   onClose: () => void;
-}> = ({ post, currentUser, users, onClose }) => {
+
+  // ✅ realtime helpers from Feed
+  getCachedComments: (postId: number) => any[] | null;
+  setCachedComments: (postId: number, comments: any[]) => void;
+  onLocalCommentCountChange: (postId: number, newCount: number) => void;
+}> = ({
+  post,
+  currentUser,
+  users,
+  onClose,
+  getCachedComments,
+  setCachedComments,
+  onLocalCommentCountChange,
+}) => {
   const p: any = post as any;
   const [text, setText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
@@ -1230,27 +1249,44 @@ export const CommentsSheet: React.FC<{
 
   const postId = safePostId(p);
 
+  // ✅ show cached immediately (no "loading" feel)
+  useEffect(() => {
+    const cached = getCachedComments(postId);
+    if (cached && Array.isArray(cached)) {
+      setComments(cached);
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postId]);
+
+  // ✅ fetch in background and refresh cache
   useEffect(() => {
     let alive = true;
-    setLoading(true);
 
-    apiFetch(`/api/posts/${postId}/comments`)
-      .then((data) => {
+    const load = async () => {
+      try {
+        const data = await apiFetch(`/api/posts/${postId}/comments`);
         if (!alive) return;
-        setComments(Array.isArray(data) ? data : data?.comments || []);
-      })
-      .catch(() => {
+        const arr = Array.isArray(data) ? data : data?.comments || [];
+        setComments(arr);
+        setCachedComments(postId, arr);
+        onLocalCommentCountChange(postId, arr.length);
+      } catch {
         if (!alive) return;
-        setComments([]);
-      })
-      .finally(() => {
+        const cached = getCachedComments(postId);
+        setComments(cached && Array.isArray(cached) ? cached : []);
+      } finally {
         if (!alive) return;
         setLoading(false);
-      });
+      }
+    };
+
+    load();
 
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1260,8 +1296,10 @@ export const CommentsSheet: React.FC<{
 
     const optimistic = {
       id: `tmp-${Date.now()}`,
+      post_id: postId,
+      user_id: safeUserId(currentUser), // ✅ prevents anonymous
       text: t,
-      author_name: (currentUser as any).name || 'You',
+      author_name: (currentUser as any).name || (currentUser as any).username || 'You',
       author_image:
         (currentUser as any).profile_image_url ||
         (currentUser as any).profileImage ||
@@ -1271,30 +1309,61 @@ export const CommentsSheet: React.FC<{
       __pending: true,
     };
 
-    setComments((prev) => [...prev, optimistic]);
     setText('');
+
+    // ✅ optimistic add + realtime count + cache
+    setComments((prev) => {
+      const next = [...prev, optimistic];
+      setCachedComments(postId, next);
+      onLocalCommentCountChange(postId, next.length);
+      return next;
+    });
 
     try {
       const data = await apiFetch(`/api/posts/${postId}/comment`, {
         method: 'POST',
-        body: JSON.stringify({ text: t }),
+        body: JSON.stringify({
+          text: t,
+          user_id: safeUserId(currentUser), // ✅ send user_id
+        }),
       });
 
       const serverComment = data?.comment;
 
       if (serverComment) {
-        setComments((prev) =>
-          prev.map((c) => (c.id === optimistic.id ? serverComment : c))
-        );
+        setComments((prev) => {
+          const next = prev.map((c) => (c.id === optimistic.id ? serverComment : c));
+          setCachedComments(postId, next);
+          onLocalCommentCountChange(postId, next.length);
+          return next;
+        });
       } else {
-        setComments((prev) =>
-          prev.map((c) =>
+        setComments((prev) => {
+          const next = prev.map((c) =>
             c.id === optimistic.id ? { ...c, __pending: false } : c
-          )
-        );
+          );
+          setCachedComments(postId, next);
+          onLocalCommentCountChange(postId, next.length);
+          return next;
+        });
       }
+
+      // ✅ reconcile quietly (keeps perfect count/ordering)
+      apiFetch(`/api/posts/${postId}/comments`)
+        .then((fresh) => {
+          const arr = Array.isArray(fresh) ? fresh : fresh?.comments || [];
+          setComments(arr);
+          setCachedComments(postId, arr);
+          onLocalCommentCountChange(postId, arr.length);
+        })
+        .catch(() => {});
     } catch (err: any) {
-      setComments((prev) => prev.filter((c) => c.id !== optimistic.id));
+      setComments((prev) => {
+        const next = prev.filter((c) => c.id !== optimistic.id);
+        setCachedComments(postId, next);
+        onLocalCommentCountChange(postId, next.length);
+        return next;
+      });
       alert(err?.message || 'Failed to comment');
     }
   };
@@ -1313,7 +1382,7 @@ export const CommentsSheet: React.FC<{
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {loading ? (
+          {loading && comments.length === 0 ? (
             <div className="text-[#B0B3B8] text-center py-6">
               <i className="fas fa-spinner fa-spin mr-2"></i>Loading comments...
             </div>
@@ -1365,6 +1434,7 @@ export const CommentsSheet: React.FC<{
     </div>
   );
 };
+
 
 /**
  * =========================
@@ -1467,11 +1537,13 @@ const normalizeFeed = (raw: any): FeedItem[] => {
       media_type: x.media_type ?? x.type ?? null,
       reactions: x.reactions ?? [],
       comments: x.comments ?? [],
-      comment_count: x.comment_count,
+      comment_count: typeof x.comment_count === 'number' ? x.comment_count : x.commentCount,
       background: x.background ?? null,
       feeling: x.feeling ?? null,
       location: x.location ?? null,
       link_preview: x.link_preview ?? x.linkPreview ?? null,
+      shares: x.shares ?? 0,
+      views: x.views ?? 0,
     };
 
     return { post, author };
@@ -1500,6 +1572,12 @@ export default function Feed({
   // ✅ numeric only (prevents "0"/string bugs)
   const [openCommentsFor, setOpenCommentsFor] = useState<number | null>(null);
 
+  // ✅ comments cache (instant open after first)
+  const commentsCacheRef = useRef<Map<number, any[]>>(new Map());
+
+  // ✅ avoid loader flicker on polling
+  const firstLoadRef = useRef(true);
+
   // Optional: re-render time labels every minute (no refetch)
   const [, setTimeTick] = useState(0);
   useEffect(() => {
@@ -1507,24 +1585,39 @@ export default function Feed({
     return () => clearInterval(t);
   }, []);
 
+  const setCommentCountForPost = (postId: number, newCount: number) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (Number(it.post.id) !== Number(postId)) return it;
+        return { ...it, post: { ...it.post, comment_count: Number(newCount) } };
+      })
+    );
+  };
+
   const fetchFeed = async () => {
-    setLoading(true);
+    if (firstLoadRef.current) setLoading(true);
     setError(null);
+
     try {
       if (currentUser?.id) {
         const data = await apiFetch(
           `/api/feeds?userId=${safeUserId(currentUser)}&limit=20`
         );
-        setItems(normalizeFeed(data?.feed ?? data ?? []));
+        const normalized = normalizeFeed(data?.feed ?? data ?? []);
+        setItems(normalized);
       } else {
         const data = await apiFetch(`/api/posts?limit=20`);
-        setItems(normalizeFeed(data ?? []));
+        const normalized = normalizeFeed(data ?? []);
+        setItems(normalized);
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to load feed');
       setItems([]);
     } finally {
-      setLoading(false);
+      if (firstLoadRef.current) {
+        setLoading(false);
+        firstLoadRef.current = false;
+      }
     }
   };
 
@@ -1572,7 +1665,7 @@ export default function Feed({
       media_type = uploaded.media_type;
     }
 
-    // Optimistic post (shows immediately)
+    // ✅ optimistic post (shows immediately)
     const optimisticId = `tmp-${Date.now()}`;
     const optimisticPost = {
       id: optimisticId,
@@ -1590,6 +1683,8 @@ export default function Feed({
       reactions: [],
       comments: [],
       comment_count: 0,
+      shares: 0,
+      views: 0,
       __pending: true,
     };
 
@@ -1604,8 +1699,8 @@ export default function Feed({
         'https://ui-avatars.com/api/?name=User',
     };
 
-    // Add optimistic post on top
     setItems((prev) => [{ post: optimisticPost, author: optimisticAuthor }, ...prev]);
+    setShowCreate(false);
 
     try {
       const result = await apiFetch('/api/posts', {
@@ -1624,19 +1719,17 @@ export default function Feed({
         }),
       });
 
-      // Replace optimistic with server post if backend returns it
-      const serverPost = result?.post || result?.data || result;
+      const serverPost = result?.post ?? null;
 
       if (serverPost && serverPost.id != null) {
         setItems((prev) =>
           prev.map((it) =>
             String(it.post.id) === optimisticId
-              ? { post: { ...optimisticPost, ...serverPost, __pending: false }, author: it.author }
+              ? { ...it, post: { ...it.post, ...serverPost, __pending: false } }
               : it
           )
         );
       } else {
-        // No server object: just remove pending flag
         setItems((prev) =>
           prev.map((it) =>
             String(it.post.id) === optimisticId
@@ -1646,12 +1739,9 @@ export default function Feed({
         );
       }
 
-      setShowCreate(false);
-
-      // Refresh once to avoid duplicates / ensure correct id from DB
+      // reconcile once
       await fetchFeed();
     } catch (e: any) {
-      // Remove optimistic if failed
       setItems((prev) => prev.filter((it) => String(it.post.id) !== optimisticId));
       alert(e?.message || 'Failed to post');
     }
@@ -1659,6 +1749,7 @@ export default function Feed({
 
   const handleReact = async (postId: number, type: ReactionType) => {
     if (!currentUser) return alert('Login first');
+
     try {
       await apiFetch('/api/post-reactions', {
         method: 'POST',
@@ -1667,13 +1758,21 @@ export default function Feed({
           user_id: safeUserId(currentUser),
           type,
         }),
-      }).catch(async () => {
-        await apiFetch(`/api/posts/${Number(postId)}/react`, {
-          method: 'POST',
-          body: JSON.stringify({ type }),
-        });
       });
+      await fetchFeed();
+      return;
+    } catch {
+      // fallback path
+    }
 
+    try {
+      await apiFetch(`/api/posts/${Number(postId)}/react`, {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: safeUserId(currentUser),
+          type,
+        }),
+      });
       await fetchFeed();
     } catch {
       await fetchFeed();
@@ -1681,7 +1780,16 @@ export default function Feed({
   };
 
   const handleShare = async (postId: number) => {
-    const link = `https://unera.social/posts/${Number(postId)}`;
+    const pid = Number(postId);
+
+    // ✅ call backend share endpoint first
+    try {
+      await apiFetch(`/api/posts/${pid}/share`, { method: 'POST' });
+    } catch {
+      // even if backend fails, still allow copy
+    }
+
+    const link = `https://unera.social/posts/${pid}`;
     try {
       await navigator.clipboard.writeText(link);
       alert('Link copied');
@@ -1702,7 +1810,7 @@ export default function Feed({
     return found?.post || null;
   }, [openCommentsFor, items]);
 
-  // Optional: de-dup by id (prevents duplicates if backend returns same post)
+  // ✅ de-dup by id (prevents duplicates if optimistic + refresh overlaps)
   const dedupedItems = useMemo(() => {
     const seen = new Set<string>();
     const out: FeedItem[] = [];
@@ -1788,6 +1896,13 @@ export default function Feed({
           currentUser={currentUser}
           users={users}
           onClose={() => setOpenCommentsFor(null)}
+          getCachedComments={(postId) => commentsCacheRef.current.get(postId) ?? null}
+          setCachedComments={(postId, commentsArr) => {
+            commentsCacheRef.current.set(postId, commentsArr);
+          }}
+          onLocalCommentCountChange={(postId, newCount) => {
+            setCommentCountForPost(postId, newCount);
+          }}
         />
       )}
 
