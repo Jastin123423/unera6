@@ -1,4 +1,4 @@
-
+// Feed.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -200,7 +200,7 @@ const formatRelativeTime = (dateInput: any): string => {
  * RICH TEXT (hashtags + mentions)
  * =========================
  */
-const RichText = ({
+export const RichText = ({
   text,
   users,
   onProfileClick,
@@ -361,7 +361,10 @@ export const ReactionButton: React.FC<{
 
 /**
  * =========================
- * POST CAR const Post: React.FC<{
+ * POST CARD
+ * =========================
+ */
+export const Post: React.FC<{
   post: PostType;
   author: User | Brand;
   currentUser: User | null;
@@ -1990,3 +1993,14 @@ export default function Feed({
     </div>
   );
 }
+
+// ✅ EXPLICIT NAMED EXPORTS (fixes build error)
+export {
+  Post,
+  CreatePost,
+  CreatePostModal,
+  CommentsSheet,
+  ReactionButton,
+  RichText,
+  SuggestedProductsWidget
+};
