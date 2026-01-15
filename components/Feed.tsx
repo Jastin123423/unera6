@@ -1,4 +1,4 @@
-// Feed.tsx
+/
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -361,10 +361,7 @@ export const ReactionButton: React.FC<{
 
 /**
  * =========================
- * POST CARD
- * =========================
- */
-export const Post: React.FC<{
+ * POST CAR const Post: React.FC<{
   post: PostType;
   author: User | Brand;
   currentUser: User | null;
