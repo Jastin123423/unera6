@@ -1569,14 +1569,17 @@ export default function Feed({
 
   const [showCreate, setShowCreate] = useState(false);
 
-  // ✅ numeric only (prevents "0"/string bugs)
+  // ✅ FIX: Store post snapshot for comments to prevent blank when feed refreshes
   const [openCommentsFor, setOpenCommentsFor] = useState<number | null>(null);
+  const [commentPostSnapshot, setCommentPostSnapshot] = useState<any | null>(null);
 
   // ✅ comments cache (instant open after first)
   const commentsCacheRef = useRef<Map<number, any[]>>(new Map());
 
-  // ✅ avoid loader flicker on polling
+  // ✅ avoid loader flicker on polling + store last good feed
   const firstLoadRef = useRef(true);
+  const lastGoodItemsRef = useRef<FeedItem[]>([]);
+  const fetchSeqRef = useRef(0);
 
   // Optional: re-render time labels every minute (no refetch)
   const [, setTimeTick] = useState(0);
@@ -1594,25 +1597,61 @@ export default function Feed({
     );
   };
 
+  // ✅ FIXED: Safe fetchFeed that prevents feed disappearance and blank comments
   const fetchFeed = async () => {
+    const mySeq = ++fetchSeqRef.current;
+
+    // ✅ only show loading on first load (prevents flicker)
     if (firstLoadRef.current) setLoading(true);
     setError(null);
 
     try {
+      let data: any;
+
       if (currentUser?.id) {
-        const data = await apiFetch(
-          `/api/feeds?userId=${safeUserId(currentUser)}&limit=20`
-        );
-        const normalized = normalizeFeed(data?.feed ?? data ?? []);
-        setItems(normalized);
+        data = await apiFetch(`/api/feeds?userId=${safeUserId(currentUser)}&limit=20`);
+        // feeds shape: { feed: [...] }
+        data = data?.feed ?? data;
       } else {
-        const data = await apiFetch(`/api/posts?limit=20`);
-        const normalized = normalizeFeed(data ?? []);
+        data = await apiFetch(`/api/posts?limit=20`);
+      }
+
+      // ✅ normalize
+      const normalized = normalizeFeed(data ?? []);
+
+      // ✅ ignore out-of-order responses (race condition fix)
+      if (mySeq !== fetchSeqRef.current) return;
+
+      // ✅ IMPORTANT: never blow away a good feed with empty results during polling
+      if (normalized.length > 0) {
         setItems(normalized);
+        lastGoodItemsRef.current = normalized;
+
+        // ✅ if comments is open, refresh snapshot when possible (keeps it accurate)
+        if (openCommentsFor != null) {
+          const found = normalized.find((it) => Number(it.post.id) === Number(openCommentsFor));
+          if (found?.post) setCommentPostSnapshot(found.post);
+        }
+      } else {
+        // If it returns empty but we already have a feed, keep the old one.
+        if (lastGoodItemsRef.current.length > 0) {
+          setItems(lastGoodItemsRef.current);
+        } else {
+          setItems([]); // first load truly empty
+        }
       }
     } catch (e: any) {
+      // ✅ ignore out-of-order errors
+      if (mySeq !== fetchSeqRef.current) return;
+
       setError(e?.message || 'Failed to load feed');
-      setItems([]);
+
+      // ✅ keep last good feed on background failures
+      if (lastGoodItemsRef.current.length > 0) {
+        setItems(lastGoodItemsRef.current);
+      } else {
+        setItems([]);
+      }
     } finally {
       if (firstLoadRef.current) {
         setLoading(false);
@@ -1621,12 +1660,16 @@ export default function Feed({
     }
   };
 
+  // ✅ FIXED: Pause polling while comments is open
   useEffect(() => {
     fetchFeed();
+
+    if (openCommentsFor != null) return; // ✅ pause polling while comments open
+
     const id = setInterval(fetchFeed, 8000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.id]);
+  }, [currentUser?.id, openCommentsFor]);
 
   const handleCreatePost = async (
     text: string,
@@ -1802,13 +1845,20 @@ export default function Feed({
     window.open(url, '_blank');
   };
 
-  // ✅ FIXED: allow 0 and ensure numeric matching
+  // ✅ FIXED: Stable activeCommentPost with snapshot support
   const activeCommentPost = useMemo(() => {
     if (openCommentsFor == null) return null;
+
+    // ✅ Prefer snapshot (stable even if items refresh)
+    if (commentPostSnapshot && Number(commentPostSnapshot?.id) === Number(openCommentsFor)) {
+      return commentPostSnapshot;
+    }
+
+    // fallback: find from items
     const target = Number(openCommentsFor);
     const found = items.find((it) => Number(it?.post?.id) === target);
     return found?.post || null;
-  }, [openCommentsFor, items]);
+  }, [openCommentsFor, items, commentPostSnapshot]);
 
   // ✅ de-dup by id (prevents duplicates if optimistic + refresh overlaps)
   const dedupedItems = useMemo(() => {
@@ -1882,7 +1932,14 @@ export default function Feed({
           onReact={handleReact}
           onShare={handleShare}
           onViewImage={handleViewImage}
-          onOpenComments={(id) => setOpenCommentsFor(Number(id))}
+          onOpenComments={(id) => {
+            const pid = Number(id);
+            setOpenCommentsFor(pid);
+
+            // ✅ snapshot the post NOW (prevents blank when feed refreshes)
+            const found = items.find((it) => Number(it?.post?.id) === pid);
+            setCommentPostSnapshot(found?.post ?? null);
+          }}
           onVideoClick={(p) => {
             const url = (p as any)?.media_url;
             if (url) window.open(url, '_blank');
@@ -1895,7 +1952,10 @@ export default function Feed({
           post={activeCommentPost}
           currentUser={currentUser}
           users={users}
-          onClose={() => setOpenCommentsFor(null)}
+          onClose={() => {
+            setOpenCommentsFor(null);
+            setCommentPostSnapshot(null);
+          }}
           getCachedComments={(postId) => commentsCacheRef.current.get(postId) ?? null}
           setCachedComments={(postId, commentsArr) => {
             commentsCacheRef.current.set(postId, commentsArr);
@@ -1910,14 +1970,20 @@ export default function Feed({
         <div className="fixed inset-0 z-[210] flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/60"
-            onClick={() => setOpenCommentsFor(null)}
+            onClick={() => {
+              setOpenCommentsFor(null);
+              setCommentPostSnapshot(null);
+            }}
           />
           <div className="bg-[#242526] border border-[#3E4042] rounded-xl p-6 z-10 text-center text-[#E4E6EB]">
             <p className="font-bold text-lg mb-2">Login required</p>
             <p className="text-[#B0B3B8]">Please login to view and write comments.</p>
             <button
               className="mt-4 bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-5 py-2 rounded-lg"
-              onClick={() => setOpenCommentsFor(null)}
+              onClick={() => {
+                setOpenCommentsFor(null);
+                setCommentPostSnapshot(null);
+              }}
             >
               OK
             </button>
