@@ -1,4 +1,5 @@
-Here feed.tsx
+
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -20,7 +21,10 @@ import { StickerPicker, EmojiPicker } from './Pickers';
  */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('unera_token');
-  const headers: HeadersInit = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(url, { ...options, headers });
@@ -39,10 +43,10 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-// Optional upload helper: only works if you have an upload endpoint.
-// If you don't have it yet, media posts will show a friendly error.
-const uploadToR2IfAvailable = async (file: File): Promise<{ url: string; media_type: 'image' | 'video' } | null> => {
-  // Try a common endpoint name. Change this to your real upload endpoint if you have one.
+// Optional upload helper
+const uploadToR2IfAvailable = async (
+  file: File
+): Promise<{ url: string; media_type: 'image' | 'video' } | null> => {
   const endpoint = '/api/uploads';
 
   const form = new FormData();
@@ -134,9 +138,21 @@ const BACKGROUNDS = [
   { id: 'fire', value: 'linear-gradient(120deg, #f6d365 0%, #fda085 100%)' },
 ];
 
-const FEELINGS = ['Happy', 'Blessed', 'Loved', 'Sad', 'Excited', 'Thankful', 'Crazy', 'Tired', 'Cool', 'Relaxed'];
+const FEELINGS = [
+  'Happy',
+  'Blessed',
+  'Loved',
+  'Sad',
+  'Excited',
+  'Thankful',
+  'Crazy',
+  'Tired',
+  'Cool',
+  'Relaxed',
+];
 
 const safeUserId = (u: any) => Number(u?.id ?? u?.user_id ?? 0);
+const safePostId = (p: any) => Number(p?.id ?? 0);
 
 /**
  * =========================
@@ -254,7 +270,11 @@ export const ReactionButton: React.FC<{
     : null;
 
   return (
-    <div className="flex-1 relative group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+    <div
+      className="flex-1 relative group"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       {showDock && (
         <div className="absolute -top-12 left-0 bg-[#242526] rounded-full shadow-xl p-1.5 flex gap-2 animate-fade-in border border-[#3E4042] z-50">
           {reactionConfig.map((r) => (
@@ -280,7 +300,10 @@ export const ReactionButton: React.FC<{
         {activeReaction ? (
           <>
             <span className="text-[20px]">{activeReaction.icon}</span>
-            <span className="text-[17px] font-medium" style={{ color: activeReaction.color }}>
+            <span
+              className="text-[17px] font-medium"
+              style={{ color: activeReaction.color }}
+            >
               {activeReaction.type}
             </span>
           </>
@@ -334,30 +357,64 @@ export const Post: React.FC<{
 
   const reactions = Array.isArray(p.reactions) ? p.reactions : [];
   const comments = Array.isArray(p.comments) ? p.comments : [];
-  const commentCount = typeof p.comment_count === 'number' ? p.comment_count : comments.length;
+  const commentCount =
+    typeof p.comment_count === 'number' ? p.comment_count : comments.length;
 
   const myReaction = currentUser
-    ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type
+    ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))
+        ?.type
     : undefined;
 
-  const createdAtLabel = p.created_at ? new Date(p.created_at).toLocaleString() : 'Recently';
+  const createdAtLabel = p.created_at
+    ? new Date(p.created_at).toLocaleString()
+    : 'Recently';
+
+  const postId = safePostId(p);
+  const isOptimistic = !!p.__optimistic;
+  const pending = !!p.__pending;
 
   return (
     <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
       <div className="p-3 md:p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 flex-1 min-w-0" onClick={() => onProfileClick(safeUserId(a))}>
+        <div
+          className="flex items-center gap-2 flex-1 min-w-0"
+          onClick={() => onProfileClick(safeUserId(a))}
+        >
           <img
-            src={a.profile_image_url || a.profileImage || a.avatar || 'https://ui-avatars.com/api/?name=User'}
+            src={
+              a.profile_image_url ||
+              a.profileImage ||
+              a.avatar ||
+              'https://ui-avatars.com/api/?name=User'
+            }
             alt=""
             className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
           />
           <div className="min-w-0">
-            <div className="flex items-center gap-1 flex-wrap">
-              <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
-                {a.name || a.username || 'User'}
-              </h4>
-              {a.is_verified && <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1 flex-wrap min-w-0">
+                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
+                  {a.name || a.username || 'User'}
+                </h4>
+                {a.is_verified && (
+                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                )}
+              </div>
+
+              {isOptimistic && (
+                <span className="text-[12px] px-2 py-0.5 rounded-full border border-[#3E4042] text-[#B0B3B8]">
+                  {pending ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
+                      Posting…
+                    </>
+                  ) : (
+                    'Just posted'
+                  )}
+                </span>
+              )}
             </div>
+
             <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
               <span>{createdAtLabel}</span>
               <span>•</span>
@@ -365,7 +422,9 @@ export const Post: React.FC<{
               {p.location && (
                 <>
                   <span>•</span>
-                  <span className="truncate max-w-[160px]">{String(p.location).split(',')[0]}</span>
+                  <span className="truncate max-w-[160px]">
+                    {String(p.location).split(',')[0]}
+                  </span>
                 </>
               )}
               {p.feeling && (
@@ -378,18 +437,20 @@ export const Post: React.FC<{
           </div>
         </div>
 
-        {onDelete && currentUser && safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
-          <button
-            className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(p.id);
-            }}
-            title="Delete"
-          >
-            <i className="fas fa-trash text-[#B0B3B8]"></i>
-          </button>
-        )}
+        {onDelete &&
+          currentUser &&
+          safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
+            <button
+              className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(postId);
+              }}
+              title="Delete"
+            >
+              <i className="fas fa-trash text-[#B0B3B8]"></i>
+            </button>
+          )}
       </div>
 
       {p.content && (
@@ -408,11 +469,21 @@ export const Post: React.FC<{
           className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
           onClick={() => window.open(p.link_preview.url, '_blank')}
         >
-          <img src={p.link_preview.image} alt="" className="w-full h-48 object-cover" />
+          <img
+            src={p.link_preview.image}
+            alt=""
+            className="w-full h-48 object-cover"
+          />
           <div className="p-3 bg-[#3A3B3C]">
-            <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{p.link_preview.domain}</div>
-            <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{p.link_preview.title}</div>
-            <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{p.link_preview.description}</div>
+            <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+              {p.link_preview.domain}
+            </div>
+            <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
+              {p.link_preview.title}
+            </div>
+            <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
+              {p.link_preview.description}
+            </div>
           </div>
         </div>
       )}
@@ -426,11 +497,17 @@ export const Post: React.FC<{
         </div>
       )}
 
-      {p.media_url && (p.media_type === 'image' || p.type === 'image') && !p.background && (
-        <div className="cursor-pointer bg-black" onClick={() => onViewImage(p.media_url)}>
-          <img src={p.media_url} alt="" className="w-full h-auto max-h-[600px] object-contain" />
-        </div>
-      )}
+      {p.media_url &&
+        (p.media_type === 'image' || p.type === 'image') &&
+        !p.background && (
+          <div className="cursor-pointer bg-black" onClick={() => onViewImage(p.media_url)}>
+            <img
+              src={p.media_url}
+              alt=""
+              className="w-full h-auto max-h-[600px] object-contain"
+            />
+          </div>
+        )}
 
       {p.media_url && (p.media_type === 'video' || p.type === 'video') && (
         <div className="cursor-pointer relative h-[500px]" onClick={() => onVideoClick(post)}>
@@ -443,10 +520,15 @@ export const Post: React.FC<{
 
       <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
         <div className="flex items-center gap-1.5">
-          {reactions.length > 0 && <span className="hover:underline">{reactions.length} Reactions</span>}
+          {reactions.length > 0 && (
+            <span className="hover:underline">{reactions.length} Reactions</span>
+          )}
         </div>
         <div className="flex gap-4">
-          <span className="hover:underline cursor-pointer" onClick={() => onOpenComments(p.id)}>
+          <span
+            className="hover:underline cursor-pointer"
+            onClick={() => onOpenComments(Number(postId))} // ✅ force number
+          >
             {commentCount} Comments
           </span>
         </div>
@@ -456,19 +538,21 @@ export const Post: React.FC<{
         <ReactionButton
           currentUserReactions={myReaction}
           reactionCount={reactions.length}
-          onReact={(type) => onReact(p.id, type)}
-          isGuest={!currentUser}
+          onReact={(type) => onReact(Number(postId), type)}
+          isGuest={!currentUser || pending} // optional: block while pending
         />
         <button
           className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-          onClick={() => (currentUser ? onOpenComments(p.id) : alert('Login first'))}
+          onClick={() =>
+            currentUser ? onOpenComments(Number(postId)) : alert('Login first')
+          } // ✅ force number
         >
           <i className="far fa-comment-alt text-[20px]"></i>
           <span className="text-[17px] font-medium">Comment</span>
         </button>
         <button
           className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-          onClick={() => onShare(p.id)}
+          onClick={() => onShare(Number(postId))}
         >
           <i className="fas fa-share text-[20px]"></i>
           <span className="text-[17px] font-medium">Share</span>
@@ -492,7 +576,12 @@ export const CreatePost: React.FC<{
   <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
     <div className="flex gap-2 mb-3">
       <img
-        src={(currentUser as any).profile_image_url}
+        src={
+          (currentUser as any).profile_image_url ||
+          (currentUser as any).profileImage ||
+          (currentUser as any).avatar ||
+          'https://ui-avatars.com/api/?name=User'
+        }
         alt=""
         className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
         onClick={() => onProfileClick(safeUserId(currentUser))}
@@ -513,7 +602,9 @@ export const CreatePost: React.FC<{
         onClick={onClick}
       >
         <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">
+          Live Video
+        </span>
       </div>
 
       <div
@@ -521,7 +612,9 @@ export const CreatePost: React.FC<{
         onClick={onClick}
       >
         <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">
+          Photo/Video
+        </span>
       </div>
 
       <div
@@ -529,7 +622,9 @@ export const CreatePost: React.FC<{
         onClick={onCreateEventClick}
       >
         <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">
+          Life Event
+        </span>
       </div>
     </div>
   </div>
@@ -537,7 +632,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * CREATE POST MODAL (FB style)
+ * CREATE POST MODAL (your reference UI)
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -573,7 +668,7 @@ export const CreatePostModal: React.FC<{
   const [feeling, setFeeling] = useState('');
   const [location, setLocation] = useState('');
 
-  // Location search via YOUR backend: /api/locations/search
+  // Location search via backend: /api/locations/search
   const [locQuery, setLocQuery] = useState('');
   const [locResults, setLocResults] = useState<any[]>([]);
   const [locLoading, setLocLoading] = useState(false);
@@ -613,8 +708,7 @@ export const CreatePostModal: React.FC<{
     try {
       const data = await apiFetch(`/api/locations/search?q=${encodeURIComponent(q)}`);
       setLocResults(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('Location search failed', err);
+    } catch {
       setLocResults([]);
     } finally {
       setLocLoading(false);
@@ -670,9 +764,17 @@ export const CreatePostModal: React.FC<{
     return (
       <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
         <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
-          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={() => setView('main')}></i>
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={() => setView('main')}
+          ></i>
           <h3 className="text-[#E4E6EB] text-lg font-bold">Tag People</h3>
-          <button onClick={() => setView('main')} className="ml-auto text-[#1877F2] font-bold">Done</button>
+          <button
+            onClick={() => setView('main')}
+            className="ml-auto text-[#1877F2] font-bold"
+          >
+            Done
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
@@ -691,10 +793,23 @@ export const CreatePostModal: React.FC<{
                 }
               >
                 <div className="flex items-center gap-3">
-                  <img src={u.profile_image_url} className="w-10 h-10 rounded-full object-cover" alt="" />
-                  <span className="text-[#E4E6EB] font-semibold">{u.name}</span>
+                  <img
+                    src={
+                      u.profile_image_url ||
+                      u.profileImage ||
+                      u.avatar ||
+                      'https://ui-avatars.com/api/?name=User'
+                    }
+                    className="w-10 h-10 rounded-full object-cover"
+                    alt=""
+                  />
+                  <span className="text-[#E4E6EB] font-semibold">
+                    {u.name || u.username || 'User'}
+                  </span>
                 </div>
-                {taggedUsers.includes(safeUserId(u)) && <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>}
+                {taggedUsers.includes(safeUserId(u)) && (
+                  <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>
+                )}
               </div>
             ))}
         </div>
@@ -706,8 +821,13 @@ export const CreatePostModal: React.FC<{
     return (
       <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
         <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
-          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={() => setView('main')}></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">How are you feeling?</h3>
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={() => setView('main')}
+          ></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">
+            How are you feeling?
+          </h3>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-2">
@@ -732,7 +852,10 @@ export const CreatePostModal: React.FC<{
     return (
       <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
         <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
-          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={() => setView('main')}></i>
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={() => setView('main')}
+          ></i>
           <h3 className="text-[#E4E6EB] text-lg font-bold">Search Location</h3>
         </div>
 
@@ -747,7 +870,9 @@ export const CreatePostModal: React.FC<{
               onChange={onLocQueryChange}
             />
             <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
-            {locLoading && <i className="fas fa-spinner fa-spin absolute right-4 top-1/2 -translate-y-1/2 text-[#1877F2]"></i>}
+            {locLoading && (
+              <i className="fas fa-spinner fa-spin absolute right-4 top-1/2 -translate-y-1/2 text-[#1877F2]"></i>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -775,8 +900,12 @@ export const CreatePostModal: React.FC<{
                         <i className="fas fa-location-dot text-[#E4E6EB]"></i>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-[#E4E6EB] font-bold block truncate">{title}</span>
-                        <span className="text-[#B0B3B8] text-xs block truncate">{display}</span>
+                        <span className="text-[#E4E6EB] font-bold block truncate">
+                          {title}
+                        </span>
+                        <span className="text-[#B0B3B8] text-xs block truncate">
+                          {display}
+                        </span>
                       </div>
                     </div>
                   );
@@ -792,7 +921,7 @@ export const CreatePostModal: React.FC<{
                 <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
                   Nearby Suggestions
                 </p>
-                {LOCATIONS_DATA.slice(0, 6).map((loc) => (
+                {LOCATIONS_DATA.slice(0, 6).map((loc: any) => (
                   <div
                     key={loc.name}
                     className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors"
@@ -804,7 +933,9 @@ export const CreatePostModal: React.FC<{
                     <div className="w-10 h-10 bg-[#3A3B3C] rounded-full flex items-center justify-center text-xl">
                       {loc.flag}
                     </div>
-                    <span className="text-[#E4E6EB] font-semibold">{loc.name}</span>
+                    <span className="text-[#E4E6EB] font-semibold">
+                      {loc.name}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -819,10 +950,17 @@ export const CreatePostModal: React.FC<{
     <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
       <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
         <div className="flex items-center gap-4">
-          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={onClose}></i>
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={onClose}
+          ></i>
           <h3 className="text-[#E4E6EB] text-[20px] font-medium">Create Post</h3>
         </div>
-        <button onClick={submit} disabled={!canPost} className="text-[#E4E6EB] font-bold text-[17px] disabled:text-[#B0B3B8]">
+        <button
+          onClick={submit}
+          disabled={!canPost}
+          className="text-[#E4E6EB] font-bold text-[17px] disabled:text-[#B0B3B8]"
+        >
           POST
         </button>
       </div>
@@ -830,18 +968,48 @@ export const CreatePostModal: React.FC<{
       <div className="flex-1 overflow-y-auto">
         <div className="p-4">
           <div className="flex items-center gap-3 mb-4">
-            <img src={(currentUser as any).profile_image_url} alt="" className="w-12 h-12 rounded-full object-cover" />
+            <img
+              src={
+                (currentUser as any).profile_image_url ||
+                (currentUser as any).profileImage ||
+                (currentUser as any).avatar ||
+                'https://ui-avatars.com/api/?name=User'
+              }
+              alt=""
+              className="w-12 h-12 rounded-full object-cover"
+            />
             <div>
               <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[17px]">{(currentUser as any).name}</h4>
-                {feeling && <span className="text-[#E4E6EB] text-[15px]"> is feeling {feeling}</span>}
-                {location && <span className="text-[#E4E6EB] text-[15px]"> in {location.split(',')[0]}</span>}
-                {taggedUsers.length > 0 && <span className="text-[#E4E6EB] text-[15px]"> with {taggedUsers.length} others</span>}
+                <h4 className="font-bold text-[#E4E6EB] text-[17px]">
+                  {(currentUser as any).name || (currentUser as any).username || 'User'}
+                </h4>
+                {feeling && (
+                  <span className="text-[#E4E6EB] text-[15px]">
+                    {' '}
+                    is feeling {feeling}
+                  </span>
+                )}
+                {location && (
+                  <span className="text-[#E4E6EB] text-[15px]">
+                    {' '}
+                    in {location.split(',')[0]}
+                  </span>
+                )}
+                {taggedUsers.length > 0 && (
+                  <span className="text-[#E4E6EB] text-[15px]">
+                    {' '}
+                    with {taggedUsers.length} others
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2 mt-0.5">
                 <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[13px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
-                  <i className={`fas ${visibility === 'Public' ? 'fa-globe-americas' : 'fa-user-friends'} text-[12px]`}></i>
+                  <i
+                    className={`fas ${
+                      visibility === 'Public' ? 'fa-globe-americas' : 'fa-user-friends'
+                    } text-[12px]`}
+                  ></i>
                   <span>{visibility}</span>
                 </div>
               </div>
@@ -850,13 +1018,17 @@ export const CreatePostModal: React.FC<{
 
           <div
             className={`relative min-h-[150px] mb-4 transition-all ${
-              activeBackground ? 'flex items-center justify-center p-8 rounded-lg text-center min-h-[300px]' : ''
+              activeBackground
+                ? 'flex items-center justify-center p-8 rounded-lg text-center min-h-[300px]'
+                : ''
             }`}
             style={{ background: activeBackground, backgroundSize: 'cover' }}
           >
             <textarea
               className={`w-full bg-transparent outline-none text-[#E4E6EB] placeholder-[#B0B3B8] resize-none ${
-                activeBackground ? 'text-center font-bold text-3xl drop-shadow-md placeholder-white/70' : 'text-[24px]'
+                activeBackground
+                  ? 'text-center font-bold text-3xl drop-shadow-md placeholder-white/70'
+                  : 'text-[24px]'
               }`}
               placeholder="What's on your mind?"
               value={text}
@@ -872,9 +1044,15 @@ export const CreatePostModal: React.FC<{
             >
               <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
               <div className="p-3 bg-[#3A3B3C]">
-                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{linkPreview.domain}</div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{linkPreview.title}</div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{linkPreview.description}</div>
+                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+                  {linkPreview.domain}
+                </div>
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
+                  {linkPreview.title}
+                </div>
+                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
+                  {linkPreview.description}
+                </div>
               </div>
             </div>
           )}
@@ -919,22 +1097,60 @@ export const CreatePostModal: React.FC<{
               </div>
 
               {type === 'image' ? (
-                <img src={preview} alt="preview" className="w-full h-auto max-h-[400px] object-contain bg-black" />
+                <img
+                  src={preview}
+                  alt="preview"
+                  className="w-full h-auto max-h-[400px] object-contain bg-black"
+                />
               ) : (
-                <video src={preview} controls className="w-full h-auto max-h-[400px] bg-black" />
+                <video
+                  src={preview}
+                  controls
+                  className="w-full h-auto max-h-[400px] bg-black"
+                />
               )}
             </div>
           )}
         </div>
 
         <div className="border-t border-[#3E4042]">
-          <OptionsItem icon="fas fa-images" color="#45BD62" label="Photo/video" onClick={() => fileInputRef.current?.click()} />
-          <OptionsItem icon="fas fa-camera" color="#45BD62" label="Camera" onClick={() => cameraInputRef.current?.click()} />
-          <OptionsItem icon="fas fa-user-tag" color="#1877F2" label="Tag people" onClick={() => setView('tag')} />
-          <OptionsItem icon="far fa-smile" color="#F7B928" label="Feeling/activity" onClick={() => setView('feeling')} />
-          <OptionsItem icon="fas fa-map-marker-alt" color="#F02849" label="Check in" onClick={() => setView('location')} />
+          <OptionsItem
+            icon="fas fa-images"
+            color="#45BD62"
+            label="Photo/video"
+            onClick={() => fileInputRef.current?.click()}
+          />
+          <OptionsItem
+            icon="fas fa-camera"
+            color="#45BD62"
+            label="Camera"
+            onClick={() => cameraInputRef.current?.click()}
+          />
+          <OptionsItem
+            icon="fas fa-user-tag"
+            color="#1877F2"
+            label="Tag people"
+            onClick={() => setView('tag')}
+          />
+          <OptionsItem
+            icon="far fa-smile"
+            color="#F7B928"
+            label="Feeling/activity"
+            onClick={() => setView('feeling')}
+          />
+          <OptionsItem
+            icon="fas fa-map-marker-alt"
+            color="#F02849"
+            label="Check in"
+            onClick={() => setView('location')}
+          />
           {onCreateEventClick && (
-            <OptionsItem icon="fas fa-flag" color="#F7B928" label="Life event" onClick={onCreateEventClick} />
+            <OptionsItem
+              icon="fas fa-flag"
+              color="#F7B928"
+              label="Life event"
+              onClick={onCreateEventClick}
+            />
           )}
         </div>
       </div>
@@ -949,15 +1165,28 @@ export const CreatePostModal: React.FC<{
         </button>
       </div>
 
-      <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileChange} />
-      <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        accept="image/*,video/*"
+        onChange={handleFileChange}
+      />
+      <input
+        type="file"
+        ref={cameraInputRef}
+        className="hidden"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileChange}
+      />
     </div>
   );
 };
 
 /**
  * =========================
- * COMMENTS SHEET (simple)
+ * COMMENTS SHEET (your style, loads comments)
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -966,20 +1195,19 @@ export const CommentsSheet: React.FC<{
   users: User[];
   onClose: () => void;
   onComment?: (postId: number, text: string) => void;
-  onLikeComment?: (commentId: number) => void;
-  getCommentAuthor?: (id: number) => User | undefined;
-  onProfileClick?: (id: number) => void;
-}> = ({ post, currentUser, users, onClose }) => {
+}> = ({ post, currentUser, users, onClose, onComment }) => {
   const p: any = post as any;
   const [text, setText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const postId = Number(p?.id ?? 0);
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
 
-    apiFetch(`/api/posts/${p.id}/comments`)
+    apiFetch(`/api/posts/${postId}/comments`)
       .then((data) => {
         if (!alive) return;
         setComments(Array.isArray(data) ? data : data?.comments || []);
@@ -996,28 +1224,45 @@ export const CommentsSheet: React.FC<{
     return () => {
       alive = false;
     };
-  }, [p.id]);
+  }, [postId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!text.trim()) return;
+    const t = text.trim();
+    if (!t) return;
+
+    // optimistic add (local)
+    const optimistic = {
+      id: `tmp-${Date.now()}`,
+      text: t,
+      author_name: (currentUser as any)?.name || 'You',
+      author_image:
+        (currentUser as any)?.profile_image_url ||
+        (currentUser as any)?.profileImage ||
+        (currentUser as any)?.avatar ||
+        'https://ui-avatars.com/api/?name=User',
+      __pending: true,
+    };
+    setComments((prev) => [...prev, optimistic]);
+    setText('');
 
     try {
-      const data = await apiFetch(`/api/posts/${p.id}/comment`, {
+      await apiFetch(`/api/posts/${postId}/comment`, {
         method: 'POST',
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: t }),
+      }).catch(async () => {
+        await apiFetch(`/api/post-comments`, {
+          method: 'POST',
+          body: JSON.stringify({ post_id: postId, user_id: safeUserId(currentUser), text: t }),
+        });
       });
 
-      const newComment = data?.comment || {
-        id: Date.now(),
-        text,
-        author_name: (currentUser as any).name,
-        author_image: (currentUser as any).profile_image_url,
-      };
-
-      setComments((prev) => [...prev, newComment]);
-      setText('');
+      // refresh comments for truth
+      const data = await apiFetch(`/api/posts/${postId}/comments`).catch(() => null);
+      setComments(Array.isArray(data) ? data : data?.comments || []);
     } catch (err: any) {
+      // remove optimistic if failed
+      setComments((prev) => prev.filter((c) => c.id !== optimistic.id));
       alert(err?.message || 'Failed to comment');
     }
   };
@@ -1041,15 +1286,25 @@ export const CommentsSheet: React.FC<{
             <div className="text-[#B0B3B8] text-center py-6">No comments yet.</div>
           ) : (
             comments.map((c) => (
-              <div key={c.id} className="flex gap-2">
+              <div key={String(c.id)} className="flex gap-2">
                 <img
                   src={c.author_image || 'https://ui-avatars.com/api/?name=User'}
                   className="w-8 h-8 rounded-full object-cover"
                   alt=""
                 />
                 <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1">
-                  <p className="font-bold text-white text-sm">{c.author_name || 'Anonymous'}</p>
-                  <p className="text-white text-[15px] whitespace-pre-wrap break-words">{c.text}</p>
+                  <p className="font-bold text-white text-sm flex items-center gap-2">
+                    {c.author_name || 'Anonymous'}
+                    {c.__pending && (
+                      <span className="text-[11px] text-[#B0B3B8]">
+                        <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
+                        sending…
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-white text-[15px] whitespace-pre-wrap break-words">
+                    {c.text}
+                  </p>
                 </div>
               </div>
             ))
@@ -1075,7 +1330,7 @@ export const CommentsSheet: React.FC<{
 
 /**
  * =========================
- * SUGGESTED PRODUCTS WIDGET
+ * SUGGESTED PRODUCTS WIDGET (as your file)
  * =========================
  */
 export const SuggestedProductsWidget: React.FC<{
@@ -1084,7 +1339,9 @@ export const SuggestedProductsWidget: React.FC<{
   onViewProduct: (product: Product) => void;
   onSeeAll: () => void;
 }> = ({ products, currentUser, onViewProduct, onSeeAll }) => {
-  const suggested = (products || []).filter((p: any) => p.seller_id !== safeUserId(currentUser)).slice(0, 4);
+  const suggested = (products || [])
+    .filter((p: any) => p.seller_id !== safeUserId(currentUser))
+    .slice(0, 4);
   if (suggested.length === 0) return null;
 
   return (
@@ -1101,25 +1358,31 @@ export const SuggestedProductsWidget: React.FC<{
 
       <div className="grid grid-cols-2 gap-2">
         {suggested.map((product: any) => {
-          const countryData = MARKETPLACE_COUNTRIES.find((c) =>
+          const countryData = MARKETPLACE_COUNTRIES.find((c: any) =>
             String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
           );
           const symbol = countryData ? countryData.symbol : '$';
 
           return (
-            <div key={product.id} className="cursor-pointer group" onClick={() => onViewProduct(product)}>
+            <div
+              key={String(product.id)}
+              className="cursor-pointer group"
+              onClick={() => onViewProduct(product)}
+            >
               <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
                 <img
-                  src={product.images?.[0]}
+                  src={product.images?.[0] || product.image || 'https://via.placeholder.com/400x300'}
                   alt={product.title}
                   className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                 />
                 <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
                   {symbol}
-                  {product.main_price}
+                  {product.main_price ?? product.price ?? ''}
                 </div>
               </div>
-              <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">{product.title}</h4>
+              <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">
+                {product.title || product.name || 'Product'}
+              </h4>
             </div>
           );
         })}
@@ -1130,11 +1393,7 @@ export const SuggestedProductsWidget: React.FC<{
 
 /**
  * =========================
- * ✅ FULL FEED CONTAINER (API CONNECTED)
- * - GET /api/feed (fallback /api/posts)
- * - POST /api/posts
- * - Polling refresh
- * - Handles loading/error
+ * FEED CONTAINER
  * =========================
  */
 type FeedItem = {
@@ -1143,25 +1402,26 @@ type FeedItem = {
 };
 
 const normalizeFeed = (raw: any): FeedItem[] => {
-  // Accept: array of posts, or {items:[]}, or {results:[]}
-  const arr = Array.isArray(raw) ? raw : raw?.items || raw?.results || raw?.posts || [];
+  const arr = Array.isArray(raw) ? raw : raw?.items || raw?.results || raw?.posts || raw?.feed || [];
   if (!Array.isArray(arr)) return [];
 
   return arr.map((x: any) => {
-    // If backend returns joined author fields:
-    const author = x.author || x.user || {
-      id: x.user_id,
-      name: x.author_name || x.username || 'User',
-      profile_image_url: x.author_profile_image_url || x.profile_image_url || x.profileImage,
-      is_verified: x.is_verified,
-    };
+    const author =
+      x.author ||
+      x.user || {
+        id: x.user_id,
+        name: x.author_name || x.username || 'User',
+        profile_image_url:
+          x.author_profile_image_url || x.profile_image_url || x.profileImage,
+        is_verified: x.is_verified,
+      };
 
     const post = {
       ...x,
-      id: x.id,
+      id: Number(x.id ?? x.post_id ?? x.postId ?? 0),
       user_id: x.user_id ?? x.author_id,
       content: x.content ?? '',
-      created_at: x.created_at ?? x.timestamp,
+      created_at: x.created_at ?? x.timestamp ?? x.createdAt,
       media_url: x.media_url ?? x.image_url ?? x.video_url ?? null,
       media_type: x.media_type ?? x.type ?? null,
       reactions: x.reactions ?? [],
@@ -1177,6 +1437,34 @@ const normalizeFeed = (raw: any): FeedItem[] => {
   });
 };
 
+const isSameAsOptimistic = (serverPost: any, optimisticPost: any) => {
+  try {
+    const su = Number(serverPost?.user_id ?? 0);
+    const ou = Number(optimisticPost?.user_id ?? 0);
+    if (su !== ou) return false;
+
+    const sc = String(serverPost?.content ?? '').trim();
+    const oc = String(optimisticPost?.content ?? '').trim();
+    if (sc !== oc) return false;
+
+    const sm = String(serverPost?.media_url ?? '');
+    const om = String(optimisticPost?.media_url ?? '');
+    if (sm !== om) return false;
+
+    const sb = String(serverPost?.background ?? '');
+    const ob = String(optimisticPost?.background ?? '');
+    if (sb !== ob) return false;
+
+    // created_at close (within 2 minutes)
+    const st = Date.parse(serverPost?.created_at ?? '');
+    const ot = Date.parse(optimisticPost?.created_at ?? '');
+    if (!Number.isFinite(st) || !Number.isFinite(ot)) return true;
+    return Math.abs(st - ot) <= 120_000;
+  } catch {
+    return false;
+  }
+};
+
 export default function Feed({
   currentUser,
   users = [],
@@ -1186,7 +1474,6 @@ export default function Feed({
   users?: User[];
   onProfileClick: (id: number) => void;
 }) {
-  // language hook (optional)
   try {
     useLanguage();
   } catch {}
@@ -1196,13 +1483,36 @@ export default function Feed({
   const [error, setError] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
-  const [openCommentsFor, setOpenCommentsFor] = useState<any | null>(null);
+
+  // ✅ store numeric only
+  const [openCommentsFor, setOpenCommentsFor] = useState<number | null>(null);
+
+  // ✅ prevent double-submit duplicates
+  const createInFlightRef = useRef(false);
+
+  const mergeServerWithOptimistic = (serverItems: FeedItem[], prevItems: FeedItem[]) => {
+    const prevOptimistics = prevItems.filter((it) => it?.post?.__optimistic);
+    if (prevOptimistics.length === 0) return serverItems;
+
+    // Remove optimistic that already exists on server
+    const stillNeeded = prevOptimistics.filter((opt) => {
+      const exists = serverItems.some((srv) => isSameAsOptimistic(srv.post, opt.post));
+      return !exists && !!opt.post.__pending; // keep only pending ones
+    });
+
+    // Put remaining pending optimistic on top, then server items
+    return [...stillNeeded, ...serverItems];
+  };
 
   const fetchFeed = async () => {
+    setError(null);
     try {
-      setError(null);
-      const data = await apiFetch('/api/feed').catch(async () => await apiFetch('/api/posts'));
-      setItems(normalizeFeed(data));
+      const data = currentUser?.id
+        ? await apiFetch(`/api/feeds?userId=${safeUserId(currentUser)}&limit=20`)
+        : await apiFetch(`/api/posts?limit=20`);
+
+      const normalized = normalizeFeed(data?.feed ?? data ?? []);
+      setItems((prev) => mergeServerWithOptimistic(normalized, prev));
     } catch (e: any) {
       setError(e?.message || 'Failed to load feed');
     } finally {
@@ -1212,10 +1522,10 @@ export default function Feed({
 
   useEffect(() => {
     fetchFeed();
-    const id = setInterval(fetchFeed, 8000); // near real-time polling
+    const id = setInterval(fetchFeed, 8000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [currentUser?.id]);
 
   const handleCreatePost = async (
     text: string,
@@ -1232,64 +1542,144 @@ export default function Feed({
   ) => {
     if (!currentUser) return alert('Login first');
 
-    // Validate
+    // guard duplicates
+    if (createInFlightRef.current) return;
+    createInFlightRef.current = true;
+
     const hasText = !!text?.trim();
     const hasBg = !!meta?.background;
     const hasFile = !!file;
+    if (!hasText && !hasBg && !hasFile) {
+      createInFlightRef.current = false;
+      return;
+    }
 
-    if (!hasText && !hasBg && !hasFile) return;
+    // ✅ optimistic item (shows immediately)
+    const tmpId = -Date.now();
+    const nowIso = new Date().toISOString();
 
-    // Upload media if needed
+    const optimisticPost: any = {
+      id: tmpId,
+      user_id: safeUserId(currentUser),
+      content: text || '',
+      created_at: nowIso,
+      media_url: null,
+      media_type: null,
+      background: meta?.background || null,
+      feeling: meta?.feeling || null,
+      location: meta?.location || null,
+      link_preview: meta?.linkPreview || null,
+      reactions: [],
+      comments: [],
+      comment_count: 0,
+      __optimistic: true,
+      __pending: true,
+    };
+
+    const optimisticAuthor: any = {
+      ...(currentUser as any),
+      id: safeUserId(currentUser),
+      name: (currentUser as any).name || (currentUser as any).username || 'User',
+      profile_image_url:
+        (currentUser as any).profile_image_url ||
+        (currentUser as any).profileImage ||
+        (currentUser as any).avatar,
+      is_verified: (currentUser as any).is_verified,
+    };
+
+    setItems((prev) => [{ post: optimisticPost, author: optimisticAuthor }, ...prev]);
+
+    // close modal immediately like FB
+    setShowCreate(false);
+
     let media_url: string | null = null;
     let media_type: 'image' | 'video' | null = null;
 
-    if (file) {
-      const uploaded = await uploadToR2IfAvailable(file);
-      if (!uploaded) {
-        alert('Image/video upload is not set yet. Create an upload API endpoint (R2) first, then media posts will work.');
-        return;
-      }
-      media_url = uploaded.url;
-      media_type = uploaded.media_type;
-    }
-
-    // POST to /api/posts -> hits functions/api/posts.ts
     try {
-      await apiFetch('/api/posts', {
+      if (file) {
+        const uploaded = await uploadToR2IfAvailable(file);
+        if (!uploaded) {
+          // remove optimistic
+          setItems((prev) => prev.filter((it) => Number(it.post.id) !== tmpId));
+          alert(
+            'Image/video upload is not set yet. Create an upload API endpoint (R2) first, then media posts will work.'
+          );
+          return;
+        }
+        media_url = uploaded.url;
+        media_type = uploaded.media_type;
+
+        // update optimistic to show media immediately
+        setItems((prev) =>
+          prev.map((it) =>
+            Number(it.post.id) === tmpId
+              ? {
+                  ...it,
+                  post: { ...it.post, media_url, media_type },
+                }
+              : it
+          )
+        );
+      }
+
+      const resp = await apiFetch('/api/posts', {
         method: 'POST',
         body: JSON.stringify({
           user_id: safeUserId(currentUser),
           content: text || '',
-          media_url: media_url,
-          media_type: media_type,
-          // Optional extras (backend should ignore if not supported)
+          media_url,
+          media_type,
           background: meta?.background || null,
           feeling: meta?.feeling || null,
           location: meta?.location || null,
           visibility: meta?.visibility || 'Public',
           tagged_users: meta?.taggedUsers || [],
           link_preview: meta?.linkPreview || null,
+          // (optional) helps debugging if you later store it in DB
+          client_tmp_id: String(tmpId),
         }),
       });
 
-      setShowCreate(false);
+      // Try to get new id from response
+      const newId =
+        Number(resp?.post_id ?? resp?.id ?? resp?.post?.id ?? 0) || null;
+
+      // Mark optimistic as not pending and (if we got id) convert id
+      setItems((prev) =>
+        prev.map((it) => {
+          if (Number(it.post.id) !== tmpId) return it;
+          const updated = {
+            ...it,
+            post: {
+              ...it.post,
+              id: newId ?? it.post.id,
+              __pending: false,
+            },
+          };
+          return updated;
+        })
+      );
+
+      // Refresh from server and dedupe optimistic vs server
       await fetchFeed();
     } catch (e: any) {
+      // remove optimistic on failure
+      setItems((prev) => prev.filter((it) => Number(it.post.id) !== tmpId));
       alert(e?.message || 'Failed to post');
+    } finally {
+      createInFlightRef.current = false;
     }
   };
 
   const handleReact = async (postId: number, type: ReactionType) => {
     if (!currentUser) return alert('Login first');
+    const pid = Number(postId);
     try {
-      // If you have a dedicated reactions endpoint, change here.
-      // For now we attempt a common pattern:
       await apiFetch('/api/post-reactions', {
         method: 'POST',
-        body: JSON.stringify({ post_id: postId, user_id: safeUserId(currentUser), type }),
+        body: JSON.stringify({ post_id: pid, user_id: safeUserId(currentUser), type }),
       }).catch(async () => {
-        // fallback: if your backend handles reactions inside /api/posts/:id/react
-        await apiFetch(`/api/posts/${postId}/react`, {
+        await apiFetch(`/api/posts/${pid}/react`, {
           method: 'POST',
           body: JSON.stringify({ type }),
         });
@@ -1297,13 +1687,12 @@ export default function Feed({
 
       await fetchFeed();
     } catch {
-      // if reactions endpoint not implemented, just refresh silently
       await fetchFeed();
     }
   };
 
   const handleShare = async (postId: number) => {
-    const link = `https://unera.social/posts/${postId}`;
+    const link = `https://unera.social/posts/${Number(postId)}`;
     try {
       await navigator.clipboard.writeText(link);
       alert('Link copied');
@@ -1316,9 +1705,11 @@ export default function Feed({
     window.open(url, '_blank');
   };
 
+  // ✅ FIXED comments panel selection (allows 0, blocks null/undefined)
   const activeCommentPost = useMemo(() => {
-    if (!openCommentsFor) return null;
-    const found = items.find((it) => Number(it.post.id) === Number(openCommentsFor));
+    if (openCommentsFor == null) return null;
+    const target = Number(openCommentsFor);
+    const found = items.find((it) => Number(it?.post?.id) === target);
     return found?.post || null;
   }, [openCommentsFor, items]);
 
@@ -1371,7 +1762,7 @@ export default function Feed({
 
       {items.map((it) => (
         <Post
-          key={it.post.id}
+          key={String(it.post.id)}
           post={it.post}
           author={it.author}
           currentUser={currentUser}
@@ -1380,7 +1771,8 @@ export default function Feed({
           onReact={handleReact}
           onShare={handleShare}
           onViewImage={handleViewImage}
-          onOpenComments={(id) => setOpenCommentsFor(id)}
+          // ✅ always numeric (prevents mismatch bugs)
+          onOpenComments={(id) => setOpenCommentsFor(Number(id))}
           onVideoClick={(p) => {
             const url = (p as any)?.media_url;
             if (url) window.open(url, '_blank');
@@ -1399,10 +1791,15 @@ export default function Feed({
 
       {activeCommentPost && !currentUser && (
         <div className="fixed inset-0 z-[210] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setOpenCommentsFor(null)} />
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setOpenCommentsFor(null)}
+          />
           <div className="bg-[#242526] border border-[#3E4042] rounded-xl p-6 z-10 text-center text-[#E4E6EB]">
             <p className="font-bold text-lg mb-2">Login required</p>
-            <p className="text-[#B0B3B8]">Please login to view and write comments.</p>
+            <p className="text-[#B0B3B8]">
+              Please login to view and write comments.
+            </p>
             <button
               className="mt-4 bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-5 py-2 rounded-lg"
               onClick={() => setOpenCommentsFor(null)}
