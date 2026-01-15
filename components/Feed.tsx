@@ -1,4 +1,4 @@
-// Feed.tsx
+// components/Feed.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -21,25 +21,40 @@ import { StickerPicker, EmojiPicker } from './Pickers';
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('unera_token');
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
+
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (!isFormData) {
+    headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
+  }
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(url, { ...options, headers });
+
+  const contentType = res.headers.get('content-type') || '';
+  let data: any = null;
+
+  try {
+    if (contentType.includes('application/json')) data = await res.json();
+    else {
+      const text = await res.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: text };
+      }
+    }
+  } catch {
+    data = null;
+  }
+
   if (!res.ok) {
-    let msg = `API Error (${res.status})`;
-    try {
-      const j = await res.json();
-      msg = j?.error || j?.message || msg;
-    } catch {}
+    const msg = data?.error || data?.message || `API Error (${res.status})`;
     throw new Error(msg);
   }
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
+
+  return data;
 };
 
 // Optional upload helper: only works if you have an upload endpoint.
@@ -152,8 +167,8 @@ const FEELINGS = [
   'Relaxed',
 ];
 
-const safeUserId = (u: any) => Number(u?.id ?? u?.user_id ?? 0);
-const safePostId = (p: any) => Number(p?.id ?? 0);
+const safeUserId = (u: any) => Number(u?.id ?? u?.user_id ?? u?.userId ?? 0);
+const safePostId = (p: any) => Number(p?.id ?? p?.post_id ?? p?.postId ?? 0);
 
 /**
  * =========================
@@ -165,7 +180,7 @@ const safePostId = (p: any) => Number(p?.id ?? 0);
  * Under 7 days: "Xdays"
  * Older: "MM/DD/YYYY"
  */
-const formatRelativeTime = (dateInput: any): string => {
+export const formatRelativeTime = (dateInput: any): string => {
   if (!dateInput) return 'Recently';
 
   const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
@@ -341,10 +356,7 @@ export const ReactionButton: React.FC<{
         {activeReaction ? (
           <>
             <span className="text-[20px]">{activeReaction.icon}</span>
-            <span
-              className="text-[17px] font-medium"
-              style={{ color: activeReaction.color }}
-            >
+            <span className="text-[17px] font-medium" style={{ color: activeReaction.color }}>
               {activeReaction.type}
             </span>
           </>
@@ -402,8 +414,7 @@ export const Post: React.FC<{
     typeof p.comment_count === 'number' ? p.comment_count : comments.length;
 
   const myReaction = currentUser
-    ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))
-        ?.type
+    ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type
     : undefined;
 
   const createdAtLabel = formatRelativeTime(p.created_at);
@@ -626,8 +637,7 @@ export const CreatePost: React.FC<{
         onClick={onClick}
       >
         <span className="text-[#B0B3B8] text-[17px] truncate">
-          What's on your mind,{' '}
-          {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
+          What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
         </span>
       </div>
     </div>
@@ -666,7 +676,6 @@ export const CreatePost: React.FC<{
   </div>
 );
 
-
 /**
  * =========================
  * CREATE POST MODAL (WORKING)
@@ -691,9 +700,7 @@ export const CreatePostModal: React.FC<{
   ) => void;
   onCreateEventClick?: () => void;
 }> = ({ currentUser, users, onClose, onCreatePost }) => {
-  const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>(
-    'main'
-  );
+  const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -745,9 +752,7 @@ export const CreatePostModal: React.FC<{
     }
     setLocLoading(true);
     try {
-      const data = await apiFetch(
-        `/api/locations/search?q=${encodeURIComponent(q)}`
-      );
+      const data = await apiFetch(`/api/locations/search?q=${encodeURIComponent(q)}`);
       setLocResults(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Location search failed', err);
@@ -811,10 +816,7 @@ export const CreatePostModal: React.FC<{
             onClick={() => setView('main')}
           ></i>
           <h3 className="text-[#E4E6EB] text-lg font-bold">Tag People</h3>
-          <button
-            onClick={() => setView('main')}
-            className="ml-auto text-[#1877F2] font-bold"
-          >
+          <button onClick={() => setView('main')} className="ml-auto text-[#1877F2] font-bold">
             Done
           </button>
         </div>
@@ -836,11 +838,11 @@ export const CreatePostModal: React.FC<{
               >
                 <div className="flex items-center gap-3">
                   <img
-                    src={u.profile_image_url}
+                    src={u.profile_image_url || u.profileImage || u.avatar || 'https://ui-avatars.com/api/?name=User'}
                     className="w-10 h-10 rounded-full object-cover"
                     alt=""
                   />
-                  <span className="text-[#E4E6EB] font-semibold">{u.name}</span>
+                  <span className="text-[#E4E6EB] font-semibold">{u.name || u.username || 'User'}</span>
                 </div>
                 {taggedUsers.includes(safeUserId(u)) && (
                   <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>
@@ -860,9 +862,7 @@ export const CreatePostModal: React.FC<{
             className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
             onClick={() => setView('main')}
           ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">
-            How are you feeling?
-          </h3>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">How are you feeling?</h3>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-2">
@@ -918,9 +918,7 @@ export const CreatePostModal: React.FC<{
                     loc.display_name ||
                     loc.name ||
                     loc.label ||
-                    `${loc.city || ''}${
-                      loc.country ? `, ${loc.country}` : ''
-                    }`.trim();
+                    `${loc.city || ''}${loc.country ? `, ${loc.country}` : ''}`.trim();
 
                   const title = (display || '').split(',')[0] || 'Location';
 
@@ -937,12 +935,8 @@ export const CreatePostModal: React.FC<{
                         <i className="fas fa-location-dot text-[#E4E6EB]"></i>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-[#E4E6EB] font-bold block truncate">
-                          {title}
-                        </span>
-                        <span className="text-[#B0B3B8] text-xs block truncate">
-                          {display}
-                        </span>
+                        <span className="text-[#E4E6EB] font-bold block truncate">{title}</span>
+                        <span className="text-[#B0B3B8] text-xs block truncate">{display}</span>
                       </div>
                     </div>
                   );
@@ -970,9 +964,7 @@ export const CreatePostModal: React.FC<{
                     <div className="w-10 h-10 bg-[#3A3B3C] rounded-full flex items-center justify-center text-xl">
                       {loc.flag}
                     </div>
-                    <span className="text-[#E4E6EB] font-semibold">
-                      {loc.name}
-                    </span>
+                    <span className="text-[#E4E6EB] font-semibold">{loc.name}</span>
                   </div>
                 ))}
               </div>
@@ -987,13 +979,8 @@ export const CreatePostModal: React.FC<{
     <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
       <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
         <div className="flex items-center gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={onClose}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-[20px] font-medium">
-            Create Post
-          </h3>
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={onClose}></i>
+          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Create Post</h3>
         </div>
         <button
           onClick={submit}
@@ -1008,43 +995,31 @@ export const CreatePostModal: React.FC<{
         <div className="p-4">
           <div className="flex items-center gap-3 mb-4">
             <img
-              src={(currentUser as any).profile_image_url}
+              src={
+                (currentUser as any).profile_image_url ||
+                (currentUser as any).profileImage ||
+                (currentUser as any).avatar ||
+                'https://ui-avatars.com/api/?name=User'
+              }
               alt=""
               className="w-12 h-12 rounded-full object-cover"
             />
             <div>
               <div className="flex items-center gap-1 flex-wrap">
                 <h4 className="font-bold text-[#E4E6EB] text-[17px]">
-                  {(currentUser as any).name}
+                  {(currentUser as any).name || (currentUser as any).username || 'User'}
                 </h4>
-                {feeling && (
-                  <span className="text-[#E4E6EB] text-[15px]">
-                    {' '}
-                    is feeling {feeling}
-                  </span>
-                )}
-                {location && (
-                  <span className="text-[#E4E6EB] text-[15px]">
-                    {' '}
-                    in {location.split(',')[0]}
-                  </span>
-                )}
+                {feeling && <span className="text-[#E4E6EB] text-[15px]"> is feeling {feeling}</span>}
+                {location && <span className="text-[#E4E6EB] text-[15px]"> in {location.split(',')[0]}</span>}
                 {taggedUsers.length > 0 && (
-                  <span className="text-[#E4E6EB] text-[15px]">
-                    {' '}
-                    with {taggedUsers.length} others
-                  </span>
+                  <span className="text-[#E4E6EB] text-[15px]"> with {taggedUsers.length} others</span>
                 )}
               </div>
 
               <div className="flex items-center gap-2 mt-0.5">
                 <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[13px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
                   <i
-                    className={`fas ${
-                      visibility === 'Public'
-                        ? 'fa-globe-americas'
-                        : 'fa-user-friends'
-                    } text-[12px]`}
+                    className={`fas ${visibility === 'Public' ? 'fa-globe-americas' : 'fa-user-friends'} text-[12px]`}
                   ></i>
                   <span>{visibility}</span>
                 </div>
@@ -1054,9 +1029,7 @@ export const CreatePostModal: React.FC<{
 
           <div
             className={`relative min-h-[150px] mb-4 transition-all ${
-              activeBackground
-                ? 'flex items-center justify-center p-8 rounded-lg text-center min-h-[300px]'
-                : ''
+              activeBackground ? 'flex items-center justify-center p-8 rounded-lg text-center min-h-[300px]' : ''
             }`}
             style={{ background: activeBackground, backgroundSize: 'cover' }}
           >
@@ -1078,21 +1051,11 @@ export const CreatePostModal: React.FC<{
               className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
               onClick={() => window.open(linkPreview.url, '_blank')}
             >
-              <img
-                src={linkPreview.image}
-                alt="Preview"
-                className="w-full h-48 object-cover"
-              />
+              <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
               <div className="p-3 bg-[#3A3B3C]">
-                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
-                  {linkPreview.domain}
-                </div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
-                  {linkPreview.title}
-                </div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
-                  {linkPreview.description}
-                </div>
+                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{linkPreview.domain}</div>
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{linkPreview.title}</div>
+                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{linkPreview.description}</div>
               </div>
             </div>
           )}
@@ -1114,9 +1077,7 @@ export const CreatePostModal: React.FC<{
                 <div
                   key={bg.id}
                   className={`w-8 h-8 rounded-lg cursor-pointer border-2 flex-shrink-0 ${
-                    activeBackground === bg.value
-                      ? 'border-white'
-                      : 'border-transparent'
+                    activeBackground === bg.value ? 'border-white' : 'border-transparent'
                   }`}
                   style={{ background: bg.value, backgroundSize: 'cover' }}
                   onClick={() => setActiveBackground(bg.value)}
@@ -1145,11 +1106,7 @@ export const CreatePostModal: React.FC<{
                   className="w-full h-auto max-h-[400px] object-contain bg-black"
                 />
               ) : (
-                <video
-                  src={preview}
-                  controls
-                  className="w-full h-auto max-h-[400px] bg-black"
-                />
+                <video src={preview} controls className="w-full h-auto max-h-[400px] bg-black" />
               )}
             </div>
           )}
@@ -1220,8 +1177,11 @@ export const CreatePostModal: React.FC<{
 
 /**
  * =========================
- * COMMENTS SHEET (WORKING + REALTIME + CACHE + NO ANONYMOUS)
+ * COMMENTS SHEET
  * =========================
+ * ✅ FIXED:
+ * - Props for cache + count are OPTIONAL (prevents App blank screen)
+ * - Safe defaults used when App doesn't pass them
  */
 export const CommentsSheet: React.FC<{
   post: PostType;
@@ -1229,18 +1189,18 @@ export const CommentsSheet: React.FC<{
   users: User[];
   onClose: () => void;
 
-  // ✅ realtime helpers from Feed
-  getCachedComments: (postId: number) => any[] | null;
-  setCachedComments: (postId: number, comments: any[]) => void;
-  onLocalCommentCountChange: (postId: number, newCount: number) => void;
+  // Optional realtime helpers
+  getCachedComments?: (postId: number) => any[] | null;
+  setCachedComments?: (postId: number, comments: any[]) => void;
+  onLocalCommentCountChange?: (postId: number, newCount: number) => void;
 }> = ({
   post,
   currentUser,
   users,
   onClose,
-  getCachedComments,
-  setCachedComments,
-  onLocalCommentCountChange,
+  getCachedComments = () => null,
+  setCachedComments = () => {},
+  onLocalCommentCountChange = () => {},
 }) => {
   const p: any = post as any;
   const [text, setText] = useState('');
@@ -1267,6 +1227,7 @@ export const CommentsSheet: React.FC<{
       try {
         const data = await apiFetch(`/api/posts/${postId}/comments`);
         if (!alive) return;
+
         const arr = Array.isArray(data) ? data : data?.comments || [];
         setComments(arr);
         setCachedComments(postId, arr);
@@ -1297,7 +1258,7 @@ export const CommentsSheet: React.FC<{
     const optimistic = {
       id: `tmp-${Date.now()}`,
       post_id: postId,
-      user_id: safeUserId(currentUser), // ✅ prevents anonymous
+      user_id: safeUserId(currentUser),
       text: t,
       author_name: (currentUser as any).name || (currentUser as any).username || 'You',
       author_image:
@@ -1324,7 +1285,7 @@ export const CommentsSheet: React.FC<{
         method: 'POST',
         body: JSON.stringify({
           text: t,
-          user_id: safeUserId(currentUser), // ✅ send user_id
+          user_id: safeUserId(currentUser),
         }),
       });
 
@@ -1339,16 +1300,14 @@ export const CommentsSheet: React.FC<{
         });
       } else {
         setComments((prev) => {
-          const next = prev.map((c) =>
-            c.id === optimistic.id ? { ...c, __pending: false } : c
-          );
+          const next = prev.map((c) => (c.id === optimistic.id ? { ...c, __pending: false } : c));
           setCachedComments(postId, next);
           onLocalCommentCountChange(postId, next.length);
           return next;
         });
       }
 
-      // ✅ reconcile quietly (keeps perfect count/ordering)
+      // ✅ reconcile quietly
       apiFetch(`/api/posts/${postId}/comments`)
         .then((fresh) => {
           const arr = Array.isArray(fresh) ? fresh : fresh?.comments || [];
@@ -1375,10 +1334,7 @@ export const CommentsSheet: React.FC<{
       <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
         <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]">
           <h3 className="font-bold text-[#E4E6EB]">Comments</h3>
-          <i
-            className="fas fa-times text-[#B0B3B8] cursor-pointer"
-            onClick={onClose}
-          ></i>
+          <i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -1409,9 +1365,7 @@ export const CommentsSheet: React.FC<{
                       </span>
                     )}
                   </p>
-                  <p className="text-white text-[15px] whitespace-pre-wrap break-words">
-                    {c.text}
-                  </p>
+                  <p className="text-white text-[15px] whitespace-pre-wrap break-words">{c.text}</p>
                 </div>
               </div>
             ))
@@ -1434,7 +1388,6 @@ export const CommentsSheet: React.FC<{
     </div>
   );
 };
-
 
 /**
  * =========================
@@ -1468,9 +1421,7 @@ export const SuggestedProductsWidget: React.FC<{
       <div className="grid grid-cols-2 gap-2">
         {suggested.map((product: any) => {
           const countryData = MARKETPLACE_COUNTRIES.find((c) =>
-            String(product.address || '')
-              .toLowerCase()
-              .includes(c.name.toLowerCase())
+            String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
           );
           const symbol = countryData ? countryData.symbol : '$';
 
@@ -1513,7 +1464,7 @@ type FeedItem = {
 };
 
 const normalizeFeed = (raw: any): FeedItem[] => {
-  const arr = Array.isArray(raw) ? raw : raw?.items || raw?.results || raw?.posts || [];
+  const arr = Array.isArray(raw) ? raw : raw?.items || raw?.results || raw?.posts || raw?.feed || [];
   if (!Array.isArray(arr)) return [];
 
   return arr.map((x: any) => {
@@ -1522,17 +1473,16 @@ const normalizeFeed = (raw: any): FeedItem[] => {
       x.user || {
         id: x.user_id,
         name: x.author_name || x.username || 'User',
-        profile_image_url:
-          x.author_profile_image_url || x.profile_image_url || x.profileImage,
+        profile_image_url: x.author_profile_image_url || x.profile_image_url || x.profileImage,
         is_verified: x.is_verified,
       };
 
     const post = {
       ...x,
-      id: x.id,
+      id: x.id ?? x.post_id ?? x.postId,
       user_id: x.user_id ?? x.author_id,
       content: x.content ?? '',
-      created_at: x.created_at ?? x.timestamp,
+      created_at: x.created_at ?? x.timestamp ?? x.createdAt,
       media_url: x.media_url ?? x.image_url ?? x.video_url ?? null,
       media_type: x.media_type ?? x.type ?? null,
       reactions: x.reactions ?? [],
@@ -1559,6 +1509,7 @@ export default function Feed({
   users?: User[];
   onProfileClick: (id: number) => void;
 }) {
+  // Keep safe in case the component is ever rendered outside provider
   try {
     useLanguage();
   } catch {}
@@ -1569,14 +1520,14 @@ export default function Feed({
 
   const [showCreate, setShowCreate] = useState(false);
 
-  // ✅ FIX: Store post snapshot for comments to prevent blank when feed refreshes
+  // ✅ comments: stable snapshot prevents blank if feed refreshes/removes that post
   const [openCommentsFor, setOpenCommentsFor] = useState<number | null>(null);
   const [commentPostSnapshot, setCommentPostSnapshot] = useState<any | null>(null);
 
   // ✅ comments cache (instant open after first)
   const commentsCacheRef = useRef<Map<number, any[]>>(new Map());
 
-  // ✅ avoid loader flicker on polling + store last good feed
+  // ✅ prevent feed disappearance: keep last known-good items
   const firstLoadRef = useRef(true);
   const lastGoodItemsRef = useRef<FeedItem[]>([]);
   const fetchSeqRef = useRef(0);
@@ -1597,7 +1548,6 @@ export default function Feed({
     );
   };
 
-  // ✅ FIXED: Safe fetchFeed that prevents feed disappearance and blank comments
   const fetchFeed = async () => {
     const mySeq = ++fetchSeqRef.current;
 
@@ -1609,49 +1559,42 @@ export default function Feed({
       let data: any;
 
       if (currentUser?.id) {
-        data = await apiFetch(`/api/feeds?userId=${safeUserId(currentUser)}&limit=20`);
-        // feeds shape: { feed: [...] }
+        data = await apiFetch(`/api/feeds?userId=${safeUserId(currentUser)}&limit=50`);
         data = data?.feed ?? data;
       } else {
-        data = await apiFetch(`/api/posts?limit=20`);
+        data = await apiFetch(`/api/posts?limit=50`);
       }
 
-      // ✅ normalize
       const normalized = normalizeFeed(data ?? []);
 
-      // ✅ ignore out-of-order responses (race condition fix)
+      // ✅ ignore out-of-order responses
       if (mySeq !== fetchSeqRef.current) return;
 
-      // ✅ IMPORTANT: never blow away a good feed with empty results during polling
+      // ✅ DO NOT wipe a good feed with empty results
       if (normalized.length > 0) {
         setItems(normalized);
         lastGoodItemsRef.current = normalized;
 
-        // ✅ if comments is open, refresh snapshot when possible (keeps it accurate)
+        // if comments open, keep snapshot fresh
         if (openCommentsFor != null) {
           const found = normalized.find((it) => Number(it.post.id) === Number(openCommentsFor));
           if (found?.post) setCommentPostSnapshot(found.post);
         }
       } else {
-        // If it returns empty but we already have a feed, keep the old one.
         if (lastGoodItemsRef.current.length > 0) {
           setItems(lastGoodItemsRef.current);
         } else {
-          setItems([]); // first load truly empty
+          setItems([]);
         }
       }
     } catch (e: any) {
-      // ✅ ignore out-of-order errors
       if (mySeq !== fetchSeqRef.current) return;
 
       setError(e?.message || 'Failed to load feed');
 
-      // ✅ keep last good feed on background failures
-      if (lastGoodItemsRef.current.length > 0) {
-        setItems(lastGoodItemsRef.current);
-      } else {
-        setItems([]);
-      }
+      // ✅ keep last good feed
+      if (lastGoodItemsRef.current.length > 0) setItems(lastGoodItemsRef.current);
+      else setItems([]);
     } finally {
       if (firstLoadRef.current) {
         setLoading(false);
@@ -1660,13 +1603,14 @@ export default function Feed({
     }
   };
 
-  // ✅ FIXED: Pause polling while comments is open
+  // ✅ initial load + polling
+  // ✅ pause polling while comments open (prevents the “blank” / missing post case)
   useEffect(() => {
     fetchFeed();
 
-    if (openCommentsFor != null) return; // ✅ pause polling while comments open
+    if (openCommentsFor != null) return;
 
-    const id = setInterval(fetchFeed, 8000);
+    const id = setInterval(fetchFeed, 10_000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id, openCommentsFor]);
@@ -1764,11 +1708,12 @@ export default function Feed({
 
       const serverPost = result?.post ?? null;
 
-      if (serverPost && serverPost.id != null) {
+      if (serverPost && (serverPost.id != null || serverPost.post_id != null)) {
+        const serverId = serverPost.id ?? serverPost.post_id;
         setItems((prev) =>
           prev.map((it) =>
             String(it.post.id) === optimisticId
-              ? { ...it, post: { ...it.post, ...serverPost, __pending: false } }
+              ? { ...it, post: { ...it.post, ...serverPost, id: serverId, __pending: false } }
               : it
           )
         );
@@ -1805,7 +1750,7 @@ export default function Feed({
       await fetchFeed();
       return;
     } catch {
-      // fallback path
+      // fallback below
     }
 
     try {
@@ -1825,12 +1770,9 @@ export default function Feed({
   const handleShare = async (postId: number) => {
     const pid = Number(postId);
 
-    // ✅ call backend share endpoint first
     try {
       await apiFetch(`/api/posts/${pid}/share`, { method: 'POST' });
-    } catch {
-      // even if backend fails, still allow copy
-    }
+    } catch {}
 
     const link = `https://unera.social/posts/${pid}`;
     try {
@@ -1845,22 +1787,20 @@ export default function Feed({
     window.open(url, '_blank');
   };
 
-  // ✅ FIXED: Stable activeCommentPost with snapshot support
   const activeCommentPost = useMemo(() => {
     if (openCommentsFor == null) return null;
 
-    // ✅ Prefer snapshot (stable even if items refresh)
+    // Prefer snapshot (stable even if items refresh)
     if (commentPostSnapshot && Number(commentPostSnapshot?.id) === Number(openCommentsFor)) {
       return commentPostSnapshot;
     }
 
-    // fallback: find from items
     const target = Number(openCommentsFor);
     const found = items.find((it) => Number(it?.post?.id) === target);
     return found?.post || null;
   }, [openCommentsFor, items, commentPostSnapshot]);
 
-  // ✅ de-dup by id (prevents duplicates if optimistic + refresh overlaps)
+  // de-dup by id (prevents duplicates if optimistic + refresh overlaps)
   const dedupedItems = useMemo(() => {
     const seen = new Set<string>();
     const out: FeedItem[] = [];
@@ -1877,11 +1817,7 @@ export default function Feed({
   return (
     <div className="w-full">
       {currentUser ? (
-        <CreatePost
-          currentUser={currentUser}
-          onProfileClick={onProfileClick}
-          onClick={() => setShowCreate(true)}
-        />
+        <CreatePost currentUser={currentUser} onProfileClick={onProfileClick} onClick={() => setShowCreate(true)} />
       ) : (
         <div className="bg-[#242526] rounded-xl p-4 mb-4 shadow-sm border border-[#3E4042] text-[#B0B3B8]">
           <div className="flex items-center justify-between">
@@ -1892,12 +1828,7 @@ export default function Feed({
       )}
 
       {showCreate && currentUser && (
-        <CreatePostModal
-          currentUser={currentUser}
-          users={users}
-          onClose={() => setShowCreate(false)}
-          onCreatePost={handleCreatePost}
-        />
+        <CreatePostModal currentUser={currentUser} users={users} onClose={() => setShowCreate(false)} onCreatePost={handleCreatePost} />
       )}
 
       {loading && (
@@ -1936,8 +1867,8 @@ export default function Feed({
             const pid = Number(id);
             setOpenCommentsFor(pid);
 
-            // ✅ snapshot the post NOW (prevents blank when feed refreshes)
-            const found = items.find((it) => Number(it?.post?.id) === pid);
+            // snapshot the post NOW (prevents blank when feed refreshes)
+            const found = items.find((x) => Number(x?.post?.id) === pid);
             setCommentPostSnapshot(found?.post ?? null);
           }}
           onVideoClick={(p) => {
