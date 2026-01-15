@@ -1,591 +1,1169 @@
 // App.tsx
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
-import {
-  CreatePost,
-  Post,
-  CommentsSheet,
-  CreatePostModal,
-  SuggestedProductsWidget,
-} from './components/Feed';
+import { CreatePost, Post, CommentsSheet, CreatePostModal, SuggestedProductsWidget } from './components/Feed';
 import { StoryReel, CreateStoryModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
 import { ImageViewer, ProfessionalLoader } from './components/Common';
-import {
-  EventsPage,
-  BirthdaysPage,
-  MemoriesPage,
-  SettingsPage,
-  SuggestedProfilesPage,
-} from './components/MenuPages';
+import { EventsPage, BirthdaysPage, MemoriesPage, SettingsPage, SuggestedProfilesPage } from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
-
+import { PrivacyPolicyPage } from './components/PrivacyPolicy';
+import { TermsOfServicePage } from './components/TermsOfService';
+import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
   Post as PostType,
-  Product,
+  Story,
   Reel,
+  Notification,
+  Event,
+  Product,
   AudioTrack,
+  ReactionType,
 } from './types';
+import { INITIAL_USERS } from './constants';
+import { rankFeed } from './utils/ranking';
 
-/**
- * =========================
- * FORCE LOADER OFF (Option B)
- * =========================
- * Keep ProfessionalLoader in code, but never show it.
- */
+/** ---------- TEMP: Force loader off forever (keeps component in code) ---------- */
 const FORCE_LOADER_OFF_FOREVER = true;
 
-/**
- * =========================
- * SMALL HELPERS
- * =========================
- */
-const safeUserId = (u: any) => Number(u?.id ?? u?.user_id ?? 0);
+/** ---------- Safety helpers ---------- */
+const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+const safeNumber = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
-const normalizeUser = (raw: any): User => {
-  const u: any = raw || {};
-  const id = Number(u.id ?? u.user_id ?? 0);
+/**
+ * Normalize raw D1 rows to UI-safe PostType shape.
+ * ✅ accepts id OR post_id (and common variants)
+ */
+const normalizePost = (p: any): PostType => {
+  const mediaType = p?.media_type ?? p?.mediaType ?? null;
+  const mediaUrl = p?.media_url ?? p?.mediaUrl ?? null;
+
+  const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
+
+  return {
+    ...p,
+    id: resolvedId,
+    user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
+    content: safeString(p?.content),
+    media_url: mediaUrl,
+    media_type: mediaType,
+
+    reactions: safeArray(p?.reactions),
+    comments: safeArray(p?.comments),
+
+    shares: safeNumber(p?.shares),
+    views: safeNumber(p?.views),
+
+    visibility: p?.visibility ?? 'public',
+    type:
+      p?.type ??
+      (mediaType
+        ? String(mediaType).includes('image')
+          ? 'image'
+          : String(mediaType).includes('video')
+          ? 'video'
+          : 'post'
+        : 'post'),
+    created_at: p?.created_at ?? new Date().toISOString(),
+  } as any;
+};
+
+/**
+ * ✅ Normalize user:
+ * - Accepts id OR user_id OR userId
+ * - Prevents wrong profile opening
+ */
+const normalizeUser = (u: any): User => {
+  const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
 
   return {
     ...u,
-    id,
-    name: u.name ?? u.username ?? 'User',
-    username: u.username ?? u.name ?? 'user',
-    profile_image_url:
-      u.profile_image_url ||
-      u.profileImage ||
-      u.avatar ||
-      'https://ui-avatars.com/api/?name=User',
-  } as User;
+    id: resolvedId,
+    name: safeString(u?.name, safeString(u?.username, 'User')),
+    username: safeString(u?.username, safeString(u?.name, 'user')),
+    followers: safeArray<number>(u?.followers),
+    following: safeArray<number>(u?.following),
+    profile_image_url: u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '',
+    cover_image_url: u?.cover_image_url ?? u?.coverImage ?? '',
+    is_verified: Boolean(u?.is_verified ?? u?.isVerified),
+    role: u?.role ?? 'user',
+    created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
+  } as any;
 };
 
-const readStoredUser = (): User | null => {
-  try {
-    const raw = localStorage.getItem('user');
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed) return null;
-    return normalizeUser(parsed);
-  } catch {
-    return null;
-  }
-};
-
-const readToken = (): string | null => {
-  try {
-    return localStorage.getItem('unera_token');
-  } catch {
-    return null;
-  }
-};
-
+/** ---------- API helper ---------- */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
-  const token = readToken();
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    Accept: 'application/json',
     ...(options.headers || {}),
   };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
 
   const res = await fetch(url, { ...options, headers });
+
   const contentType = res.headers.get('content-type') || '';
   let data: any = null;
 
   try {
     if (contentType.includes('application/json')) data = await res.json();
-    else data = await res.text();
-  } catch {
-    data = null;
+    else {
+      const text = await res.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: text };
+      }
+    }
+  } catch (e: any) {
+    data = { error: e?.message || 'Failed to parse response' };
   }
 
   if (!res.ok) {
-    const msg = (data && (data.error || data.message)) || `API Error (${res.status})`;
+    const msg = data?.error || data?.message || `HTTP ${res.status}`;
     throw new Error(msg);
   }
 
   return data;
 };
 
-type Page =
+type View =
   | 'home'
-  | 'profile'
   | 'reels'
   | 'marketplace'
   | 'groups'
+  | 'brands'
+  | 'music'
+  | 'tools'
+  | 'profiles'
   | 'events'
   | 'birthdays'
   | 'memories'
-  | 'brands'
-  | 'tools'
   | 'settings'
-  | 'support'
-  | 'suggested_profiles';
+  | 'privacy'
+  | 'terms'
+  | 'help'
+  | 'profile'
+  | 'login'
+  | 'register';
+
+const LS_USER_KEY = 'user';
+
+const fileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+
+/**
+ * ✅ Normalize FEED rows returned by /api/feeds
+ */
+const normalizeFeedRowToPost = (row: any): PostType => {
+  return normalizePost({
+    ...row,
+    user_id: safeNumber(row?.user_id),
+    content: row?.content ?? '',
+    created_at: row?.created_at,
+    media_url: row?.media_url ?? null,
+    media_type: row?.media_type ?? null,
+    shares: row?.shares ?? 0,
+    views: row?.views ?? 0,
+    pool: row?.pool,
+    follower_count: row?.follower_count,
+  });
+};
+
+const authorFromFeedRow = (row: any): User => {
+  return normalizeUser({
+    id: row?.user_id,
+    username: row?.username ?? 'user',
+    name: row?.username ?? 'User',
+    profile_image_url: row?.profile_image_url ?? '',
+    is_verified: row?.is_verified ?? 0,
+    role: row?.role ?? 'user',
+    followers: [],
+    following: [],
+    created_at: row?.joined_date ?? row?.created_at ?? null,
+  });
+};
 
 export default function App() {
-  // ✅ loader forced off forever
-  const [isLoading] = useState(false);
+  useLanguage();
 
-  // Auth state
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [currentUser, setCurrentUser] = useState<User | null>(() => readStoredUser());
+  /** ---------- State ---------- */
+  const [users, setUsers] = useState<User[]>(INITIAL_USERS.map(normalizeUser));
+  const [posts, setPosts] = useState<PostType[]>([]);
+  const [stories, setStories] = useState<Story[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [brands, setBrands] = useState<any[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
 
-  // Global data caches (lightweight)
-  const [users, setUsers] = useState<User[]>(() => (currentUser ? [currentUser] : []));
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(
-    currentUser ? safeUserId(currentUser) : null
-  );
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
+  const [view, setView] = useState<View>('home');
 
-  // Navigation
-  const [page, setPage] = useState<Page>('home');
+  // ✅ Force loader off forever (Option B)
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Modals / viewers
-  const [viewImageUrl, setViewImageUrl] = useState<string | null>(null);
+  const [loginError, setLoginError] = useState('');
 
-  // Reels / Audio
-  const [isCreateReelOpen, setIsCreateReelOpen] = useState(false);
-  const [activeTrack, setActiveTrack] = useState<AudioTrack | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-
-  // Marketplace
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [activeReelId, setActiveReelId] = useState<number | null>(null);
+  const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
+  const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [activeStory, setActiveStory] = useState<Story | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
 
-  // Stories
-  const [isCreateStoryOpen, setIsCreateStoryOpen] = useState(false);
+  const [showCreatePostModal, setShowCreatePostModal] = useState(false);
+  const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
+  const [showCreateReelModal, setShowCreateReelModal] = useState(false);
+  const [showCreateEventModal, setShowCreateEventModal] = useState(false);
 
-  // Events
-  const [isCreateEventOpen, setIsCreateEventOpen] = useState(false);
+  const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
-  /**
-   * =========================
-   * SESSION BOOTSTRAP
-   * =========================
-   * Ensures user stays logged in (localStorage based).
-   */
-  useEffect(() => {
-    const stored = readStoredUser();
-    if (stored) {
-      setCurrentUser(stored);
-      setSelectedUserId(safeUserId(stored));
-      setUsers((prev) => {
-        const map = new Map<number, User>();
-        (prev || []).forEach((u) => map.set(safeUserId(u), normalizeUser(u)));
-        map.set(safeUserId(stored), stored);
-        return Array.from(map.values());
-      });
-    }
-  }, []);
+  // ✅ Keep last good posts so polling can't wipe feed to empty
+  const lastGoodPostsRef = useRef<PostType[]>([]);
 
-  /**
-   * =========================
-   * OPTIONAL: Refresh "me" from backend
-   * (safe, will not break if endpoint missing)
-   * =========================
-   */
-  const refreshMe = useCallback(async () => {
-    if (!currentUser) return;
-    try {
-      // If you have /api/users/me, this keeps profile accurate.
-      const me = await apiFetch('/api/users/me');
-      if (me) {
-        const normalized = normalizeUser(me?.user ?? me);
-        setCurrentUser(normalized);
-        localStorage.setItem('user', JSON.stringify(normalized));
-        setUsers((prev) => {
-          const map = new Map<number, User>();
-          (prev || []).forEach((u) => map.set(safeUserId(u), normalizeUser(u)));
-          map.set(safeUserId(normalized), normalized);
-          return Array.from(map.values());
-        });
-      }
-    } catch {
-      // ignore (endpoint may not exist yet)
-    }
-  }, [currentUser]);
+  // ✅ Snapshot for comments so CommentsSheet never goes blank if feed refreshes
+  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
 
-  useEffect(() => {
-    refreshMe();
-  }, [refreshMe]);
-
-  /**
-   * =========================
-   * AUTH HANDLERS
-   * =========================
-   */
-  const handleLoginSuccess = useCallback((payload: any) => {
-    // payload expected: { user, token? } OR { user: {...}, session: {...} }
-    const u = normalizeUser(payload?.user ?? payload);
-    setCurrentUser(u);
-    setSelectedUserId(safeUserId(u));
-    setPage('home');
-
-    try {
-      localStorage.setItem('user', JSON.stringify(u));
-      const token = payload?.token || payload?.access_token || payload?.session?.token || null;
-      if (token) localStorage.setItem('unera_token', String(token));
-    } catch {}
-
-    setUsers((prev) => {
-      const map = new Map<number, User>();
-      (prev || []).forEach((x) => map.set(safeUserId(x), normalizeUser(x)));
-      map.set(safeUserId(u), u);
-      return Array.from(map.values());
-    });
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    setCurrentUser(null);
-    setSelectedUserId(null);
-    setUsers([]);
-    setPage('home');
-    setAuthMode('login');
-
-    try {
-      localStorage.removeItem('user');
-      localStorage.removeItem('unera_token');
-    } catch {}
-  }, []);
-
-  /**
-   * =========================
-   * NAV + PROFILE
-   * =========================
-   */
-  const handleProfileClick = useCallback(
-    (id: number) => {
-      const uid = Number(id);
-      if (!Number.isFinite(uid) || uid <= 0) return;
-      setSelectedUserId(uid);
-      setPage('profile');
+  /** ---------- Auth gate ---------- */
+  const requireAuth = useCallback(
+    (actionName = 'This action') => {
+      if (currentUser) return true;
+      setLoginError(`${actionName} requires login.`);
+      setView('login');
+      return false;
     },
-    [setSelectedUserId, setPage]
+    [currentUser]
+  );
+
+  const openProfile = useCallback((id: number) => {
+    setSelectedUserId(Number(id));
+    setView('profile');
+    window.scrollTo(0, 0);
+  }, []);
+
+  /**
+   * ✅ Fetch users list
+   */
+  const fetchUsersList = useCallback(async () => {
+    try {
+      const u = await apiFetch('/api/users').catch(() => []);
+      const arr = safeArray(u).map(normalizeUser);
+      if (arr.length) setUsers(arr);
+      else setUsers(INITIAL_USERS.map(normalizeUser));
+    } catch {
+      setUsers(INITIAL_USERS.map(normalizeUser));
+    }
+  }, []);
+
+  /**
+   * ✅ Fetch posts for homepage
+   * ✅ FIX: never replace a good feed with empty results from a poll
+   */
+  const fetchPostsForHome = useCallback(
+    async (viewer: User | null) => {
+      try {
+        if (viewer?.id) {
+          const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
+          const rows = safeArray<any>(data?.feed);
+
+          // ✅ If feed API returns empty, keep last good posts (prevents disappear)
+          if (!rows.length) {
+            if (lastGoodPostsRef.current.length) {
+              setPosts(lastGoodPostsRef.current);
+            }
+            return;
+          }
+
+          // merge authors into users list
+          setUsers((prev) => {
+            const map = new Map<number, User>();
+            safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
+
+            rows.forEach((r) => {
+              const author = authorFromFeedRow(r);
+              if (!author?.id) return;
+              if (!map.has(author.id)) map.set(author.id, author);
+              else {
+                const existing = map.get(author.id)!;
+                map.set(author.id, normalizeUser({ ...existing, ...author }));
+              }
+            });
+
+            return Array.from(map.values());
+          });
+
+          const normalized = rows.map(normalizeFeedRowToPost);
+          setPosts(normalized);
+          lastGoodPostsRef.current = normalized;
+
+          // ✅ keep snapshot updated if comments open
+          if (activeCommentsPostId != null) {
+            const found = normalized.find((p) => Number(p.id) === Number(activeCommentsPostId));
+            if (found) setCommentPostSnapshot(found);
+          }
+          return;
+        }
+
+        // Guest feed fallback
+        const p = await apiFetch('/api/posts');
+        const normalized = safeArray(p).map(normalizePost);
+
+        if (normalized.length) {
+          setPosts(normalized);
+          lastGoodPostsRef.current = normalized;
+        } else if (lastGoodPostsRef.current.length) {
+          setPosts(lastGoodPostsRef.current);
+        } else {
+          setPosts([]);
+        }
+
+        if (activeCommentsPostId != null) {
+          const found = normalized.find((x) => Number(x.id) === Number(activeCommentsPostId));
+          if (found) setCommentPostSnapshot(found);
+        }
+      } catch {
+        // ✅ Keep last good feed on error
+        if (lastGoodPostsRef.current.length) {
+          setPosts(lastGoodPostsRef.current);
+        }
+      }
+    },
+    [activeCommentsPostId]
   );
 
   /**
-   * =========================
-   * VIEW IMAGE
-   * =========================
+   * ✅ Fetch other data
    */
-  const onViewImage = useCallback((url: string) => {
-    if (!url) return;
-    setViewImageUrl(url);
+  const fetchOtherData = useCallback(async () => {
+    const [s, r, pr, g, b, e] = await Promise.all([
+      apiFetch('/api/stories').catch(() => []),
+      apiFetch('/api/reels').catch(() => []),
+      apiFetch('/api/products').catch(() => []),
+      apiFetch('/api/groups').catch(() => []),
+      apiFetch('/api/brands').catch(() => []),
+      apiFetch('/api/events').catch(() => []),
+    ]);
+
+    setStories(safeArray(s));
+    setReels(safeArray(r));
+    setProducts(safeArray(pr));
+    setGroups(safeArray(g));
+    setBrands(safeArray(b));
+    setEvents(safeArray(e));
   }, []);
 
   /**
-   * =========================
-   * AUDIO
-   * =========================
+   * ✅ One fetch pipeline
    */
-  const onPlayAudioTrack = useCallback((t: AudioTrack) => {
-    setActiveTrack(t);
-    setIsPlaying(true);
-  }, []);
+  const fetchData = useCallback(
+    async (viewer: User | null) => {
+      try {
+        await Promise.all([fetchUsersList(), fetchPostsForHome(viewer), fetchOtherData()]);
+      } finally {
+        // Loader is forced off; still keep state for future
+        setTimeout(() => setIsLoading(false), 300);
+      }
+    },
+    [fetchUsersList, fetchPostsForHome, fetchOtherData]
+  );
 
-  const onTogglePlay = useCallback(() => {
-    setIsPlaying((p) => !p);
-  }, []);
+  /** ---------- Restore session + initial load ---------- */
+  useEffect(() => {
+    const init = async () => {
+      let viewer: User | null = null;
 
-  const onClosePlayer = useCallback(() => {
-    setIsPlaying(false);
-    setActiveTrack(null);
-  }, []);
+      try {
+        const raw = localStorage.getItem(LS_USER_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          const normalized = normalizeUser(saved);
+          if (normalized?.id) {
+            viewer = normalized;
+            setCurrentUser(normalized);
+            setSelectedUserId(Number(normalized.id));
 
-  const onNextTrack = useCallback(() => {
-    // If you have a real playlist, wire it here.
-    // Keeping safe no-op to prevent crashes.
-  }, []);
-
-  const onPrevTrack = useCallback(() => {
-    // no-op safe
-  }, []);
-
-  /**
-   * =========================
-   * RENDER GUARDS
-   * =========================
-   */
-  if (!FORCE_LOADER_OFF_FOREVER && isLoading) {
-    return <ProfessionalLoader />;
-  }
-
-  const isAuthed = !!currentUser;
-
-  /**
-   * =========================
-   * AUTH SCREENS (when logged out)
-   * =========================
-   */
-  if (!isAuthed) {
-    return authMode === 'login' ? (
-      <Login
-        onSwitchToRegister={() => setAuthMode('register')}
-        onLoginSuccess={handleLoginSuccess}
-      />
-    ) : (
-      <Register
-        onSwitchToLogin={() => setAuthMode('login')}
-        onRegisterSuccess={(payload: any) => {
-          // You can either auto-login here, or go to login screen.
-          // We'll auto-login if backend returns user.
-          if (payload?.user || payload?.id) {
-            handleLoginSuccess(payload);
-          } else {
-            setAuthMode('login');
+            setUsers((prev) => {
+              const arr = safeArray(prev);
+              const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
+              if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+              return [normalized, ...arr];
+            });
           }
-        }}
-      />
-    );
-  }
+        }
+      } catch {
+        // ignore
+      }
 
-  /**
-   * =========================
-   * MAIN APP LAYOUT
-   * =========================
-   */
+      await fetchData(viewer);
+
+      // ✅ ensure lastGoodPostsRef is set after first successful load
+      setTimeout(() => {
+        lastGoodPostsRef.current = safeArray(posts);
+      }, 0);
+    };
+
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchData]);
+
+  /** ---------- Poll feed (light) ---------- */
+  useEffect(() => {
+    // ✅ Pause polling while comments are open (prevents blank/disappear while reading)
+    if (activeCommentsPostId != null) return;
+
+    const t = setInterval(() => {
+      fetchPostsForHome(currentUser).catch(() => {});
+    }, 15000);
+    return () => clearInterval(t);
+  }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
+
+  /** ---------- Derived ---------- */
+  const rankedPosts = useMemo(() => {
+    return Array.isArray(posts) ? rankFeed(posts, currentUser, users) : [];
+  }, [posts, currentUser, users]);
+
+  const activePost = useMemo(() => {
+    // ✅ FIX: allow id=0 and prevent falsy bug
+    if (activeCommentsPostId == null) return null;
+
+    // ✅ Prefer snapshot (stable even if posts refresh)
+    if (commentPostSnapshot && Number((commentPostSnapshot as any)?.id) === Number(activeCommentsPostId)) {
+      return commentPostSnapshot;
+    }
+
+    return posts.find((p) => Number(p.id) === Number(activeCommentsPostId)) || null;
+  }, [posts, activeCommentsPostId, commentPostSnapshot]);
+
+  /** ---------- Login ---------- */
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      setLoginError('');
+
+      const res = await fetch('/api/users/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Login failed');
+      if (!data?.user) throw new Error('Login failed: user missing');
+
+      const normalized = normalizeUser(data.user);
+      if (!normalized?.id) throw new Error('Login failed: invalid user id');
+
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+
+      setCurrentUser(normalized);
+
+      setUsers((prev) => {
+        const arr = safeArray(prev);
+        const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
+        if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+        return [normalized, ...arr];
+      });
+
+      setSelectedUserId(Number(normalized.id));
+      setView('home');
+
+      await fetchPostsForHome(normalized);
+    } catch (error: any) {
+      setLoginError(error?.message || 'Login failed');
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(LS_USER_KEY);
+    setCurrentUser(null);
+    setSelectedUserId(null);
+    setView('home');
+    fetchPostsForHome(null).catch(() => {});
+  };
+
+  /** ---------- Navigation ---------- */
+  const handleNavigate = (target: View) => {
+    if (['settings', 'memories'].includes(target) && !currentUser) {
+      setLoginError(`Please login to view ${target}.`);
+      return setView('login');
+    }
+
+    if (target === 'profile') {
+      if (!currentUser) {
+        setLoginError('Please login to view your profile.');
+        return setView('login');
+      }
+      openProfile(currentUser.id);
+      return;
+    }
+
+    setView(target);
+
+    if (['home', 'reels', 'marketplace', 'groups'].includes(target)) {
+      setActiveTab(target as any);
+    }
+    window.scrollTo(0, 0);
+  };
+
+  /** ---------- API actions ---------- */
+  const createPost = useCallback(
+    async (
+      text: string,
+      file: File | null,
+      meta?: {
+        type?: 'text' | 'image' | 'video';
+        visibility?: string;
+        location?: string;
+        feeling?: string;
+        taggedUsers?: number[];
+        background?: string;
+        linkPreview?: any;
+      }
+    ) => {
+      if (!requireAuth('Creating posts')) return;
+
+      const trimmed = (text || '').trim();
+      if (!trimmed && !file && !meta?.background) return;
+
+      let media_url: string | null = null;
+      let media_type: string | null = null;
+
+      if (file) {
+        media_url = await fileToDataUrl(file);
+        media_type = file.type || null;
+      }
+
+      const payload: any = {
+        user_id: currentUser!.id,
+        content: trimmed,
+        media_url,
+        media_type,
+        visibility: meta?.visibility ?? 'public',
+        location: meta?.location,
+        feeling: meta?.feeling,
+        tagged_users: meta?.taggedUsers,
+        background: meta?.background,
+        link_preview: meta?.linkPreview,
+      };
+
+      const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
+
+      // backend may return {success:true, post: {...}} or {post_id: ...}
+      const newPostRaw =
+        data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
+
+      const normalized = normalizePost(newPostRaw);
+
+      setPosts((prev) => {
+        const next = [normalized, ...safeArray(prev)];
+        lastGoodPostsRef.current = next;
+        return next;
+      });
+
+      setShowCreatePostModal(false);
+
+      fetchPostsForHome(currentUser).catch(() => {});
+    },
+    [currentUser, requireAuth, fetchPostsForHome]
+  );
+
+  const onReactPost = useCallback(
+    async (postId: number, type: ReactionType) => {
+      if (!requireAuth('Reacting')) return;
+
+      setPosts((prev) => {
+        const next = safeArray(prev).map((p: any) => {
+          if (Number(p.id) !== Number(postId)) return p;
+
+          const reactions = safeArray(p.reactions);
+          const mine = reactions.find((r: any) => Number(r.user_id) === Number(currentUser!.id));
+          let nextReactions = reactions.filter((r: any) => Number(r.user_id) !== Number(currentUser!.id));
+
+          if (!mine || mine.type !== type) nextReactions = [...nextReactions, { user_id: currentUser!.id, type }];
+
+          return normalizePost({ ...p, reactions: nextReactions });
+        });
+
+        lastGoodPostsRef.current = next;
+        return next;
+      });
+
+      try {
+        await apiFetch(`/api/posts/${postId}/react`, { method: 'POST', body: JSON.stringify({ type }) });
+      } catch {
+        fetchPostsForHome(currentUser).catch(() => {});
+      }
+    },
+    [currentUser, requireAuth, fetchPostsForHome]
+  );
+
+  const onSharePost = useCallback(
+    async (postId: number) => {
+      if (!requireAuth('Sharing')) return;
+
+      setPosts((prev) => {
+        const next = safeArray(prev).map((p: any) =>
+          Number(p.id) === Number(postId) ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) : p
+        );
+        lastGoodPostsRef.current = next;
+        return next;
+      });
+
+      try {
+        await apiFetch(`/api/posts/${postId}/share`, { method: 'POST' });
+      } catch {
+        fetchPostsForHome(currentUser).catch(() => {});
+      }
+    },
+    [requireAuth, fetchPostsForHome, currentUser]
+  );
+
+  const onOpenComments = (postId: number) => {
+    if (!requireAuth('Commenting')) return;
+
+    const pid = Number(postId);
+    setActiveCommentsPostId(pid);
+
+    // ✅ snapshot immediately to prevent blank if posts refresh
+    const found = posts.find((p) => Number(p.id) === pid) || null;
+    setCommentPostSnapshot(found);
+  };
+
+  const deletePost = useCallback(
+    async (postId: number) => {
+      if (!requireAuth('Deleting posts')) return;
+
+      const prev = posts;
+      setPosts((p) => {
+        const next = safeArray(p).filter((x) => Number(x.id) !== Number(postId));
+        lastGoodPostsRef.current = next;
+        return next;
+      });
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+      } catch {
+        setPosts(prev);
+        lastGoodPostsRef.current = prev;
+      }
+    },
+    [requireAuth, posts]
+  );
+
+  const editPost = useCallback(
+    async (postId: number, content: string) => {
+      if (!requireAuth('Editing posts')) return;
+      const trimmed = (content || '').trim();
+      if (!trimmed) return;
+
+      const prev = posts;
+      setPosts((p) => {
+        const next = safeArray(p).map((x: any) =>
+          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+        );
+        lastGoodPostsRef.current = next;
+        return next;
+      });
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
+      } catch {
+        setPosts(prev);
+        lastGoodPostsRef.current = prev;
+      }
+    },
+    [requireAuth, posts]
+  );
+
+  const followUser = useCallback(
+    async (targetUserId: number) => {
+      if (!requireAuth('Following')) return;
+      if (!currentUser) return;
+      if (Number(targetUserId) === Number(currentUser.id)) return;
+
+      setUsers((prev) => {
+        const arr = safeArray(prev).map(normalizeUser);
+        const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
+        const target = arr.find((u) => Number(u.id) === Number(targetUserId));
+        if (!me || !target) return arr;
+
+        const meFollowers = new Set<number>(safeArray<number>((me as any).followers));
+        const targetFollowers = new Set<number>(safeArray<number>((target as any).followers));
+
+        const isFollowingNow = meFollowers.has(targetUserId) && targetFollowers.has(currentUser.id);
+
+        if (isFollowingNow) {
+          meFollowers.delete(targetUserId);
+          targetFollowers.delete(currentUser.id);
+        } else {
+          meFollowers.add(targetUserId);
+          targetFollowers.add(currentUser.id);
+        }
+
+        return arr.map((u) => {
+          if (Number(u.id) === Number(me.id)) return normalizeUser({ ...u, followers: Array.from(meFollowers) });
+          if (Number(u.id) === Number(target.id)) return normalizeUser({ ...u, followers: Array.from(targetFollowers) });
+          return u;
+        });
+      });
+
+      try {
+        await apiFetch('/api/user-follows', {
+          method: 'POST',
+          body: JSON.stringify({ follower_id: currentUser.id, following_id: targetUserId }),
+        }).catch(async () => {
+          await apiFetch(`/api/user-follows?follower_id=${currentUser.id}&following_id=${targetUserId}`, {
+            method: 'DELETE',
+          });
+        });
+
+        fetchPostsForHome(currentUser).catch(() => {});
+      } catch {
+        fetchPostsForHome(currentUser).catch(() => {});
+      }
+    },
+    [requireAuth, currentUser, fetchPostsForHome]
+  );
+
+  const updateUserDetails = useCallback(
+    async (data: Partial<User>) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      await apiFetch(`/api/users`, {
+        method: 'PUT',
+        body: JSON.stringify({ id: currentUser.id, ...data }),
+      });
+
+      const merged = normalizeUser({ ...currentUser, ...data });
+
+      setCurrentUser(merged);
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(merged));
+
+      setUsers((prev) => safeArray(prev).map((u) => (Number(u.id) === Number(merged.id) ? merged : u)));
+    },
+    [requireAuth, currentUser]
+  );
+
+  const updateProfileImage = useCallback(
+    async (file: File) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      const url = await fileToDataUrl(file);
+      await updateUserDetails({ profile_image_url: url } as any);
+    },
+    [requireAuth, currentUser, updateUserDetails]
+  );
+
+  const updateCoverImage = useCallback(
+    async (file: File) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      const url = await fileToDataUrl(file);
+      await updateUserDetails({ cover_image_url: url } as any);
+    },
+    [requireAuth, currentUser, updateUserDetails]
+  );
+
+  /** ---------- Render ---------- */
+  if (!FORCE_LOADER_OFF_FOREVER && isLoading) return <ProfessionalLoader />;
+
+  const profileUser =
+    (selectedUserId ? users.find((u) => Number(u.id) === Number(selectedUserId)) : null) || currentUser || users[0];
+
   return (
-    <div className="min-h-screen bg-[#18191A] text-white">
+    <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
       <Header
+        onHomeClick={() => handleNavigate('home')}
+        onProfileClick={(id: number) => openProfile(id)}
+        onReelsClick={() => handleNavigate('reels')}
+        onMarketplaceClick={() => handleNavigate('marketplace')}
+        onGroupsClick={() => handleNavigate('groups')}
         currentUser={currentUser}
+        notifications={notifications}
+        users={users}
         onLogout={handleLogout}
-        onNavigate={(key: string) => {
-          // Header nav mapping (safe)
-          if (key === 'home') setPage('home');
-          if (key === 'profile') {
-            setSelectedUserId(safeUserId(currentUser));
-            setPage('profile');
-          }
-          if (key === 'reels') setPage('reels');
-          if (key === 'marketplace') setPage('marketplace');
-          if (key === 'groups') setPage('groups');
-          if (key === 'settings') setPage('settings');
-        }}
+        onLoginClick={() => setView('login')}
+        onMarkNotificationsRead={() => {}}
+        activeTab={activeTab}
+        onNavigate={(v: any) => handleNavigate(v)}
       />
 
-      <div className="max-w-[1400px] mx-auto px-2 md:px-4 flex gap-4">
-        <Sidebar
-          currentUser={currentUser}
-          activePage={page}
-          onNavigate={(p: any) => {
-            setPage(p as Page);
-            if (p === 'profile') setSelectedUserId(safeUserId(currentUser));
-          }}
-        />
+      <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
+        {currentUser && (
+          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
+            <Sidebar
+              currentUser={currentUser}
+              onProfileClick={(id) => openProfile(id)}
+              onReelsClick={() => handleNavigate('reels')}
+              onMarketplaceClick={() => handleNavigate('marketplace')}
+              onGroupsClick={() => handleNavigate('groups')}
+            />
+          </div>
+        )}
 
-        <main className="flex-1 py-4 min-w-0">
-          {page === 'home' && (
-            <>
+        <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
+          {view === 'home' && (
+            <div className="w-full pt-4 md:px-8 pb-10">
               <StoryReel
+                stories={stories}
+                onProfileClick={(id) => openProfile(id)}
+                onCreateStory={() => {
+                  if (!requireAuth('Creating stories')) return;
+                  setShowCreateStoryModal(true);
+                }}
+                onViewStory={(s) => setActiveStory(s)}
                 currentUser={currentUser}
-                users={users}
-                onCreateStory={() => setIsCreateStoryOpen(true)}
-                onProfileClick={handleProfileClick}
+                onRequestLogin={() => setView('login')}
               />
 
-              {/* ✅ Feed handles its own fetching + stable comments */}
-              <div className="mt-4">
-                {/* Feed default export is the API-connected feed container in your Feed.tsx */}
-                {/* eslint-disable-next-line @typescript-eslint/no-var-requires */}
-                {React.createElement(require('./components/Feed').default, {
-                  currentUser,
-                  users,
-                  onProfileClick: handleProfileClick,
-                })}
-              </div>
-            </>
+              {currentUser && (
+                <CreatePost
+                  currentUser={currentUser}
+                  onProfileClick={(id) => openProfile(id)}
+                  onClick={() => {
+                    if (!requireAuth('Creating posts')) return;
+                    setShowCreatePostModal(true);
+                  }}
+                />
+              )}
+
+              {currentUser && products.length > 0 && (
+                <SuggestedProductsWidget
+                  products={products}
+                  currentUser={currentUser}
+                  onViewProduct={setActiveProduct}
+                  onSeeAll={() => handleNavigate('marketplace')}
+                />
+              )}
+
+              {rankedPosts.length > 0 ? (
+                rankedPosts.map((post) => (
+                  <Post
+                    // ✅ fallback key prevents blank feed when id is missing/0
+                    key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
+                    post={post}
+                    author={
+                      users.find((u) => Number(u.id) === Number((post as any).user_id)) ||
+                      users[0] ||
+                      INITIAL_USERS[0]
+                    }
+                    currentUser={currentUser}
+                    users={users}
+                    onProfileClick={(id) => openProfile(id)}
+                    onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                    onShare={(postId: number) => onSharePost(postId)}
+                    onViewImage={setFullScreenImage}
+                    onOpenComments={(postId: number) => onOpenComments(postId)}
+                    onVideoClick={(p: any) => {
+                      setActiveReelId(p.id);
+                      setView('reels');
+                    }}
+                    onPlayAudioTrack={setCurrentAudioTrack}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-20 text-[#B0B3B8]">
+                  <p>No posts available.</p>
+                </div>
+              )}
+            </div>
           )}
 
-          {page === 'profile' && selectedUserId != null && (
-            <UserProfile
-              currentUser={currentUser}
-              users={users}
-              userId={selectedUserId}
-              onBack={() => setPage('home')}
-              onProfileClick={handleProfileClick}
-              onViewImage={onViewImage}
-              onPlayAudioTrack={onPlayAudioTrack}
-              onUsersUpdate={(nextUsers: User[]) => {
-                setUsers((prev) => {
-                  const map = new Map<number, User>();
-                  (prev || []).forEach((u) => map.set(safeUserId(u), normalizeUser(u)));
-                  (nextUsers || []).forEach((u) => map.set(safeUserId(u), normalizeUser(u)));
-                  return Array.from(map.values());
-                });
-              }}
-              onMeUpdate={(partial: Partial<User>) => {
-                if (!currentUser) return;
-                const merged = normalizeUser({ ...currentUser, ...partial });
-                setCurrentUser(merged);
-                localStorage.setItem('user', JSON.stringify(merged));
-                setUsers((prev) => {
-                  const map = new Map<number, User>();
-                  (prev || []).forEach((u) => map.set(safeUserId(u), normalizeUser(u)));
-                  map.set(safeUserId(merged), merged);
-                  return Array.from(map.values());
-                });
-              }}
-            />
-          )}
-
-          {page === 'reels' && (
+          {view === 'reels' && (
             <ReelsFeed
-              currentUser={currentUser}
+              reels={reels}
               users={users}
-              onProfileClick={handleProfileClick}
-              onCreateReel={() => setIsCreateReelOpen(true)}
-              onPlayAudioTrack={onPlayAudioTrack}
+              currentUser={currentUser}
+              onProfileClick={(id) => openProfile(id)}
+              onCreateReelClick={() => {
+                if (!requireAuth('Creating reels')) return;
+                setShowCreateReelModal(true);
+              }}
+              onReact={() => requireAuth('Reacting')}
+              onComment={() => requireAuth('Commenting')}
+              onShare={() => requireAuth('Sharing')}
+              onFollow={(id: number) => followUser(id)}
+              getCommentAuthor={(id) => users.find((u) => u.id === id)}
+              initialReelId={activeReelId}
             />
           )}
 
-          {page === 'marketplace' && (
+          {view === 'marketplace' && (
             <MarketplacePage
               currentUser={currentUser}
-              users={users}
-              onProfileClick={handleProfileClick}
-              onViewProduct={(p: Product) => setActiveProduct(p)}
-              onViewImage={onViewImage}
+              products={products}
+              onNavigateHome={() => handleNavigate('home')}
+              onCreateProduct={() => requireAuth('Creating products')}
+              onViewProduct={setActiveProduct}
             />
           )}
 
-          {page === 'groups' && (
+          {view === 'groups' && (
             <GroupsPage
               currentUser={currentUser}
+              groups={groups}
               users={users}
-              onProfileClick={handleProfileClick}
-              onViewImage={onViewImage}
-              onPlayAudioTrack={onPlayAudioTrack}
+              onCreateGroup={() => requireAuth('Creating groups')}
+              onJoinGroup={() => requireAuth('Joining groups')}
+              onLeaveGroup={() => requireAuth('Leaving groups')}
+              onDeleteGroup={() => requireAuth('Deleting groups')}
+              onUpdateGroupImage={() => requireAuth('Updating groups')}
+              onPostToGroup={() => requireAuth('Posting')}
+              onCreateGroupEvent={() => requireAuth('Creating events')}
+              onInviteToGroup={() => requireAuth('Inviting')}
+              onProfileClick={(id) => openProfile(id)}
+              onLikePost={() => requireAuth('Liking')}
+              onOpenComments={() => requireAuth('Commenting')}
+              onSharePost={() => requireAuth('Sharing')}
+              onDeleteGroupPost={() => requireAuth('Deleting posts')}
+              onRemoveMember={() => requireAuth('Removing members')}
+              onUpdateGroupSettings={() => requireAuth('Updating settings')}
+              onPlayAudioTrack={setCurrentAudioTrack}
             />
           )}
 
-          {page === 'events' && (
+          {view === 'brands' && (
+            <BrandsPage
+              currentUser={currentUser}
+              brands={brands}
+              posts={posts}
+              users={users}
+              onCreateBrand={() => requireAuth('Creating brands')}
+              onFollowBrand={() => requireAuth('Following')}
+              onProfileClick={(id) => openProfile(id)}
+              onPostAsBrand={() => requireAuth('Posting')}
+              onReact={() => requireAuth('Reacting')}
+              onShare={() => requireAuth('Sharing')}
+              onOpenComments={(id: any) => {
+                if (!requireAuth('Commenting')) return;
+                const pid = Number(id);
+                setActiveCommentsPostId(pid);
+                const found = posts.find((p) => Number(p.id) === pid) || null;
+                setCommentPostSnapshot(found);
+              }}
+              onDeleteBrand={() => requireAuth('Deleting brands')}
+              onPlayAudioTrack={setCurrentAudioTrack}
+            />
+          )}
+
+          {view === 'music' && (
+            <MusicSystem
+              currentUser={currentUser}
+              onPlayTrack={setCurrentAudioTrack}
+              onProfileClick={(id) => openProfile(id)}
+              likedTracks={[]}
+              onToggleLike={() => requireAuth('Liking')}
+              playHistory={[]}
+            />
+          )}
+
+          {view === 'tools' && <ToolsPage />}
+
+          {view === 'profiles' && (
+            <SuggestedProfilesPage
+              currentUser={currentUser as any}
+              users={users}
+              onFollow={(id: number) => followUser(id)}
+              onProfileClick={(id) => openProfile(id)}
+            />
+          )}
+
+          {view === 'events' && (
             <EventsPage
+              events={events}
+              currentUser={currentUser as any}
+              onJoinEvent={() => requireAuth('Joining events')}
+              onCreateEventClick={() => {
+                if (!requireAuth('Creating events')) return;
+                setShowCreateEventModal(true);
+              }}
+              onProfileClick={(id) => openProfile(id)}
+            />
+          )}
+
+          {view === 'birthdays' && (
+            <BirthdaysPage
+              currentUser={currentUser as any}
+              users={users}
+              onMessage={(id) => {
+                if (!requireAuth('Messaging')) return;
+                setActiveChatUser(users.find((u) => u.id === id) || null);
+              }}
+              onProfileClick={(id) => openProfile(id)}
+            />
+          )}
+
+          {view === 'memories' && currentUser && (
+            <MemoriesPage
+              currentUser={currentUser}
+              posts={posts}
+              users={users}
+              onProfileClick={(id) => openProfile(id)}
+              onReact={() => requireAuth('Reacting')}
+              onShare={() => requireAuth('Sharing')}
+              onViewImage={setFullScreenImage}
+              onOpenComments={(id) => onOpenComments(id)}
+              onVideoClick={() => {}}
+              onPlayAudioTrack={setCurrentAudioTrack}
+            />
+          )}
+
+          {view === 'settings' && currentUser && (
+            <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
+          )}
+
+          {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
+          {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
+          {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
+
+          {view === 'profile' && selectedUserId && profileUser && (
+            <UserProfile
+              user={profileUser}
               currentUser={currentUser}
               users={users}
-              onCreateEvent={() => setIsCreateEventOpen(true)}
-              onProfileClick={handleProfileClick}
+              posts={posts}
+              reels={reels}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={(id: number) => followUser(id)}
+              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+              onComment={() => requireAuth('Commenting')}
+              onShare={(postId: number) => onSharePost(postId)}
+              onMessage={(id) => {
+                if (!requireAuth('Messaging')) return;
+                setActiveChatUser(users.find((u) => u.id === id) || null);
+              }}
+              onCreatePost={createPost as any}
+              onUpdateProfileImage={updateProfileImage as any}
+              onUpdateCoverImage={updateCoverImage as any}
+              onUpdateUserDetails={updateUserDetails as any}
+              onDeletePost={(postId: number) => deletePost(postId)}
+              onEditPost={(postId: number, content: string) => editPost(postId, content)}
+              getCommentAuthor={(id) => users.find((u) => u.id === id)}
+              onViewImage={setFullScreenImage}
+              onOpenComments={(postId) => onOpenComments(postId)}
+              onVideoClick={(p) => {
+                setActiveReelId((p as any).id);
+                setView('reels');
+              }}
+              onPlayAudioTrack={setCurrentAudioTrack}
             />
           )}
 
-          {page === 'birthdays' && (
-            <BirthdaysPage currentUser={currentUser} users={users} />
+          {view === 'login' && (
+            <Login
+              onLogin={handleLogin}
+              onNavigateToRegister={() => setView('register')}
+              onNavigateToForgotPassword={() => setView('login')}
+              onClose={() => setView('home')}
+              error={loginError}
+            />
           )}
 
-          {page === 'memories' && (
-            <MemoriesPage currentUser={currentUser} users={users} />
-          )}
+          {view === 'register' && <Register onRegister={() => {}} onBackToLogin={() => setView('login')} />}
+        </div>
 
-          {page === 'brands' && (
-            <BrandsPage currentUser={currentUser} users={users} onProfileClick={handleProfileClick} />
-          )}
-
-          {page === 'tools' && <ToolsPage currentUser={currentUser} />}
-
-          {page === 'settings' && (
-            <SettingsPage currentUser={currentUser} onLogout={handleLogout} />
-          )}
-
-          {page === 'support' && <HelpSupportPage currentUser={currentUser} />}
-
-          {page === 'suggested_profiles' && (
-            <SuggestedProfilesPage currentUser={currentUser} users={users} onProfileClick={handleProfileClick} />
-          )}
-        </main>
-
-        <RightSidebar
-          currentUser={currentUser}
-          users={users}
-          onProfileClick={handleProfileClick}
-          onCreateEvent={() => setIsCreateEventOpen(true)}
-          onNavigate={(p: any) => setPage(p as Page)}
-        />
+        {currentUser && (
+          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
+            <RightSidebar
+              contacts={users.filter((u) => u.id !== currentUser.id)}
+              onProfileClick={(id) => openProfile(id)}
+            />
+          </div>
+        )}
       </div>
 
-      {/* =========================
-          MODALS / OVERLAYS
-         ========================= */}
-      {viewImageUrl && (
-        <ImageViewer url={viewImageUrl} onClose={() => setViewImageUrl(null)} />
-      )}
-
+      {/* Modals / Overlays */}
       {activeProduct && (
         <ProductDetailModal
           product={activeProduct}
           currentUser={currentUser}
-          users={users}
           onClose={() => setActiveProduct(null)}
-          onProfileClick={handleProfileClick}
-          onViewImage={onViewImage}
-        />
-      )}
-
-      {isCreateReelOpen && (
-        <CreateReelModal
-          currentUser={currentUser}
-          users={users}
-          onClose={() => setIsCreateReelOpen(false)}
-          onCreated={() => {
-            setIsCreateReelOpen(false);
-            // ReelsFeed should refetch internally if needed
+          onMessage={(id) => {
+            if (!requireAuth('Messaging')) return;
+            setActiveChatUser(users.find((u) => u.id === id) || null);
+            setView('home');
           }}
         />
       )}
 
-      {isCreateStoryOpen && (
-        <CreateStoryModal
+      {showCreateEventModal && currentUser && (
+        <CreateEventModal currentUser={currentUser} onClose={() => setShowCreateEventModal(false)} onCreate={() => {}} />
+      )}
+
+      {showCreatePostModal && currentUser && (
+        <CreatePostModal
           currentUser={currentUser}
           users={users}
-          onClose={() => setIsCreateStoryOpen(false)}
-          onCreated={() => {
-            setIsCreateStoryOpen(false);
-            // StoryReel should refetch internally if needed
+          onClose={() => setShowCreatePostModal(false)}
+          onCreatePost={(text: string, file: File | null, meta?: any) => createPost(text, file, meta)}
+        />
+      )}
+
+      {activePost && currentUser && (
+        <CommentsSheet
+          post={activePost}
+          currentUser={currentUser}
+          users={users}
+          onClose={() => {
+            setActiveCommentsPostId(null);
+            setCommentPostSnapshot(null);
           }}
+          onComment={() => {}}
+          onLikeComment={() => {}}
+          getCommentAuthor={(id) => users.find((u) => u.id === id)}
+          onProfileClick={(id) => openProfile(id)}
         />
       )}
 
-      {isCreateEventOpen && (
-        <CreateEventModal
-          currentUser={currentUser}
-          onClose={() => setIsCreateEventOpen(false)}
-          onCreated={() => setIsCreateEventOpen(false)}
+      {currentAudioTrack && (
+        <GlobalAudioPlayer
+          currentTrack={currentAudioTrack}
+          isPlaying={isAudioPlaying}
+          onTogglePlay={() => setIsAudioPlaying(!isAudioPlaying)}
+          onNext={() => {}}
+          onPrevious={() => {}}
+          onClose={() => setCurrentAudioTrack(null)}
+          onDownload={() => {}}
+          onLike={() => requireAuth('Liking')}
+          isLiked={false}
         />
       )}
 
-      {/* Global Audio Player */}
-      <GlobalAudioPlayer
-        currentTrack={activeTrack}
-        isPlaying={isPlaying}
-        onTogglePlay={onTogglePlay}
-        onNext={onNextTrack}
-        onPrevious={onPrevTrack}
-        onClose={onClosePlayer}
-        onDownload={(id: string) => {
-          // keep safe
-          alert('Download coming soon');
-        }}
-        onLike={(id: string) => {
-          // keep safe
-          alert('Liked');
-        }}
-        uploaderProfile={null}
-        isLiked={false}
-      />
+      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
-      {/* Music System full page modal/section if you use it */}
-      {/* You can open MusicSystem from Tools or its own page if needed */}
-      <div className="hidden">
-        <MusicSystem
-          currentUser={currentUser}
-          onProfileClick={handleProfileClick}
-          onPlayAudioTrack={onPlayAudioTrack}
-        />
-      </div>
+      {showCreateStoryModal && currentUser && (
+        <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
+      )}
+
+      {showCreateReelModal && currentUser && (
+        <CreateReelModal currentUser={currentUser} onClose={() => setShowCreateReelModal(false)} onCreate={() => {}} />
+      )}
     </div>
   );
 }
