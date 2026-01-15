@@ -1,5 +1,4 @@
-Here Feed.tsx 
-
+Here feed.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -42,9 +41,7 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 
 // Optional upload helper: only works if you have an upload endpoint.
 // If you don't have it yet, media posts will show a friendly error.
-const uploadToR2IfAvailable = async (
-  file: File
-): Promise<{ url: string; media_type: 'image' | 'video' } | null> => {
+const uploadToR2IfAvailable = async (file: File): Promise<{ url: string; media_type: 'image' | 'video' } | null> => {
   // Try a common endpoint name. Change this to your real upload endpoint if you have one.
   const endpoint = '/api/uploads';
 
@@ -137,18 +134,7 @@ const BACKGROUNDS = [
   { id: 'fire', value: 'linear-gradient(120deg, #f6d365 0%, #fda085 100%)' },
 ];
 
-const FEELINGS = [
-  'Happy',
-  'Blessed',
-  'Loved',
-  'Sad',
-  'Excited',
-  'Thankful',
-  'Crazy',
-  'Tired',
-  'Cool',
-  'Relaxed',
-];
+const FEELINGS = ['Happy', 'Blessed', 'Loved', 'Sad', 'Excited', 'Thankful', 'Crazy', 'Tired', 'Cool', 'Relaxed'];
 
 const safeUserId = (u: any) => Number(u?.id ?? u?.user_id ?? 0);
 
@@ -268,11 +254,7 @@ export const ReactionButton: React.FC<{
     : null;
 
   return (
-    <div
-      className="flex-1 relative group"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
+    <div className="flex-1 relative group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
       {showDock && (
         <div className="absolute -top-12 left-0 bg-[#242526] rounded-full shadow-xl p-1.5 flex gap-2 animate-fade-in border border-[#3E4042] z-50">
           {reactionConfig.map((r) => (
@@ -298,10 +280,7 @@ export const ReactionButton: React.FC<{
         {activeReaction ? (
           <>
             <span className="text-[20px]">{activeReaction.icon}</span>
-            <span
-              className="text-[17px] font-medium"
-              style={{ color: activeReaction.color }}
-            >
+            <span className="text-[17px] font-medium" style={{ color: activeReaction.color }}>
               {activeReaction.type}
             </span>
           </>
@@ -355,32 +334,20 @@ export const Post: React.FC<{
 
   const reactions = Array.isArray(p.reactions) ? p.reactions : [];
   const comments = Array.isArray(p.comments) ? p.comments : [];
-  const commentCount =
-    typeof p.comment_count === 'number' ? p.comment_count : comments.length;
+  const commentCount = typeof p.comment_count === 'number' ? p.comment_count : comments.length;
 
   const myReaction = currentUser
-    ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))
-        ?.type
+    ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type
     : undefined;
 
-  const createdAtLabel = p.created_at
-    ? new Date(p.created_at).toLocaleString()
-    : 'Recently';
+  const createdAtLabel = p.created_at ? new Date(p.created_at).toLocaleString() : 'Recently';
 
   return (
     <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
       <div className="p-3 md:p-4 flex items-center justify-between">
-        <div
-          className="flex items-center gap-2 flex-1 min-w-0"
-          onClick={() => onProfileClick(safeUserId(a))}
-        >
+        <div className="flex items-center gap-2 flex-1 min-w-0" onClick={() => onProfileClick(safeUserId(a))}>
           <img
-            src={
-              a.profile_image_url ||
-              a.profileImage ||
-              a.avatar ||
-              'https://ui-avatars.com/api/?name=User'
-            }
+            src={a.profile_image_url || a.profileImage || a.avatar || 'https://ui-avatars.com/api/?name=User'}
             alt=""
             className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
           />
@@ -389,9 +356,7 @@ export const Post: React.FC<{
               <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
                 {a.name || a.username || 'User'}
               </h4>
-              {a.is_verified && (
-                <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-              )}
+              {a.is_verified && <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>}
             </div>
             <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
               <span>{createdAtLabel}</span>
@@ -400,9 +365,7 @@ export const Post: React.FC<{
               {p.location && (
                 <>
                   <span>•</span>
-                  <span className="truncate max-w-[160px]">
-                    {String(p.location).split(',')[0]}
-                  </span>
+                  <span className="truncate max-w-[160px]">{String(p.location).split(',')[0]}</span>
                 </>
               )}
               {p.feeling && (
@@ -415,20 +378,18 @@ export const Post: React.FC<{
           </div>
         </div>
 
-        {onDelete &&
-          currentUser &&
-          safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
-            <button
-              className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(p.id);
-              }}
-              title="Delete"
-            >
-              <i className="fas fa-trash text-[#B0B3B8]"></i>
-            </button>
-          )}
+        {onDelete && currentUser && safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
+          <button
+            className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(p.id);
+            }}
+            title="Delete"
+          >
+            <i className="fas fa-trash text-[#B0B3B8]"></i>
+          </button>
+        )}
       </div>
 
       {p.content && (
@@ -447,21 +408,11 @@ export const Post: React.FC<{
           className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
           onClick={() => window.open(p.link_preview.url, '_blank')}
         >
-          <img
-            src={p.link_preview.image}
-            alt=""
-            className="w-full h-48 object-cover"
-          />
+          <img src={p.link_preview.image} alt="" className="w-full h-48 object-cover" />
           <div className="p-3 bg-[#3A3B3C]">
-            <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
-              {p.link_preview.domain}
-            </div>
-            <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
-              {p.link_preview.title}
-            </div>
-            <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
-              {p.link_preview.description}
-            </div>
+            <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{p.link_preview.domain}</div>
+            <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{p.link_preview.title}</div>
+            <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{p.link_preview.description}</div>
           </div>
         </div>
       )}
@@ -475,17 +426,11 @@ export const Post: React.FC<{
         </div>
       )}
 
-      {p.media_url &&
-        (p.media_type === 'image' || p.type === 'image') &&
-        !p.background && (
-          <div className="cursor-pointer bg-black" onClick={() => onViewImage(p.media_url)}>
-            <img
-              src={p.media_url}
-              alt=""
-              className="w-full h-auto max-h-[600px] object-contain"
-            />
-          </div>
-        )}
+      {p.media_url && (p.media_type === 'image' || p.type === 'image') && !p.background && (
+        <div className="cursor-pointer bg-black" onClick={() => onViewImage(p.media_url)}>
+          <img src={p.media_url} alt="" className="w-full h-auto max-h-[600px] object-contain" />
+        </div>
+      )}
 
       {p.media_url && (p.media_type === 'video' || p.type === 'video') && (
         <div className="cursor-pointer relative h-[500px]" onClick={() => onVideoClick(post)}>
@@ -498,9 +443,7 @@ export const Post: React.FC<{
 
       <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
         <div className="flex items-center gap-1.5">
-          {reactions.length > 0 && (
-            <span className="hover:underline">{reactions.length} Reactions</span>
-          )}
+          {reactions.length > 0 && <span className="hover:underline">{reactions.length} Reactions</span>}
         </div>
         <div className="flex gap-4">
           <span className="hover:underline cursor-pointer" onClick={() => onOpenComments(p.id)}>
@@ -616,11 +559,400 @@ export const CreatePostModal: React.FC<{
   ) => void;
   onCreateEventClick?: () => void;
 }> = ({ currentUser, users, onClose, onCreatePost, onCreateEventClick }) => {
-  // ... (UNCHANGED UI/LOGIC — same as your file)
-  // NOTE: For brevity, this section is identical to what you pasted.
-  // Keep your existing CreatePostModal code here.
-  // (If you want, paste the remainder and I’ll return a single complete file in one shot.)
-  return null as any;
+  const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
+  const [text, setText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [type, setType] = useState<'text' | 'image' | 'video'>('text');
+
+  const [visibility] = useState<'Public' | 'Friends'>('Public');
+  const [activeBackground, setActiveBackground] = useState('');
+  const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
+
+  const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
+  const [feeling, setFeeling] = useState('');
+  const [location, setLocation] = useState('');
+
+  // Location search via YOUR backend: /api/locations/search
+  const [locQuery, setLocQuery] = useState('');
+  const [locResults, setLocResults] = useState<any[]>([]);
+  const [locLoading, setLocLoading] = useState(false);
+  const searchTimeout = useRef<any>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLinkPreview(getLinkPreview(text));
+  }, [text]);
+
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+
+    setFile(f);
+    const url = URL.createObjectURL(f);
+    setPreview(url);
+    setType(f.type.startsWith('image') ? 'image' : 'video');
+    setActiveBackground('');
+    setView('main');
+  };
+
+  const handleLocationSearch = async (q: string) => {
+    if (q.trim().length < 3) {
+      setLocResults([]);
+      return;
+    }
+    setLocLoading(true);
+    try {
+      const data = await apiFetch(`/api/locations/search?q=${encodeURIComponent(q)}`);
+      setLocResults(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Location search failed', err);
+      setLocResults([]);
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
+  const onLocQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setLocQuery(val);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
+  };
+
+  const canPost = !!text.trim() || !!file || !!activeBackground;
+
+  const submit = () => {
+    if (!canPost) return;
+
+    onCreatePost(text, file, {
+      type: file ? type : 'text',
+      visibility,
+      location: location || undefined,
+      feeling: feeling || undefined,
+      taggedUsers: taggedUsers.length ? taggedUsers : undefined,
+      background: activeBackground || undefined,
+      linkPreview: linkPreview || null,
+    });
+
+    onClose();
+  };
+
+  const OptionsItem = ({
+    icon,
+    color,
+    label,
+    onClick,
+  }: {
+    icon: string;
+    color: string;
+    label: string;
+    onClick?: () => void;
+  }) => (
+    <div
+      className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors"
+      onClick={onClick}
+    >
+      <i className={`${icon} text-[24px] w-8 text-center`} style={{ color }}></i>
+      <span className="text-[#E4E6EB] text-[17px] font-medium">{label}</span>
+    </div>
+  );
+
+  if (view === 'tag') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={() => setView('main')}></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">Tag People</h3>
+          <button onClick={() => setView('main')} className="ml-auto text-[#1877F2] font-bold">Done</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {users
+            .filter((u: any) => safeUserId(u) !== safeUserId(currentUser))
+            .map((u: any) => (
+              <div
+                key={safeUserId(u)}
+                className="flex items-center justify-between p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
+                onClick={() =>
+                  setTaggedUsers((prev) =>
+                    prev.includes(safeUserId(u))
+                      ? prev.filter((uid) => uid !== safeUserId(u))
+                      : [...prev, safeUserId(u)]
+                  )
+                }
+              >
+                <div className="flex items-center gap-3">
+                  <img src={u.profile_image_url} className="w-10 h-10 rounded-full object-cover" alt="" />
+                  <span className="text-[#E4E6EB] font-semibold">{u.name}</span>
+                </div>
+                {taggedUsers.includes(safeUserId(u)) && <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>}
+              </div>
+            ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'feeling') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={() => setView('main')}></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">How are you feeling?</h3>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-2">
+          {FEELINGS.map((f) => (
+            <div
+              key={f}
+              className="p-3 bg-[#242526] rounded-lg text-center cursor-pointer hover:bg-[#3A3B3C] text-[#E4E6EB]"
+              onClick={() => {
+                setFeeling(f);
+                setView('main');
+              }}
+            >
+              {f}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'location') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={() => setView('main')}></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">Search Location</h3>
+        </div>
+
+        <div className="p-4 flex-1 flex flex-col overflow-hidden">
+          <div className="relative mb-4">
+            <input
+              type="text"
+              placeholder="Where are you?"
+              className="w-full bg-[#3A3B3C] rounded-xl p-4 pl-12 text-[#E4E6EB] outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+              autoFocus
+              value={locQuery}
+              onChange={onLocQueryChange}
+            />
+            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+            {locLoading && <i className="fas fa-spinner fa-spin absolute right-4 top-1/2 -translate-y-1/2 text-[#1877F2]"></i>}
+          </div>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            {locResults.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {locResults.map((loc, i) => {
+                  const display =
+                    loc.display_name ||
+                    loc.name ||
+                    loc.label ||
+                    `${loc.city || ''}${loc.country ? `, ${loc.country}` : ''}`.trim();
+
+                  const title = (display || '').split(',')[0] || 'Location';
+
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-4 p-4 hover:bg-[#3A3B3C] rounded-xl cursor-pointer border border-[#3E4042]/30 transition-colors group"
+                      onClick={() => {
+                        setLocation(display);
+                        setView('main');
+                      }}
+                    >
+                      <div className="w-12 h-12 bg-[#3A3B3C] rounded-xl flex items-center justify-center group-hover:bg-[#1877F2] transition-colors">
+                        <i className="fas fa-location-dot text-[#E4E6EB]"></i>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[#E4E6EB] font-bold block truncate">{title}</span>
+                        <span className="text-[#B0B3B8] text-xs block truncate">{display}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : locQuery.length >= 3 && !locLoading ? (
+              <div className="text-center py-10">
+                <i className="fas fa-map-marked-alt text-4xl text-[#3A3B3C] mb-4"></i>
+                <p className="text-[#B0B3B8]">No matching locations found.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
+                  Nearby Suggestions
+                </p>
+                {LOCATIONS_DATA.slice(0, 6).map((loc) => (
+                  <div
+                    key={loc.name}
+                    className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors"
+                    onClick={() => {
+                      setLocation(loc.name);
+                      setView('main');
+                    }}
+                  >
+                    <div className="w-10 h-10 bg-[#3A3B3C] rounded-full flex items-center justify-center text-xl">
+                      {loc.flag}
+                    </div>
+                    <span className="text-[#E4E6EB] font-semibold">{loc.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+      <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+        <div className="flex items-center gap-4">
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer" onClick={onClose}></i>
+          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Create Post</h3>
+        </div>
+        <button onClick={submit} disabled={!canPost} className="text-[#E4E6EB] font-bold text-[17px] disabled:text-[#B0B3B8]">
+          POST
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="p-4">
+          <div className="flex items-center gap-3 mb-4">
+            <img src={(currentUser as any).profile_image_url} alt="" className="w-12 h-12 rounded-full object-cover" />
+            <div>
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[17px]">{(currentUser as any).name}</h4>
+                {feeling && <span className="text-[#E4E6EB] text-[15px]"> is feeling {feeling}</span>}
+                {location && <span className="text-[#E4E6EB] text-[15px]"> in {location.split(',')[0]}</span>}
+                {taggedUsers.length > 0 && <span className="text-[#E4E6EB] text-[15px]"> with {taggedUsers.length} others</span>}
+              </div>
+
+              <div className="flex items-center gap-2 mt-0.5">
+                <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[13px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
+                  <i className={`fas ${visibility === 'Public' ? 'fa-globe-americas' : 'fa-user-friends'} text-[12px]`}></i>
+                  <span>{visibility}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`relative min-h-[150px] mb-4 transition-all ${
+              activeBackground ? 'flex items-center justify-center p-8 rounded-lg text-center min-h-[300px]' : ''
+            }`}
+            style={{ background: activeBackground, backgroundSize: 'cover' }}
+          >
+            <textarea
+              className={`w-full bg-transparent outline-none text-[#E4E6EB] placeholder-[#B0B3B8] resize-none ${
+                activeBackground ? 'text-center font-bold text-3xl drop-shadow-md placeholder-white/70' : 'text-[24px]'
+              }`}
+              placeholder="What's on your mind?"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={activeBackground ? 4 : 5}
+            />
+          </div>
+
+          {linkPreview && !file && !activeBackground && (
+            <div
+              className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+              onClick={() => window.open(linkPreview.url, '_blank')}
+            >
+              <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
+              <div className="p-3 bg-[#3A3B3C]">
+                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{linkPreview.domain}</div>
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{linkPreview.title}</div>
+                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{linkPreview.description}</div>
+              </div>
+            </div>
+          )}
+
+          {!preview && (
+            <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+              <div
+                className={`w-8 h-8 rounded-lg cursor-pointer border-2 bg-[#3A3B3C] flex items-center justify-center flex-shrink-0 ${
+                  !activeBackground ? 'border-white' : 'border-[#3E4042]'
+                }`}
+                onClick={() => setActiveBackground('')}
+              >
+                <div className="w-6 h-6 bg-white rounded flex items-center justify-center">
+                  <i className="fas fa-font text-black text-xs"></i>
+                </div>
+              </div>
+
+              {BACKGROUNDS.filter((b) => b.id !== 'none').map((bg) => (
+                <div
+                  key={bg.id}
+                  className={`w-8 h-8 rounded-lg cursor-pointer border-2 flex-shrink-0 ${
+                    activeBackground === bg.value ? 'border-white' : 'border-transparent'
+                  }`}
+                  style={{ background: bg.value, backgroundSize: 'cover' }}
+                  onClick={() => setActiveBackground(bg.value)}
+                />
+              ))}
+            </div>
+          )}
+
+          {preview && (
+            <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
+              <div
+                onClick={() => {
+                  setFile(null);
+                  setPreview(null);
+                  setType('text');
+                }}
+                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
+              >
+                <i className="fas fa-times text-white"></i>
+              </div>
+
+              {type === 'image' ? (
+                <img src={preview} alt="preview" className="w-full h-auto max-h-[400px] object-contain bg-black" />
+              ) : (
+                <video src={preview} controls className="w-full h-auto max-h-[400px] bg-black" />
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-[#3E4042]">
+          <OptionsItem icon="fas fa-images" color="#45BD62" label="Photo/video" onClick={() => fileInputRef.current?.click()} />
+          <OptionsItem icon="fas fa-camera" color="#45BD62" label="Camera" onClick={() => cameraInputRef.current?.click()} />
+          <OptionsItem icon="fas fa-user-tag" color="#1877F2" label="Tag people" onClick={() => setView('tag')} />
+          <OptionsItem icon="far fa-smile" color="#F7B928" label="Feeling/activity" onClick={() => setView('feeling')} />
+          <OptionsItem icon="fas fa-map-marker-alt" color="#F02849" label="Check in" onClick={() => setView('location')} />
+          {onCreateEventClick && (
+            <OptionsItem icon="fas fa-flag" color="#F7B928" label="Life event" onClick={onCreateEventClick} />
+          )}
+        </div>
+      </div>
+
+      <div className="p-4 border-t border-[#3E4042]">
+        <button
+          onClick={submit}
+          disabled={!canPost}
+          className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors disabled:bg-[#3A3B3C] text-lg shadow-sm"
+        >
+          POST
+        </button>
+      </div>
+
+      <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileChange} />
+      <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
+    </div>
+  );
 };
 
 /**
@@ -638,8 +970,107 @@ export const CommentsSheet: React.FC<{
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick?: (id: number) => void;
 }> = ({ post, currentUser, users, onClose }) => {
-  // ... (UNCHANGED UI/LOGIC — same as your file)
-  return null as any;
+  const p: any = post as any;
+  const [text, setText] = useState('');
+  const [comments, setComments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+
+    apiFetch(`/api/posts/${p.id}/comments`)
+      .then((data) => {
+        if (!alive) return;
+        setComments(Array.isArray(data) ? data : data?.comments || []);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setComments([]);
+      })
+      .finally(() => {
+        if (!alive) return;
+        setLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [p.id]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+
+    try {
+      const data = await apiFetch(`/api/posts/${p.id}/comment`, {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      });
+
+      const newComment = data?.comment || {
+        id: Date.now(),
+        text,
+        author_name: (currentUser as any).name,
+        author_image: (currentUser as any).profile_image_url,
+      };
+
+      setComments((prev) => [...prev, newComment]);
+      setText('');
+    } catch (err: any) {
+      alert(err?.message || 'Failed to comment');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col justify-end md:items-center md:justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose}></div>
+
+      <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
+        <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]">
+          <h3 className="font-bold text-[#E4E6EB]">Comments</h3>
+          <i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {loading ? (
+            <div className="text-[#B0B3B8] text-center py-6">
+              <i className="fas fa-spinner fa-spin mr-2"></i>Loading comments...
+            </div>
+          ) : comments.length === 0 ? (
+            <div className="text-[#B0B3B8] text-center py-6">No comments yet.</div>
+          ) : (
+            comments.map((c) => (
+              <div key={c.id} className="flex gap-2">
+                <img
+                  src={c.author_image || 'https://ui-avatars.com/api/?name=User'}
+                  className="w-8 h-8 rounded-full object-cover"
+                  alt=""
+                />
+                <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1">
+                  <p className="font-bold text-white text-sm">{c.author_name || 'Anonymous'}</p>
+                  <p className="text-white text-[15px] whitespace-pre-wrap break-words">{c.text}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <form className="p-3 border-t border-[#3E4042] flex gap-2" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none"
+            placeholder="Write a comment..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <button type="submit" className="text-[#1877F2] font-bold">
+            Post
+          </button>
+        </form>
+      </div>
+    </div>
+  );
 };
 
 /**
@@ -653,13 +1084,57 @@ export const SuggestedProductsWidget: React.FC<{
   onViewProduct: (product: Product) => void;
   onSeeAll: () => void;
 }> = ({ products, currentUser, onViewProduct, onSeeAll }) => {
-  // ... (UNCHANGED UI/LOGIC — same as your file)
-  return null as any;
+  const suggested = (products || []).filter((p: any) => p.seller_id !== safeUserId(currentUser)).slice(0, 4);
+  if (suggested.length === 0) return null;
+
+  return (
+    <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
+        <button
+          onClick={onSeeAll}
+          className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
+        >
+          See all
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {suggested.map((product: any) => {
+          const countryData = MARKETPLACE_COUNTRIES.find((c) =>
+            String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
+          );
+          const symbol = countryData ? countryData.symbol : '$';
+
+          return (
+            <div key={product.id} className="cursor-pointer group" onClick={() => onViewProduct(product)}>
+              <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
+                <img
+                  src={product.images?.[0]}
+                  alt={product.title}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                />
+                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
+                  {symbol}
+                  {product.main_price}
+                </div>
+              </div>
+              <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">{product.title}</h4>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 };
 
 /**
  * =========================
  * ✅ FULL FEED CONTAINER (API CONNECTED)
+ * - GET /api/feed (fallback /api/posts)
+ * - POST /api/posts
+ * - Polling refresh
+ * - Handles loading/error
  * =========================
  */
 type FeedItem = {
@@ -668,19 +1143,18 @@ type FeedItem = {
 };
 
 const normalizeFeed = (raw: any): FeedItem[] => {
+  // Accept: array of posts, or {items:[]}, or {results:[]}
   const arr = Array.isArray(raw) ? raw : raw?.items || raw?.results || raw?.posts || [];
   if (!Array.isArray(arr)) return [];
 
   return arr.map((x: any) => {
-    const author =
-      x.author ||
-      x.user || {
-        id: x.user_id,
-        name: x.author_name || x.username || 'User',
-        profile_image_url:
-          x.author_profile_image_url || x.profile_image_url || x.profileImage,
-        is_verified: x.is_verified,
-      };
+    // If backend returns joined author fields:
+    const author = x.author || x.user || {
+      id: x.user_id,
+      name: x.author_name || x.username || 'User',
+      profile_image_url: x.author_profile_image_url || x.profile_image_url || x.profileImage,
+      is_verified: x.is_verified,
+    };
 
     const post = {
       ...x,
@@ -712,6 +1186,7 @@ export default function Feed({
   users?: User[];
   onProfileClick: (id: number) => void;
 }) {
+  // language hook (optional)
   try {
     useLanguage();
   } catch {}
@@ -723,21 +1198,13 @@ export default function Feed({
   const [showCreate, setShowCreate] = useState(false);
   const [openCommentsFor, setOpenCommentsFor] = useState<any | null>(null);
 
-  // ✅ UPDATED to your exact requested logic
   const fetchFeed = async () => {
-    setLoading(true);
-    setError(null);
     try {
-      if (currentUser?.id) {
-        const data = await apiFetch(`/api/feeds?userId=${safeUserId(currentUser)}&limit=20`);
-        setItems(normalizeFeed(data?.feed ?? []));
-      } else {
-        const data = await apiFetch(`/api/posts?limit=20`);
-        setItems(normalizeFeed(data ?? []));
-      }
+      setError(null);
+      const data = await apiFetch('/api/feed').catch(async () => await apiFetch('/api/posts'));
+      setItems(normalizeFeed(data));
     } catch (e: any) {
-      setError(e?.message || "Failed to load feed");
-      setItems([]);
+      setError(e?.message || 'Failed to load feed');
     } finally {
       setLoading(false);
     }
@@ -745,10 +1212,10 @@ export default function Feed({
 
   useEffect(() => {
     fetchFeed();
-    const id = setInterval(fetchFeed, 8000);
+    const id = setInterval(fetchFeed, 8000); // near real-time polling
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.id]);
+  }, []);
 
   const handleCreatePost = async (
     text: string,
@@ -765,27 +1232,28 @@ export default function Feed({
   ) => {
     if (!currentUser) return alert('Login first');
 
+    // Validate
     const hasText = !!text?.trim();
     const hasBg = !!meta?.background;
     const hasFile = !!file;
 
     if (!hasText && !hasBg && !hasFile) return;
 
+    // Upload media if needed
     let media_url: string | null = null;
     let media_type: 'image' | 'video' | null = null;
 
     if (file) {
       const uploaded = await uploadToR2IfAvailable(file);
       if (!uploaded) {
-        alert(
-          'Image/video upload is not set yet. Create an upload API endpoint (R2) first, then media posts will work.'
-        );
+        alert('Image/video upload is not set yet. Create an upload API endpoint (R2) first, then media posts will work.');
         return;
       }
       media_url = uploaded.url;
       media_type = uploaded.media_type;
     }
 
+    // POST to /api/posts -> hits functions/api/posts.ts
     try {
       await apiFetch('/api/posts', {
         method: 'POST',
@@ -794,6 +1262,7 @@ export default function Feed({
           content: text || '',
           media_url: media_url,
           media_type: media_type,
+          // Optional extras (backend should ignore if not supported)
           background: meta?.background || null,
           feeling: meta?.feeling || null,
           location: meta?.location || null,
@@ -813,10 +1282,13 @@ export default function Feed({
   const handleReact = async (postId: number, type: ReactionType) => {
     if (!currentUser) return alert('Login first');
     try {
+      // If you have a dedicated reactions endpoint, change here.
+      // For now we attempt a common pattern:
       await apiFetch('/api/post-reactions', {
         method: 'POST',
         body: JSON.stringify({ post_id: postId, user_id: safeUserId(currentUser), type }),
       }).catch(async () => {
+        // fallback: if your backend handles reactions inside /api/posts/:id/react
         await apiFetch(`/api/posts/${postId}/react`, {
           method: 'POST',
           body: JSON.stringify({ type }),
@@ -825,6 +1297,7 @@ export default function Feed({
 
       await fetchFeed();
     } catch {
+      // if reactions endpoint not implemented, just refresh silently
       await fetchFeed();
     }
   };
