@@ -1,110 +1,23 @@
-// App.tsx
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Login, Register } from './components/Auth';
-import { Header, Sidebar, RightSidebar } from './components/Layout';
-import { CreatePost, Post, CommentsSheet, CreatePostModal, SuggestedProductsWidget } from './components/Feed';
-import { StoryReel, CreateStoryModal } from './components/Story';
-import { UserProfile } from './components/UserProfile';
-import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
-import { ReelsFeed, CreateReelModal } from './components/Reels';
-import { ImageViewer, ProfessionalLoader } from './components/Common';
-import { EventsPage, BirthdaysPage, MemoriesPage, SettingsPage, SuggestedProfilesPage } from './components/MenuPages';
-import { HelpSupportPage } from './components/HelpSupport';
-import { CreateEventModal } from './components/Events';
-import { BrandsPage } from './components/Brands';
-import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
-import { GroupsPage } from './components/Groups';
-import { ToolsPage } from './components/Tools';
-import { PrivacyPolicyPage } from './components/PrivacyPolicy';
-import { TermsOfServicePage } from './components/TermsOfService';
-import { useLanguage } from './contexts/LanguageContext';
+// Feed.tsx
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
   Post as PostType,
-  Story,
-  Reel,
-  Notification,
-  Event,
-  Product,
-  AudioTrack,
   ReactionType,
-} from './types';
-import { INITIAL_USERS } from './constants';
-import { rankFeed } from './utils/ranking';
-
-/** ---------- TEMP: Force loader off forever (keeps component in code) ---------- */
-const FORCE_LOADER_OFF_FOREVER = true;
-
-/** ---------- Safety helpers ---------- */
-const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
-const safeNumber = (v: any, fallback = 0) => {
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
-const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+  Product,
+  LinkPreview,
+  AudioTrack,
+} from '../types';
+import { useLanguage } from '../contexts/LanguageContext';
+import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
+// Remove the incorrect import:
+// import { StickerPicker, EmojiPicker } from './Pickers';
 
 /**
- * Normalize raw D1 rows to UI-safe PostType shape.
- * ✅ accepts id OR post_id (and common variants)
+ * =========================
+ * API HELPERS
+ * =========================
  */
-const normalizePost = (p: any): PostType => {
-  const mediaType = p?.media_type ?? p?.mediaType ?? null;
-  const mediaUrl = p?.media_url ?? p?.mediaUrl ?? null;
-
-  const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
-
-  return {
-    ...p,
-    id: resolvedId,
-    user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
-    content: safeString(p?.content),
-    media_url: mediaUrl,
-    media_type: mediaType,
-
-    reactions: safeArray(p?.reactions),
-    comments: safeArray(p?.comments),
-
-    shares: safeNumber(p?.shares),
-    views: safeNumber(p?.views),
-
-    visibility: p?.visibility ?? 'public',
-    type:
-      p?.type ??
-      (mediaType
-        ? String(mediaType).includes('image')
-          ? 'image'
-          : String(mediaType).includes('video')
-          ? 'video'
-          : 'post'
-        : 'post'),
-    created_at: p?.created_at ?? new Date().toISOString(),
-  } as any;
-};
-
-/**
- * ✅ Normalize user:
- * - Accepts id OR user_id OR userId
- * - Prevents wrong profile opening
- */
-const normalizeUser = (u: any): User => {
-  const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
-
-  return {
-    ...u,
-    id: resolvedId,
-    name: safeString(u?.name, safeString(u?.username, 'User')),
-    username: safeString(u?.username, safeString(u?.name, 'user')),
-    followers: safeArray<number>(u?.followers),
-    following: safeArray<number>(u?.following),
-    profile_image_url: u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '',
-    cover_image_url: u?.cover_image_url ?? u?.coverImage ?? '',
-    is_verified: Boolean(u?.is_verified ?? u?.isVerified),
-    role: u?.role ?? 'user',
-    created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
-  } as any;
-};
-
-/** ---------- API helper ---------- */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const headers: HeadersInit = {
     Accept: 'application/json',
@@ -114,7 +27,7 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
 
-  // ✅ 2.3 Add timeout to stop 6-minute hangs
+  // ✅ 1.3 Add timeout to stop 6-minute hangs
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
 
@@ -153,1039 +66,1424 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-type View =
-  | 'home'
-  | 'reels'
-  | 'marketplace'
-  | 'groups'
-  | 'brands'
-  | 'music'
-  | 'tools'
-  | 'profiles'
-  | 'events'
-  | 'birthdays'
-  | 'memories'
-  | 'settings'
-  | 'privacy'
-  | 'terms'
-  | 'help'
-  | 'profile'
-  | 'login'
-  | 'register';
+/**
+ * =========================
+ * SMALL HELPERS
+ * =========================
+ */
+const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+const safeNumber = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
-const LS_USER_KEY = 'user';
-
-const fileToDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
+const safeUserId = (u: any) => safeNumber(u?.id ?? u?.user_id ?? u?.userId, 0);
+const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
 
 /**
- * ✅ Normalize FEED rows returned by /api/feeds
+ * =========================
+ * ✅ FIXED: ACCURATE RELATIVE TIME (Facebook-like)
+ * =========================
  */
-const normalizeFeedRowToPost = (row: any): PostType => {
-  return normalizePost({
-    ...row,
-    user_id: safeNumber(row?.user_id),
-    content: row?.content ?? '',
-    created_at: row?.created_at,
-    media_url: row?.media_url ?? null,
-    media_type: row?.media_type ?? null,
-    shares: row?.shares ?? 0,
-    views: row?.views ?? 0,
-    pool: row?.pool,
-    follower_count: row?.follower_count,
-  });
+export const formatRelativeTime = (dateInput: any): string => {
+  if (!dateInput) return 'Just now';
+
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  const t = d.getTime();
+  if (!Number.isFinite(t)) return 'Just now';
+
+  const now = Date.now();
+  let diffMs = now - t;
+  if (diffMs < 0) diffMs = 0;
+
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'Just now';
+
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin === 1) return '1 min';
+  if (diffMin < 60) return `${diffMin} mins`;
+
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs === 1) return '1 hr';
+  if (diffHrs < 24) return `${diffHrs} hrs`;
+
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays === 1) return '1 day';
+  if (diffDays < 7) return `${diffDays} days`;
+
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffWeeks === 1) return '1 week';
+  if (diffWeeks < 4) return `${diffWeeks} weeks`;
+
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths === 1) return '1 month';
+  if (diffMonths < 12) return `${diffMonths} months`;
+
+  const diffYears = Math.floor(diffDays / 365);
+  if (diffYears === 1) return '1 year';
+  return `${diffYears} years`;
 };
 
-const authorFromFeedRow = (row: any): User => {
-  return normalizeUser({
-    id: row?.user_id,
-    username: row?.username ?? 'user',
-    name: row?.username ?? 'User',
-    profile_image_url: row?.profile_image_url ?? '',
-    is_verified: row?.is_verified ?? 0,
-    role: row?.role ?? 'user',
-    followers: [],
-    following: [],
-    created_at: row?.joined_date ?? row?.created_at ?? null,
-  });
-};
+/**
+ * =========================
+ * LINK PREVIEW
+ * =========================
+ */
+const getLinkPreview = (text: string): LinkPreview | null => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const match = text.match(urlRegex);
+  if (!match?.[0]) return null;
 
-export default function App() {
-  useLanguage();
+  const url = match[0];
+  let domain = '';
+  try {
+    domain = new URL(url).hostname;
+  } catch {
+    return null;
+  }
 
-  /** ---------- State ---------- */
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS.map(normalizeUser));
-  const [posts, setPosts] = useState<PostType[]>([]);
-  const [stories, setStories] = useState<Story[]>([]);
-  const [reels, setReels] = useState<Reel[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [groups, setGroups] = useState<any[]>([]);
-  const [brands, setBrands] = useState<any[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
-
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
-  const [view, setView] = useState<View>('home');
-
-  // ✅ 2.1 Add posts loading state
-  const [isPostsLoading, setIsPostsLoading] = useState(true);
-
-  // ✅ Force loader off forever (Option B)
-  const [isLoading, setIsLoading] = useState(false);
-
-  const [loginError, setLoginError] = useState('');
-
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [activeReelId, setActiveReelId] = useState<number | null>(null);
-  const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
-  const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
-  const [activeStory, setActiveStory] = useState<Story | null>(null);
-  const [activeProduct, setActiveProduct] = useState<Product | null>(null);
-
-  const [showCreatePostModal, setShowCreatePostModal] = useState(false);
-  const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
-  const [showCreateReelModal, setShowCreateReelModal] = useState(false);
-  const [showCreateEventModal, setShowCreateEventModal] = useState(false);
-
-  const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
-  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
-
-  // ✅ Keep last good posts so polling can't wipe feed to empty
-  const lastGoodPostsRef = useRef<PostType[]>([]);
-
-  // ✅ Snapshot for comments so CommentsSheet never goes blank if feed refreshes
-  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
-
-  /** ---------- Auth gate ---------- */
-  const requireAuth = useCallback(
-    (actionName = 'This action') => {
-      if (currentUser) return true;
-      setLoginError(`${actionName} requires login.`);
-      setView('login');
-      return false;
-    },
-    [currentUser]
-  );
-
-  const openProfile = useCallback((id: number) => {
-    setSelectedUserId(Number(id));
-    setView('profile');
-    window.scrollTo(0, 0);
-  }, []);
-
-  /**
-   * ✅ Fetch users list
-   */
-  const fetchUsersList = useCallback(async () => {
-    try {
-      const u = await apiFetch('/api/users').catch(() => []);
-      const arr = safeArray(u).map(normalizeUser);
-      if (arr.length) setUsers(arr);
-      else setUsers(INITIAL_USERS.map(normalizeUser));
-    } catch {
-      setUsers(INITIAL_USERS.map(normalizeUser));
-    }
-  }, []);
-
-  /**
-   * ✅ Fetch posts for homepage
-   * ✅ FIX: never replace a good feed with empty results from a poll
-   */
-  const fetchPostsForHome = useCallback(
-    async (viewer: User | null) => {
-      try {
-        // ✅ 2.1 Set loading state
-        setIsPostsLoading(true);
-        
-        if (viewer?.id) {
-          const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
-          const rows = safeArray<any>(data?.feed);
-
-          // ✅ If feed API returns empty, keep last good posts (prevents disappear)
-          if (!rows.length) {
-            if (lastGoodPostsRef.current.length) {
-              setPosts(lastGoodPostsRef.current);
-            }
-            return;
-          }
-
-          // merge authors into users list
-          setUsers((prev) => {
-            const map = new Map<number, User>();
-            safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
-
-            rows.forEach((r) => {
-              const author = authorFromFeedRow(r);
-              if (!author?.id) return;
-              if (!map.has(author.id)) map.set(author.id, author);
-              else {
-                const existing = map.get(author.id)!;
-                map.set(author.id, normalizeUser({ ...existing, ...author }));
-              }
-            });
-
-            return Array.from(map.values());
-          });
-
-          const normalized = rows.map(normalizeFeedRowToPost);
-          setPosts(normalized);
-          lastGoodPostsRef.current = normalized;
-
-          // ✅ keep snapshot updated if comments open
-          if (activeCommentsPostId != null) {
-            const found = normalized.find((p) => Number(p.id) === Number(activeCommentsPostId));
-            if (found) setCommentPostSnapshot(found);
-          }
-          return;
-        }
-
-        // Guest feed fallback
-        const p = await apiFetch('/api/posts');
-        const normalized = safeArray(p).map(normalizePost);
-
-        if (normalized.length) {
-          setPosts(normalized);
-          lastGoodPostsRef.current = normalized;
-        } else if (lastGoodPostsRef.current.length) {
-          setPosts(lastGoodPostsRef.current);
-        } else {
-          setPosts([]);
-        }
-
-        if (activeCommentsPostId != null) {
-          const found = normalized.find((x) => Number(x.id) === Number(activeCommentsPostId));
-          if (found) setCommentPostSnapshot(found);
-        }
-      } catch {
-        // ✅ Keep last good feed on error
-        if (lastGoodPostsRef.current.length) {
-          setPosts(lastGoodPostsRef.current);
-        }
-      } finally {
-        // ✅ 2.1 Clear loading state
-        setIsPostsLoading(false);
-      }
-    },
-    [activeCommentsPostId]
-  );
-
-  /**
-   * ✅ Fetch other data
-   */
-  const fetchOtherData = useCallback(async () => {
-    const [s, r, pr, g, b, e] = await Promise.all([
-      apiFetch('/api/stories').catch(() => []),
-      apiFetch('/api/reels').catch(() => []),
-      apiFetch('/api/products').catch(() => []),
-      apiFetch('/api/groups').catch(() => []),
-      apiFetch('/api/brands').catch(() => []),
-      apiFetch('/api/events').catch(() => []),
-    ]);
-
-    setStories(safeArray(s));
-    setReels(safeArray(r));
-    setProducts(safeArray(pr));
-    setGroups(safeArray(g));
-    setBrands(safeArray(b));
-    setEvents(safeArray(e));
-  }, []);
-
-  /**
-   * ✅ One fetch pipeline
-   */
-  const fetchData = useCallback(
-    async (viewer: User | null) => {
-      try {
-        await Promise.all([fetchUsersList(), fetchPostsForHome(viewer), fetchOtherData()]);
-      } finally {
-        // Loader is forced off; still keep state for future
-        setTimeout(() => setIsLoading(false), 300);
-      }
-    },
-    [fetchUsersList, fetchPostsForHome, fetchOtherData]
-  );
-
-  /** ---------- Restore session + initial load ---------- */
-  useEffect(() => {
-    const init = async () => {
-      let viewer: User | null = null;
-
-      try {
-        const raw = localStorage.getItem(LS_USER_KEY);
-        if (raw) {
-          const saved = JSON.parse(raw);
-          const normalized = normalizeUser(saved);
-          if (normalized?.id) {
-            viewer = normalized;
-            setCurrentUser(normalized);
-            setSelectedUserId(Number(normalized.id));
-
-            setUsers((prev) => {
-              const arr = safeArray(prev);
-              const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
-              if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
-              return [normalized, ...arr];
-            });
-          }
-        }
-      } catch {
-        // ignore
-      }
-
-      await fetchData(viewer);
-
-      // ✅ 2.2 REMOVED: This bug was overwriting lastGoodPosts with empty posts array
-      // The setTimeout was causing the bug - now removed completely
+  if (domain.includes('youtube')) {
+    return {
+      url,
+      title: 'YouTube Video',
+      description: 'Watch this video on YouTube.',
+      image:
+        'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&w=800&q=80',
+      domain: 'youtube.com',
     };
+  }
 
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchData]);
+  if (domain.includes('github')) {
+    return {
+      url,
+      title: 'GitHub Repository',
+      description: 'Open source project on GitHub.',
+      image:
+        'https://images.unsplash.com/photo-1618401471353-b98afee0b2eb?auto=format&fit=crop&w=800&q=80',
+      domain: 'github.com',
+    };
+  }
 
-  /** ---------- Poll feed (light) ---------- */
-  useEffect(() => {
-    // ✅ Pause polling while comments are open (prevents blank/disappear while reading)
-    if (activeCommentsPostId != null) return;
-
-    const t = setInterval(() => {
-      fetchPostsForHome(currentUser).catch(() => {});
-    }, 15000);
-    return () => clearInterval(t);
-  }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
-
-  /** ---------- Derived ---------- */
-  const rankedPosts = useMemo(() => {
-    return Array.isArray(posts) ? rankFeed(posts, currentUser, users) : [];
-  }, [posts, currentUser, users]);
-
-  const activePost = useMemo(() => {
-    // ✅ FIX: allow id=0 and prevent falsy bug
-    if (activeCommentsPostId == null) return null;
-
-    // ✅ Prefer snapshot (stable even if posts refresh)
-    if (commentPostSnapshot && Number((commentPostSnapshot as any)?.id) === Number(activeCommentsPostId)) {
-      return commentPostSnapshot;
-    }
-
-    return posts.find((p) => Number(p.id) === Number(activeCommentsPostId)) || null;
-  }, [posts, activeCommentsPostId, commentPostSnapshot]);
-
-  /** ---------- Login ---------- */
-  const handleLogin = async (email: string, password: string) => {
-    try {
-      setLoginError('');
-
-      const res = await fetch('/api/users/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Login failed');
-      if (!data?.user) throw new Error('Login failed: user missing');
-
-      const normalized = normalizeUser(data.user);
-      if (!normalized?.id) throw new Error('Login failed: invalid user id');
-
-      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
-
-      setCurrentUser(normalized);
-
-      setUsers((prev) => {
-        const arr = safeArray(prev);
-        const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
-        if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
-        return [normalized, ...arr];
-      });
-
-      setSelectedUserId(Number(normalized.id));
-      setView('home');
-
-      await fetchPostsForHome(normalized);
-    } catch (error: any) {
-      setLoginError(error?.message || 'Login failed');
-    }
+  return {
+    url,
+    title: 'Website Link',
+    description: `Link from ${domain}.`,
+    image:
+      'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
+    domain,
   };
+};
 
-  const handleLogout = () => {
-    localStorage.removeItem(LS_USER_KEY);
-    setCurrentUser(null);
-    setSelectedUserId(null);
-    setView('home');
-    fetchPostsForHome(null).catch(() => {});
-  };
+const BACKGROUNDS = [
+  { id: 'none', value: '' },
+  { id: 'red', value: 'linear-gradient(45deg, #FF0057, #E64C4C)' },
+  { id: 'blue', value: 'linear-gradient(45deg, #00C6FF, #0072FF)' },
+  { id: 'green', value: 'linear-gradient(45deg, #a8ff78, #78ffd6)' },
+  { id: 'purple', value: 'linear-gradient(45deg, #e65c00, #F9D423)' },
+  {
+    id: 'heart',
+    value:
+      'url("https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=500&q=60")',
+  },
+  { id: 'dark', value: 'linear-gradient(to right, #434343 0%, black 100%)' },
+  { id: 'fire', value: 'linear-gradient(120deg, #f6d365 0%, #fda085 100%)' },
+];
 
-  /** ---------- Navigation ---------- */
-  const handleNavigate = (target: View) => {
-    if (['settings', 'memories'].includes(target) && !currentUser) {
-      setLoginError(`Please login to view ${target}.`);
-      return setView('login');
-    }
+const FEELINGS = [
+  'Happy',
+  'Blessed',
+  'Loved',
+  'Sad',
+  'Excited',
+  'Thankful',
+  'Crazy',
+  'Tired',
+  'Cool',
+  'Relaxed',
+];
 
-    if (target === 'profile') {
-      if (!currentUser) {
-        setLoginError('Please login to view your profile.');
-        return setView('login');
-      }
-      openProfile(currentUser.id);
-      return;
-    }
-
-    setView(target);
-
-    if (['home', 'reels', 'marketplace', 'groups'].includes(target)) {
-      setActiveTab(target as any);
-    }
-    window.scrollTo(0, 0);
-  };
-
-  /** ---------- API actions ---------- */
-  const createPost = useCallback(
-    async (
-      text: string,
-      file: File | null,
-      meta?: {
-        type?: 'text' | 'image' | 'video';
-        visibility?: string;
-        location?: string;
-        feeling?: string;
-        taggedUsers?: number[];
-        background?: string;
-        linkPreview?: any;
-      }
-    ) => {
-      if (!requireAuth('Creating posts')) return;
-
-      const trimmed = (text || '').trim();
-      if (!trimmed && !file && !meta?.background) return;
-
-      let media_url: string | null = null;
-      let media_type: string | null = null;
-
-      if (file) {
-        media_url = await fileToDataUrl(file);
-        media_type = file.type || null;
-      }
-
-      const payload: any = {
-        user_id: currentUser!.id,
-        content: trimmed,
-        media_url,
-        media_type,
-        visibility: meta?.visibility ?? 'public',
-        location: meta?.location,
-        feeling: meta?.feeling,
-        tagged_users: meta?.taggedUsers,
-        background: meta?.background,
-        link_preview: meta?.linkPreview,
-      };
-
-      const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
-
-      // backend may return {success:true, post: {...}} or {post_id: ...}
-      const newPostRaw =
-        data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
-
-      const normalized = normalizePost(newPostRaw);
-
-      setPosts((prev) => {
-        const next = [normalized, ...safeArray(prev)];
-        lastGoodPostsRef.current = next;
-        return next;
-      });
-
-      setShowCreatePostModal(false);
-
-      fetchPostsForHome(currentUser).catch(() => {});
-    },
-    [currentUser, requireAuth, fetchPostsForHome]
-  );
-
-  const onReactPost = useCallback(
-    async (postId: number, type: ReactionType) => {
-      if (!requireAuth('Reacting')) return;
-
-      setPosts((prev) => {
-        const next = safeArray(prev).map((p: any) => {
-          if (Number(p.id) !== Number(postId)) return p;
-
-          const reactions = safeArray(p.reactions);
-          const mine = reactions.find((r: any) => Number(r.user_id) === Number(currentUser!.id));
-          let nextReactions = reactions.filter((r: any) => Number(r.user_id) !== Number(currentUser!.id));
-
-          if (!mine || mine.type !== type) nextReactions = [...nextReactions, { user_id: currentUser!.id, type }];
-
-          return normalizePost({ ...p, reactions: nextReactions });
-        });
-
-        lastGoodPostsRef.current = next;
-        return next;
-      });
-
-      try {
-        await apiFetch(`/api/posts/${postId}/react`, { method: 'POST', body: JSON.stringify({ type }) });
-      } catch {
-        fetchPostsForHome(currentUser).catch(() => {});
-      }
-    },
-    [currentUser, requireAuth, fetchPostsForHome]
-  );
-
-  const onSharePost = useCallback(
-    async (postId: number) => {
-      if (!requireAuth('Sharing')) return;
-
-      setPosts((prev) => {
-        const next = safeArray(prev).map((p: any) =>
-          Number(p.id) === Number(postId) ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) : p
-        );
-        lastGoodPostsRef.current = next;
-        return next;
-      });
-
-      try {
-        await apiFetch(`/api/posts/${postId}/share`, { method: 'POST' });
-      } catch {
-        fetchPostsForHome(currentUser).catch(() => {});
-      }
-    },
-    [requireAuth, fetchPostsForHome, currentUser]
-  );
-
-  const onOpenComments = (postId: number) => {
-    if (!requireAuth('Commenting')) return;
-
-    const pid = Number(postId);
-    setActiveCommentsPostId(pid);
-
-    // ✅ snapshot immediately to prevent blank if posts refresh
-    const found = posts.find((p) => Number(p.id) === pid) || null;
-    setCommentPostSnapshot(found);
-  };
-
-  const deletePost = useCallback(
-    async (postId: number) => {
-      if (!requireAuth('Deleting posts')) return;
-
-      const prev = posts;
-      setPosts((p) => {
-        const next = safeArray(p).filter((x) => Number(x.id) !== Number(postId));
-        lastGoodPostsRef.current = next;
-        return next;
-      });
-
-      try {
-        await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
-      } catch {
-        setPosts(prev);
-        lastGoodPostsRef.current = prev;
-      }
-    },
-    [requireAuth, posts]
-  );
-
-  const editPost = useCallback(
-    async (postId: number, content: string) => {
-      if (!requireAuth('Editing posts')) return;
-      const trimmed = (content || '').trim();
-      if (!trimmed) return;
-
-      const prev = posts;
-      setPosts((p) => {
-        const next = safeArray(p).map((x: any) =>
-          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
-        );
-        lastGoodPostsRef.current = next;
-        return next;
-      });
-
-      try {
-        await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
-      } catch {
-        setPosts(prev);
-        lastGoodPostsRef.current = prev;
-      }
-    },
-    [requireAuth, posts]
-  );
-
-  const followUser = useCallback(
-    async (targetUserId: number) => {
-      if (!requireAuth('Following')) return;
-      if (!currentUser) return;
-      if (Number(targetUserId) === Number(currentUser.id)) return;
-
-      setUsers((prev) => {
-        const arr = safeArray(prev).map(normalizeUser);
-        const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
-        const target = arr.find((u) => Number(u.id) === Number(targetUserId));
-        if (!me || !target) return arr;
-
-        const meFollowers = new Set<number>(safeArray<number>((me as any).followers));
-        const targetFollowers = new Set<number>(safeArray<number>((target as any).followers));
-
-        const isFollowingNow = meFollowers.has(targetUserId) && targetFollowers.has(currentUser.id);
-
-        if (isFollowingNow) {
-          meFollowers.delete(targetUserId);
-          targetFollowers.delete(currentUser.id);
-        } else {
-          meFollowers.add(targetUserId);
-          targetFollowers.add(currentUser.id);
-        }
-
-        return arr.map((u) => {
-          if (Number(u.id) === Number(me.id)) return normalizeUser({ ...u, followers: Array.from(meFollowers) });
-          if (Number(u.id) === Number(target.id)) return normalizeUser({ ...u, followers: Array.from(targetFollowers) });
-          return u;
-        });
-      });
-
-      try {
-        await apiFetch('/api/user-follows', {
-          method: 'POST',
-          body: JSON.stringify({ follower_id: currentUser.id, following_id: targetUserId }),
-        }).catch(async () => {
-          await apiFetch(`/api/user-follows?follower_id=${currentUser.id}&following_id=${targetUserId}`, {
-            method: 'DELETE',
-          });
-        });
-
-        fetchPostsForHome(currentUser).catch(() => {});
-      } catch {
-        fetchPostsForHome(currentUser).catch(() => {});
-      }
-    },
-    [requireAuth, currentUser, fetchPostsForHome]
-  );
-
-  const updateUserDetails = useCallback(
-    async (data: Partial<User>) => {
-      if (!requireAuth('Updating profile')) return;
-      if (!currentUser) return;
-
-      await apiFetch(`/api/users`, {
-        method: 'PUT',
-        body: JSON.stringify({ id: currentUser.id, ...data }),
-      });
-
-      const merged = normalizeUser({ ...currentUser, ...data });
-
-      setCurrentUser(merged);
-      localStorage.setItem(LS_USER_KEY, JSON.stringify(merged));
-
-      setUsers((prev) => safeArray(prev).map((u) => (Number(u.id) === Number(merged.id) ? merged : u)));
-    },
-    [requireAuth, currentUser]
-  );
-
-  const updateProfileImage = useCallback(
-    async (file: File) => {
-      if (!requireAuth('Updating profile')) return;
-      if (!currentUser) return;
-
-      const url = await fileToDataUrl(file);
-      await updateUserDetails({ profile_image_url: url } as any);
-    },
-    [requireAuth, currentUser, updateUserDetails]
-  );
-
-  const updateCoverImage = useCallback(
-    async (file: File) => {
-      if (!requireAuth('Updating profile')) return;
-      if (!currentUser) return;
-
-      const url = await fileToDataUrl(file);
-      await updateUserDetails({ cover_image_url: url } as any);
-    },
-    [requireAuth, currentUser, updateUserDetails]
-  );
-
-  /** ---------- Render ---------- */
-  if (!FORCE_LOADER_OFF_FOREVER && isLoading) return <ProfessionalLoader />;
-
-  const profileUser =
-    (selectedUserId ? users.find((u) => Number(u.id) === Number(selectedUserId)) : null) || currentUser || users[0];
+/**
+ * =========================
+ * RICH TEXT (hashtags + mentions)
+ * =========================
+ */
+export const RichText = ({
+  text,
+  users,
+  onProfileClick,
+  onHashtagClick,
+}: {
+  text: string;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+}) => {
+  if (!text) return null;
+  const parts = text.split(/(#[a-zA-Z0-9_]+|@\w+(?:\s\w+)?)/g);
 
   return (
-    <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
-      <Header
-        onHomeClick={() => handleNavigate('home')}
-        onProfileClick={(id: number) => openProfile(id)}
-        onReelsClick={() => handleNavigate('reels')}
-        onMarketplaceClick={() => handleNavigate('marketplace')}
-        onGroupsClick={() => handleNavigate('groups')}
-        currentUser={currentUser}
-        notifications={notifications}
-        users={users}
-        onLogout={handleLogout}
-        onLoginClick={() => setView('login')}
-        onMarkNotificationsRead={() => {}}
-        activeTab={activeTab}
-        onNavigate={(v: any) => handleNavigate(v)}
-      />
+    <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words">
+      {parts.map((part, index) => {
+        if (part.startsWith('@')) {
+          const name = part.substring(1).trim().toLowerCase();
+          const user = users?.find((u: any) => {
+            const un = String(u?.username ?? '').toLowerCase();
+            const nm = String(u?.name ?? '').toLowerCase();
+            return un === name || nm === name;
+          });
 
-      <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
-        {currentUser && (
-          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
-            <Sidebar
-              currentUser={currentUser}
-              onProfileClick={(id) => openProfile(id)}
-              onReelsClick={() => handleNavigate('reels')}
-              onMarketplaceClick={() => handleNavigate('marketplace')}
-              onGroupsClick={() => handleNavigate('groups')}
+          if (user) {
+            return (
+              <span
+                key={index}
+                className="text-[#1877F2] font-semibold cursor-pointer hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onProfileClick(safeUserId(user));
+                }}
+              >
+                {part}
+              </span>
+            );
+          }
+
+          return (
+            <span key={index} className="text-[#1877F2] font-semibold">
+              {part}
+            </span>
+          );
+        }
+
+        if (part.startsWith('#')) {
+          return (
+            <span
+              key={index}
+              className="text-[#1877F2] cursor-pointer hover:underline"
+              onClick={(e) => {
+                e.stopPropagation();
+                onHashtagClick && onHashtagClick(part);
+              }}
+            >
+              {part}
+            </span>
+          );
+        }
+
+        return <span key={index}>{part}</span>;
+      })}
+    </span>
+  );
+};
+
+/**
+ * =========================
+ * REACTION BUTTON (FB style)
+ * =========================
+ */
+export const ReactionButton: React.FC<{
+  currentUserReactions: ReactionType | undefined;
+  reactionCount: number;
+  onReact: (type: ReactionType) => void;
+  isGuest?: boolean;
+}> = ({ currentUserReactions, reactionCount, onReact, isGuest }) => {
+  const [showDock, setShowDock] = useState(false);
+  const timerRef = useRef<any>(null);
+
+  const handleMouseEnter = () => {
+    if (isGuest) return;
+    timerRef.current = setTimeout(() => setShowDock(true), 500);
+  };
+
+  const handleMouseLeave = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setTimeout(() => setShowDock(false), 250);
+  };
+
+  const handleClick = () => {
+    if (isGuest) return alert('Please login to react.');
+    onReact('like');
+  };
+
+  const reactionConfig = [
+    { type: 'like', icon: '👍', color: '#1877F2' },
+    { type: 'love', icon: '❤️', color: '#F3425F' },
+    { type: 'haha', icon: '😆', color: '#F7B928' },
+    { type: 'wow', icon: '😮', color: '#F7B928' },
+    { type: 'sad', icon: '😢', color: '#F7B928' },
+    { type: 'angry', icon: '😡', color: '#E41E3F' },
+  ] as const;
+
+  const activeReaction = currentUserReactions
+    ? reactionConfig.find((r) => r.type === currentUserReactions)
+    : null;
+
+  return (
+    <div
+      className="flex-1 relative group"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      {showDock && (
+        <div className="absolute -top-12 left-0 bg-[#242526] rounded-full shadow-xl p-1.5 flex gap-2 animate-fade-in border border-[#3E4042] z-50">
+          {reactionConfig.map((r) => (
+            <div
+              key={r.type}
+              className="text-2xl hover:scale-125 transition-transform cursor-pointer hover:-translate-y-2 duration-200"
+              onClick={(e) => {
+                e.stopPropagation();
+                onReact(r.type as ReactionType);
+                setShowDock(false);
+              }}
+            >
+              {r.icon}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={handleClick}
+        className="w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors active:scale-95"
+      >
+        {activeReaction ? (
+          <>
+            <span className="text-[20px]">{activeReaction.icon}</span>
+            <span
+              className="text-[17px] font-medium capitalize"
+              style={{ color: activeReaction.color }}
+            >
+              {activeReaction.type}
+            </span>
+          </>
+        ) : (
+          <>
+            <i className="far fa-thumbs-up text-[20px] text-[#B0B3B8]"></i>
+            <span className="text-[17px] font-medium text-[#B0B3B8]">Like</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+};
+
+/**
+ * =========================
+ * POST CARD
+ * =========================
+ */
+export const Post: React.FC<{
+  post: PostType;
+  author: User | any;
+  currentUser: User | null;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onReact: (id: number, type: ReactionType) => void;
+  onShare: (id: number) => void;
+  onDelete?: (id: number) => void;
+  onViewImage: (url: string) => void;
+  onOpenComments: (id: number) => void;
+  onVideoClick: (p: PostType) => void;
+  onPlayAudioTrack?: (t: AudioTrack) => void;
+  onHashtagClick?: (tag: string) => void;
+}> = ({
+  post,
+  author,
+  currentUser,
+  users,
+  onProfileClick,
+  onReact,
+  onShare,
+  onDelete,
+  onViewImage,
+  onOpenComments,
+  onVideoClick,
+  onPlayAudioTrack,
+  onHashtagClick,
+}) => {
+  const p: any = post as any;
+  const a: any = author as any;
+
+  const reactions = Array.isArray(p.reactions) ? p.reactions : [];
+  const comments = Array.isArray(p.comments) ? p.comments : [];
+  
+  // ✅ 1.2 Use server-provided comment_count, fall back to comments.length
+  const [commentCount, setCommentCount] = useState(
+    typeof p.comment_count === 'number' ? p.comment_count : comments.length
+  );
+
+  const myReaction = currentUser
+    ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))
+        ?.type
+    : undefined;
+
+  const createdAtLabel = formatRelativeTime(p.created_at);
+  const postId = safePostId(p);
+
+  // Format comment count display (1 comment, 1k comments, etc.)
+  const formatCommentCount = (count: number): string => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
+  };
+
+  // Update comment count when post data changes
+  useEffect(() => {
+    const newCount = typeof p.comment_count === 'number' ? p.comment_count : comments.length;
+    if (newCount !== commentCount) {
+      setCommentCount(newCount);
+    }
+  }, [p.comment_count, comments.length]);
+
+  return (
+    <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+      <div className="p-3 md:p-4 flex items-center justify-between">
+        <div
+          className="flex items-center gap-2 flex-1 min-w-0"
+          onClick={() => onProfileClick(safeUserId(a))}
+        >
+          <img
+            src={
+              a.profile_image_url ||
+              a.profileImage ||
+              a.avatar ||
+              'https://ui-avatars.com/api/?name=User'
+            }
+            alt=""
+            className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1 flex-wrap">
+              <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
+                {a.name || a.username || 'User'}
+              </h4>
+              {a.is_verified && (
+                <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+              <span>{createdAtLabel}</span>
+              <span>•</span>
+              <i className="fas fa-globe-americas text-[12px]"></i>
+              {p.location && (
+                <>
+                  <span>•</span>
+                  <span className="truncate max-w-[160px]">
+                    {String(p.location).split(',')[0]}
+                  </span>
+                </>
+              )}
+              {p.feeling && (
+                <>
+                  <span>•</span>
+                  <span>feeling {p.feeling}</span>
+                </>
+              )}
+              {p.__pending && (
+                <>
+                  <span>•</span>
+                  <span className="text-[#B0B3B8]">
+                    <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
+                    posting…
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {onDelete &&
+          currentUser &&
+          safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
+            <button
+              className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(postId);
+              }}
+              title="Delete"
+            >
+              <i className="fas fa-trash text-[#B0B3B8]"></i>
+            </button>
+          )}
+      </div>
+
+      {p.content && (
+        <div className="px-3 md:px-4 pb-2 text-[#E4E6EB] text-[17px]">
+          <RichText
+            text={p.content}
+            users={users}
+            onProfileClick={onProfileClick}
+            onHashtagClick={onHashtagClick}
+          />
+        </div>
+      )}
+
+      {p.link_preview && !p.media_url && (
+        <div
+          className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+          onClick={() => window.open(p.link_preview.url, '_blank')}
+        >
+          <img
+            src={p.link_preview.image}
+            alt=""
+            className="w-full h-48 object-cover"
+          />
+          <div className="p-3 bg-[#3A3B3C]">
+            <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+              {p.link_preview.domain}
+            </div>
+            <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
+              {p.link_preview.title}
+            </div>
+            <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
+              {p.link_preview.description}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {p.background && !p.media_url && (
+        <div
+          className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
+          style={{ background: p.background, backgroundSize: 'cover' }}
+        >
+          {p.content}
+        </div>
+      )}
+
+      {p.media_url &&
+        (p.media_type === 'image' || p.type === 'image') &&
+        !p.background && (
+          <div
+            className="cursor-pointer bg-black"
+            onClick={() => onViewImage(p.media_url)}
+          >
+            <img
+              src={p.media_url}
+              alt=""
+              className="w-full h-auto max-h-[600px] object-contain"
             />
           </div>
         )}
 
-        <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
-          {view === 'home' && (
-            <div className="w-full pt-4 md:px-8 pb-10">
-              <StoryReel
-                stories={stories}
-                onProfileClick={(id) => openProfile(id)}
-                onCreateStory={() => {
-                  if (!requireAuth('Creating stories')) return;
-                  setShowCreateStoryModal(true);
-                }}
-                onViewStory={(s) => setActiveStory(s)}
-                currentUser={currentUser}
-                onRequestLogin={() => setView('login')}
-              />
+      {p.media_url && (p.media_type === 'video' || p.type === 'video') && (
+        <div
+          className="cursor-pointer relative h-[500px]"
+          onClick={() => onVideoClick(post)}
+        >
+          <video src={p.media_url} className="w-full h-full object-cover" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <i className="fas fa-play text-white text-4xl opacity-50"></i>
+          </div>
+        </div>
+      )}
 
-              {currentUser && (
-                <CreatePost
-                  currentUser={currentUser}
-                  onProfileClick={(id) => openProfile(id)}
-                  onClick={() => {
-                    if (!requireAuth('Creating posts')) return;
-                    setShowCreatePostModal(true);
-                  }}
-                />
-              )}
+      <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+        <div className="flex items-center gap-1.5">
+          {reactions.length > 0 && (
+            <span className="hover:underline">{reactions.length} Reactions</span>
+          )}
+        </div>
+        <div className="flex gap-4">
+          <span
+            className="hover:underline cursor-pointer"
+            onClick={() => onOpenComments(Number(postId))}
+          >
+            {formatCommentCount(commentCount)} Comments
+          </span>
+        </div>
+      </div>
 
-              {currentUser && products.length > 0 && (
-                <SuggestedProductsWidget
-                  products={products}
-                  currentUser={currentUser}
-                  onViewProduct={setActiveProduct}
-                  onSeeAll={() => handleNavigate('marketplace')}
-                />
-              )}
+      <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
+        <ReactionButton
+          currentUserReactions={myReaction}
+          reactionCount={reactions.length}
+          onReact={(type) => onReact(postId, type)}
+          isGuest={!currentUser}
+        />
+        <button
+          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+          onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
+        >
+          <i className="far fa-comment-alt text-[20px]"></i>
+          <span className="text-[17px] font-medium">Comment</span>
+        </button>
+        {/* ✅ 1.1 Share button with guest guard */}
+        <button
+          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+          onClick={() => (currentUser ? onShare(postId) : alert('Login first'))}
+        >
+          <i className="fas fa-share text-[20px]"></i>
+          <span className="text-[17px] font-medium">Share</span>
+        </button>
+      </div>
+    </div>
+  );
+};
 
-              {/* ✅ 2.1 Add loading state for posts */}
-              {isPostsLoading ? (
-                <div className="text-center py-20 text-[#B0B3B8]">Loading posts…</div>
-              ) : rankedPosts.length > 0 ? (
-                rankedPosts.map((post) => (
-                  <Post
-                    // ✅ fallback key prevents blank feed when id is missing/0
-                    key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
-                    post={post}
-                    author={
-                      users.find((u) => Number(u.id) === Number((post as any).user_id)) ||
-                      users[0] ||
-                      INITIAL_USERS[0]
+/**
+ * =========================
+ * CREATE POST CARD
+ * =========================
+ */
+export const CreatePost: React.FC<{
+  currentUser: User;
+  onProfileClick: (id: number) => void;
+  onClick: () => void;
+  onCreateEventClick?: () => void;
+}> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
+  <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
+    <div className="flex gap-2 mb-3">
+      <img
+        src={
+          (currentUser as any).profile_image_url ||
+          (currentUser as any).profileImage ||
+          (currentUser as any).avatar ||
+          'https://ui-avatars.com/api/?name=User'
+        }
+        alt=""
+        className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+        onClick={() => onProfileClick(safeUserId(currentUser))}
+      />
+      <div
+        className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
+        onClick={onClick}
+      >
+        <span className="text-[#B0B3B8] text-[17px] truncate">
+          What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
+        </span>
+      </div>
+    </div>
+
+    <div className="border-t border-[#3E4042] pt-2 flex justify-between">
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onCreateEventClick}
+      >
+        <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
+      </div>
+    </div>
+  </div>
+);
+
+/**
+ * =========================
+ * CREATE POST MODAL (WORKING)
+ * =========================
+ */
+export const CreatePostModal: React.FC<{
+  currentUser: User;
+  users: User[];
+  onClose: () => void;
+  onCreatePost: (
+    text: string,
+    file: File | null,
+    meta?: {
+      type?: 'text' | 'image' | 'video';
+      visibility?: string;
+      location?: string;
+      feeling?: string;
+      taggedUsers?: number[];
+      background?: string;
+      linkPreview?: LinkPreview | null;
+    }
+  ) => void;
+  onCreateEventClick?: () => void;
+}> = ({ currentUser, users, onClose, onCreatePost }) => {
+  const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
+  const [text, setText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [type, setType] = useState<'text' | 'image' | 'video'>('text');
+
+  const [visibility] = useState<'Public' | 'Friends'>('Public');
+  const [activeBackground, setActiveBackground] = useState('');
+  const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
+
+  const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
+  const [feeling, setFeeling] = useState('');
+  const [location, setLocation] = useState('');
+
+  const [locQuery, setLocQuery] = useState('');
+  const [locResults, setLocResults] = useState<any[]>([]);
+  const [locLoading, setLocLoading] = useState(false);
+  const searchTimeout = useRef<any>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLinkPreview(getLinkPreview(text));
+  }, [text]);
+
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+
+    setFile(f);
+    const url = URL.createObjectURL(f);
+    setPreview(url);
+    setType(f.type.startsWith('image') ? 'image' : 'video');
+    setActiveBackground('');
+    setView('main');
+  };
+
+  const handleLocationSearch = async (q: string) => {
+    if (q.trim().length < 3) {
+      setLocResults([]);
+      return;
+    }
+    setLocLoading(true);
+    try {
+      const data = await apiFetch(`/api/locations/search?q=${encodeURIComponent(q)}`);
+      setLocResults(Array.isArray(data) ? data : []);
+    } catch {
+      setLocResults([]);
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
+  const onLocQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setLocQuery(val);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
+  };
+
+  const canPost = !!text.trim() || !!file || !!activeBackground;
+
+  const submit = () => {
+    if (!canPost) return;
+
+    onCreatePost(text, file, {
+      type: file ? type : 'text',
+      visibility,
+      location: location || undefined,
+      feeling: feeling || undefined,
+      taggedUsers: taggedUsers.length ? taggedUsers : undefined,
+      background: activeBackground || undefined,
+      linkPreview: linkPreview || null,
+    });
+
+    onClose();
+  };
+
+  const OptionsItem = ({
+    icon,
+    color,
+    label,
+    onClick,
+  }: {
+    icon: string;
+    color: string;
+    label: string;
+    onClick?: () => void;
+  }) => (
+    <div
+      className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors"
+      onClick={onClick}
+    >
+      <i className={`${icon} text-[24px] w-8 text-center`} style={{ color }}></i>
+      <span className="text-[#E4E6EB] text-[17px] font-medium">{label}</span>
+    </div>
+  );
+
+  if (view === 'tag') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={() => setView('main')}
+          ></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">Tag People</h3>
+          <button
+            onClick={() => setView('main')}
+            className="ml-auto text-[#1877F2] font-bold"
+          >
+            Done
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {users
+            .filter((u: any) => safeUserId(u) !== safeUserId(currentUser))
+            .map((u: any) => (
+              <div
+                key={safeUserId(u)}
+                className="flex items-center justify-between p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
+                onClick={() =>
+                  setTaggedUsers((prev) =>
+                    prev.includes(safeUserId(u))
+                      ? prev.filter((uid) => uid !== safeUserId(u))
+                      : [...prev, safeUserId(u)]
+                  )
+                }
+              >
+                <div className="flex items-center gap-3">
+                  <img
+                    src={
+                      u.profile_image_url ||
+                      u.profileImage ||
+                      u.avatar ||
+                      'https://ui-avatars.com/api/?name=User'
                     }
-                    currentUser={currentUser}
-                    users={users}
-                    onProfileClick={(id) => openProfile(id)}
-                    onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                    onShare={(postId: number) => onSharePost(postId)}
-                    onViewImage={setFullScreenImage}
-                    onOpenComments={(postId: number) => onOpenComments(postId)}
-                    onVideoClick={(p: any) => {
-                      setActiveReelId(p.id);
-                      setView('reels');
-                    }}
-                    onPlayAudioTrack={setCurrentAudioTrack}
+                    className="w-10 h-10 rounded-full object-cover"
+                    alt=""
                   />
-                ))
-              ) : (
-                <div className="text-center py-20 text-[#B0B3B8]">
-                  <p>No posts available.</p>
+                  <span className="text-[#E4E6EB] font-semibold">{u.name || u.username || 'User'}</span>
                 </div>
-              )}
+                {taggedUsers.includes(safeUserId(u)) && (
+                  <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>
+                )}
+              </div>
+            ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'feeling') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={() => setView('main')}
+          ></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">How are you feeling?</h3>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-2">
+          {FEELINGS.map((f) => (
+            <div
+              key={f}
+              className="p-3 bg-[#242526] rounded-lg text-center cursor-pointer hover:bg-[#3A3B3C] text-[#E4E6EB]"
+              onClick={() => {
+                setFeeling(f);
+                setView('main');
+              }}
+            >
+              {f}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'location') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={() => setView('main')}
+          ></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">Search Location</h3>
+        </div>
+
+        <div className="p-4 flex-1 flex flex-col overflow-hidden">
+          <div className="relative mb-4">
+            <input
+              type="text"
+              placeholder="Where are you?"
+              className="w-full bg-[#3A3B3C] rounded-xl p-4 pl-12 text-[#E4E6EB] outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+              autoFocus
+              value={locQuery}
+              onChange={onLocQueryChange}
+            />
+            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+            {locLoading && (
+              <i className="fas fa-spinner fa-spin absolute right-4 top-1/2 -translate-y-1/2 text-[#1877F2]"></i>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            {locResults.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {locResults.map((loc, i) => {
+                  const display =
+                    loc.display_name ||
+                    loc.name ||
+                    loc.label ||
+                    `${loc.city || ''}${loc.country ? `, ${loc.country}` : ''}`.trim();
+
+                  const title = (display || '').split(',')[0] || 'Location';
+
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-4 p-4 hover:bg-[#3A3B3C] rounded-xl cursor-pointer border border-[#3E4042]/30 transition-colors group"
+                      onClick={() => {
+                        setLocation(display);
+                        setView('main');
+                      }}
+                    >
+                      <div className="w-12 h-12 bg-[#3A3B3C] rounded-xl flex items-center justify-center group-hover:bg-[#1877F2] transition-colors">
+                        <i className="fas fa-location-dot text-[#E4E6EB]"></i>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[#E4E6EB] font-bold block truncate">{title}</span>
+                        <span className="text-[#B0B3B8] text-xs block truncate">{display}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : locQuery.length >= 3 && !locLoading ? (
+              <div className="text-center py-10">
+                <i className="fas fa-map-marked-alt text-4xl text-[#3A3B3C] mb-4"></i>
+                <p className="text-[#B0B3B8]">No matching locations found.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
+                  Nearby Suggestions
+                </p>
+                {LOCATIONS_DATA.slice(0, 6).map((loc) => (
+                  <div
+                    key={loc.name}
+                    className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors"
+                    onClick={() => {
+                      setLocation(loc.name);
+                      setView('main');
+                    }}
+                  >
+                    <div className="w-10 h-10 bg-[#3A3B3C] rounded-full flex items-center justify-center text-xl">
+                      {loc.flag}
+                    </div>
+                    <span className="text-[#E4E6EB] font-semibold">{loc.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+      <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+        <div className="flex items-center gap-4">
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={onClose}
+          ></i>
+          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Create Post</h3>
+        </div>
+        <button
+          onClick={submit}
+          disabled={!canPost}
+          className="text-[#E4E6EB] font-bold text-[17px] disabled:text-[#B0B3B8]"
+        >
+          POST
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="p-4">
+          <div className="flex items-center gap-3 mb-4">
+            <img
+              src={
+                (currentUser as any).profile_image_url ||
+                (currentUser as any).profileImage ||
+                (currentUser as any).avatar ||
+                'https://ui-avatars.com/api/?name=User'
+              }
+              alt=""
+              className="w-12 h-12 rounded-full object-cover"
+            />
+            <div>
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[17px]">
+                  {(currentUser as any).name || (currentUser as any).username || 'User'}
+                </h4>
+                {feeling && <span className="text-[#E4E6EB] text-[15px]"> is feeling {feeling}</span>}
+                {location && <span className="text-[#E4E6EB] text-[15px]"> in {location.split(',')[0]}</span>}
+                {taggedUsers.length > 0 && (
+                  <span className="text-[#E4E6EB] text-[15px]"> with {taggedUsers.length} others</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 mt-0.5">
+                <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[13px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
+                  <i className="fas fa-globe-americas text-[12px]"></i>
+                  <span>{visibility}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`relative min-h-[150px] mb-4 transition-all ${
+              activeBackground ? 'flex items-center justify-center p-8 rounded-lg text-center min-h-[300px]' : ''
+            }`}
+            style={{ background: activeBackground, backgroundSize: 'cover' }}
+          >
+            <textarea
+              className={`w-full bg-transparent outline-none text-[#E4E6EB] placeholder-[#B0B3B8] resize-none ${
+                activeBackground
+                  ? 'text-center font-bold text-3xl drop-shadow-md placeholder-white/70'
+                  : 'text-[24px]'
+              }`}
+              placeholder="What's on your mind?"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={activeBackground ? 4 : 5}
+            />
+          </div>
+
+          {linkPreview && !file && !activeBackground && (
+            <div
+              className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+              onClick={() => window.open(linkPreview.url, '_blank')}
+            >
+              <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
+              <div className="p-3 bg-[#3A3B3C]">
+                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{linkPreview.domain}</div>
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{linkPreview.title}</div>
+                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{linkPreview.description}</div>
+              </div>
             </div>
           )}
 
-          {view === 'reels' && (
-            <ReelsFeed
-              reels={reels}
-              users={users}
-              currentUser={currentUser}
-              onProfileClick={(id) => openProfile(id)}
-              onCreateReelClick={() => {
-                if (!requireAuth('Creating reels')) return;
-                setShowCreateReelModal(true);
-              }}
-              onReact={() => requireAuth('Reacting')}
-              onComment={() => requireAuth('Commenting')}
-              onShare={() => requireAuth('Sharing')}
-              onFollow={(id: number) => followUser(id)}
-              getCommentAuthor={(id) => users.find((u) => u.id === id)}
-              initialReelId={activeReelId}
-            />
+          {!preview && (
+            <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+              <div
+                className={`w-8 h-8 rounded-lg cursor-pointer border-2 bg-[#3A3B3C] flex items-center justify-center flex-shrink-0 ${
+                  !activeBackground ? 'border-white' : 'border-[#3E4042]'
+                }`}
+                onClick={() => setActiveBackground('')}
+              >
+                <div className="w-6 h-6 bg-white rounded flex items-center justify-center">
+                  <i className="fas fa-font text-black text-xs"></i>
+                </div>
+              </div>
+
+              {BACKGROUNDS.filter((b) => b.id !== 'none').map((bg) => (
+                <div
+                  key={bg.id}
+                  className={`w-8 h-8 rounded-lg cursor-pointer border-2 flex-shrink-0 ${
+                    activeBackground === bg.value ? 'border-white' : 'border-transparent'
+                  }`}
+                  style={{ background: bg.value, backgroundSize: 'cover' }}
+                  onClick={() => setActiveBackground(bg.value)}
+                />
+              ))}
+            </div>
           )}
 
-          {view === 'marketplace' && (
-            <MarketplacePage
-              currentUser={currentUser}
-              products={products}
-              onNavigateHome={() => handleNavigate('home')}
-              onCreateProduct={() => requireAuth('Creating products')}
-              onViewProduct={setActiveProduct}
-            />
+          {preview && (
+            <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
+              <div
+                onClick={() => {
+                  setFile(null);
+                  setPreview(null);
+                  setType('text');
+                }}
+                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
+              >
+                <i className="fas fa-times text-white"></i>
+              </div>
+
+              {type === 'image' ? (
+                <img src={preview} alt="preview" className="w-full h-auto max-h-[400px] object-contain bg-black" />
+              ) : (
+                <video src={preview} controls className="w-full h-auto max-h-[400px] bg-black" />
+              )}
+            </div>
           )}
-
-          {view === 'groups' && (
-            <GroupsPage
-              currentUser={currentUser}
-              groups={groups}
-              users={users}
-              onCreateGroup={() => requireAuth('Creating groups')}
-              onJoinGroup={() => requireAuth('Joining groups')}
-              onLeaveGroup={() => requireAuth('Leaving groups')}
-              onDeleteGroup={() => requireAuth('Deleting groups')}
-              onUpdateGroupImage={() => requireAuth('Updating groups')}
-              onPostToGroup={() => requireAuth('Posting')}
-              onCreateGroupEvent={() => requireAuth('Creating events')}
-              onInviteToGroup={() => requireAuth('Inviting')}
-              onProfileClick={(id) => openProfile(id)}
-              onLikePost={() => requireAuth('Liking')}
-              onOpenComments={() => requireAuth('Commenting')}
-              onSharePost={() => requireAuth('Sharing')}
-              onDeleteGroupPost={() => requireAuth('Deleting posts')}
-              onRemoveMember={() => requireAuth('Removing members')}
-              onUpdateGroupSettings={() => requireAuth('Updating settings')}
-              onPlayAudioTrack={setCurrentAudioTrack}
-            />
-          )}
-
-          {view === 'brands' && (
-            <BrandsPage
-              currentUser={currentUser}
-              brands={brands}
-              posts={posts}
-              users={users}
-              onCreateBrand={() => requireAuth('Creating brands')}
-              onFollowBrand={() => requireAuth('Following')}
-              onProfileClick={(id) => openProfile(id)}
-              onPostAsBrand={() => requireAuth('Posting')}
-              onReact={() => requireAuth('Reacting')}
-              onShare={() => requireAuth('Sharing')}
-              onOpenComments={(id: any) => {
-                if (!requireAuth('Commenting')) return;
-                const pid = Number(id);
-                setActiveCommentsPostId(pid);
-                const found = posts.find((p) => Number(p.id) === pid) || null;
-                setCommentPostSnapshot(found);
-              }}
-              onDeleteBrand={() => requireAuth('Deleting brands')}
-              onPlayAudioTrack={setCurrentAudioTrack}
-            />
-          )}
-
-          {view === 'music' && (
-            <MusicSystem
-              currentUser={currentUser}
-              onPlayTrack={setCurrentAudioTrack}
-              onProfileClick={(id) => openProfile(id)}
-              likedTracks={[]}
-              onToggleLike={() => requireAuth('Liking')}
-              playHistory={[]}
-            />
-          )}
-
-          {view === 'tools' && <ToolsPage />}
-
-          {view === 'profiles' && (
-            <SuggestedProfilesPage
-              currentUser={currentUser as any}
-              users={users}
-              onFollow={(id: number) => followUser(id)}
-              onProfileClick={(id) => openProfile(id)}
-            />
-          )}
-
-          {view === 'events' && (
-            <EventsPage
-              events={events}
-              currentUser={currentUser as any}
-              onJoinEvent={() => requireAuth('Joining events')}
-              onCreateEventClick={() => {
-                if (!requireAuth('Creating events')) return;
-                setShowCreateEventModal(true);
-              }}
-              onProfileClick={(id) => openProfile(id)}
-            />
-          )}
-
-          {view === 'birthdays' && (
-            <BirthdaysPage
-              currentUser={currentUser as any}
-              users={users}
-              onMessage={(id) => {
-                if (!requireAuth('Messaging')) return;
-                setActiveChatUser(users.find((u) => u.id === id) || null);
-              }}
-              onProfileClick={(id) => openProfile(id)}
-            />
-          )}
-
-          {view === 'memories' && currentUser && (
-            <MemoriesPage
-              currentUser={currentUser}
-              posts={posts}
-              users={users}
-              onProfileClick={(id) => openProfile(id)}
-              onReact={() => requireAuth('Reacting')}
-              onShare={() => requireAuth('Sharing')}
-              onViewImage={setFullScreenImage}
-              onOpenComments={(id) => onOpenComments(id)}
-              onVideoClick={() => {}}
-              onPlayAudioTrack={setCurrentAudioTrack}
-            />
-          )}
-
-          {view === 'settings' && currentUser && (
-            <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
-          )}
-
-          {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
-          {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
-          {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
-
-          {view === 'profile' && selectedUserId && profileUser && (
-            <UserProfile
-              user={profileUser}
-              currentUser={currentUser}
-              users={users}
-              posts={posts}
-              reels={reels}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={(id: number) => followUser(id)}
-              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-              onComment={() => requireAuth('Commenting')}
-              onShare={(postId: number) => onSharePost(postId)}
-              onMessage={(id) => {
-                if (!requireAuth('Messaging')) return;
-                setActiveChatUser(users.find((u) => u.id === id) || null);
-              }}
-              onCreatePost={createPost as any}
-              onUpdateProfileImage={updateProfileImage as any}
-              onUpdateCoverImage={updateCoverImage as any}
-              onUpdateUserDetails={updateUserDetails as any}
-              onDeletePost={(postId: number) => deletePost(postId)}
-              onEditPost={(postId: number, content: string) => editPost(postId, content)}
-              getCommentAuthor={(id) => users.find((u) => u.id === id)}
-              onViewImage={setFullScreenImage}
-              onOpenComments={(postId) => onOpenComments(postId)}
-              onVideoClick={(p) => {
-                setActiveReelId((p as any).id);
-                setView('reels');
-              }}
-              onPlayAudioTrack={setCurrentAudioTrack}
-            />
-          )}
-
-          {view === 'login' && (
-            <Login
-              onLogin={handleLogin}
-              onNavigateToRegister={() => setView('register')}
-              onNavigateToForgotPassword={() => setView('login')}
-              onClose={() => setView('home')}
-              error={loginError}
-            />
-          )}
-
-          {view === 'register' && <Register onRegister={() => {}} onBackToLogin={() => setView('login')} />}
         </div>
 
-        {currentUser && (
-          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
-            <RightSidebar
-              contacts={users.filter((u) => u.id !== currentUser.id)}
-              onProfileClick={(id) => openProfile(id)}
-            />
-          </div>
-        )}
+        <div className="border-t border-[#3E4042]">
+          <OptionsItem icon="fas fa-images" color="#45BD62" label="Photo/video" onClick={() => fileInputRef.current?.click()} />
+          <OptionsItem icon="fas fa-camera" color="#45BD62" label="Camera" onClick={() => cameraInputRef.current?.click()} />
+          <OptionsItem icon="fas fa-user-tag" color="#1877F2" label="Tag people" onClick={() => setView('tag')} />
+          <OptionsItem icon="far fa-smile" color="#F7B928" label="Feeling/activity" onClick={() => setView('feeling')} />
+          <OptionsItem icon="fas fa-map-marker-alt" color="#F02849" label="Check in" onClick={() => setView('location')} />
+        </div>
       </div>
 
-      {/* Modals / Overlays */}
-      {activeProduct && (
-        <ProductDetailModal
-          product={activeProduct}
-          currentUser={currentUser}
-          onClose={() => setActiveProduct(null)}
-          onMessage={(id) => {
-            if (!requireAuth('Messaging')) return;
-            setActiveChatUser(users.find((u) => u.id === id) || null);
-            setView('home');
-          }}
-        />
-      )}
+      <div className="p-4 border-t border-[#3E4042]">
+        <button
+          onClick={submit}
+          disabled={!canPost}
+          className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors disabled:bg-[#3A3B3C] text-lg shadow-sm"
+        >
+          POST
+        </button>
+      </div>
 
-      {showCreateEventModal && currentUser && (
-        <CreateEventModal currentUser={currentUser} onClose={() => setShowCreateEventModal(false)} onCreate={() => {}} />
-      )}
-
-      {showCreatePostModal && currentUser && (
-        <CreatePostModal
-          currentUser={currentUser}
-          users={users}
-          onClose={() => setShowCreatePostModal(false)}
-          onCreatePost={(text: string, file: File | null, meta?: any) => createPost(text, file, meta)}
-        />
-      )}
-
-      {activePost && currentUser && (
-        <CommentsSheet
-          post={activePost}
-          currentUser={currentUser}
-          users={users}
-          onClose={() => {
-            setActiveCommentsPostId(null);
-            setCommentPostSnapshot(null);
-          }}
-          onComment={() => {}}
-          onLikeComment={() => {}}
-          getCommentAuthor={(id) => users.find((u) => u.id === id)}
-          onProfileClick={(id) => openProfile(id)}
-        />
-      )}
-
-      {currentAudioTrack && (
-        <GlobalAudioPlayer
-          currentTrack={currentAudioTrack}
-          isPlaying={isAudioPlaying}
-          onTogglePlay={() => setIsAudioPlaying(!isAudioPlaying)}
-          onNext={() => {}}
-          onPrevious={() => {}}
-          onClose={() => setCurrentAudioTrack(null)}
-          onDownload={() => {}}
-          onLike={() => requireAuth('Liking')}
-          isLiked={false}
-        />
-      )}
-
-      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
-
-      {showCreateStoryModal && currentUser && (
-        <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
-      )}
-
-      {showCreateReelModal && currentUser && (
-        <CreateReelModal currentUser={currentUser} onClose={() => setShowCreateReelModal(false)} onCreate={() => {}} />
-      )}
+      <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileChange} />
+      <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
     </div>
   );
-}
+};
+
+// Global comments cache (shared across all CommentsSheet instances)
+const commentsCache = new Map<number, { 
+  data: any[], 
+  timestamp: number,
+  postId: number 
+}>();
+
+/**
+ * =========================
+ * ✅ COMMENTS SHEET (FACEBOOK-LIKE BEHAVIOR - NO LOADERS)
+ * =========================
+ * - NO loading spinners or "sending..." indicators
+ * - Comments appear immediately when panel opens (from cache)
+ * - Users can comment immediately without waiting
+ * - All counts update instantly
+ */
+export const CommentsSheet: React.FC<{
+  post: PostType;
+  currentUser: User;
+  users: User[];
+  onClose: () => void;
+  onComment?: (postId: number, text: string) => void;
+  onLikeComment?: (commentId: number) => void;
+  getCommentAuthor?: (id: number) => User | undefined;
+  onProfileClick: (id: number) => void;
+}> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick }) => {
+  const p: any = post as any;
+  const postId = safePostId(p);
+  
+  const [text, setText] = useState('');
+  const [comments, setComments] = useState<any[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // ✅ Enhanced resolveAuthor function with proper fallback handling
+  const resolveAuthor = (c: any) => {
+    const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
+
+    const u =
+      (Number.isFinite(uid) ? users.find((x: any) => Number(x?.id) === uid) : null) ||
+      (getCommentAuthor ? getCommentAuthor(uid) : null) ||
+      null;
+
+    const name =
+      String(c?.author_name ?? c?.authorName ?? '').trim() ||
+      String(u?.name ?? '').trim() ||
+      String(u?.username ?? '').trim() ||
+      'User';
+
+    const image =
+      String(c?.author_image ?? c?.authorImage ?? '').trim() ||
+      String(u?.profile_image_url ?? '').trim() ||
+      String(u?.profileImage ?? '').trim() ||
+      String(u?.avatar ?? '').trim() ||
+      'https://ui-avatars.com/api/?name=User';
+
+    return { uid, name, image };
+  };
+
+  // Format comment count display (1 comment, 1k comments, etc.)
+  const formatCommentCount = (count: number): string => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
+  };
+
+  // Initialize comments when sheet opens - NO LOADING STATE
+  useEffect(() => {
+    const initializeComments = async () => {
+      // 1. Show cached comments immediately
+      const cached = commentsCache.get(postId);
+      if (cached) {
+        setComments(cached.data);
+      }
+      
+      // 2. Also check if post has inline comments and use them
+      const postComments = Array.isArray(p.comments) ? p.comments : [];
+      if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
+        setComments(postComments);
+        commentsCache.set(postId, { 
+          data: postComments, 
+          timestamp: Date.now(),
+          postId 
+        });
+      }
+      
+      // 3. Do a silent background fetch (NO LOADING INDICATOR)
+      fetchCommentsSilently();
+    };
+
+    initializeComments();
+    
+    return () => {
+      // Cleanup abort controller on unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [postId, p.comments]);
+
+  // Silent background fetch - NO VISUAL INDICATOR
+  const fetchCommentsSilently = async () => {
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    
+    try {
+      const data = await apiFetch(`/api/posts/${postId}/comments`);
+      const arr = Array.isArray(data) ? data : data?.comments || [];
+      
+      // Update cache and state if we got new data
+      if (arr.length > 0) {
+        setComments(arr);
+        commentsCache.set(postId, { 
+          data: arr, 
+          timestamp: Date.now(),
+          postId 
+        });
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        return; // Request was cancelled, ignore
+      }
+      console.debug('Silent comment fetch failed:', error);
+      // Silently fail - user won't notice
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t) return;
+
+    const optimisticComment = {
+      id: `tmp-${Date.now()}`,
+      post_id: postId,
+      user_id: safeUserId(currentUser),
+      text: t,
+      created_at: new Date().toISOString(),
+      // NO __pending flag - appears immediately like Facebook
+    };
+
+    setText('');
+
+    // IMMEDIATE optimistic update (Facebook-style)
+    setComments(prev => {
+      const next = [...prev, optimisticComment];
+      // Update cache immediately
+      commentsCache.set(postId, { 
+        data: next, 
+        timestamp: Date.now(),
+        postId 
+      });
+      return next;
+    });
+
+    // Notify parent about new comment for count update
+    if (onComment) {
+      onComment(postId, t);
+    }
+
+    // Silent background POST (user doesn't see any loading)
+    try {
+      await apiFetch(`/api/posts/${postId}/comment`, {
+        method: 'POST',
+        body: JSON.stringify({
+          text: t,
+          user_id: safeUserId(currentUser),
+        }),
+      });
+
+      // Silent background refresh to sync with server
+      fetchCommentsSilently();
+    } catch (err: any) {
+      console.error('Failed to post comment:', err);
+      // Silently fail - comment stays visible (Facebook behavior)
+      // In a real app, you might show a subtle retry option
+    }
+  };
+
+  // Refresh comments when sheet is focused
+  useEffect(() => {
+    const handleFocus = () => {
+      // Silent refresh if cache is older than 30 seconds
+      const cached = commentsCache.get(postId);
+      if (cached && (Date.now() - cached.timestamp > 30000)) {
+        fetchCommentsSilently();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [postId]);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col justify-end md:items-center md:justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose}></div>
+
+      <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
+        <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]">
+          <h3 className="font-bold text-[#E4E6EB]">
+            Comments ({formatCommentCount(comments.length)})
+          </h3>
+          <i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {comments.length === 0 ? (
+            <div className="text-[#B0B3B8] text-center py-6">
+              No comments yet.
+              <p className="text-sm mt-2">Be the first to comment!</p>
+            </div>
+          ) : (
+            comments.map((c) => {
+              const a = resolveAuthor(c);
+              return (
+                <div key={String(c.id)} className="flex gap-2 animate-fade-in">
+                  <img
+                    src={a.image}
+                    className="w-8 h-8 rounded-full object-cover cursor-pointer flex-shrink-0"
+                    alt=""
+                    onClick={() => a.uid && onProfileClick(a.uid)}
+                  />
+                  <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1 min-w-0">
+                    <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
+                      <span
+                        className="cursor-pointer hover:underline truncate max-w-[150px]"
+                        onClick={() => a.uid && onProfileClick(a.uid)}
+                        title={a.name}
+                      >
+                        {a.name}
+                      </span>
+                      <span className="text-[12px] font-normal text-[#B0B3B8]">
+                        • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
+                      </span>
+                    </p>
+                    <p className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
+                      {c.text}
+                    </p>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <form className="p-3 border-t border-[#3E4042] flex gap-2" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+            placeholder="Write a comment..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            autoFocus
+          />
+          <button 
+            type="submit" 
+            className="text-[#1877F2] font-bold disabled:text-[#B0B3B8] disabled:cursor-not-allowed"
+            disabled={!text.trim()}
+          >
+            Post
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * =========================
+ * SUGGESTED PRODUCTS WIDGET
+ * =========================
+ */
+export const SuggestedProductsWidget: React.FC<{
+  products: Product[];
+  currentUser: User;
+  onViewProduct: (product: Product) => void;
+  onSeeAll: () => void;
+}> = ({ products, currentUser, onViewProduct, onSeeAll }) => {
+  const suggested = (products || [])
+    .filter((p: any) => p.seller_id !== safeUserId(currentUser))
+    .slice(0, 4);
+
+  if (suggested.length === 0) return null;
+
+  return (
+    <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
+        <button
+          onClick={onSeeAll}
+          className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
+        >
+          See all
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {suggested.map((product: any) => {
+          const countryData = MARKETPLACE_COUNTRIES.find((c) =>
+            String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
+          );
+          const symbol = countryData ? countryData.symbol : '$';
+
+          return (
+            <div
+              key={String(product.id)}
+              className="cursor-pointer group"
+              onClick={() => onViewProduct(product)}
+            >
+              <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
+                <img
+                  src={product.images?.[0]}
+                  alt={product.title}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                />
+                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
+                  {symbol}
+                  {product.main_price}
+                </div>
+              </div>
+              <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">
+                {product.title}
+              </h4>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
