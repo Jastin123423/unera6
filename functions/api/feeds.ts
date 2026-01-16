@@ -28,24 +28,27 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const url = new URL(request.url);
     const userId = toInt(url.searchParams.get('userId'), 0);
-    const limit = Math.min(50, Math.max(1, toInt(url.searchParams.get('limit'), 20)));
+    const limit = Math.min(20, Math.max(1, toInt(url.searchParams.get('limit'), 10)));
+
     if (!userId) return json({ success: false, error: 'Missing userId' }, 400);
 
-    // ✅ IMPORTANT: Never return base64 media_url (data:...)
-    // If you later use R2, media_url will be https://... and will pass.
+    // ✅ ALWAYS SMALL RESPONSE:
+    // - If base64 (data:...), return NULL
+    // - If media_url is very long (>300 chars), return NULL
     const q = `
       SELECT
         p.id, p.user_id, p.content,
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
+          WHEN length(p.media_url) > 300 THEN NULL
           ELSE p.media_url
         END AS media_url,
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
+          WHEN length(p.media_url) > 300 THEN NULL
           ELSE p.media_type
         END AS media_type,
         p.visibility, p.created_at, p.views, p.shares,
-
         u.username, u.profile_image_url, u.is_verified, u.role
       FROM posts p
       JOIN users u ON u.id = p.user_id
@@ -55,12 +58,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const { results } = await env.DB.prepare(q).bind(limit).all();
 
-    return json({
-      success: true,
-      userId,
-      limit,
-      feed: Array.isArray(results) ? results : [],
-    });
+    return json({ success: true, userId, limit, feed: Array.isArray(results) ? results : [] });
   } catch (e: any) {
     return json({ success: false, error: e?.message || String(e) }, 500);
   }
