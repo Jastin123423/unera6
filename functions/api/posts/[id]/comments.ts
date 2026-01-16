@@ -9,9 +9,12 @@ export const onRequestOptions: PagesFunction = async () =>
 
 export const onRequestGet: PagesFunction = async ({ env, params }) => {
   try {
-    const postId = Number((params as any)?.id);
-    if (!postId) return Response.json({ error: "Invalid post id" }, { status: 400, headers: cors });
-
+     const postIdRaw = (params as any)?.id;
+const postId = Number(postIdRaw);
+if (!Number.isFinite(postId) || postId <= 0) {
+  return Response.json({ error: "Invalid post id" }, { status: 400, headers: cors });
+}
+    
     const { results } = await env.DB.prepare(
       `SELECT pc.id, pc.post_id, pc.user_id, pc.text, pc.created_at,
               u.username as author_name, u.profile_image_url as author_image
