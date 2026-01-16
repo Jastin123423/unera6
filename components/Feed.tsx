@@ -1116,13 +1116,21 @@ export const CreatePostModal: React.FC<{
   );
 };
 
+// Global comments cache (shared across all CommentsSheet instances)
+const commentsCache = new Map<number, { 
+  data: any[], 
+  timestamp: number,
+  postId: number 
+}>();
+
 /**
  * =========================
- * ✅ COMMENTS SHEET (NO LOADER UI + REAL NAMES)
+ * ✅ COMMENTS SHEET (FACEBOOK-LIKE BEHAVIOR)
  * =========================
- * - No "Loading comments..."
- * - Shows cached (if exists) or "No comments yet."
- * - Shows real names/images using users[] by user_id
+ * - Shows cached comments INSTANTLY when panel opens (no loading spinner)
+ * - Does silent background refresh to ensure data is fresh
+ * - Proper cache invalidation on new comments
+ * - Consistent display without comments disappearing
  */
 export const CommentsSheet: React.FC<{
   post: PostType;
@@ -1136,11 +1144,12 @@ export const CommentsSheet: React.FC<{
 }> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick }) => {
   const p: any = post as any;
   const postId = safePostId(p);
-
+  
   const [text, setText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
-  const cacheRef = useRef<Map<number, any[]>>(new Map());
-
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
   // ✅ Enhanced resolveAuthor function with proper fallback handling
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
@@ -1176,33 +1185,111 @@ export const CommentsSheet: React.FC<{
     return count.toString();
   };
 
-  // ✅ show cached instantly (no loader UI)
-  useEffect(() => {
-    const cached = cacheRef.current.get(postId);
-    if (cached && Array.isArray(cached)) {
-      setComments(cached);
+  // Load comments with cache-first strategy (Facebook-like behavior)
+  const loadComments = async (forceRefresh = false) => {
+    const CACHE_TTL = 2 * 60 * 1000; // 2 minutes cache
+    const now = Date.now();
+    const cached = commentsCache.get(postId);
+    
+    // Show cached data immediately if available and not forcing refresh
+    if (!forceRefresh && cached && (now - cached.timestamp < CACHE_TTL)) {
+      setComments(cached.data);
+      // Still refresh in background but don't wait for it
+      refreshCommentsInBackground();
+      return;
     }
-  }, [postId]);
+    
+    // If no cache or cache expired, fetch fresh data
+    await refreshComments(true);
+  };
 
-  // ✅ background fetch (silent)
-  useEffect(() => {
-    let alive = true;
-
-    const load = async () => {
-      try {
-        const data = await apiFetch(`/api/posts/${postId}/comments`);
-        const arr = Array.isArray(data) ? data : data?.comments || [];
-        if (!alive) return;
-        setComments(arr);
-        cacheRef.current.set(postId, arr);
-      } catch {
-        // silent
+  // Background refresh (silent, doesn't update state until complete)
+  const refreshCommentsInBackground = async () => {
+    if (isRefreshing) return;
+    
+    setIsRefreshing(true);
+    try {
+      const freshComments = await fetchComments();
+      if (freshComments) {
+        // Only update if we got new data
+        setComments(freshComments);
       }
-    };
+    } catch (error) {
+      // Silently fail - we still have cached data
+      console.debug('Background refresh failed:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
-    load();
+  // Main refresh function
+  const refreshComments = async (updateState = true) => {
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    
+    if (updateState) {
+      setIsRefreshing(true);
+    }
+    
+    try {
+      const freshComments = await fetchComments();
+      if (freshComments) {
+        if (updateState) {
+          setComments(freshComments);
+        }
+        return freshComments;
+      }
+      return [];
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        return []; // Request was cancelled, ignore
+      }
+      console.error('Failed to load comments:', error);
+      // Return cached data as fallback
+      const cached = commentsCache.get(postId);
+      if (cached && updateState) {
+        setComments(cached.data);
+      }
+      return cached?.data || [];
+    } finally {
+      if (updateState) {
+        setIsRefreshing(false);
+      }
+    }
+  };
+
+  // Helper to fetch comments from API
+  const fetchComments = async (): Promise<any[]> => {
+    try {
+      const data = await apiFetch(`/api/posts/${postId}/comments`);
+      const arr = Array.isArray(data) ? data : data?.comments || [];
+      
+      // Update cache
+      commentsCache.set(postId, { 
+        data: arr, 
+        timestamp: Date.now(),
+        postId 
+      });
+      
+      return arr;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  // Initialize comments when sheet opens
+  useEffect(() => {
+    loadComments(false);
+    
     return () => {
-      alive = false;
+      // Cleanup abort controller on unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, [postId]);
 
@@ -1222,9 +1309,15 @@ export const CommentsSheet: React.FC<{
 
     setText('');
 
-    setComments((prev) => {
+    // Optimistic update
+    setComments(prev => {
       const next = [...prev, optimistic];
-      cacheRef.current.set(postId, next);
+      // Update cache immediately
+      commentsCache.set(postId, { 
+        data: next, 
+        timestamp: Date.now(),
+        postId 
+      });
       return next;
     });
 
@@ -1240,41 +1333,67 @@ export const CommentsSheet: React.FC<{
       const serverComment = data?.comment ?? null;
 
       if (serverComment) {
-        setComments((prev) => {
-          const next = prev.map((c) => (String(c.id) === String(optimistic.id) ? serverComment : c));
-          cacheRef.current.set(postId, next);
+        setComments(prev => {
+          const next = prev.map((c) => 
+            String(c.id) === String(optimistic.id) ? serverComment : c
+          );
+          // Update cache with server response
+          commentsCache.set(postId, { 
+            data: next, 
+            timestamp: Date.now(),
+            postId 
+          });
           return next;
         });
       } else {
-        setComments((prev) => {
-          const next = prev.map((c) => (String(c.id) === String(optimistic.id) ? { ...c, __pending: false } : c));
-          cacheRef.current.set(postId, next);
+        setComments(prev => {
+          const next = prev.map((c) => 
+            String(c.id) === String(optimistic.id) ? { ...c, __pending: false } : c
+          );
+          commentsCache.set(postId, { 
+            data: next, 
+            timestamp: Date.now(),
+            postId 
+          });
           return next;
         });
       }
 
-      // Update comment count in the parent component if callback exists
+      // Notify parent about new comment
       if (onComment) {
         onComment(postId, t);
       }
 
-      // Reconcile quietly (still silent)
-      apiFetch(`/api/posts/${postId}/comments`)
-        .then((fresh) => {
-          const arr = Array.isArray(fresh) ? fresh : fresh?.comments || [];
-          setComments(arr);
-          cacheRef.current.set(postId, arr);
-        })
-        .catch(() => {});
+      // Do a silent background refresh to sync with server
+      refreshCommentsInBackground();
     } catch (err: any) {
-      setComments((prev) => {
+      // Remove optimistic comment on error
+      setComments(prev => {
         const next = prev.filter((c) => String(c.id) !== String(optimistic.id));
-        cacheRef.current.set(postId, next);
+        commentsCache.set(postId, { 
+          data: next, 
+          timestamp: Date.now(),
+          postId 
+        });
         return next;
       });
-      alert(err?.message || 'Failed to comment');
+      alert(err?.message || 'Failed to post comment');
     }
   };
+
+  // Refresh comments when sheet is focused
+  useEffect(() => {
+    const handleFocus = () => {
+      // Refresh if cache is older than 30 seconds
+      const cached = commentsCache.get(postId);
+      if (cached && (Date.now() - cached.timestamp > 30000)) {
+        refreshCommentsInBackground();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [postId]);
 
   return (
     <div className="fixed inset-0 z-[200] flex flex-col justify-end md:items-center md:justify-center">
@@ -1282,31 +1401,40 @@ export const CommentsSheet: React.FC<{
 
       <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
         <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]">
-          <h3 className="font-bold text-[#E4E6EB]">
-            Comments ({formatCommentCount(comments.length)})
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-[#E4E6EB]">
+              Comments ({formatCommentCount(comments.length)})
+            </h3>
+            {isRefreshing && (
+              <i className="fas fa-spinner fa-spin text-[#1877F2] text-sm"></i>
+            )}
+          </div>
           <i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {comments.length === 0 ? (
-            <div className="text-[#B0B3B8] text-center py-6">No comments yet.</div>
+            <div className="text-[#B0B3B8] text-center py-6">
+              No comments yet.
+              <p className="text-sm mt-2">Be the first to comment!</p>
+            </div>
           ) : (
             comments.map((c) => {
               const a = resolveAuthor(c);
               return (
-                <div key={String(c.id)} className="flex gap-2">
+                <div key={String(c.id)} className="flex gap-2 animate-fade-in">
                   <img
                     src={a.image}
-                    className="w-8 h-8 rounded-full object-cover cursor-pointer"
+                    className="w-8 h-8 rounded-full object-cover cursor-pointer flex-shrink-0"
                     alt=""
                     onClick={() => a.uid && onProfileClick(a.uid)}
                   />
-                  <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1">
+                  <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1 min-w-0">
                     <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
                       <span
-                        className="cursor-pointer hover:underline"
+                        className="cursor-pointer hover:underline truncate max-w-[150px]"
                         onClick={() => a.uid && onProfileClick(a.uid)}
+                        title={a.name}
                       >
                         {a.name}
                       </span>
@@ -1320,7 +1448,9 @@ export const CommentsSheet: React.FC<{
                         </span>
                       )}
                     </p>
-                    <p className="text-white text-[15px] whitespace-pre-wrap break-words">{c.text}</p>
+                    <p className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
+                      {c.text}
+                    </p>
                   </div>
                 </div>
               );
@@ -1331,12 +1461,17 @@ export const CommentsSheet: React.FC<{
         <form className="p-3 border-t border-[#3E4042] flex gap-2" onSubmit={handleSubmit}>
           <input
             type="text"
-            className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none"
+            className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
             placeholder="Write a comment..."
             value={text}
             onChange={(e) => setText(e.target.value)}
+            disabled={isRefreshing}
           />
-          <button type="submit" className="text-[#1877F2] font-bold">
+          <button 
+            type="submit" 
+            className="text-[#1877F2] font-bold disabled:text-[#B0B3B8] disabled:cursor-not-allowed"
+            disabled={!text.trim() || isRefreshing}
+          >
             Post
           </button>
         </form>
