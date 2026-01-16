@@ -3,16 +3,26 @@ import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = { DB: D1Database };
 
+const corsHeaders: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Cache-Control': 'no-store',
+};
+
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
 
 const toInt = (v: any, fallback = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 };
+
+export const onRequestOptions: PagesFunction<Env> = async () =>
+  new Response(null, { status: 204, headers: corsHeaders });
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -28,6 +38,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const suggestedLimit = Math.max(5, Math.floor(limit * 0.3)); // 30%
     const trendingLimit = Math.max(0, limit - followingLimit - suggestedLimit); // remaining
 
+    /**
+     * ✅ FIXES:
+     * 1) Removed ORDER BY RANDOM() (slow on D1/SQLite).
+     *    Replaced with deterministic "shuffle" seeded by userId.
+     * 2) Keep query logic same, just faster ordering.
+     *
+     * NOTE: Add these indexes in D1 for best speed:
+     *  - CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
+     *  - CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_id, created_at DESC);
+     *  - CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows(follower_id);
+     *  - CREATE INDEX IF NOT EXISTS idx_user_follows_following ON user_follows(following_id);
+     */
     const query = `
       WITH
       my_following AS (
@@ -85,7 +107,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         ORDER BY
           COALESCE(fc.follower_count, 0) ASC,
           COALESCE(u.joined_date, u.created_at) DESC,
-          RANDOM()
+          -- ✅ deterministic shuffle instead of RANDOM()
+          ((u.id * 1103515245 + ?) % 2147483647) ASC
         LIMIT ${Math.max(40, suggestedLimit * 6)}
       ),
 
@@ -152,7 +175,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    const { results } = await env.DB.prepare(query).bind(userId, userId, userId, limit).all();
+    // Binds:
+    // 1) my_following follower_id = userId
+    // 2) following_posts: p.user_id = userId
+    // 3) suggested_authors: u.id != userId
+    // 4) suggested_authors deterministic shuffle seed = userId
+    // 5) final LIMIT = limit
+    const { results } = await env.DB.prepare(query).bind(userId, userId, userId, userId, limit).all();
 
     return json({
       success: true,
