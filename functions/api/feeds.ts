@@ -1,5 +1,6 @@
 // functions/api/feeds.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
+
 type Env = { DB: D1Database };
 
 const cors = {
@@ -32,50 +33,44 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!userId) return json({ success: false, error: 'Missing userId' }, 400);
 
-    // ✅ Get following ids (fast with index on follower_id)
-    const f = await env.DB
-      .prepare('SELECT following_id FROM user_follows WHERE follower_id = ? LIMIT 2000')
-      .bind(userId)
-      .all();
+    // ✅ Fast feed: self + following using EXISTS (no giant IN list)
+    // Requires indexes (given below) to be instant.
+    const q = `
+      SELECT
+        p.id, p.user_id, p.content, p.media_url, p.media_type, p.created_at,
+        COALESCE(p.shares,0) AS shares,
+        COALESCE(p.views,0) AS views,
 
-    const followingIds = Array.isArray(f.results)
-      ? f.results.map((r: any) => Number(r.following_id)).filter(Boolean)
-      : [];
+        u.username, u.profile_image_url, u.is_verified, u.role,
+        0 AS follower_count,
+        CASE
+          WHEN p.user_id = ? THEN 'self'
+          ELSE 'following'
+        END AS pool
+      FROM posts p
+      JOIN users u ON u.id = p.user_id
+      WHERE
+        p.user_id = ?
+        OR EXISTS (
+          SELECT 1
+          FROM user_follows uf
+          WHERE uf.follower_id = ?
+            AND uf.following_id = p.user_id
+        )
+      ORDER BY p.created_at DESC
+      LIMIT ?
+    `;
 
-    // Always include self
-    const ids = [userId, ...followingIds].slice(0, 2000);
-    const placeholders = ids.map(() => '?').join(',');
-
-    // ✅ Simple feed: only following + self newest posts
-    const feed = await env.DB
-      .prepare(
-        `
-        SELECT
-          p.id, p.user_id, p.content, p.media_url, p.media_type, p.created_at,
-          COALESCE(p.shares,0) AS shares,
-          COALESCE(p.views,0) AS views,
-
-          u.username, u.profile_image_url, u.is_verified, u.role,
-
-          0 AS follower_count,
-          'following' AS pool
-        FROM posts p
-        JOIN users u ON u.id = p.user_id
-        WHERE p.user_id IN (${placeholders})
-        ORDER BY p.created_at DESC
-        LIMIT ?
-        `
-      )
-      .bind(...ids, limit)
-      .all();
+    const { results } = await env.DB.prepare(q).bind(userId, userId, userId, limit).all();
 
     return json({
       success: true,
       userId,
       limit,
-      feed: Array.isArray(feed.results) ? feed.results : [],
+      feed: Array.isArray(results) ? results : [],
     });
   } catch (e: any) {
+    // If there is a SQL error, you will see it in JSON
     return json({ success: false, error: e?.message || String(e) }, 500);
   }
 };
