@@ -1,33 +1,10 @@
 // utils/ranking.ts
 import { Post, User } from '../types';
 
-/**
- * =======================================================
- * UNERA: SIMPLE "GROWTH" FEED ALGORITHM (EARLY-STAGE)
- * ✅ FIXES:
- * - Never drop posts just because author isn't in users[] yet
- * - Cap ranking input size for mobile performance
- * =======================================================
- */
-
 interface ScoredPost {
   post: Post;
   score: number;
-  debug: {
-    baseScore: number;
-    finalScore: number;
-    freshness: number;
-    engagement: number;
-    affinity: number;
-    interest: number;
-    boosts: {
-      newUser: number;
-      smallCreator: number;
-      viral: number;
-      velocity: number;
-    };
-    reason: string;
-  };
+  debug: any;
 }
 
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
@@ -36,12 +13,7 @@ const safeNumber = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-/**
- * Deterministic pseudo-random number from an integer seed (0..1)
- * So feed doesn't reshuffle wildly every render.
- */
 const seededRand01 = (seed: number) => {
-  // xorshift32-ish
   let x = seed | 0;
   x ^= x << 13;
   x ^= x >> 17;
@@ -81,28 +53,15 @@ const CONSTANTS = {
   NO_BACK_TO_BACK_AUTHOR: true,
 
   EXPLORE_RATIO: 0.2,
-
-  // ✅ cap for performance on mobile
-  MAX_INPUT_POSTS: 200,
 };
 
-/**
- * Score a post for a viewer.
- * NOTE: author can be a fallback user object.
- */
-const calculatePostScore = (
-  post: Post,
-  viewer: User | null,
-  author: User
-): ScoredPost['debug'] & { score: number } => {
+const calculatePostScore = (post: Post, viewer: User | null, author: User) => {
   const now = Date.now();
   const postTime = post.created_at ? new Date(post.created_at as any).getTime() : now;
   const hoursSinceCreation = Math.max(0, (now - postTime) / (1000 * 60 * 60));
 
-  // 1) Freshness (0..1)
   const freshnessScore = Math.exp(-CONSTANTS.DECAY_LAMBDA * hoursSinceCreation);
 
-  // 2) Engagement (LOG scaling)
   const reactionsCount = safeArray((post as any).reactions).length;
   const commentsCount = safeArray((post as any).comments).length;
 
@@ -128,19 +87,17 @@ const calculatePostScore = (
   const scaledEngagement = Math.log1p(rawEngagementValue);
   const engagementScore = scaledEngagement * viralMultiplier * velocityMultiplier;
 
-  // 3) Affinity
   let affinityScore = 1.0;
-  if (viewer && safeNumber((viewer as any).id) && safeNumber((author as any).id) && (viewer as any).id !== (author as any).id) {
-    const viewerFollowing = safeArray<number>((viewer as any).following);
-    const authorFollowers = safeArray<number>((author as any).followers);
-    const isFollowing = viewerFollowing.includes((author as any).id);
-    const isMutual = isFollowing && authorFollowers.includes((viewer as any).id);
+  if (viewer && safeNumber(viewer.id) && safeNumber(author.id) && viewer.id !== author.id) {
+    const viewerFollowing = new Set<number>(safeArray<number>((viewer as any).following));
+    const authorFollowers = new Set<number>(safeArray<number>((author as any).followers));
+    const isFollowing = viewerFollowing.has(author.id);
+    const isMutual = isFollowing && authorFollowers.has(viewer.id);
 
     if (isMutual) affinityScore = 1.6;
     else if (isFollowing) affinityScore = 1.25;
   }
 
-  // 4) Interest (optional tags overlap)
   let interestScore = 0;
   const viewerInterests = safeArray<string>((viewer as any)?.interests).map((x) => String(x).toLowerCase());
   const postTags = safeArray<string>((post as any)?.tags).map((x) => String(x).toLowerCase());
@@ -149,14 +106,12 @@ const calculatePostScore = (
     interestScore = matches * 0.5;
   }
 
-  // Base score
   const baseScore =
     freshnessScore * CONSTANTS.WEIGHT_FRESHNESS +
     engagementScore * CONSTANTS.WEIGHT_ENGAGEMENT +
     affinityScore * CONSTANTS.WEIGHT_AFFINITY +
     interestScore * CONSTANTS.WEIGHT_INTEREST;
 
-  // 5) Creator fairness boost
   const authorCreatedAt = (author as any).created_at ? new Date((author as any).created_at).getTime() : 0;
   const daysOnPlatform = authorCreatedAt ? (now - authorCreatedAt) / (1000 * 60 * 60 * 24) : 999;
 
@@ -174,36 +129,12 @@ const calculatePostScore = (
 
   const finalBoost = newUserBoost * smallCreatorBoost;
 
-  // 6) Tiny deterministic jitter
   const seed = safeNumber((post as any).id) * 997 + safeNumber((author as any).id) * 131;
   const jitter = seededRand01(seed) * 0.05;
 
   const finalScore = baseScore * finalBoost + jitter;
 
-  let reason = 'Standard Rank.';
-  if (newUserBoost > 1.0 && smallCreatorBoost > 1.0) reason = 'New + Small Creator Boost.';
-  else if (newUserBoost > 1.0) reason = 'New User Boost.';
-  else if (smallCreatorBoost > 1.0) reason = 'Small Creator Boost.';
-  else if (velocityMultiplier > 1.0) reason = 'Trending (High Velocity).';
-  else if (viralMultiplier > 1.0) reason = 'High Engagement (Viral).';
-  else if (affinityScore > 1.25) reason = 'You Follow Them.';
-
-  return {
-    score: finalScore,
-    baseScore,
-    finalScore,
-    freshness: freshnessScore,
-    engagement: engagementScore,
-    affinity: affinityScore,
-    interest: interestScore,
-    boosts: {
-      newUser: newUserBoost,
-      smallCreator: smallCreatorBoost,
-      viral: viralMultiplier,
-      velocity: velocityMultiplier,
-    },
-    reason,
-  };
+  return { score: finalScore };
 };
 
 const applyDiversityConstraints = (
@@ -214,7 +145,6 @@ const applyDiversityConstraints = (
 ) => {
   const result: { post: Post; score: number }[] = [];
   const authorCount = new Map<number, number>();
-
   const getAuthorId = (p: Post) => safeNumber((p as any).user_id);
 
   for (const item of scored) {
@@ -238,11 +168,7 @@ const applyDiversityConstraints = (
   return result;
 };
 
-const mixExploreSlots = (
-  scored: { post: Post; score: number }[],
-  viewer: User | null,
-  exploreRatio: number
-) => {
+const mixExploreSlots = (scored: { post: Post; score: number }[], viewer: User | null, exploreRatio: number) => {
   if (!viewer) return scored;
 
   const following = new Set<number>(safeArray<number>((viewer as any).following));
@@ -256,15 +182,14 @@ const mixExploreSlots = (
   const home = scored.filter((x) => isFollowedOrSelf(x.post));
   const explore = scored.filter((x) => !isFollowedOrSelf(x.post));
 
-  if (!home.length) return scored;
-  if (!explore.length) return scored;
+  if (!home.length || !explore.length) return scored;
 
   const targetExplore = Math.max(1, Math.round(scored.length * exploreRatio));
+  const interval = Math.max(3, Math.floor(scored.length / targetExplore));
+
   const out: { post: Post; score: number }[] = [];
   let hi = 0;
   let ei = 0;
-
-  const interval = Math.max(3, Math.floor(scored.length / targetExplore));
 
   while (out.length < scored.length && (hi < home.length || ei < explore.length)) {
     const shouldExplore = out.length > 0 && out.length % interval === 0 && ei < explore.length;
@@ -281,44 +206,37 @@ const mixExploreSlots = (
 export const rankFeed = (posts: Post[], viewer: User | null, users: User[]): Post[] => {
   if (!Array.isArray(posts) || posts.length === 0) return [];
 
-  const input = posts.slice(0, CONSTANTS.MAX_INPUT_POSTS);
+  // ✅ CAP work for phones
+  const input = posts.slice(0, 200);
 
-  // Map users for author lookup
   const userMap = new Map<number, User>();
-  if (Array.isArray(users)) {
-    users.forEach((u: any) => {
-      const id = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
-      if (id) userMap.set(id, u);
-    });
-  }
+  safeArray(users).forEach((u: any) => {
+    const id = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
+    if (id) userMap.set(id, u);
+  });
 
-  // Score posts (✅ never drop missing-author posts)
-  const scored = input
-    .map((post) => {
-      const authorId = safeNumber((post as any).user_id);
-      const author =
-        userMap.get(authorId) ||
-        ({
-          id: authorId,
-          name: 'User',
-          username: 'user',
-          followers: [],
-          following: [],
-          created_at: null,
-        } as any);
+  const scored: ScoredPost[] = input.map((post) => {
+    const authorId = safeNumber((post as any).user_id);
 
-      const debug = calculatePostScore(post, viewer, author);
-      return { post, score: debug.score, debug };
-    })
-    .filter(Boolean) as ScoredPost[];
+    // ✅ DO NOT DROP POSTS if author missing
+    const author =
+      userMap.get(authorId) ||
+      ({
+        id: authorId,
+        name: 'User',
+        username: 'user',
+        followers: [],
+        following: [],
+        created_at: null,
+      } as any);
+
+    const s = calculatePostScore(post, viewer, author);
+    return { post, score: s.score, debug: null };
+  });
 
   scored.sort((a, b) => b.score - a.score);
 
-  const mixed = mixExploreSlots(
-    scored.map((x) => ({ post: x.post, score: x.score })),
-    viewer,
-    CONSTANTS.EXPLORE_RATIO
-  );
+  const mixed = mixExploreSlots(scored.map((x) => ({ post: x.post, score: x.score })), viewer, CONSTANTS.EXPLORE_RATIO);
 
   const constrained = applyDiversityConstraints(
     mixed,
