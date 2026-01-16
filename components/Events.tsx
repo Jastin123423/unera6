@@ -1,7 +1,37 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { User, Event } from '../types';
 import { LOCATIONS_DATA } from '../constants';
+
+// --- Cloudflare R2 Upload Helper ---
+const uploadToCloudflareR2 = async (file: File): Promise<string> => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('filename', file.name);
+    formData.append('type', file.type);
+    
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Upload failed: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    if (!result.url) {
+      throw new Error('No URL returned from upload');
+    }
+    
+    return result.url;
+  } catch (error) {
+    console.error('Upload failed:', error);
+    throw error;
+  }
+};
 
 // --- OSM LOCATION SEARCH COMPONENT ---
 const LocationSearch: React.FC<{ value: string, onSelect: (val: string) => void }> = ({ value, onSelect }) => {
@@ -81,39 +111,73 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({ currentUser,
     const [time, setTime] = useState('');
     const [location, setLocation] = useState('');
     const [image, setImage] = useState<string | null>(null);
+    const [imageFile, setImageFile] = useState<File | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                if (ev.target?.result) setImage(ev.target.result as string);
-            };
-            reader.readAsDataURL(file);
+            setImageFile(file);
+            
+            // Create preview URL for display
+            const previewUrl = URL.createObjectURL(file);
+            setImage(previewUrl);
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!title || !date || !time || !location) {
             alert("Please fill all required fields");
             return;
         }
-        
+
+        try {
+            setIsUploading(true);
+            
+            let coverUrl = 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80';
+            
+            // Upload image to Cloudflare R2 if exists
+            if (imageFile) {
+                try {
+                    coverUrl = await uploadToCloudflareR2(imageFile);
+                } catch (error: any) {
+                    console.error('Failed to upload cover image:', error);
+                    alert(`Failed to upload cover image: ${error.message}`);
+                    setIsUploading(false);
+                    return;
+                }
+            }
+            
         {/* @google/genai-api-fix: Corrected property from date to event_date */}
         onCreate({
             title,
             description: desc,
             event_date: new Date(`${date}T${time}`).toISOString(),
             location,
-            cover_url: image || 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
+            cover_url: coverUrl, // Use Cloudflare R2 URL
             creator_id: currentUser.id,
             attendees: [currentUser.id],
             interested_ids: []
         });
         onClose();
+        } catch (error: any) {
+            console.error('Failed to create event:', error);
+            alert(`Failed to create event: ${error.message}`);
+        } finally {
+            setIsUploading(false);
+        }
     };
+
+    useEffect(() => {
+        return () => {
+            // Clean up preview URL when component unmounts
+            if (image && image.startsWith('blob:')) {
+                URL.revokeObjectURL(image);
+            }
+        };
+    }, [image]);
 
     return (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in font-sans backdrop-blur-sm">
@@ -132,7 +196,23 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({ currentUser,
                         onClick={() => fileInputRef.current?.click()}
                     >
                         {image ? (
-                            <img src={image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt="Event Cover" />
+                            <div className="relative w-full h-full">
+                                <img src={image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt="Event Cover" />
+                                <button 
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setImage(null);
+                                        setImageFile(null);
+                                        if (image.startsWith('blob:')) {
+                                            URL.revokeObjectURL(image);
+                                        }
+                                    }}
+                                    className="absolute top-2 right-2 bg-black/60 hover:bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs"
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            </div>
                         ) : (
                             <>
                                 <i className="fas fa-camera text-2xl text-[#E4E6EB] mb-2 group-hover:scale-110 transition-transform"></i>
@@ -167,9 +247,19 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({ currentUser,
 
                     <button 
                         onClick={handleSubmit} 
-                        className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-3 rounded-lg font-bold shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                        disabled={isUploading}
+                        className={`w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-3 rounded-lg font-bold shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 ${isUploading ? 'opacity-70 cursor-not-allowed' : ''}`}
                     >
-                        <i className="fas fa-calendar-plus"></i> Create Event
+                        {isUploading ? (
+                            <>
+                                <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                Creating...
+                            </>
+                        ) : (
+                            <>
+                                <i className="fas fa-calendar-plus"></i> Create Event
+                            </>
+                        )}
                     </button>
                 </div>
             </div>
