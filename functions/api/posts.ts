@@ -3,18 +3,16 @@ import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = { DB: D1Database };
 
-const corsHeaders: Record<string, string> = {
+const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Cache-Control': 'no-store',
 };
 
-export const onRequestOptions: PagesFunction<Env> = async () => {
+export const onRequestOptions: PagesFunction = async () => {
   return new Response(null, { status: 204, headers: corsHeaders });
 };
 
-// ✅ Facebook-like: guests can READ but cannot CREATE posts
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env.DB) {
@@ -25,15 +23,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     const body = await request.json().catch(() => ({} as any));
+    const content = String(body.content ?? '').trim();
+    const media_url = body.media_url ?? null;
+    const media_type = body.media_type ?? null;
 
+    // ✅ Facebook-like: guests cannot post
     const user_id = Number(body.user_id || 0);
     if (!user_id) {
       return Response.json({ error: 'Login required' }, { status: 401, headers: corsHeaders });
     }
-
-    const content = String(body.content ?? '').trim();
-    const media_url = body.media_url ?? null;
-    const media_type = body.media_type ?? null;
 
     if (!content && !media_url) {
       return Response.json(
