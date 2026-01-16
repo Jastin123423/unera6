@@ -394,6 +394,16 @@ export const Post: React.FC<{
   const createdAtLabel = formatRelativeTime(p.created_at);
   const postId = safePostId(p);
 
+  // Format comment count display (1 comment, 1k comments, etc.)
+  const formatCommentCount = (count: number): string => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
+  };
+
   return (
     <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
       <div className="p-3 md:p-4 flex items-center justify-between">
@@ -549,7 +559,7 @@ export const Post: React.FC<{
             className="hover:underline cursor-pointer"
             onClick={() => onOpenComments(Number(postId))}
           >
-            {commentCount} Comments
+            {formatCommentCount(commentCount)} Comments
           </span>
         </div>
       </div>
@@ -1131,27 +1141,39 @@ export const CommentsSheet: React.FC<{
   const [comments, setComments] = useState<any[]>([]);
   const cacheRef = useRef<Map<number, any[]>>(new Map());
 
-  const resolveAuthor = (c: any): { name: string; image: string; id: number } => {
-    const uid = safeNumber(c?.user_id ?? c?.author_id ?? c?.userId, 0);
-    const fromProp = getCommentAuthor ? getCommentAuthor(uid) : undefined;
-    const fromUsers = users.find((u) => Number((u as any).id) === Number(uid));
+  // ✅ Enhanced resolveAuthor function with proper fallback handling
+  const resolveAuthor = (c: any) => {
+    const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
 
-    const u: any = fromProp || fromUsers || null;
+    const u =
+      (Number.isFinite(uid) ? users.find((x: any) => Number(x?.id) === uid) : null) ||
+      (getCommentAuthor ? getCommentAuthor(uid) : null) ||
+      null;
 
     const name =
-      safeString(c?.author_name, '') ||
-      safeString(u?.name, '') ||
-      safeString(u?.username, '') ||
+      String(c?.author_name ?? c?.authorName ?? '').trim() ||
+      String(u?.name ?? '').trim() ||
+      String(u?.username ?? '').trim() ||
       'User';
 
     const image =
-      safeString(c?.author_image, '') ||
-      safeString(u?.profile_image_url, '') ||
-      safeString(u?.profileImage, '') ||
-      safeString(u?.avatar, '') ||
+      String(c?.author_image ?? c?.authorImage ?? '').trim() ||
+      String(u?.profile_image_url ?? '').trim() ||
+      String(u?.profileImage ?? '').trim() ||
+      String(u?.avatar ?? '').trim() ||
       'https://ui-avatars.com/api/?name=User';
 
-    return { name, image, id: uid };
+    return { uid, name, image };
+  };
+
+  // Format comment count display (1 comment, 1k comments, etc.)
+  const formatCommentCount = (count: number): string => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
   };
 
   // ✅ show cached instantly (no loader UI)
@@ -1231,7 +1253,12 @@ export const CommentsSheet: React.FC<{
         });
       }
 
-      // reconcile quietly (still silent)
+      // Update comment count in the parent component if callback exists
+      if (onComment) {
+        onComment(postId, t);
+      }
+
+      // Reconcile quietly (still silent)
       apiFetch(`/api/posts/${postId}/comments`)
         .then((fresh) => {
           const arr = Array.isArray(fresh) ? fresh : fresh?.comments || [];
@@ -1239,7 +1266,6 @@ export const CommentsSheet: React.FC<{
           cacheRef.current.set(postId, arr);
         })
         .catch(() => {});
-      if (onComment) onComment(postId, t);
     } catch (err: any) {
       setComments((prev) => {
         const next = prev.filter((c) => String(c.id) !== String(optimistic.id));
@@ -1256,7 +1282,9 @@ export const CommentsSheet: React.FC<{
 
       <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
         <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]">
-          <h3 className="font-bold text-[#E4E6EB]">Comments</h3>
+          <h3 className="font-bold text-[#E4E6EB]">
+            Comments ({formatCommentCount(comments.length)})
+          </h3>
           <i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i>
         </div>
 
@@ -1272,13 +1300,13 @@ export const CommentsSheet: React.FC<{
                     src={a.image}
                     className="w-8 h-8 rounded-full object-cover cursor-pointer"
                     alt=""
-                    onClick={() => a.id && onProfileClick(a.id)}
+                    onClick={() => a.uid && onProfileClick(a.uid)}
                   />
                   <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1">
                     <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
                       <span
                         className="cursor-pointer hover:underline"
-                        onClick={() => a.id && onProfileClick(a.id)}
+                        onClick={() => a.uid && onProfileClick(a.uid)}
                       >
                         {a.name}
                       </span>
