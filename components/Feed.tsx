@@ -70,15 +70,15 @@ const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
 
 /**
  * =========================
- * ✅ RELATIVE TIME (FB-like)
+ * ✅ FIXED: ACCURATE RELATIVE TIME (Facebook-like)
  * =========================
  */
 export const formatRelativeTime = (dateInput: any): string => {
-  if (!dateInput) return 'Recently';
+  if (!dateInput) return 'Just now';
 
   const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
   const t = d.getTime();
-  if (!Number.isFinite(t)) return 'Recently';
+  if (!Number.isFinite(t)) return 'Just now';
 
   const now = Date.now();
   let diffMs = now - t;
@@ -88,18 +88,28 @@ export const formatRelativeTime = (dateInput: any): string => {
   if (diffSec < 60) return 'Just now';
 
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}min`;
+  if (diffMin === 1) return '1 min';
+  if (diffMin < 60) return `${diffMin} mins`;
 
   const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}hrs`;
+  if (diffHrs === 1) return '1 hr';
+  if (diffHrs < 24) return `${diffHrs} hrs`;
 
   const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 7) return `${diffDays}days`;
+  if (diffDays === 1) return '1 day';
+  if (diffDays < 7) return `${diffDays} days`;
 
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const yyyy = d.getFullYear();
-  return `${mm}/${dd}/${yyyy}`;
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffWeeks === 1) return '1 week';
+  if (diffWeeks < 4) return `${diffWeeks} weeks`;
+
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths === 1) return '1 month';
+  if (diffMonths < 12) return `${diffMonths} months`;
+
+  const diffYears = Math.floor(diffDays / 365);
+  if (diffYears === 1) return '1 year';
+  return `${diffYears} years`;
 };
 
 /**
@@ -383,8 +393,11 @@ export const Post: React.FC<{
 
   const reactions = Array.isArray(p.reactions) ? p.reactions : [];
   const comments = Array.isArray(p.comments) ? p.comments : [];
-  const commentCount =
-    typeof p.comment_count === 'number' ? p.comment_count : comments.length;
+  
+  // ✅ FIXED: Use the same comment count logic as CommentsSheet
+  const [commentCount, setCommentCount] = useState(
+    typeof p.comment_count === 'number' ? p.comment_count : comments.length
+  );
 
   const myReaction = currentUser
     ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))
@@ -403,6 +416,14 @@ export const Post: React.FC<{
     }
     return count.toString();
   };
+
+  // Update comment count when post data changes
+  useEffect(() => {
+    const newCount = typeof p.comment_count === 'number' ? p.comment_count : comments.length;
+    if (newCount !== commentCount) {
+      setCommentCount(newCount);
+    }
+  }, [p.comment_count, comments.length]);
 
   return (
     <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
