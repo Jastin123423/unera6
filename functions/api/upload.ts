@@ -36,7 +36,7 @@ const guessExt = (contentType: string) => {
 
 // ✅ change to your R2 custom domain when you finish it
 // Example after you add custom domain: https://media.unera.social
-const PUBLIC_BASE = "https://pub-00000000000000000000000000000000.r2.dev"; // <-- REPLACE THIS
+const PUBLIC_BASE = "https://media.unera.social"; // <-- REPLACE THIS
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
