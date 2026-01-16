@@ -153,6 +153,43 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
+/**
+ * Upload file to Cloudflare R2
+ */
+const uploadToCloudflareR2 = async (file: File): Promise<string> => {
+  try {
+    // Create FormData with the file
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Optional: add metadata
+    formData.append('filename', file.name);
+    formData.append('type', file.type);
+    
+    // Call the upload API endpoint
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Upload failed: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    if (!result.url) {
+      throw new Error('No URL returned from upload');
+    }
+    
+    return result.url;
+  } catch (error) {
+    console.error('Upload failed:', error);
+    throw error;
+  }
+};
+
 type View =
   | 'home'
   | 'reels'
@@ -174,14 +211,6 @@ type View =
   | 'register';
 
 const LS_USER_KEY = 'user';
-
-const fileToDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
 
 /**
  * ✅ Normalize FEED rows returned by /api/feeds
@@ -570,9 +599,15 @@ export default function App() {
       let media_url: string | null = null;
       let media_type: string | null = null;
 
+      // Upload file to Cloudflare R2 if exists
       if (file) {
-        media_url = await fileToDataUrl(file);
-        media_type = file.type || null;
+        try {
+          media_url = await uploadToCloudflareR2(file);
+          media_type = file.type || null;
+        } catch (error: any) {
+          setLoginError(`Failed to upload file: ${error.message}`);
+          return;
+        }
       }
 
       const payload: any = {
@@ -792,8 +827,12 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
-      const url = await fileToDataUrl(file);
-      await updateUserDetails({ profile_image_url: url } as any);
+      try {
+        const url = await uploadToCloudflareR2(file);
+        await updateUserDetails({ profile_image_url: url } as any);
+      } catch (error: any) {
+        setLoginError(`Failed to upload profile image: ${error.message}`);
+      }
     },
     [requireAuth, currentUser, updateUserDetails]
   );
@@ -803,8 +842,12 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
-      const url = await fileToDataUrl(file);
-      await updateUserDetails({ cover_image_url: url } as any);
+      try {
+        const url = await uploadToCloudflareR2(file);
+        await updateUserDetails({ cover_image_url: url } as any);
+      } catch (error: any) {
+        setLoginError(`Failed to upload cover image: ${error.message}`);
+      }
     },
     [requireAuth, currentUser, updateUserDetails]
   );
