@@ -1,7 +1,38 @@
-
+// Marketplace.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Product } from '../types';
 import { MARKETPLACE_CATEGORIES, MARKETPLACE_COUNTRIES } from '../constants';
+
+// --- Cloudflare R2 Upload Helper ---
+const uploadToCloudflareR2 = async (file: File): Promise<string> => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('filename', file.name);
+    formData.append('type', file.type);
+    
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Upload failed: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    if (!result.url) {
+      throw new Error('No URL returned from upload');
+    }
+    
+    return result.url;
+  } catch (error) {
+    console.error('Upload failed:', error);
+    throw error;
+  }
+};
 
 // --- OSM LOCATION SEARCH COMPONENT (Duplicated for standalone use in Marketplace) ---
 const LocationSearch: React.FC<{ value: string, onSelect: (val: string) => void }> = ({ value, onSelect }) => {
@@ -219,7 +250,8 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
     const [discountPrice, setDiscountPrice] = useState('');
     const [quantity, setQuantity] = useState('1');
     const [phone, setPhone] = useState('');
-    const [images, setImages] = useState<{id: number, data: string}[]>([]);
+    const [images, setImages] = useState<{id: number, data: string, file: File}[]>([]);
+    const [isUploading, setIsUploading] = useState(false);
     
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -248,55 +280,80 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                 alert("Maximum 10 images allowed for a professional listing");
                 return;
             }
-            Array.from(e.target.files).forEach((file: any) => {
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    if (ev.target?.result) {
-                        setImages(prev => [...prev, { id: Date.now() + Math.random(), data: ev.target!.result as string }]);
-                    }
-                };
-                reader.readAsDataURL(file);
+            Array.from(e.target.files).forEach((file: File) => {
+                // Create preview URL for display
+                const previewUrl = URL.createObjectURL(file);
+                setImages(prev => [...prev, { 
+                    id: Date.now() + Math.random(), 
+                    data: previewUrl,
+                    file: file
+                }]);
             });
         }
     };
 
     const removeImage = (id: number) => {
-        setImages(prev => prev.filter(img => img.id !== id));
+        setImages(prev => {
+            const imageToRemove = prev.find(img => img.id === id);
+            if (imageToRemove) {
+                URL.revokeObjectURL(imageToRemove.data); // Clean up preview URL
+            }
+            return prev.filter(img => img.id !== id);
+        });
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!title || !category || !desc || !address || !mainPrice || !phone || images.length === 0) {
             alert("Please fill all required fields and upload at least one image.");
             return;
         }
 
-        // Logic to extract country code from address if possible
-        const detectedCountry = MARKETPLACE_COUNTRIES.find(c => address.toLowerCase().includes(c.name.toLowerCase()))?.code || 'US';
+        try {
+            setIsUploading(true);
 
-        // @google/genai-api-fix: Correct property names `mainPrice`, `discountPrice`, `phoneNumber`, and `date`.
-        const newProduct: Partial<Product> = {
-            title,
-            category,
-            description: desc,
-            country: detectedCountry,
-            address,
-            main_price: parseFloat(mainPrice),
-            discount_price: discountPrice ? parseFloat(discountPrice) : null,
-            quantity: parseInt(quantity),
-            phone_number: phone,
-            images: images.map(i => i.data),
-            status: 'active',
-            views: 0,
-            ratings: [], 
-            comments: [],
-            created_at: new Date().toISOString()
-        };
+            // Upload all images to Cloudflare R2
+            const uploadPromises = images.map(img => uploadToCloudflareR2(img.file));
+            const uploadedUrls = await Promise.all(uploadPromises);
 
-        onCreateProduct(newProduct);
-        setShowSellModal(false);
-        // Reset
-        setTitle(''); setCategory(''); setDesc(''); setMainPrice(''); setDiscountPrice(''); setImages([]); setAddress('');
+            // Logic to extract country code from address if possible
+            const detectedCountry = MARKETPLACE_COUNTRIES.find(c => address.toLowerCase().includes(c.name.toLowerCase()))?.code || 'US';
+
+            const newProduct: Partial<Product> = {
+                title,
+                category,
+                description: desc,
+                country: detectedCountry,
+                address,
+                main_price: parseFloat(mainPrice),
+                discount_price: discountPrice ? parseFloat(discountPrice) : null,
+                quantity: parseInt(quantity),
+                phone_number: phone,
+                images: uploadedUrls, // Store Cloudflare R2 URLs instead of base64
+                status: 'active',
+                views: 0,
+                ratings: [], 
+                comments: [],
+                created_at: new Date().toISOString()
+            };
+
+            onCreateProduct(newProduct);
+            setShowSellModal(false);
+            
+            // Reset form
+            setTitle(''); 
+            setCategory(''); 
+            setDesc(''); 
+            setMainPrice(''); 
+            setDiscountPrice(''); 
+            setImages([]); 
+            setAddress('');
+        } catch (error: any) {
+            console.error('Failed to upload product:', error);
+            alert(`Failed to upload product: ${error.message}`);
+        } finally {
+            setIsUploading(false);
+        }
     };
 
     // FILTERING LOGIC: prioritizes location match if specified
@@ -549,9 +606,19 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
 
                             <button 
                                 type="submit" 
-                                className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-5 rounded-2xl font-bold text-lg shadow-xl shadow-blue-500/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-3"
+                                disabled={isUploading}
+                                className={`w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-5 rounded-2xl font-bold text-lg shadow-xl shadow-blue-500/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-3 ${isUploading ? 'opacity-70 cursor-not-allowed' : ''}`}
                             >
-                                <i className="fas fa-check-circle"></i> Publish Professional Listing
+                                {isUploading ? (
+                                    <>
+                                        <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                        Uploading...
+                                    </>
+                                ) : (
+                                    <>
+                                        <i className="fas fa-check-circle"></i> Publish Professional Listing
+                                    </>
+                                )}
                             </button>
                         </form>
                     </div>
