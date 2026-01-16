@@ -33,33 +33,56 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!userId) return json({ success: false, error: 'Missing userId' }, 400);
 
-    // ✅ Index-friendly feed:
-    // - part A: my posts
-    // - part B: posts from users I follow (join user_follows)
-    // Then sort newest and limit.
+    // ✅ Wrap UNION in a subquery so ORDER BY works in D1/SQLite
     const q = `
-      SELECT
-        p.id, p.user_id, p.content, p.media_url, p.media_type, p.visibility, p.created_at,
-        p.views, p.shares,
-        u.username, u.profile_image_url, u.is_verified, u.role,
-        'self' AS pool
-      FROM posts p
-      JOIN users u ON u.id = p.user_id
-      WHERE p.user_id = ?
+      SELECT *
+      FROM (
+        SELECT
+          p.id AS id,
+          p.user_id AS user_id,
+          p.content AS content,
+          p.media_url AS media_url,
+          p.media_type AS media_type,
+          p.visibility AS visibility,
+          p.created_at AS created_at,
+          p.views AS views,
+          p.shares AS shares,
 
-      UNION ALL
+          u.username AS username,
+          u.profile_image_url AS profile_image_url,
+          u.is_verified AS is_verified,
+          u.role AS role,
 
-      SELECT
-        p.id, p.user_id, p.content, p.media_url, p.media_type, p.visibility, p.created_at,
-        p.views, p.shares,
-        u.username, u.profile_image_url, u.is_verified, u.role,
-        'following' AS pool
-      FROM user_follows uf
-      JOIN posts p ON p.user_id = uf.following_id
-      JOIN users u ON u.id = p.user_id
-      WHERE uf.follower_id = ?
+          'self' AS pool
+        FROM posts p
+        JOIN users u ON u.id = p.user_id
+        WHERE p.user_id = ?
 
-      ORDER BY created_at DESC
+        UNION ALL
+
+        SELECT
+          p.id AS id,
+          p.user_id AS user_id,
+          p.content AS content,
+          p.media_url AS media_url,
+          p.media_type AS media_type,
+          p.visibility AS visibility,
+          p.created_at AS created_at,
+          p.views AS views,
+          p.shares AS shares,
+
+          u.username AS username,
+          u.profile_image_url AS profile_image_url,
+          u.is_verified AS is_verified,
+          u.role AS role,
+
+          'following' AS pool
+        FROM user_follows uf
+        JOIN posts p ON p.user_id = uf.following_id
+        JOIN users u ON u.id = p.user_id
+        WHERE uf.follower_id = ?
+      )
+      ORDER BY datetime(created_at) DESC
       LIMIT ?
     `;
 
@@ -72,7 +95,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       feed: Array.isArray(results) ? results : [],
     });
   } catch (e: any) {
-    // If it errors, you will see it as JSON
     return json({ success: false, error: e?.message || String(e) }, 500);
   }
 };
