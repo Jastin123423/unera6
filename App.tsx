@@ -114,31 +114,43 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
 
-  const res = await fetch(url, { ...options, headers });
-
-  const contentType = res.headers.get('content-type') || '';
-  let data: any = null;
+  // ✅ 2.3 Add timeout to stop 6-minute hangs
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
 
   try {
-    if (contentType.includes('application/json')) data = await res.json();
-    else {
-      const text = await res.text();
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = { error: text };
+    const res = await fetch(url, { 
+      ...options, 
+      headers,
+      signal: controller.signal 
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+    let data: any = null;
+
+    try {
+      if (contentType.includes('application/json')) data = await res.json();
+      else {
+        const text = await res.text();
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { error: text };
+        }
       }
+    } catch (e: any) {
+      data = { error: e?.message || 'Failed to parse response' };
     }
-  } catch (e: any) {
-    data = { error: e?.message || 'Failed to parse response' };
-  }
 
-  if (!res.ok) {
-    const msg = data?.error || data?.message || `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
+    if (!res.ok) {
+      const msg = data?.error || data?.message || `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
 
-  return data;
+    return data;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };
 
 type View =
@@ -220,6 +232,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
 
+  // ✅ 2.1 Add posts loading state
+  const [isPostsLoading, setIsPostsLoading] = useState(true);
+
   // ✅ Force loader off forever (Option B)
   const [isLoading, setIsLoading] = useState(false);
 
@@ -286,6 +301,9 @@ export default function App() {
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
       try {
+        // ✅ 2.1 Set loading state
+        setIsPostsLoading(true);
+        
         if (viewer?.id) {
           const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
           const rows = safeArray<any>(data?.feed);
@@ -350,6 +368,9 @@ export default function App() {
         if (lastGoodPostsRef.current.length) {
           setPosts(lastGoodPostsRef.current);
         }
+      } finally {
+        // ✅ 2.1 Clear loading state
+        setIsPostsLoading(false);
       }
     },
     [activeCommentsPostId]
@@ -420,10 +441,8 @@ export default function App() {
 
       await fetchData(viewer);
 
-      // ✅ ensure lastGoodPostsRef is set after first successful load
-      setTimeout(() => {
-        lastGoodPostsRef.current = safeArray(posts);
-      }, 0);
+      // ✅ 2.2 REMOVED: This bug was overwriting lastGoodPosts with empty posts array
+      // The setTimeout was causing the bug - now removed completely
     };
 
     init();
@@ -862,7 +881,10 @@ export default function App() {
                 />
               )}
 
-              {rankedPosts.length > 0 ? (
+              {/* ✅ 2.1 Add loading state for posts */}
+              {isPostsLoading ? (
+                <div className="text-center py-20 text-[#B0B3B8]">Loading posts…</div>
+              ) : rankedPosts.length > 0 ? (
                 rankedPosts.map((post) => (
                   <Post
                     // ✅ fallback key prevents blank feed when id is missing/0
