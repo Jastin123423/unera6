@@ -1,13 +1,12 @@
-
+// utils/ranking.ts
 import { Post, User } from '../types';
 
 /**
  * =======================================================
  * UNERA: SIMPLE "GROWTH" FEED ALGORITHM (EARLY-STAGE)
- * - Favors new + small creators so everyone can get seen
- * - Still rewards freshness + engagement
- * - Adds exploration slots (discover new creators)
- * - Enforces diversity rules (no monopoly)
+ * ✅ FIXES:
+ * - Never drop posts just because author isn't in users[] yet
+ * - Cap ranking input size for mobile performance
  * =======================================================
  */
 
@@ -47,57 +46,49 @@ const seededRand01 = (seed: number) => {
   x ^= x << 13;
   x ^= x >> 17;
   x ^= x << 5;
-  // convert to [0,1)
   return ((x >>> 0) % 1_000_000) / 1_000_000;
 };
 
 const CONSTANTS = {
-  // Main weights (keep it simple)
   WEIGHT_FRESHNESS: 1.2,
   WEIGHT_ENGAGEMENT: 1.1,
   WEIGHT_AFFINITY: 1.0,
   WEIGHT_INTEREST: 0.3,
 
-  // Engagement values
   VAL_LIKE: 0.4,
   VAL_COMMENT: 2.0,
   VAL_REPOST: 3.0,
-  // views are a weak signal early (avoid overpower)
   VAL_VIEW: 0.02,
 
-  // Freshness decay (hours)
   DECAY_LAMBDA: 0.06,
 
-  // New user boost
   NEW_USER_DAYS_THRESHOLD: 30,
   NEW_USER_BOOST_MULTIPLIER: 1.6,
 
-  // Small creator boost tiers (EARLY-STAGE = strong)
   SMALL_CREATOR_FOLLOWERS_TIER1: 200,
   SMALL_CREATOR_FOLLOWERS_TIER2: 1000,
   SMALL_CREATOR_BOOST_TIER1: 2.2,
   SMALL_CREATOR_BOOST_TIER2: 1.6,
 
-  // Viral + velocity
   VIRAL_ENGAGEMENT_THRESHOLD: 25,
   VIRAL_MULTIPLIER: 1.25,
   VELOCITY_HOURS_THRESHOLD: 3,
   VELOCITY_ENGAGEMENT_THRESHOLD: 8,
   VELOCITY_MULTIPLIER: 1.35,
 
-  // Feed mixing / fairness rules
   TOP_WINDOW: 20,
   MAX_PER_AUTHOR_IN_TOP_WINDOW: 2,
   NO_BACK_TO_BACK_AUTHOR: true,
 
-  // Exploration slots: % of the feed should be "discover"
-  // (posts from authors the viewer does NOT follow)
   EXPLORE_RATIO: 0.2,
+
+  // ✅ cap for performance on mobile
+  MAX_INPUT_POSTS: 200,
 };
 
 /**
  * Score a post for a viewer.
- * NOTE: assumes author exists.
+ * NOTE: author can be a fallback user object.
  */
 const calculatePostScore = (
   post: Post,
@@ -111,7 +102,7 @@ const calculatePostScore = (
   // 1) Freshness (0..1)
   const freshnessScore = Math.exp(-CONSTANTS.DECAY_LAMBDA * hoursSinceCreation);
 
-  // 2) Engagement (use LOG scaling so it doesn't dominate)
+  // 2) Engagement (LOG scaling)
   const reactionsCount = safeArray((post as any).reactions).length;
   const commentsCount = safeArray((post as any).comments).length;
 
@@ -134,22 +125,22 @@ const calculatePostScore = (
     velocityMultiplier = CONSTANTS.VELOCITY_MULTIPLIER;
   }
 
-  const scaledEngagement = Math.log1p(rawEngagementValue); // ✅ prevents monopoly by huge posts
+  const scaledEngagement = Math.log1p(rawEngagementValue);
   const engagementScore = scaledEngagement * viralMultiplier * velocityMultiplier;
 
-  // 3) Affinity (simple + safe)
+  // 3) Affinity
   let affinityScore = 1.0;
-  if (viewer && safeNumber(viewer.id) && safeNumber(author.id) && viewer.id !== author.id) {
+  if (viewer && safeNumber((viewer as any).id) && safeNumber((author as any).id) && (viewer as any).id !== (author as any).id) {
     const viewerFollowing = safeArray<number>((viewer as any).following);
     const authorFollowers = safeArray<number>((author as any).followers);
-    const isFollowing = viewerFollowing.includes(author.id);
-    const isMutual = isFollowing && authorFollowers.includes(viewer.id);
+    const isFollowing = viewerFollowing.includes((author as any).id);
+    const isMutual = isFollowing && authorFollowers.includes((viewer as any).id);
 
     if (isMutual) affinityScore = 1.6;
     else if (isFollowing) affinityScore = 1.25;
   }
 
-  // 4) Interest (optional: tags overlap)
+  // 4) Interest (optional tags overlap)
   let interestScore = 0;
   const viewerInterests = safeArray<string>((viewer as any)?.interests).map((x) => String(x).toLowerCase());
   const postTags = safeArray<string>((post as any)?.tags).map((x) => String(x).toLowerCase());
@@ -158,14 +149,14 @@ const calculatePostScore = (
     interestScore = matches * 0.5;
   }
 
-  // Base score (combine normalized-ish factors)
+  // Base score
   const baseScore =
     freshnessScore * CONSTANTS.WEIGHT_FRESHNESS +
     engagementScore * CONSTANTS.WEIGHT_ENGAGEMENT +
     affinityScore * CONSTANTS.WEIGHT_AFFINITY +
     interestScore * CONSTANTS.WEIGHT_INTEREST;
 
-  // 5) Creator fairness boost (early-stage growth)
+  // 5) Creator fairness boost
   const authorCreatedAt = (author as any).created_at ? new Date((author as any).created_at).getTime() : 0;
   const daysOnPlatform = authorCreatedAt ? (now - authorCreatedAt) / (1000 * 60 * 60 * 24) : 999;
 
@@ -183,7 +174,7 @@ const calculatePostScore = (
 
   const finalBoost = newUserBoost * smallCreatorBoost;
 
-  // 6) Tiny deterministic jitter to break ties (stable)
+  // 6) Tiny deterministic jitter
   const seed = safeNumber((post as any).id) * 997 + safeNumber((author as any).id) * 131;
   const jitter = seededRand01(seed) * 0.05;
 
@@ -215,11 +206,6 @@ const calculatePostScore = (
   };
 };
 
-/**
- * Build a fair feed list with constraints:
- * - no back-to-back same author (optional)
- * - max N posts per author in the top window
- */
 const applyDiversityConstraints = (
   scored: { post: Post; score: number }[],
   topWindow: number,
@@ -242,7 +228,6 @@ const applyDiversityConstraints = (
       if (seen >= maxPerAuthor) continue;
       if (noBackToBack && authorId === lastAuthorId) continue;
     } else {
-      // outside top window, only enforce no-back-to-back (soft)
       if (noBackToBack && authorId === lastAuthorId) continue;
     }
 
@@ -253,17 +238,12 @@ const applyDiversityConstraints = (
   return result;
 };
 
-/**
- * Exploration mixing:
- * - Some slots are "explore": authors viewer doesn't follow
- * - Rest are "home": following + own posts
- */
 const mixExploreSlots = (
   scored: { post: Post; score: number }[],
   viewer: User | null,
   exploreRatio: number
 ) => {
-  if (!viewer) return scored; // guests: just ranked list
+  if (!viewer) return scored;
 
   const following = new Set<number>(safeArray<number>((viewer as any).following));
   const meId = safeNumber((viewer as any).id);
@@ -276,30 +256,23 @@ const mixExploreSlots = (
   const home = scored.filter((x) => isFollowedOrSelf(x.post));
   const explore = scored.filter((x) => !isFollowedOrSelf(x.post));
 
-  if (!home.length) return scored; // nothing special
+  if (!home.length) return scored;
   if (!explore.length) return scored;
 
   const targetExplore = Math.max(1, Math.round(scored.length * exploreRatio));
-
   const out: { post: Post; score: number }[] = [];
   let hi = 0;
   let ei = 0;
 
-  // Simple interleave: every N items drop an explore item
   const interval = Math.max(3, Math.floor(scored.length / targetExplore));
 
   while (out.length < scored.length && (hi < home.length || ei < explore.length)) {
     const shouldExplore = out.length > 0 && out.length % interval === 0 && ei < explore.length;
 
-    if (shouldExplore) {
-      out.push(explore[ei++]);
-    } else if (hi < home.length) {
-      out.push(home[hi++]);
-    } else if (ei < explore.length) {
-      out.push(explore[ei++]);
-    } else {
-      break;
-    }
+    if (shouldExplore) out.push(explore[ei++]);
+    else if (hi < home.length) out.push(home[hi++]);
+    else if (ei < explore.length) out.push(explore[ei++]);
+    else break;
   }
 
   return out;
@@ -307,6 +280,8 @@ const mixExploreSlots = (
 
 export const rankFeed = (posts: Post[], viewer: User | null, users: User[]): Post[] => {
   if (!Array.isArray(posts) || posts.length === 0) return [];
+
+  const input = posts.slice(0, CONSTANTS.MAX_INPUT_POSTS);
 
   // Map users for author lookup
   const userMap = new Map<number, User>();
@@ -317,29 +292,34 @@ export const rankFeed = (posts: Post[], viewer: User | null, users: User[]): Pos
     });
   }
 
-  // Score posts
-  const scored = posts
+  // Score posts (✅ never drop missing-author posts)
+  const scored = input
     .map((post) => {
       const authorId = safeNumber((post as any).user_id);
-      const author = userMap.get(authorId);
-      if (!author) return null;
+      const author =
+        userMap.get(authorId) ||
+        ({
+          id: authorId,
+          name: 'User',
+          username: 'user',
+          followers: [],
+          following: [],
+          created_at: null,
+        } as any);
 
       const debug = calculatePostScore(post, viewer, author);
       return { post, score: debug.score, debug };
     })
     .filter(Boolean) as ScoredPost[];
 
-  // Sort by score (desc)
   scored.sort((a, b) => b.score - a.score);
 
-  // Mix explore slots (discover new creators)
   const mixed = mixExploreSlots(
     scored.map((x) => ({ post: x.post, score: x.score })),
     viewer,
     CONSTANTS.EXPLORE_RATIO
   );
 
-  // Enforce diversity constraints
   const constrained = applyDiversityConstraints(
     mixed,
     CONSTANTS.TOP_WINDOW,
@@ -347,6 +327,5 @@ export const rankFeed = (posts: Post[], viewer: User | null, users: User[]): Pos
     CONSTANTS.NO_BACK_TO_BACK_AUTHOR
   );
 
-  // Return posts
   return constrained.map((x) => x.post);
 };
