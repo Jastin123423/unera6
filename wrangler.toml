@@ -6,3 +6,8 @@ pages_build_output_dir = "dist"
 binding = "DB"
 database_name = "unera3"
 database_id = "9fc679a8-c734-4322-a205-ae91a5a318dd"
+
+# ✅ ADD THIS (R2 binding)
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "unera3"
