@@ -1,9 +1,85 @@
-
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { User, Brand, Post as PostType, Event, LinkPreview, AudioTrack } from '../types';
 import { Post, CreatePostModal } from './Feed';
 import { BRAND_CATEGORIES, LOCATIONS_DATA } from '../constants';
 import { CreateEventModal } from './Events';
+
+// --- Cloudflare R2 Upload Helper ---
+const uploadToCloudflareR2 = async (file: File): Promise<string> => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('filename', file.name);
+    formData.append('type', file.type);
+    
+    // Add metadata for organization
+    formData.append('folder', 'brand-images');
+    formData.append('timestamp', Date.now().toString());
+    
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Upload failed: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    if (!result.url) {
+      throw new Error('No URL returned from upload');
+    }
+    
+    return result.url;
+  } catch (error) {
+    console.error('Upload failed:', error);
+    throw error;
+  }
+};
+
+// --- Image Upload Component ---
+interface ImageUploadOverlayProps {
+  type: 'cover' | 'profile';
+  isUploading: boolean;
+  onClick: () => void;
+}
+
+const ImageUploadOverlay: React.FC<ImageUploadOverlayProps> = ({ type, isUploading, onClick }) => {
+  if (type === 'cover') {
+    return (
+      <div 
+        className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-lg cursor-pointer hover:bg-white/20 font-bold text-white text-sm flex items-center gap-2" 
+        onClick={onClick}
+      >
+        {isUploading ? (
+          <>
+            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            Uploading...
+          </>
+        ) : (
+          <>
+            <i className="fas fa-camera"></i> Edit Cover
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" 
+      onClick={onClick}
+    >
+      {isUploading ? (
+        <span className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin"></span>
+      ) : (
+        <i className="fas fa-camera text-white text-2xl"></i>
+      )}
+    </div>
+  );
+};
 
 // --- CREATE BRAND MODAL ---
 interface CreateBrandModalProps {
@@ -21,22 +97,32 @@ const CreateBrandModal: React.FC<CreateBrandModalProps> = ({ currentUser, onClos
     const [website, setWebsite] = useState('');
     const [contactEmail, setContactEmail] = useState('');
     const [contactPhone, setContactPhone] = useState('');
+    const [isCreating, setIsCreating] = useState(false);
     
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!name.trim() || !category || !location) return;
-        onCreate({
-            name,
-            category,
-            description,
-            website,
-            location,
-            contact_email: contactEmail,
-            contact_phone: contactPhone,
-            admin_id: currentUser.id,
-            profile_image_url: `https://ui-avatars.com/api/?name=${name.replace(/\s/g, '+')}&background=random`,
-            cover_image_url: 'https://images.unsplash.com/photo-1557683316-973673baf926?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
-        });
-        onClose();
+        
+        setIsCreating(true);
+        try {
+            onCreate({
+                name,
+                category,
+                description,
+                website,
+                location,
+                contact_email: contactEmail,
+                contact_phone: contactPhone,
+                admin_id: currentUser.id,
+                profile_image_url: `https://ui-avatars.com/api/?name=${name.replace(/\s/g, '+')}&background=random`,
+                cover_image_url: 'https://images.unsplash.com/photo-1557683316-973673baf926?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
+            });
+            onClose();
+        } catch (error) {
+            console.error('Failed to create brand:', error);
+            alert('Failed to create brand. Please try again.');
+        } finally {
+            setIsCreating(false);
+        }
     };
 
     return (
@@ -74,7 +160,13 @@ const CreateBrandModal: React.FC<CreateBrandModalProps> = ({ currentUser, onClos
                                     {LOCATIONS_DATA.map(l => <option key={l.name} value={l.name} />)}
                                 </datalist>
                             </div>
-                            <button onClick={() => setStep(2)} disabled={!name.trim() || !category || !location} className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50">Next</button>
+                            <button 
+                                onClick={() => setStep(2)} 
+                                disabled={!name.trim() || !category || !location} 
+                                className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50"
+                            >
+                                Next
+                            </button>
                         </>
                     ) : (
                         <>
@@ -92,8 +184,26 @@ const CreateBrandModal: React.FC<CreateBrandModalProps> = ({ currentUser, onClos
                                 <input type="tel" className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]" placeholder="+255..." value={contactPhone} onChange={e => setContactPhone(e.target.value)} />
                             </div>
                             <div className="flex gap-2">
-                                <button onClick={() => setStep(1)} className="flex-1 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] py-2.5 rounded-lg font-bold transition-colors">Back</button>
-                                <button onClick={handleSubmit} className="flex-1 bg-[#42B72A] hover:bg-[#36A420] text-white py-2.5 rounded-lg font-bold transition-colors">Create Page</button>
+                                <button 
+                                    onClick={() => setStep(1)} 
+                                    className="flex-1 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] py-2.5 rounded-lg font-bold transition-colors"
+                                >
+                                    Back
+                                </button>
+                                <button 
+                                    onClick={handleSubmit} 
+                                    disabled={isCreating}
+                                    className="flex-1 bg-[#42B72A] hover:bg-[#36A420] text-white py-2.5 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
+                                >
+                                    {isCreating ? (
+                                        <>
+                                            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                            Creating...
+                                        </>
+                                    ) : (
+                                        'Create Page'
+                                    )}
+                                </button>
                             </div>
                         </>
                     )}
@@ -116,10 +226,19 @@ const EditBrandModal: React.FC<EditBrandModalProps> = ({ brand, onClose, onUpdat
     const [location, setLocation] = useState(brand.location || '');
     const [contactEmail, setContactEmail] = useState(brand.contact_email || '');
     const [contactPhone, setContactPhone] = useState(brand.contact_phone || '');
+    const [isSaving, setIsSaving] = useState(false);
 
-    const handleSave = () => {
-        onUpdate({ description, website, location, contact_email: contactEmail, contact_phone: contactPhone });
-        onClose();
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            await onUpdate({ description, website, location, contact_email: contactEmail, contact_phone: contactPhone });
+            onClose();
+        } catch (error) {
+            console.error('Failed to update brand:', error);
+            alert('Failed to save changes. Please try again.');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -152,7 +271,20 @@ const EditBrandModal: React.FC<EditBrandModalProps> = ({ brand, onClose, onUpdat
                         <label className="block text-[#B0B3B8] text-sm font-bold mb-1">Contact Phone</label>
                         <input type="tel" className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none" value={contactPhone} onChange={e => setContactPhone(e.target.value)} />
                     </div>
-                    <button onClick={handleSave} className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-lg font-bold transition-colors">Save Changes</button>
+                    <button 
+                        onClick={handleSave} 
+                        disabled={isSaving}
+                        className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
+                    >
+                        {isSaving ? (
+                            <>
+                                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                Saving...
+                            </>
+                        ) : (
+                            'Save Changes'
+                        )}
+                    </button>
                 </div>
             </div>
         </div>
@@ -194,6 +326,8 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
     const [showOptionsMenu, setShowOptionsMenu] = useState(false);
     const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Photos'>('Posts');
     const [searchQuery, setSearchQuery] = useState('');
+    const [isUploadingImage, setIsUploadingImage] = useState<'cover' | 'profile' | null>(null);
+    const [previousImageUrl, setPreviousImageUrl] = useState<{cover?: string, profile?: string}>({});
 
     const profileInputRef = useRef<HTMLInputElement>(null);
     const coverInputRef = useRef<HTMLInputElement>(null);
@@ -236,11 +370,68 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
         setShowCreatePostModal(false);
     };
 
-    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
-        if (e.target.files && e.target.files[0] && activeBrand && onUpdateBrand) {
-            const file = e.target.files[0];
-            const url = URL.createObjectURL(file);
-            onUpdateBrand(activeBrand.id, type === 'cover' ? { cover_image_url: url } : { profile_image_url: url });
+    const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
+        if (!e.target.files || !e.target.files[0] || !activeBrand || !onUpdateBrand) return;
+
+        const file = e.target.files[0];
+        const fileSizeMB = file.size / (1024 * 1024);
+        
+        // Validate file size (5MB max)
+        if (fileSizeMB > 5) {
+            alert('File size should be less than 5MB');
+            return;
+        }
+
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            alert('Please select an image file');
+            return;
+        }
+
+        setIsUploadingImage(type);
+        
+        // Store current image URL for fallback
+        setPreviousImageUrl(prev => ({
+            ...prev,
+            [type]: type === 'cover' ? activeBrand.cover_image_url : activeBrand.profile_image_url
+        }));
+
+        // Create temporary preview URL for immediate UI feedback
+        const previewUrl = URL.createObjectURL(file);
+        
+        try {
+            // Show optimistic update with preview URL
+            onUpdateBrand(activeBrand.id, type === 'cover' ? { cover_image_url: previewUrl } : { profile_image_url: previewUrl });
+            
+            // Upload to Cloudflare R2
+            const permanentUrl = await uploadToCloudflareR2(file);
+            
+            // Update with permanent Cloudflare R2 URL
+            onUpdateBrand(activeBrand.id, type === 'cover' ? { cover_image_url: permanentUrl } : { profile_image_url: permanentUrl });
+        } catch (error: any) {
+            console.error('Failed to upload brand image:', error);
+            alert(`Failed to upload ${type} image: ${error.message || 'Please try again'}`);
+            
+            // Revert to previous image on error
+            const previousUrl = type === 'cover' 
+                ? previousImageUrl.cover 
+                : previousImageUrl.profile;
+            
+            if (previousUrl) {
+                onUpdateBrand(activeBrand.id, type === 'cover' ? { cover_image_url: previousUrl } : { profile_image_url: previousUrl });
+            }
+        } finally {
+            setIsUploadingImage(null);
+            // Clean up the preview URL
+            URL.revokeObjectURL(previewUrl);
+            
+            // Clear file input
+            if (type === 'cover' && coverInputRef.current) {
+                coverInputRef.current.value = '';
+            }
+            if (type === 'profile' && profileInputRef.current) {
+                profileInputRef.current.value = '';
+            }
         }
     };
 
@@ -249,7 +440,12 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
         let otherBrands = currentUser ? brands.filter(b => b.admin_id !== currentUser.id) : brands;
 
         if (searchQuery.trim()) {
-            otherBrands = otherBrands.filter(b => b.name.toLowerCase().includes(searchQuery.toLowerCase()));
+            otherBrands = otherBrands.filter(b => 
+                b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                b.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                b.location?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                b.description?.toLowerCase().includes(searchQuery.toLowerCase())
+            );
         }
 
         return (
@@ -261,7 +457,10 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                             <p className="text-[#B0B3B8] text-sm">Discover businesses and creators.</p>
                         </div>
                         {currentUser && (
-                            <button onClick={() => setShowCreateModal(true)} className="bg-[#263951] text-[#F3425F] hover:bg-[#2A3F5A] px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">
+                            <button 
+                                onClick={() => setShowCreateModal(true)} 
+                                className="bg-[#263951] text-[#F3425F] hover:bg-[#2A3F5A] px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
+                            >
                                 <i className="fas fa-briefcase text-lg"></i> <span>Create Brand</span>
                             </button>
                         )}
@@ -270,11 +469,19 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                         <input 
                             type="text" 
                             className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 pl-10 text-[#E4E6EB] outline-none focus:border-[#1877F2]" 
-                            placeholder="Search Brands..." 
+                            placeholder="Search Brands by name, category, or location..." 
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                         <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+                        {searchQuery && (
+                            <button 
+                                onClick={() => setSearchQuery('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
+                            >
+                                <i className="fas fa-times"></i>
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -283,15 +490,16 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                         <h3 className="text-xl font-bold text-[#E4E6EB] mb-3">Pages You Manage</h3>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {myBrands.map(brand => (
-                                <div key={brand.id} className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer hover:shadow-lg transition-all flex flex-col" onClick={() => handleBrandClick(brand.id)}>
-                                    <div className="h-32 bg-gray-700 relative">
-                                        <img src={brand.cover_image_url} className="w-full h-full object-cover" alt="" />
+                                <div key={brand.id} className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer hover:shadow-lg transition-all flex flex-col group" onClick={() => handleBrandClick(brand.id)}>
+                                    <div className="h-32 bg-gray-700 relative overflow-hidden">
+                                        <img src={brand.cover_image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt="" />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                     </div>
                                     <div className="p-4 pt-10 relative">
-                                        <div className="absolute -top-8 left-4 rounded-full border-4 border-[#242526] overflow-hidden w-16 h-16 bg-[#3A3B3C]">
+                                        <div className="absolute -top-8 left-4 rounded-full border-4 border-[#242526] overflow-hidden w-16 h-16 bg-[#3A3B3C] group-hover:scale-110 transition-transform">
                                             <img src={brand.profile_image_url} className="w-full h-full object-cover" alt="" />
                                         </div>
-                                        <h4 className="font-bold text-lg text-[#E4E6EB]">{brand.name}</h4>
+                                        <h4 className="font-bold text-lg text-[#E4E6EB] group-hover:text-[#1877F2] transition-colors">{brand.name}</h4>
                                         <p className="text-[#B0B3B8] text-xs">{brand.category} • {brand.followers.length} followers</p>
                                     </div>
                                 </div>
@@ -301,23 +509,52 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                 )}
 
                 <div>
-                    <h3 className="text-xl font-bold text-[#E4E6EB] mb-3">{searchQuery ? 'Search Results' : 'Suggested Pages'}</h3>
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-xl font-bold text-[#E4E6EB]">
+                            {searchQuery ? `Search Results (${otherBrands.length})` : 'Suggested Pages'}
+                        </h3>
+                        {searchQuery && otherBrands.length > 0 && (
+                            <p className="text-[#B0B3B8] text-sm">
+                                Found {otherBrands.length} result{otherBrands.length !== 1 ? 's' : ''}
+                            </p>
+                        )}
+                    </div>
                     {otherBrands.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {otherBrands.map(brand => (
-                                <div key={brand.id} className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] flex flex-col">
-                                    <div className="h-32 relative cursor-pointer" onClick={() => handleBrandClick(brand.id)}>
-                                        <img src={brand.cover_image_url} className="w-full h-full object-cover" alt="" />
+                                <div key={brand.id} className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] flex flex-col hover:shadow-lg transition-shadow">
+                                    <div className="h-32 relative cursor-pointer overflow-hidden group" onClick={() => handleBrandClick(brand.id)}>
+                                        <img src={brand.cover_image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt="" />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                     </div>
                                     <div className="p-4 flex flex-col flex-1 relative">
-                                        <div className="absolute -top-8 left-4 rounded-full border-4 border-[#242526] overflow-hidden w-16 h-16 bg-[#3A3B3C] cursor-pointer" onClick={() => handleBrandClick(brand.id)}>
+                                        <div 
+                                            className="absolute -top-8 left-4 rounded-full border-4 border-[#242526] overflow-hidden w-16 h-16 bg-[#3A3B3C] cursor-pointer hover:scale-110 transition-transform" 
+                                            onClick={() => handleBrandClick(brand.id)}
+                                        >
                                             <img src={brand.profile_image_url} className="w-full h-full object-cover" alt="" />
                                         </div>
                                         <div className="mt-8">
-                                            <h4 className="font-bold text-lg text-[#E4E6EB] hover:underline cursor-pointer" onClick={() => handleBrandClick(brand.id)}>{brand.name} {brand.is_verified && <i className="fas fa-check-circle text-[#1877F2] text-sm"></i>}</h4>
+                                            <h4 
+                                                className="font-bold text-lg text-[#E4E6EB] hover:text-[#1877F2] transition-colors cursor-pointer" 
+                                                onClick={() => handleBrandClick(brand.id)}
+                                            >
+                                                {brand.name} 
+                                                {brand.is_verified && <i className="fas fa-check-circle text-[#1877F2] text-sm ml-1"></i>}
+                                            </h4>
                                             <p className="text-[#B0B3B8] text-xs mb-1">{brand.category}</p>
-                                            <p className="text-[#B0B3B8] text-sm line-clamp-2 mb-4">{brand.description}</p>
-                                            <button onClick={() => currentUser ? onFollowBrand(brand.id) : alert("Login to follow")} className="w-full bg-[#263951] text-[#F3425F] hover:bg-[#2A3F5A] font-bold py-2 rounded-lg transition-colors">
+                                            {brand.location && (
+                                                <p className="text-[#B0B3B8] text-xs mb-2 flex items-center gap-1">
+                                                    <i className="fas fa-map-marker-alt text-[10px]"></i>
+                                                    {brand.location}
+                                                </p>
+                                            )}
+                                            <p className="text-[#B0B3B8] text-sm line-clamp-2 mb-4">{brand.description || 'No description provided'}</p>
+                                            <button 
+                                                onClick={() => currentUser ? onFollowBrand(brand.id) : alert("Login to follow")} 
+                                                className="w-full bg-[#263951] text-[#F3425F] hover:bg-[#2A3F5A] font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                <i className={`fas ${currentUser && brand.followers.includes(currentUser.id) ? 'fa-user-check' : 'fa-user-plus'}`}></i>
                                                 {currentUser && brand.followers.includes(currentUser.id) ? 'Following' : 'Follow'}
                                             </button>
                                         </div>
@@ -326,12 +563,22 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                             ))}
                         </div>
                     ) : (
-                        <p className="text-[#B0B3B8]">No brands found.</p>
+                        <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
+                            <i className="fas fa-search text-[#B0B3B8] text-4xl mb-4"></i>
+                            <p className="text-[#B0B3B8] text-lg mb-2">No brands found</p>
+                            {searchQuery && (
+                                <p className="text-[#B0B3B8] text-sm">Try different search terms</p>
+                            )}
+                        </div>
                     )}
                 </div>
 
                 {showCreateModal && currentUser && (
-                    <CreateBrandModal currentUser={currentUser} onClose={() => setShowCreateModal(false)} onCreate={onCreateBrand} />
+                    <CreateBrandModal 
+                        currentUser={currentUser} 
+                        onClose={() => setShowCreateModal(false)} 
+                        onCreate={onCreateBrand} 
+                    />
                 )}
             </div>
         );
@@ -339,17 +586,35 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
 
     return (
         <div className="w-full bg-[#18191A] min-h-screen pb-10 font-sans">
-            <input type="file" ref={profileInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'profile')} />
-            <input type="file" ref={coverInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'cover')} />
+            <input 
+                type="file" 
+                ref={profileInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                onChange={(e) => handleImageChange(e, 'profile')} 
+            />
+            <input 
+                type="file" 
+                ref={coverInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                onChange={(e) => handleImageChange(e, 'cover')} 
+            />
 
             <div className="bg-[#242526] border-b border-[#3E4042] shadow-sm mb-4">
                 <div className="max-w-[1100px] mx-auto">
-                    <div className="h-[200px] md:h-[350px] relative group bg-[#3A3B3C]">
-                        <img src={activeBrand.cover_image_url} className="w-full h-full object-cover md:rounded-b-xl" alt="Cover" />
+                    <div className="h-[200px] md:h-[350px] relative group bg-[#3A3B3C] overflow-hidden">
+                        <img 
+                            src={activeBrand.cover_image_url} 
+                            className="w-full h-full object-cover md:rounded-b-xl" 
+                            alt="Cover" 
+                        />
                         {canManage && (
-                            <div className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-lg cursor-pointer hover:bg-white/20 font-bold text-white text-sm flex items-center gap-2" onClick={() => coverInputRef.current?.click()}>
-                                <i className="fas fa-camera"></i> Edit Cover
-                            </div>
+                            <ImageUploadOverlay 
+                                type="cover"
+                                isUploading={isUploadingImage === 'cover'}
+                                onClick={() => coverInputRef.current?.click()}
+                            />
                         )}
                     </div>
                     <div className="px-4 pb-0">
@@ -359,9 +624,11 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                                     <img src={activeBrand.profile_image_url} className="w-full h-full object-cover" alt="" />
                                 </div>
                                 {canManage && (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" onClick={() => profileInputRef.current?.click()}>
-                                        <i className="fas fa-camera text-white text-2xl"></i>
-                                    </div>
+                                    <ImageUploadOverlay 
+                                        type="profile"
+                                        isUploading={isUploadingImage === 'profile'}
+                                        onClick={() => profileInputRef.current?.click()}
+                                    />
                                 )}
                             </div>
                             
@@ -370,40 +637,80 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                                     {activeBrand.name} 
                                     {activeBrand.is_verified && <i className="fas fa-check-circle text-[#1877F2] text-[20px]"></i>}
                                 </h1>
-                                <p className="text-[#B0B3B8] font-semibold text-[15px]">{activeBrand.category} • {activeBrand.location} • {activeBrand.followers.length} followers</p>
+                                <p className="text-[#B0B3B8] font-semibold text-[15px]">
+                                    {activeBrand.category} • {activeBrand.location} • {activeBrand.followers.length} followers
+                                </p>
                             </div>
 
                             <div className="flex gap-2 mt-4 md:mt-0 w-full md:w-auto relative">
                                 {canManage ? (
                                     <>
-                                        <button onClick={() => setShowCreateEventModal(true)} className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#4E4F50] flex-1 md:flex-none">
+                                        <button 
+                                            onClick={() => setShowCreateEventModal(true)} 
+                                            className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#4E4F50] flex-1 md:flex-none transition-colors"
+                                        >
                                             <i className="fas fa-plus"></i> Event
                                         </button>
-                                        <button onClick={() => setShowEditBrandModal(true)} className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#4E4F50] flex-1 md:flex-none">
+                                        <button 
+                                            onClick={() => setShowEditBrandModal(true)} 
+                                            className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#4E4F50] flex-1 md:flex-none transition-colors"
+                                        >
                                             <i className="fas fa-pen"></i> Edit Page
                                         </button>
                                     </>
                                 ) : (
                                     <>
-                                        <button onClick={() => currentUser ? onFollowBrand(activeBrand.id) : alert("Login to follow")} className={`${isFollowing ? 'bg-[#3A3B3C] text-[#E4E6EB]' : 'bg-[#1877F2] text-white'} px-6 py-2 rounded-lg font-bold text-base hover:opacity-90 flex-1 md:flex-none transition-colors`}>
+                                        <button 
+                                            onClick={() => currentUser ? onFollowBrand(activeBrand.id) : alert("Login to follow")} 
+                                            className={`${isFollowing ? 'bg-[#3A3B3C] text-[#E4E6EB]' : 'bg-[#1877F2] text-white'} px-6 py-2 rounded-lg font-bold text-base hover:opacity-90 flex-1 md:flex-none transition-colors flex items-center justify-center gap-2`}
+                                        >
+                                            <i className={`fas ${isFollowing ? 'fa-user-check' : 'fa-user-plus'}`}></i>
                                             {isFollowing ? 'Following' : 'Follow'}
                                         </button>
-                                        <button onClick={() => onMessage && onMessage(activeBrand.id)} className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg font-bold text-base hover:bg-[#4E4F50] flex-1 md:flex-none">
-                                            <i className="fab fa-facebook-messenger mr-1"></i> Message
+                                        <button 
+                                            onClick={() => onMessage && onMessage(activeBrand.id)} 
+                                            className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg font-bold text-base hover:bg-[#4E4F50] flex-1 md:flex-none transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <i className="fab fa-facebook-messenger"></i> Message
                                         </button>
                                         {activeBrand.contact_phone && (
-                                            <a href={`tel:${activeBrand.contact_phone}`} className="bg-[#25D366] text-white px-4 py-2 rounded-lg font-bold text-base hover:bg-[#20bd5a] flex items-center justify-center gap-2 flex-1 md:flex-none no-underline">
+                                            <a 
+                                                href={`tel:${activeBrand.contact_phone}`} 
+                                                className="bg-[#25D366] text-white px-4 py-2 rounded-lg font-bold text-base hover:bg-[#20bd5a] flex items-center justify-center gap-2 flex-1 md:flex-none no-underline transition-colors"
+                                            >
                                                 <i className="fab fa-whatsapp"></i> WhatsApp
                                             </a>
                                         )}
                                     </>
                                 )}
-                                <button onClick={() => setShowOptionsMenu(!showOptionsMenu)} className="bg-[#3A3B3C] text-[#E4E6EB] px-3 py-2 rounded-lg font-bold hover:bg-[#4E4F50] transition-colors">
+                                <button 
+                                    onClick={() => setShowOptionsMenu(!showOptionsMenu)} 
+                                    className="bg-[#3A3B3C] text-[#E4E6EB] px-3 py-2 rounded-lg font-bold hover:bg-[#4E4F50] transition-colors"
+                                >
                                     <i className="fas fa-ellipsis-h"></i>
                                 </button>
-                                {showOptionsMenu && isPlatformAdmin && (
+                                {showOptionsMenu && (
                                     <div className="absolute top-full right-0 mt-2 w-48 bg-[#242526] border border-[#3E4042] rounded-lg shadow-xl z-20 py-1">
-                                         <div onClick={() => { onDeleteBrand(activeBrand.id); setShowOptionsMenu(false); }} className="px-4 py-2 hover:bg-[#3A3B3C] text-red-500 cursor-pointer flex items-center gap-2"><i className="fas fa-trash-alt"></i> Delete Page</div>
+                                        {isPlatformAdmin && (
+                                            <div 
+                                                onClick={() => { onDeleteBrand(activeBrand.id); setShowOptionsMenu(false); }} 
+                                                className="px-4 py-2 hover:bg-[#3A3B3C] text-red-500 cursor-pointer flex items-center gap-2 transition-colors"
+                                            >
+                                                <i className="fas fa-trash-alt"></i> Delete Page
+                                            </div>
+                                        )}
+                                        <div 
+                                            onClick={() => { setShowOptionsMenu(false); }} 
+                                            className="px-4 py-2 hover:bg-[#3A3B3C] text-[#E4E6EB] cursor-pointer flex items-center gap-2 transition-colors"
+                                        >
+                                            <i className="fas fa-flag"></i> Report Page
+                                        </div>
+                                        <div 
+                                            onClick={() => { setShowOptionsMenu(false); }} 
+                                            className="px-4 py-2 hover:bg-[#3A3B3C] text-[#E4E6EB] cursor-pointer flex items-center gap-2 transition-colors"
+                                        >
+                                            <i className="fas fa-ban"></i> Block Page
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -412,7 +719,13 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                         <div className="border-t border-[#3E4042] mt-4"></div>
                         <div className="flex items-center gap-1 pt-1 overflow-x-auto">
                             {['Posts', 'About', 'Photos'].map(tab => (
-                                <div key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-3 cursor-pointer font-semibold text-base border-b-[3px] transition-colors whitespace-nowrap ${activeTab === tab ? 'text-[#1877F2] border-[#1877F2]' : 'text-[#B0B3B8] border-transparent hover:bg-[#3A3B3C] rounded-t-lg'}`}>{tab}</div>
+                                <div 
+                                    key={tab} 
+                                    onClick={() => setActiveTab(tab as any)} 
+                                    className={`px-4 py-3 cursor-pointer font-semibold text-base border-b-[3px] transition-colors whitespace-nowrap ${activeTab === tab ? 'text-[#1877F2] border-[#1877F2]' : 'text-[#B0B3B8] border-transparent hover:bg-[#3A3B3C] rounded-t-lg'}`}
+                                >
+                                    {tab}
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -424,13 +737,49 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                     <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-[#3E4042]">
                         <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">About</h2>
                         <div className="flex flex-col gap-3 text-[#E4E6EB] text-[15px]">
-                            <p>{activeBrand.description}</p>
+                            <p className="text-[#B0B3B8]">{activeBrand.description || 'No description provided'}</p>
                             <div className="h-[1px] bg-[#3E4042] w-full my-2"></div>
-                            <div className="flex items-center gap-3 text-[#B0B3B8]"><i className="fas fa-info-circle w-5 text-center"></i><span>{activeBrand.category}</span></div>
-                            <div className="flex items-center gap-3 text-[#B0B3B8]"><i className="fas fa-map-marker-alt w-5 text-center"></i><span>{activeBrand.location || 'Location not added'}</span></div>
-                            {activeBrand.website && <div className="flex items-center gap-3 text-[#B0B3B8]"><i className="fas fa-globe w-5 text-center"></i><a href={activeBrand.website.startsWith('http') ? activeBrand.website : `https://${activeBrand.website}`} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline truncate">{activeBrand.website}</a></div>}
-                            {activeBrand.contact_email && <div className="flex items-center gap-3 text-[#B0B3B8]"><i className="fas fa-envelope w-5 text-center"></i><span>{activeBrand.contact_email}</span></div>}
-                            {canManage && <button className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 rounded-md transition-colors text-sm mt-2" onClick={() => setShowEditBrandModal(true)}>Edit Details</button>}
+                            <div className="flex items-center gap-3 text-[#B0B3B8]">
+                                <i className="fas fa-info-circle w-5 text-center"></i>
+                                <span>{activeBrand.category}</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-[#B0B3B8]">
+                                <i className="fas fa-map-marker-alt w-5 text-center"></i>
+                                <span>{activeBrand.location || 'Location not added'}</span>
+                            </div>
+                            {activeBrand.website && (
+                                <div className="flex items-center gap-3 text-[#B0B3B8]">
+                                    <i className="fas fa-globe w-5 text-center"></i>
+                                    <a 
+                                        href={activeBrand.website.startsWith('http') ? activeBrand.website : `https://${activeBrand.website}`} 
+                                        target="_blank" 
+                                        rel="noreferrer" 
+                                        className="text-[#1877F2] hover:underline truncate"
+                                    >
+                                        {activeBrand.website}
+                                    </a>
+                                </div>
+                            )}
+                            {activeBrand.contact_email && (
+                                <div className="flex items-center gap-3 text-[#B0B3B8]">
+                                    <i className="fas fa-envelope w-5 text-center"></i>
+                                    <span>{activeBrand.contact_email}</span>
+                                </div>
+                            )}
+                            {activeBrand.contact_phone && (
+                                <div className="flex items-center gap-3 text-[#B0B3B8]">
+                                    <i className="fas fa-phone w-5 text-center"></i>
+                                    <span>{activeBrand.contact_phone}</span>
+                                </div>
+                            )}
+                            {canManage && (
+                                <button 
+                                    className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 rounded-md transition-colors text-sm mt-2" 
+                                    onClick={() => setShowEditBrandModal(true)}
+                                >
+                                    Edit Details
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -442,21 +791,37 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                                 <>
                                     <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
                                         <div className="flex gap-2 mb-3">
-                                            <img src={activeBrand.profile_image_url} alt="" className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]" />
-                                            <div className="flex-1 bg-[#3A3B3C] rounded-full px-3 md:px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors" onClick={() => setShowCreatePostModal(true)}>
-                                                <span className="text-[#B0B3B8] text-[17px] truncate">What new brand idea Today?</span>
+                                            <img 
+                                                src={activeBrand.profile_image_url} 
+                                                alt="" 
+                                                className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042] hover:opacity-90 transition-opacity" 
+                                            />
+                                            <div 
+                                                className="flex-1 bg-[#3A3B3C] rounded-full px-3 md:px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors" 
+                                                onClick={() => setShowCreatePostModal(true)}
+                                            >
+                                                <span className="text-[#B0B3B8] text-[17px] truncate">What's new with your brand today?</span>
                                             </div>
                                         </div>
                                         <div className="border-t border-[#3E4042] pt-2 flex justify-between">
-                                            <div className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors" onClick={() => setShowCreatePostModal(true)}>
+                                            <div 
+                                                className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors" 
+                                                onClick={() => setShowCreatePostModal(true)}
+                                            >
                                                 <i className="fas fa-video text-[#F3425F] text-[24px]"></i>
                                                 <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
                                             </div>
-                                            <div className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors" onClick={() => setShowCreatePostModal(true)}>
+                                            <div 
+                                                className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors" 
+                                                onClick={() => setShowCreatePostModal(true)}
+                                            >
                                                 <i className="fas fa-images text-[#45BD62] text-[24px]"></i>
                                                 <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
                                             </div>
-                                            <div className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors" onClick={() => setShowCreateEventModal(true)}>
+                                            <div 
+                                                className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors" 
+                                                onClick={() => setShowCreateEventModal(true)}
+                                            >
                                                 <i className="fas fa-calendar-plus text-[#F7B928] text-[24px]"></i>
                                                 <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Event</span>
                                             </div>
@@ -465,7 +830,11 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
 
                                     {showCreatePostModal && (
                                         <CreatePostModal 
-                                            currentUser={{...currentUser, name: activeBrand.name, profile_image_url: activeBrand.profile_image_url} as User} 
+                                            currentUser={{
+                                                ...currentUser, 
+                                                name: activeBrand.name, 
+                                                profile_image_url: activeBrand.profile_image_url
+                                            } as User} 
                                             users={users} 
                                             onClose={() => setShowCreatePostModal(false)}
                                             onCreatePost={handleCreatePost}
@@ -491,7 +860,11 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                                     />
                                 )) : (
                                     <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042] mx-4 md:mx-0">
-                                        <p className="text-[#B0B3B8]">No posts yet.</p>
+                                        <i className="fas fa-newspaper text-[#B0B3B8] text-4xl mb-4"></i>
+                                        <p className="text-[#B0B3B8] text-lg">No posts yet</p>
+                                        <p className="text-[#B0B3B8] text-sm mt-2">
+                                            {canManage ? 'Start sharing updates with your followers!' : 'Check back later for updates'}
+                                        </p>
                                     </div>
                                 )}
                             </div>
@@ -500,12 +873,26 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                     {activeTab === 'Photos' && (
                         <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042] mx-4 md:mx-0">
                             <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Photos</h2>
-                            <div className="grid grid-cols-3 gap-1">
-                                {brandPosts.filter(p => p.type === 'image' && p.media_url).map(p => (
-                                    <img key={p.id} src={p.media_url} className="aspect-square object-cover w-full cursor-pointer hover:opacity-90" alt="" />
-                                ))}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {brandPosts
+                                    .filter(p => p.type === 'image' && p.media_url)
+                                    .map(p => (
+                                        <div key={p.id} className="aspect-square overflow-hidden rounded-lg cursor-pointer hover:opacity-90 transition-opacity">
+                                            <img 
+                                                src={p.media_url} 
+                                                className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" 
+                                                alt="" 
+                                            />
+                                        </div>
+                                    ))
+                                }
                             </div>
-                            {brandPosts.filter(p => p.type === 'image').length === 0 && <p className="text-[#B0B3B8]">No photos available.</p>}
+                            {brandPosts.filter(p => p.type === 'image').length === 0 && (
+                                <div className="text-center py-8">
+                                    <i className="fas fa-images text-[#B0B3B8] text-4xl mb-4"></i>
+                                    <p className="text-[#B0B3B8]">No photos available</p>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
