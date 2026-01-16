@@ -3,10 +3,16 @@ import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = { DB: D1Database };
 
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,PUT,DELETE,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
 
 const pickSafeUserFields = (u: any) => {
@@ -14,6 +20,49 @@ const pickSafeUserFields = (u: any) => {
   const { password_hash, ...rest } = u;
   return rest;
 };
+
+const isBase64DataUrl = (v: any) => typeof v === 'string' && v.trim().toLowerCase().startsWith('data:');
+const isTooLong = (v: any, max = 300) => typeof v === 'string' && v.length > max;
+
+const normalizeImageUrlForOutput = (v: any) => {
+  // Never return base64 or huge strings to clients
+  if (isBase64DataUrl(v)) return null;
+  if (isTooLong(v, 300)) return null;
+  return typeof v === 'string' ? v : null;
+};
+
+const validateUrlOrNull = (value: any, fieldName: string) => {
+  if (value === undefined) return { ok: true, value: undefined }; // means "do not change"
+  if (value === null || value === '') return { ok: true, value: null }; // allow clearing
+
+  if (isBase64DataUrl(value)) {
+    return {
+      ok: false,
+      status: 413,
+      error: `${fieldName} cannot be base64 (data:...). Upload to R2/Cloudflare Images and save an https URL.`,
+    };
+  }
+
+  if (typeof value !== 'string') {
+    return { ok: false, status: 400, error: `${fieldName} must be a string URL or null.` };
+  }
+
+  if (isTooLong(value, 300)) {
+    return { ok: false, status: 413, error: `${fieldName} is too long. Use a normal https URL.` };
+  }
+
+  try {
+    const u = new URL(value);
+    if (!['http:', 'https:'].includes(u.protocol)) throw new Error('bad protocol');
+  } catch {
+    return { ok: false, status: 400, error: `${fieldName} must be a valid http/https URL.` };
+  }
+
+  return { ok: true, value };
+};
+
+export const onRequestOptions: PagesFunction = async () =>
+  new Response(null, { status: 204, headers: cors });
 
 export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   const method = request.method;
@@ -43,8 +92,16 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
         `
         ).all();
 
-        // never return password_hash
-        return json((results || []).map(pickSafeUserFields));
+        const safe = (results || []).map((u: any) => {
+          const x = pickSafeUserFields(u);
+          return {
+            ...x,
+            profile_image_url: normalizeImageUrlForOutput(x?.profile_image_url),
+            cover_image_url: normalizeImageUrlForOutput(x?.cover_image_url),
+          };
+        });
+
+        return json(safe);
       }
 
       // ✅ ONE: /api/users?id=... OR ?username=...
@@ -62,7 +119,12 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
       const user = await env.DB.prepare(query).bind(param).first();
       if (!user) return json({ error: 'User not found' }, 404);
 
-      return json(pickSafeUserFields(user));
+      const safe = pickSafeUserFields(user);
+      return json({
+        ...safe,
+        profile_image_url: normalizeImageUrlForOutput(safe?.profile_image_url),
+        cover_image_url: normalizeImageUrlForOutput(safe?.cover_image_url),
+      });
     }
 
     // ================================
@@ -74,16 +136,25 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
       const id = body?.id;
       if (!id) return json({ error: 'User id required' }, 400);
 
-      const {
-        bio,
-        work,
-        education,
-        website,
-        location,
-        profile_image_url,
-        cover_image_url,
-      } = body;
+      const { bio, work, education, website, location } = body;
 
+      // ✅ Validate image URLs (block base64)
+      const p1 = validateUrlOrNull(body.profile_image_url, 'profile_image_url');
+      if (!p1.ok) return json({ error: p1.error }, p1.status);
+
+      const p2 = validateUrlOrNull(body.cover_image_url, 'cover_image_url');
+      if (!p2.ok) return json({ error: p2.error }, p2.status);
+
+      // Build update values:
+      // - undefined => keep existing (don’t change)
+      // - null => clear
+      const profile_image_url =
+        p1.value === undefined ? undefined : p1.value; // string|null
+      const cover_image_url =
+        p2.value === undefined ? undefined : p2.value;
+
+      // We must handle "undefined" (no change) without breaking COALESCE logic
+      // Approach: pass null marker only when provided; else pass a special sentinel via CASE
       await env.DB.prepare(
         `
         UPDATE users SET
@@ -92,8 +163,16 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
           education = COALESCE(?, education),
           website = COALESCE(?, website),
           location = COALESCE(?, location),
-          profile_image_url = COALESCE(?, profile_image_url),
-          cover_image_url = COALESCE(?, cover_image_url)
+          profile_image_url =
+            CASE
+              WHEN ? = 0 THEN profile_image_url
+              ELSE ?
+            END,
+          cover_image_url =
+            CASE
+              WHEN ? = 0 THEN cover_image_url
+              ELSE ?
+            END
         WHERE id = ?
       `
       )
@@ -103,15 +182,30 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
           education ?? null,
           website ?? null,
           location ?? null,
-          profile_image_url ?? null,
-          cover_image_url ?? null,
+
+          // profile provided flag + value
+          profile_image_url === undefined ? 0 : 1,
+          profile_image_url === undefined ? null : profile_image_url,
+
+          // cover provided flag + value
+          cover_image_url === undefined ? 0 : 1,
+          cover_image_url === undefined ? null : cover_image_url,
+
           id
         )
         .run();
 
-      // return updated user (useful for frontend)
       const updated = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(id).first();
-      return json({ success: true, user: pickSafeUserFields(updated) });
+      const safe = pickSafeUserFields(updated);
+
+      return json({
+        success: true,
+        user: {
+          ...safe,
+          profile_image_url: normalizeImageUrlForOutput(safe?.profile_image_url),
+          cover_image_url: normalizeImageUrlForOutput(safe?.cover_image_url),
+        },
+      });
     }
 
     // ================================
