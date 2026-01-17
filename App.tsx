@@ -360,6 +360,37 @@ const createFallbackUser = (): User => {
   };
 };
 
+/**
+ * ✅ FIX A: Remove __pending after refresh
+ */
+const reconcilePendingPosts = (prev: PostType[], incoming: PostType[]) => {
+  // If we have a pending post that matches a real post from server, remove pending one.
+  // Match by: same user_id + same content + same media_url within last 2 minutes.
+  const now = Date.now();
+  const incomingKeys = new Set(
+    incoming.map((p: any) =>
+      `${safeNumber(p.user_id)}|${safeString(p.content)}|${safeString(p.media_url)}`
+    )
+  );
+
+  return prev.filter((p: any) => {
+    if (!p?.__pending) return true;
+
+    const created = p?.created_at ? new Date(p.created_at as any).getTime() : now;
+    const ageMs = Math.abs(now - created);
+
+    const key = `${safeNumber((p as any).user_id)}|${safeString((p as any).content)}|${safeString((p as any).media_url)}`;
+
+    // if server already has it, remove pending
+    if (incomingKeys.has(key)) return false;
+
+    // don't keep pending forever
+    if (ageMs > 2 * 60 * 1000) return false;
+
+    return true;
+  });
+};
+
 export default function App() {
   useLanguage();
 
@@ -393,6 +424,12 @@ export default function App() {
   const markInteraction = useCallback(() => {
     lastInteractionRef.current = Date.now();
   }, []);
+
+  // ✅ FIX B: Cache for ranked posts
+  const [rankedCache, setRankedCache] = useState<PostType[]>([]);
+
+  // ✅ FIX C: Buffer for new server posts
+  const [pendingServerPosts, setPendingServerPosts] = useState<PostType[]>([]);
 
   const [loginError, setLoginError] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -493,13 +530,58 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
           
-          // ✅ FIX 1: Use stable merging instead of push-to-top
-          setPosts(prev => {
-            const next = mergeFeedStable(prev, normalized);
-            stableFeedRef.current = next;
-            lastGoodPostsRef.current = next;
-            return next;
-          });
+          // ✅ FIX C: Detect new posts and buffer them if user is active
+          const prevIds = new Set((stableFeedRef.current.length ? stableFeedRef.current : posts).map(p => Number(p.id)));
+          const newOnes = normalized.filter(p => !prevIds.has(Number(p.id)));
+
+          const now = Date.now();
+          const isBusy = now - lastInteractionRef.current < 8000;
+
+          if (isBusy && newOnes.length) {
+            // buffer new posts, don't change UI
+            setPendingServerPosts((prev) => {
+              const map = new Map<number, PostType>();
+              safeArray(prev).forEach(p => map.set(Number(p.id), p));
+              newOnes.forEach(p => map.set(Number(p.id), p));
+              return Array.from(map.values());
+            });
+
+            // but still update existing posts counts silently
+            setPosts(prev => {
+              const cleanedPrev = reconcilePendingPosts(prev, normalized);
+              const next = mergeFeedStable(cleanedPrev, normalized.filter(p => prevIds.has(Number(p.id))));
+              stableFeedRef.current = next;
+              lastGoodPostsRef.current = next;
+              return next;
+            });
+
+          } else {
+            // user idle: apply everything
+            setPosts(prev => {
+              // ✅ FIX A: Reconcile pending posts first
+              const cleanedPrev = reconcilePendingPosts(prev, normalized);
+              const next = mergeFeedStable(cleanedPrev, normalized);
+              stableFeedRef.current = next;
+              lastGoodPostsRef.current = next;
+              return next;
+            });
+
+            // apply buffered too
+            if (pendingServerPosts.length) {
+              setPosts(prev => {
+                const combined = mergeFeedStable(prev, pendingServerPosts);
+                stableFeedRef.current = combined;
+                lastGoodPostsRef.current = combined;
+                return combined;
+              });
+              setPendingServerPosts([]);
+            }
+          }
+
+          // ✅ FIX B: Compute ranking ONCE and store it
+          const baseList = stableFeedRef.current.length ? stableFeedRef.current : normalized;
+          const ranked = rankFeed(baseList as any, viewer as any, users as any) as any;
+          setRankedCache(ranked);
 
           if (!feedHydrated) {
             setFeedHydrated(true);
@@ -522,6 +604,10 @@ export default function App() {
             lastGoodPostsRef.current = next;
             return next;
           });
+          
+          // ✅ FIX B: Compute ranking for guest too
+          const ranked = rankFeed(normalized as any, null as any, users as any) as any;
+          setRankedCache(ranked);
         } else if (lastGoodPostsRef.current.length) {
           setPosts(lastGoodPostsRef.current);
         }
@@ -538,7 +624,7 @@ export default function App() {
         setIsFeedRefreshing(false);
       }
     },
-    [activeCommentsPostId, feedHydrated]
+    [activeCommentsPostId, feedHydrated, users, pendingServerPosts, posts]
   );
 
   /**
@@ -635,13 +721,10 @@ export default function App() {
   }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
 
   /** ---------- Derived ---------- */
-  // ✅ FIX 3: Actually use rankFeed algorithm
+  // ✅ FIX B: Actually use cached ranking
   const rankedPosts = useMemo(() => {
-    const base = stableFeedRef.current.length ? stableFeedRef.current : posts;
-    if (!Array.isArray(base) || base.length === 0) return [];
-
-    return rankFeed(base as any, currentUser as any, users as any) as any;
-  }, [posts, users, currentUser]);
+    return rankedCache.length ? rankedCache : (stableFeedRef.current.length ? stableFeedRef.current : posts);
+  }, [rankedCache, posts]);
 
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
@@ -791,8 +874,7 @@ export default function App() {
 
       const normalized = normalizePost(newPostRaw);
 
-      // ✅ FIX 2: Option B - Buffer even your own post
-      // Add with a temporary flag and let it appear in next refresh
+      // ✅ FIX A: Add with a temporary flag and let it appear in next refresh
       setPosts((prev) => {
         const arr = safeArray(prev);
         // Add with __pending flag at position 0 (Facebook shows it temporarily at top)
