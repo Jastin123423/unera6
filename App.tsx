@@ -419,7 +419,7 @@ export default function App() {
   const scheduleSilentRefreshRef = useRef<any>(null);
   const stableFeedRef = useRef<PostType[]>([]);
 
-  // ✅ FIX 4: Interaction tracking for quiet window
+  // ✅ FIX 1: Interaction tracking for quiet window
   const lastInteractionRef = useRef<number>(0);
   const markInteraction = useCallback(() => {
     lastInteractionRef.current = Date.now();
@@ -430,6 +430,12 @@ export default function App() {
 
   // ✅ FIX C: Buffer for new server posts
   const [pendingServerPosts, setPendingServerPosts] = useState<PostType[]>([]);
+
+  // ✅ FIX 2: Users ref for stable ranking
+  const usersRef = useRef<User[]>([]);
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
 
   const [loginError, setLoginError] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -556,31 +562,24 @@ export default function App() {
             });
 
           } else {
-            // user idle: apply everything
+            // ✅ FIX 3: Clear pending BEFORE merging (atomic)
+            const buffered = pendingServerPosts;
+            if (buffered.length) setPendingServerPosts([]);
+
             setPosts(prev => {
               // ✅ FIX A: Reconcile pending posts first
               const cleanedPrev = reconcilePendingPosts(prev, normalized);
-              const next = mergeFeedStable(cleanedPrev, normalized);
-              stableFeedRef.current = next;
-              lastGoodPostsRef.current = next;
-              return next;
+              const merged = mergeFeedStable(cleanedPrev, normalized);
+              const combined = buffered.length ? mergeFeedStable(merged, buffered) : merged;
+              stableFeedRef.current = combined;
+              lastGoodPostsRef.current = combined;
+              return combined;
             });
-
-            // apply buffered too
-            if (pendingServerPosts.length) {
-              setPosts(prev => {
-                const combined = mergeFeedStable(prev, pendingServerPosts);
-                stableFeedRef.current = combined;
-                lastGoodPostsRef.current = combined;
-                return combined;
-              });
-              setPendingServerPosts([]);
-            }
           }
 
-          // ✅ FIX B: Compute ranking ONCE and store it
+          // ✅ FIX 2: Rank with usersRef for stable ranking
           const baseList = stableFeedRef.current.length ? stableFeedRef.current : normalized;
-          const ranked = rankFeed(baseList as any, viewer as any, users as any) as any;
+          const ranked = rankFeed(baseList as any, viewer as any, usersRef.current as any) as any;
           setRankedCache(ranked);
 
           if (!feedHydrated) {
@@ -605,8 +604,8 @@ export default function App() {
             return next;
           });
           
-          // ✅ FIX B: Compute ranking for guest too
-          const ranked = rankFeed(normalized as any, null as any, users as any) as any;
+          // ✅ FIX 2: Compute ranking for guest too with usersRef
+          const ranked = rankFeed(normalized as any, null as any, usersRef.current as any) as any;
           setRankedCache(ranked);
         } else if (lastGoodPostsRef.current.length) {
           setPosts(lastGoodPostsRef.current);
@@ -624,7 +623,8 @@ export default function App() {
         setIsFeedRefreshing(false);
       }
     },
-    [activeCommentsPostId, feedHydrated, users, pendingServerPosts, posts]
+    // ✅ FIX 1: Fixed dependencies to prevent loops
+    [activeCommentsPostId, feedHydrated, currentUser]
   );
 
   /**
@@ -882,6 +882,13 @@ export default function App() {
         const next = [pendingPost, ...arr];
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        
+        // ✅ FIX 4: Update rankedCache after new post
+        setRankedCache((prevRank) => {
+          const base = next;
+          return rankFeed(base as any, currentUser as any, usersRef.current as any) as any;
+        });
+        
         return next;
       });
 
@@ -918,6 +925,13 @@ export default function App() {
 
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        
+        // ✅ FIX 4: Update rankedCache after reaction
+        setRankedCache((prevRank) => {
+          const base = next;
+          return rankFeed(base as any, currentUser as any, usersRef.current as any) as any;
+        });
+        
         return next;
       });
 
@@ -943,6 +957,13 @@ export default function App() {
         );
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        
+        // ✅ FIX 4: Update rankedCache after share
+        setRankedCache((prevRank) => {
+          const base = next;
+          return rankFeed(base as any, currentUser as any, usersRef.current as any) as any;
+        });
+        
         return next;
       });
 
@@ -975,6 +996,13 @@ export default function App() {
         );
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        
+        // ✅ FIX 4: Update rankedCache after share
+        setRankedCache((prevRank) => {
+          const base = next;
+          return rankFeed(base as any, currentUser as any, usersRef.current as any) as any;
+        });
+        
         return next;
       });
 
@@ -1019,6 +1047,13 @@ export default function App() {
         const next = safeArray(p).filter((x) => Number(x.id) !== Number(postId));
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        
+        // ✅ FIX 4: Update rankedCache after delete
+        setRankedCache((prevRank) => {
+          const base = next;
+          return rankFeed(base as any, currentUser as any, usersRef.current as any) as any;
+        });
+        
         return next;
       });
 
@@ -1030,7 +1065,7 @@ export default function App() {
         stableFeedRef.current = prev;
       }
     },
-    [requireAuth, posts]
+    [requireAuth, posts, currentUser]
   );
 
   const editPost = useCallback(
@@ -1046,6 +1081,13 @@ export default function App() {
         );
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        
+        // ✅ FIX 4: Update rankedCache after edit
+        setRankedCache((prevRank) => {
+          const base = next;
+          return rankFeed(base as any, currentUser as any, usersRef.current as any) as any;
+        });
+        
         return next;
       });
 
@@ -1057,7 +1099,7 @@ export default function App() {
         stableFeedRef.current = prev;
       }
     },
-    [requireAuth, posts]
+    [requireAuth, posts, currentUser]
   );
 
   const followUser = useCallback(
