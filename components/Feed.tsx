@@ -1,4 +1,4 @@
-// Feed.tsx
+// Feed.tsx - PROFESSIONALLY UPDATED VERSION
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -7,6 +7,7 @@ import {
   Product,
   LinkPreview,
   AudioTrack,
+  ShareDestination,
 } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
@@ -415,6 +416,360 @@ const getMediaTypeInfo = (post: any) => {
 
 /**
  * =========================
+ * PROFESSIONAL SHARE BOTTOM SHEET COMPONENT
+ * =========================
+ */
+interface ShareSheetProps {
+  isOpen: boolean;
+  onClose: () => void;
+  postId: number;
+  postTitle?: string;
+  postContent?: string;
+  postUrl?: string;
+  postImage?: string;
+  onShareComplete?: (destination: ShareDestination, data?: any) => void;
+  currentUser: User | null;
+  users?: User[];
+  groups?: any[];
+}
+
+export const ShareBottomSheet: React.FC<ShareSheetProps> = ({
+  isOpen,
+  onClose,
+  postId,
+  postTitle = 'UNERA Post',
+  postContent = '',
+  postUrl,
+  postImage,
+  onShareComplete,
+  currentUser,
+  users = [],
+  groups = [],
+}) => {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [shareInProgress, setShareInProgress] = useState(false);
+
+  // Handle backdrop click
+  useEffect(() => {
+    const handleBackdropClick = (e: MouseEvent) => {
+      if (backdropRef.current && e.target === backdropRef.current) {
+        closeSheet();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('click', handleBackdropClick);
+      document.body.style.overflow = 'hidden';
+    }
+
+    return () => {
+      document.removeEventListener('click', handleBackdropClick);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
+  // Handle escape key
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        closeSheet();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen]);
+
+  // Open animation
+  useEffect(() => {
+    if (isOpen) {
+      setIsAnimating(true);
+      setTimeout(() => {
+        setIsAnimating(false);
+      }, 300);
+    }
+  }, [isOpen]);
+
+  const closeSheet = () => {
+    setIsAnimating(true);
+    setTimeout(() => {
+      onClose();
+      setIsAnimating(false);
+    }, 200);
+  };
+
+  const handleShare = async (destination: ShareDestination, extraData?: any) => {
+    if (shareInProgress) return;
+    
+    try {
+      setShareInProgress(true);
+
+      // Prepare share payload
+      const sharePayload = {
+        post_id: postId,
+        destination,
+        user_id: currentUser?.id,
+        shared_at: new Date().toISOString(),
+        metadata: {
+          post_title: postTitle,
+          post_content: postContent.substring(0, 200),
+          post_url: postUrl || `${window.location.origin}/post/${postId}`,
+          post_image: postImage,
+          ...extraData,
+        },
+      };
+
+      // Call share API
+      const response = await apiFetch('/api/posts/share', {
+        method: 'POST',
+        body: JSON.stringify(sharePayload),
+      });
+
+      // Trigger callback with result
+      if (onShareComplete) {
+        onShareComplete(destination, { 
+          success: true, 
+          data: response,
+          postId 
+        });
+      }
+
+      // Close sheet after successful share
+      setTimeout(() => closeSheet(), 300);
+
+    } catch (error) {
+      console.error('Share failed:', error);
+      if (onShareComplete) {
+        onShareComplete(destination, { 
+          success: false, 
+          error: 'Failed to share post',
+          postId 
+        });
+      }
+    } finally {
+      setShareInProgress(false);
+    }
+  };
+
+  // Share options data
+  const shareOptions = [
+    {
+      id: 'feed',
+      title: 'Share to UNERA Feed',
+      icon: 'fas fa-newspaper',
+      color: '#1877F2',
+      description: 'Share to your profile feed',
+      destination: 'feed' as ShareDestination,
+    },
+    {
+      id: 'brands',
+      title: 'Share to Brands',
+      icon: 'fas fa-store',
+      color: '#45BD62',
+      description: 'Share with brand accounts',
+      destination: 'brands' as ShareDestination,
+    },
+    {
+      id: 'group',
+      title: 'Share in a Group',
+      icon: 'fas fa-users',
+      color: '#F7B928',
+      description: 'Share to a group you manage',
+      destination: 'group' as ShareDestination,
+    },
+    {
+      id: 'message',
+      title: 'Send as a Message',
+      icon: 'fas fa-comment-alt',
+      color: '#1877F2',
+      description: 'Share via direct message',
+      destination: 'message' as ShareDestination,
+    },
+    {
+      id: 'more',
+      title: 'More Options',
+      icon: 'fas fa-share-alt',
+      color: '#B0B3B8',
+      description: 'Other sharing options',
+      destination: 'more' as ShareDestination,
+    },
+    {
+      id: 'whatsapp',
+      title: 'Send via WhatsApp',
+      icon: 'fab fa-whatsapp',
+      color: '#25D366',
+      description: 'Share to WhatsApp',
+      destination: 'whatsapp' as ShareDestination,
+    },
+    {
+      id: 'copy',
+      title: 'Copy Post Link',
+      icon: 'fas fa-link',
+      color: '#1877F2',
+      description: 'Copy link to clipboard',
+      destination: 'copy' as ShareDestination,
+    },
+  ];
+
+  const recentContacts = users
+    .filter(u => u.id !== currentUser?.id)
+    .slice(0, 3);
+
+  if (!isOpen) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        ref={backdropRef}
+        className={`fixed inset-0 bg-black/60 z-[300] transition-opacity duration-300 ${
+          isAnimating ? 'opacity-0' : 'opacity-100'
+        }`}
+      />
+
+      {/* Bottom Sheet */}
+      <div
+        ref={sheetRef}
+        className={`fixed bottom-0 left-0 right-0 z-[301] bg-[#242526] rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col transition-transform duration-300 ease-out ${
+          isAnimating ? 'translate-y-full' : 'translate-y-0'
+        }`}
+      >
+        {/* Header */}
+        <div className="p-4 pb-2">
+          {/* Drag Indicator */}
+          <div className="flex justify-center mb-3">
+            <div className="w-10 h-1 bg-[#3E4042] rounded-full"></div>
+          </div>
+
+          {/* Post Preview (Optional) */}
+          {postContent && (
+            <div className="flex items-start gap-3 mb-4 p-3 bg-[#3A3B3C] rounded-xl">
+              {postImage && (
+                <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
+                  <img 
+                    src={postImage} 
+                    alt="Post" 
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[#E4E6EB] font-semibold text-sm">
+                    {currentUser?.name || 'You'}
+                  </span>
+                  <span className="text-[#B0B3B8] text-xs">•</span>
+                  <span className="text-[#B0B3B8] text-xs">
+                    {formatRelativeTime(new Date())}
+                  </span>
+                </div>
+                <p className="text-[#B0B3B8] text-sm line-clamp-2">
+                  {postContent.substring(0, 100)}
+                  {postContent.length > 100 ? '...' : ''}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Share Options List */}
+        <div className="flex-1 overflow-y-auto px-4 pb-4">
+          <div className="space-y-1">
+            {shareOptions.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => handleShare(option.destination)}
+                disabled={shareInProgress}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group"
+              >
+                {/* Icon Container */}
+                <div 
+                  className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform"
+                  style={{ backgroundColor: `${option.color}15` }}
+                >
+                  <i 
+                    className={`${option.icon} text-lg`}
+                    style={{ color: option.color }}
+                  ></i>
+                </div>
+
+                {/* Text Content */}
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[15px]">
+                    {option.title}
+                  </div>
+                  <div className="text-[#B0B3B8] text-xs mt-0.5">
+                    {option.description}
+                  </div>
+                </div>
+
+                {/* Chevron for More Options */}
+                {option.id === 'more' && (
+                  <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Recent Contacts Section */}
+          {recentContacts.length > 0 && (
+            <div className="mt-6">
+              <div className="text-[#B0B3B8] text-xs font-semibold uppercase tracking-wider mb-3 px-1">
+                Share with recent contacts
+              </div>
+              <div className="flex gap-3">
+                {recentContacts.map((user) => (
+                  <button
+                    key={user.id}
+                    onClick={() => handleShare('message', { recipient_id: user.id })}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#1877F2] p-0.5">
+                      <img
+                        src={user.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+                        alt={user.name}
+                        className="w-full h-full rounded-full object-cover"
+                      />
+                    </div>
+                    <span className="text-[#E4E6EB] text-xs font-medium max-w-[60px] truncate">
+                      {user.name.split(' ')[0]}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 pt-3 border-t border-[#3E4042]">
+          <button
+            onClick={closeSheet}
+            disabled={shareInProgress}
+            className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      {/* Share Progress Indicator */}
+      {shareInProgress && (
+        <div className="fixed inset-0 z-[302] flex items-center justify-center bg-black/50">
+          <div className="bg-[#242526] rounded-2xl p-6 flex flex-col items-center gap-4 shadow-2xl">
+            <div className="w-12 h-12 border-3 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
+            <div className="text-[#E4E6EB] font-medium">Sharing post...</div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+/**
+ * =========================
  * POST CARD (WITH CLOUDFLARE R2 FIX)
  * =========================
  */
@@ -432,6 +787,7 @@ export const Post: React.FC<{
   onVideoClick: (p: PostType) => void;
   onPlayAudioTrack?: (t: AudioTrack) => void;
   onHashtagClick?: (tag: string) => void;
+  groups?: any[];
 }> = ({
   post,
   author,
@@ -446,6 +802,7 @@ export const Post: React.FC<{
   onVideoClick,
   onPlayAudioTrack,
   onHashtagClick,
+  groups = [],
 }) => {
   const p: any = post as any;
   const a: any = author as any;
@@ -457,6 +814,8 @@ export const Post: React.FC<{
   const [commentCount, setCommentCount] = useState(
     typeof p.comment_count === 'number' ? p.comment_count : comments.length
   );
+
+  const [showShareSheet, setShowShareSheet] = useState(false);
 
   const myReaction = currentUser
     ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))
@@ -487,233 +846,266 @@ export const Post: React.FC<{
     }
   }, [p.comment_count, comments.length]);
 
+  // Handle share action
+  const handleShare = (postId: number) => {
+    if (!currentUser) {
+      alert('Please login to share posts.');
+      return;
+    }
+    setShowShareSheet(true);
+  };
+
+  const handleShareComplete = (destination: ShareDestination, data?: any) => {
+    if (data?.success) {
+      // Notify parent component about the share
+      onShare(postId);
+      // You could show a toast notification here
+    }
+  };
+
   return (
-    <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
-      <div className="p-3 md:p-4 flex items-center justify-between">
-        <div
-          className="flex items-center gap-2 flex-1 min-w-0"
-          onClick={() => onProfileClick(safeUserId(a))}
-        >
-          <img
-            src={
-              a.profile_image_url ||
-              a.profileImage ||
-              a.avatar ||
-              'https://ui-avatars.com/api/?name=User'
-            }
-            alt=""
-            className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-          />
-          <div className="min-w-0">
-            <div className="flex items-center gap-1 flex-wrap">
-              <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
-                {a.name || a.username || 'User'}
-              </h4>
-              {a.is_verified && (
-                <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-              <span>{createdAtLabel}</span>
-              <span>•</span>
-              <i className="fas fa-globe-americas text-[12px]"></i>
-              {p.location && (
-                <>
-                  <span>•</span>
-                  <span className="truncate max-w-[160px]">
-                    {String(p.location).split(',')[0]}
-                  </span>
-                </>
-              )}
-              {p.feeling && (
-                <>
-                  <span>•</span>
-                  <span>feeling {p.feeling}</span>
-                </>
-              )}
-              {p.__pending && (
-                <>
-                  <span>•</span>
-                  <span className="text-[#B0B3B8]">
-                    <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
-                    posting…
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {onDelete &&
-          currentUser &&
-          safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
-            <button
-              className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(postId);
-              }}
-              title="Delete"
-            >
-              <i className="fas fa-trash text-[#B0B3B8]"></i>
-            </button>
-          )}
-      </div>
-
-      {p.content && (
-        <div className="px-3 md:px-4 pb-2 text-[#E4E6EB] text-[17px]">
-          <RichText
-            text={p.content}
-            users={users}
-            onProfileClick={onProfileClick}
-            onHashtagClick={onHashtagClick}
-          />
-        </div>
-      )}
-
-      {p.link_preview && !mediaInfo.mediaUrl && (
-        <div
-          className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
-          onClick={() => window.open(p.link_preview.url, '_blank')}
-        >
-          <img
-            src={p.link_preview.image}
-            alt=""
-            className="w-full h-48 object-cover"
-          />
-          <div className="p-3 bg-[#3A3B3C]">
-            <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
-              {p.link_preview.domain}
-            </div>
-            <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
-              {p.link_preview.title}
-            </div>
-            <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
-              {p.link_preview.description}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {p.background && !mediaInfo.mediaUrl && (
-        <div
-          className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
-          style={{ background: p.background, backgroundSize: 'cover' }}
-        >
-          {p.content}
-        </div>
-      )}
-
-      {/* ✅ FIXED: IMAGE BLOCK - Now works with Cloudflare R2 MIME types */}
-      {mediaInfo.mediaUrl && mediaInfo.isImage && !p.background && (
-        <div
-          className="cursor-pointer bg-black"
-          onClick={() => onViewImage(mediaInfo.mediaUrl)}
-        >
-          <img
-            src={mediaInfo.mediaUrl}
-            alt=""
-            className="w-full h-auto max-h-[600px] object-contain"
-            loading="lazy"
-            onError={(e) => {
-              console.error('Failed to load image:', mediaInfo.mediaUrl);
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-        </div>
-      )}
-
-      {/* ✅ FIXED: VIDEO BLOCK - Now works with Cloudflare R2 MIME types */}
-      {mediaInfo.mediaUrl && mediaInfo.isVideo && (
-        <div
-          className="cursor-pointer relative h-[500px] bg-black"
-          onClick={() => onVideoClick(post)}
-        >
-          <video
-            src={mediaInfo.mediaUrl}
-            className="w-full h-full object-cover"
-            preload="metadata"
-            playsInline
-            muted
-            onError={(e) => {
-              console.error('Failed to load video:', mediaInfo.mediaUrl);
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <i className="fas fa-play text-white text-4xl opacity-50"></i>
-          </div>
-        </div>
-      )}
-
-      {/* ✅ AUDIO BLOCK - If you have audio posts */}
-      {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-        <div className="mx-3 md:mx-4 my-3 p-4 bg-[#3A3B3C] rounded-lg border border-[#3E4042]">
-          <div className="flex items-center gap-3">
-            <i className="fas fa-music text-[#1877F2] text-2xl"></i>
-            <div className="flex-1">
-              <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-              <div className="text-[#B0B3B8] text-sm">
-                {p.content || 'Listen to audio'}
+    <>
+      <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+        <div className="p-3 md:p-4 flex items-center justify-between">
+          <div
+            className="flex items-center gap-2 flex-1 min-w-0"
+            onClick={() => onProfileClick(safeUserId(a))}
+          >
+            <img
+              src={
+                a.profile_image_url ||
+                a.profileImage ||
+                a.avatar ||
+                'https://ui-avatars.com/api/?name=User'
+              }
+              alt=""
+              className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
+                  {a.name || a.username || 'User'}
+                </h4>
+                {a.is_verified && (
+                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                <span>{createdAtLabel}</span>
+                <span>•</span>
+                <i className="fas fa-globe-americas text-[12px]"></i>
+                {p.location && (
+                  <>
+                    <span>•</span>
+                    <span className="truncate max-w-[160px]">
+                      {String(p.location).split(',')[0]}
+                    </span>
+                  </>
+                )}
+                {p.feeling && (
+                  <>
+                    <span>•</span>
+                    <span>feeling {p.feeling}</span>
+                  </>
+                )}
+                {p.__pending && (
+                  <>
+                    <span>•</span>
+                    <span className="text-[#B0B3B8]">
+                      <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
+                      posting…
+                    </span>
+                  </>
+                )}
               </div>
             </div>
-            <button
-              onClick={() => onPlayAudioTrack({
-                id: postId,
-                title: p.content || 'Audio',
-                artist: a.name || 'Unknown',
-                url: mediaInfo.mediaUrl,
-                duration: 0,
-                coverImage: a.profile_image_url,
-              })}
-              className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+          </div>
+
+          {onDelete &&
+            currentUser &&
+            safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
+              <button
+                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(postId);
+                }}
+                title="Delete"
+              >
+                <i className="fas fa-trash text-[#B0B3B8]"></i>
+              </button>
+            )}
+        </div>
+
+        {p.content && (
+          <div className="px-3 md:px-4 pb-2 text-[#E4E6EB] text-[17px]">
+            <RichText
+              text={p.content}
+              users={users}
+              onProfileClick={onProfileClick}
+              onHashtagClick={onHashtagClick}
+            />
+          </div>
+        )}
+
+        {p.link_preview && !mediaInfo.mediaUrl && (
+          <div
+            className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+            onClick={() => window.open(p.link_preview.url, '_blank')}
+          >
+            <img
+              src={p.link_preview.image}
+              alt=""
+              className="w-full h-48 object-cover"
+            />
+            <div className="p-3 bg-[#3A3B3C]">
+              <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+                {p.link_preview.domain}
+              </div>
+              <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
+                {p.link_preview.title}
+              </div>
+              <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
+                {p.link_preview.description}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {p.background && !mediaInfo.mediaUrl && (
+          <div
+            className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
+            style={{ background: p.background, backgroundSize: 'cover' }}
+          >
+            {p.content}
+          </div>
+        )}
+
+        {/* ✅ FIXED: IMAGE BLOCK - Now works with Cloudflare R2 MIME types */}
+        {mediaInfo.mediaUrl && mediaInfo.isImage && !p.background && (
+          <div
+            className="cursor-pointer bg-black"
+            onClick={() => onViewImage(mediaInfo.mediaUrl)}
+          >
+            <img
+              src={mediaInfo.mediaUrl}
+              alt=""
+              className="w-full h-auto max-h-[600px] object-contain"
+              loading="lazy"
+              onError={(e) => {
+                console.error('Failed to load image:', mediaInfo.mediaUrl);
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          </div>
+        )}
+
+        {/* ✅ FIXED: VIDEO BLOCK - Now works with Cloudflare R2 MIME types */}
+        {mediaInfo.mediaUrl && mediaInfo.isVideo && (
+          <div
+            className="cursor-pointer relative h-[500px] bg-black"
+            onClick={() => onVideoClick(post)}
+          >
+            <video
+              src={mediaInfo.mediaUrl}
+              className="w-full h-full object-cover"
+              preload="metadata"
+              playsInline
+              muted
+              onError={(e) => {
+                console.error('Failed to load video:', mediaInfo.mediaUrl);
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <i className="fas fa-play text-white text-4xl opacity-50"></i>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ AUDIO BLOCK - If you have audio posts */}
+        {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+          <div className="mx-3 md:mx-4 my-3 p-4 bg-[#3A3B3C] rounded-lg border border-[#3E4042]">
+            <div className="flex items-center gap-3">
+              <i className="fas fa-music text-[#1877F2] text-2xl"></i>
+              <div className="flex-1">
+                <div className="text-[#E4E6EB] font-bold">Audio Track</div>
+                <div className="text-[#B0B3B8] text-sm">
+                  {p.content || 'Listen to audio'}
+                </div>
+              </div>
+              <button
+                onClick={() => onPlayAudioTrack({
+                  id: postId,
+                  title: p.content || 'Audio',
+                  artist: a.name || 'Unknown',
+                  url: mediaInfo.mediaUrl,
+                  duration: 0,
+                  coverImage: a.profile_image_url,
+                })}
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+              >
+                <i className="fas fa-play mr-1"></i> Play
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+          <div className="flex items-center gap-1.5">
+            {reactions.length > 0 && (
+              <span className="hover:underline">{reactions.length} Reactions</span>
+            )}
+          </div>
+          <div className="flex gap-4">
+            <span
+              className="hover:underline cursor-pointer"
+              onClick={() => onOpenComments(Number(postId))}
             >
-              <i className="fas fa-play mr-1"></i> Play
-            </button>
+              {formatCommentCount(commentCount)} Comments
+            </span>
           </div>
         </div>
-      )}
 
-      <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-        <div className="flex items-center gap-1.5">
-          {reactions.length > 0 && (
-            <span className="hover:underline">{reactions.length} Reactions</span>
-          )}
-        </div>
-        <div className="flex gap-4">
-          <span
-            className="hover:underline cursor-pointer"
-            onClick={() => onOpenComments(Number(postId))}
+        <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
+          <ReactionButton
+            currentUserReactions={myReaction}
+            reactionCount={reactions.length}
+            onReact={(type) => onReact(postId, type)}
+            isGuest={!currentUser}
+          />
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
           >
-            {formatCommentCount(commentCount)} Comments
-          </span>
+            <i className="far fa-comment-alt text-[20px]"></i>
+            <span className="text-[17px] font-medium">Comment</span>
+          </button>
+          {/* ✅ Updated Share button with professional share sheet */}
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => handleShare(postId)}
+          >
+            <i className="fas fa-share text-[20px]"></i>
+            <span className="text-[17px] font-medium">Share</span>
+          </button>
         </div>
       </div>
 
-      <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-        <ReactionButton
-          currentUserReactions={myReaction}
-          reactionCount={reactions.length}
-          onReact={(type) => onReact(postId, type)}
-          isGuest={!currentUser}
-        />
-        <button
-          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-          onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
-        >
-          <i className="far fa-comment-alt text-[20px]"></i>
-          <span className="text-[17px] font-medium">Comment</span>
-        </button>
-        {/* ✅ 1.1 Share button with guest guard */}
-        <button
-          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-          onClick={() => (currentUser ? onShare(postId) : alert('Login first'))}
-        >
-          <i className="fas fa-share text-[20px]"></i>
-          <span className="text-[17px] font-medium">Share</span>
-        </button>
-      </div>
-    </div>
+      {/* Share Bottom Sheet */}
+      <ShareBottomSheet
+        isOpen={showShareSheet}
+        onClose={() => setShowShareSheet(false)}
+        postId={postId}
+        postTitle={p.content?.substring(0, 50) || 'UNERA Post'}
+        postContent={p.content}
+        postImage={mediaInfo.isImage ? mediaInfo.mediaUrl : undefined}
+        onShareComplete={handleShareComplete}
+        currentUser={currentUser}
+        users={users || []}
+        groups={groups}
+      />
+    </>
   );
 };
 
@@ -1055,7 +1447,7 @@ export const CreatePostModal: React.FC<{
               <div className="text-center py-10">
                 <i className="fas fa-map-marked-alt text-4xl text-[#3A3B3C] mb-4"></i>
                 <p className="text-[#B0B3B8]">No matching locations found.</p>
-              </div>
+            </div>
             ) : (
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
