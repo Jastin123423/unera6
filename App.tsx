@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -39,6 +40,7 @@ import {
   Brand,
 } from './types';
 import { INITIAL_USERS } from './constants';
+import { rankFeed } from './utils/ranking'; // Import the ranking function
 
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
@@ -303,9 +305,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
 
-  // ✅ FACEBOOK-LIKE IMPROVEMENTS
+  // ✅ FACEBOOK-LIKE IMPROVEMENTS - Feed freezing per session
+  const feedSessionSeedRef = useRef<number>(Math.floor(Math.random() * 1_000_000));
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false); // internal only
+  const [pendingPosts, setPendingPosts] = useState<PostType[]>([]);
+  const [showNewPostsPill, setShowNewPostsPill] = useState(false);
 
   // ✅ Keep last good posts so polling can't wipe feed to empty
   const lastGoodPostsRef = useRef<PostType[]>([]);
@@ -315,6 +320,8 @@ export default function App() {
   const scheduleSilentRefreshRef = useRef<any>(null);
   // ✅ Stable feed reference for merging
   const stableFeedRef = useRef<PostType[]>([]);
+  // ✅ Ranked posts reference for stable ordering
+  const rankedPostsRef = useRef<PostType[]>([]);
 
   const [loginError, setLoginError] = useState('');
 
@@ -339,6 +346,29 @@ export default function App() {
   const [activeSharePost, setActiveSharePost] = useState<any>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
+
+  /** ---------- Apply ranking with session seed ---------- */
+  const applyAndRank = useCallback((basePosts: PostType[]) => {
+    if (!basePosts.length) {
+      rankedPostsRef.current = [];
+      return;
+    }
+    
+    try {
+      const ranked = rankFeed(
+        basePosts,
+        currentUser,
+        users,
+        feedSessionSeedRef.current
+      ) as PostType[];
+      
+      rankedPostsRef.current = ranked;
+    } catch (error) {
+      console.error('Ranking failed:', error);
+      // Fallback to original order
+      rankedPostsRef.current = [...basePosts];
+    }
+  }, [currentUser, users]);
 
   /** ---------- Facebook-like improvements ---------- */
   const scheduleSilentRefresh = useCallback(() => {
@@ -382,11 +412,14 @@ export default function App() {
   /**
    * ✅ Fetch posts for homepage - FACEBOOK-LIKE IMPROVEMENTS
    * ✅ Never show loading, never replace feed with empty
+   * ✅ New posts go to pendingPosts, not main feed
    */
   const fetchPostsForHome = useCallback(
-    async (viewer: User | null) => {
+    async (viewer: User | null, isSilentRefresh: boolean = false) => {
       // ✅ Internal refresh flag (not shown to user)
-      setIsFeedRefreshing(true);
+      if (!isSilentRefresh) {
+        setIsFeedRefreshing(true);
+      }
       
       try {
         if (viewer?.id) {
@@ -421,17 +454,40 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
           
-          // ✅ FACEBOOK-LIKE: Use stable merging instead of replacement
-          setPosts(prev => {
-            const next = mergeFeed(prev, normalized);
-            stableFeedRef.current = next;
-            lastGoodPostsRef.current = next;
-            return next;
-          });
-
-          // Mark feed as hydrated after first successful load
           if (!feedHydrated) {
+            // ✅ Initial feed load - apply ranking and set as current
+            setPosts(normalized);
+            lastGoodPostsRef.current = normalized;
+            stableFeedRef.current = normalized;
+            applyAndRank(normalized);
             setFeedHydrated(true);
+          } else {
+            // ✅ Polling update - compare and add new posts to pending
+            const currentIds = new Set(lastGoodPostsRef.current.map(p => Number(p.id)));
+            const incomingNew = normalized.filter(p => !currentIds.has(Number(p.id)));
+
+            if (incomingNew.length > 0) {
+              // Add new posts to pending posts, deduplicate
+              setPendingPosts(prev => {
+                const map = new Map<number, PostType>();
+                // Add incoming new posts first (most recent)
+                [...incomingNew, ...prev].forEach(p => map.set(Number(p.id), p));
+                return Array.from(map.values());
+              });
+              
+              // Show new posts notification pill
+              if (!isSilentRefresh) {
+                setShowNewPostsPill(true);
+              }
+            }
+            
+            // ✅ Update existing posts with fresh data (silently)
+            setPosts(prev => {
+              const next = mergeFeed(prev, normalized);
+              lastGoodPostsRef.current = next;
+              stableFeedRef.current = next;
+              return next;
+            });
           }
 
           // ✅ keep snapshot updated if comments open
@@ -446,16 +502,38 @@ export default function App() {
         const p = await apiFetch('/api/posts');
         const normalized = safeArray(p).map(normalizePost);
 
-        // ✅ FACEBOOK-LIKE: Use stable merging
-        if (normalized.length) {
+        if (!feedHydrated) {
+          // ✅ Initial load for guests
+          if (normalized.length) {
+            setPosts(normalized);
+            lastGoodPostsRef.current = normalized;
+            stableFeedRef.current = normalized;
+            applyAndRank(normalized);
+            setFeedHydrated(true);
+          }
+        } else {
+          // ✅ Polling for guests
+          const currentIds = new Set(lastGoodPostsRef.current.map(p => Number(p.id)));
+          const incomingNew = normalized.filter(p => !currentIds.has(Number(p.id)));
+
+          if (incomingNew.length > 0) {
+            setPendingPosts(prev => {
+              const map = new Map<number, PostType>();
+              [...incomingNew, ...prev].forEach(p => map.set(Number(p.id), p));
+              return Array.from(map.values());
+            });
+            
+            if (!isSilentRefresh) {
+              setShowNewPostsPill(true);
+            }
+          }
+          
           setPosts(prev => {
             const next = mergeFeed(prev, normalized);
             lastGoodPostsRef.current = next;
+            stableFeedRef.current = next;
             return next;
           });
-        } else if (lastGoodPostsRef.current.length) {
-          // Keep existing posts if API returns empty
-          setPosts(lastGoodPostsRef.current);
         }
 
         if (activeCommentsPostId != null) {
@@ -469,10 +547,12 @@ export default function App() {
         }
       } finally {
         // ✅ Clear internal refresh flag
-        setIsFeedRefreshing(false);
+        if (!isSilentRefresh) {
+          setIsFeedRefreshing(false);
+        }
       }
     },
-    [activeCommentsPostId, feedHydrated]
+    [activeCommentsPostId, feedHydrated, applyAndRank]
   );
 
   /**
@@ -557,7 +637,8 @@ export default function App() {
       if (document.visibilityState !== "visible") return;
       if (activeCommentsPostId != null) return;
       
-      await fetchPostsForHome(currentUser).catch(() => {});
+      // ✅ Use silent refresh for polling - no UI indicators
+      await fetchPostsForHome(currentUser, true).catch(() => {});
     };
 
     const t = setInterval(tick, 30000); // ✅ slower like FB (30s)
@@ -567,12 +648,37 @@ export default function App() {
     };
   }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
 
+  /** ---------- Handle "New Posts" button click ---------- */
+  const handleLoadNewPosts = useCallback(() => {
+    if (pendingPosts.length === 0) {
+      setShowNewPostsPill(false);
+      return;
+    }
+
+    // Merge pending posts with current posts (deduplicate)
+    const merged = [...pendingPosts, ...lastGoodPostsRef.current];
+    const map = new Map<number, PostType>();
+    merged.forEach(p => map.set(Number(p.id), p));
+    const next = Array.from(map.values());
+
+    // Update all references
+    setPosts(next);
+    lastGoodPostsRef.current = next;
+    stableFeedRef.current = next;
+    
+    // Apply ranking to the new combined feed
+    applyAndRank(next);
+    
+    // Clear pending posts and hide pill
+    setPendingPosts([]);
+    setShowNewPostsPill(false);
+  }, [pendingPosts, applyAndRank]);
+
   /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
-    // ✅ Use stable feed reference for ranking to prevent reshuffling
-    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : posts;
-    return Array.isArray(feedToRank) ? feedToRank : [];
-  }, [posts]);
+    // ✅ Use ranked posts reference for stable ordering (no reshuffling on every render)
+    return rankedPostsRef.current.length > 0 ? rankedPostsRef.current : posts;
+  }, [posts]); // Still depends on posts to trigger re-render when posts change
 
   const activePost = useMemo(() => {
     // ✅ FIX: allow id=0 and prevent falsy bug
@@ -618,6 +724,11 @@ export default function App() {
       setSelectedUserId(Number(normalized.id));
       setView('home');
 
+      // ✅ Clear old feed and start fresh on login
+      setFeedHydrated(false);
+      setPendingPosts([]);
+      setShowNewPostsPill(false);
+      rankedPostsRef.current = [];
       await fetchPostsForHome(normalized);
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
@@ -629,6 +740,13 @@ export default function App() {
     setCurrentUser(null);
     setSelectedUserId(null);
     setView('home');
+    
+    // ✅ Clear feed state on logout
+    setFeedHydrated(false);
+    setPendingPosts([]);
+    setShowNewPostsPill(false);
+    rankedPostsRef.current = [];
+    
     fetchPostsForHome(null).catch(() => {});
   };
 
@@ -724,6 +842,7 @@ export default function App() {
         const next = [normalized, ...safeArray(prev)];
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        applyAndRank(next); // ✅ Re-rank with new post included
         return next;
       });
 
@@ -732,7 +851,7 @@ export default function App() {
       // ✅ Schedule silent refresh instead of immediate fetch
       scheduleSilentRefresh();
     },
-    [currentUser, requireAuth, scheduleSilentRefresh]
+    [currentUser, requireAuth, scheduleSilentRefresh, applyAndRank]
   );
 
   const onReactPost = useCallback(
@@ -755,6 +874,7 @@ export default function App() {
 
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        // ✅ Don't re-rank on reaction - keep feed order stable
         return next;
       });
 
@@ -779,6 +899,7 @@ export default function App() {
         );
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        // ✅ Don't re-rank on share - keep feed order stable
         return next;
       });
 
@@ -857,6 +978,7 @@ export default function App() {
         const next = safeArray(p).filter((x) => Number(x.id) !== Number(postId));
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        applyAndRank(next); // ✅ Re-rank after deletion
         return next;
       });
 
@@ -866,9 +988,10 @@ export default function App() {
         setPosts(prev);
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
+        applyAndRank(prev); // ✅ Restore ranking if deletion fails
       }
     },
-    [requireAuth, posts]
+    [requireAuth, posts, applyAndRank]
   );
 
   const editPost = useCallback(
@@ -884,6 +1007,7 @@ export default function App() {
         );
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
+        // ✅ Don't re-rank on edit - keep feed order stable
         return next;
       });
 
@@ -1068,6 +1192,18 @@ export default function App() {
                   onViewProduct={setActiveProduct}
                   onSeeAll={() => handleNavigate('marketplace')}
                 />
+              )}
+
+              {/* ✅ FACEBOOK-STYLE "NEW POSTS" BUTTON */}
+              {showNewPostsPill && pendingPosts.length > 0 && (
+                <div className="sticky top-14 z-10 flex justify-center mb-3">
+                  <button
+                    className="px-4 py-2 rounded-full bg-[#1877F2] text-white font-bold shadow hover:bg-[#166FE5] active:bg-[#1460D0] transition-colors"
+                    onClick={handleLoadNewPosts}
+                  >
+                    New posts ({pendingPosts.length})
+                  </button>
+                </div>
               )}
 
               {/* ✅ FACEBOOK-LIKE FEED DISPLAY: No loading states, never empty while fetching */}
