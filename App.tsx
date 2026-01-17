@@ -1,17 +1,15 @@
-
-
-
-// App.tsx - PROFESSIONALLY FIXED VERSION (Unique Profile Colors & Proper Sizing)
+// App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
+// (Unique Profile Colors & Proper Sizing)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
-import { 
-  CreatePost, 
-  Post, 
-  CommentsSheet, 
-  CreatePostModal, 
+import {
+  CreatePost,
+  Post,
+  CommentsSheet,
+  CreatePostModal,
   SuggestedProductsWidget,
-  ShareBottomSheet 
+  ShareBottomSheet
 } from './components/Feed';
 import { StoryReel, CreateStoryModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -41,7 +39,6 @@ import {
   Group,
   Brand,
 } from './types';
-import { rankFeed } from './utils/ranking';
 
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
@@ -50,6 +47,151 @@ const safeNumber = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+
+/** ---------- Facebook-like feed session + seen cache ---------- */
+const FEED_SESSION_KEY = 'unera_feed_session_seed';
+const FEED_LAST_ACTIVE_KEY = 'unera_feed_last_active';
+const FEED_SEEN_KEY = 'unera_feed_seen_ids';
+const FEED_RETURN_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes away -> refresh like Facebook
+const FEED_SEEN_LIMIT = 1500;
+
+const nowMs = () => Date.now();
+
+const readJson = <T,>(key: string, fallback: T): T => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeJson = (key: string, value: any) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+};
+
+// Deterministic RNG
+const mulberry32 = (seed: number) => {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const hashToSeed = (s: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+};
+
+const getOrCreateSessionSeed = (userId?: number | null) => {
+  try {
+    const existing = sessionStorage.getItem(FEED_SESSION_KEY);
+    if (existing) return Number(existing) || 1;
+
+    const seedStr = `${userId ?? 'guest'}:${nowMs()}:${Math.random()}`;
+    const seed = hashToSeed(seedStr);
+    sessionStorage.setItem(FEED_SESSION_KEY, String(seed));
+    return seed;
+  } catch {
+    return hashToSeed(`${userId ?? 'guest'}:${nowMs()}`);
+  }
+};
+
+const seededShuffle = <T,>(arr: T[], seed: number) => {
+  const a = arr.slice();
+  const rnd = mulberry32(seed);
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
+const getSeenSet = () => {
+  const ids = readJson<number[]>(FEED_SEEN_KEY, []);
+  return new Set(ids.map(Number).filter(Number.isFinite));
+};
+
+const pushSeenIds = (ids: number[]) => {
+  const existing = readJson<number[]>(FEED_SEEN_KEY, []);
+  const merged = [...ids, ...existing].map(Number).filter(Number.isFinite);
+  const dedup = Array.from(new Set(merged)).slice(0, FEED_SEEN_LIMIT);
+  writeJson(FEED_SEEN_KEY, dedup);
+};
+
+// Avoid boring sequences: same author back-to-back too much + mix types a bit
+const diversifyFeed = (posts: PostType[], seed: number) => {
+  if (!Array.isArray(posts) || posts.length <= 2) return posts;
+
+  const rnd = mulberry32(seed ^ 0x9e3779b9);
+  const buckets = new Map<string, PostType[]>();
+
+  const keyOf = (p: any) => {
+    const uid = Number(p?.user_id ?? 0);
+    const type = String(p?.type ?? 'post');
+    return `u:${uid}|t:${type}`;
+  };
+
+  for (const p of posts) {
+    const k = keyOf(p);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(p);
+  }
+
+  const keys = seededShuffle(Array.from(buckets.keys()), Math.floor(rnd() * 1e9));
+  const out: PostType[] = [];
+
+  let lastAuthor = -1;
+  let repeats = 0;
+
+  while (out.length < posts.length) {
+    let progressed = false;
+
+    for (const k of keys) {
+      const b = buckets.get(k);
+      if (!b || b.length === 0) continue;
+
+      const candidate = b[0];
+      const author = Number((candidate as any).user_id ?? -1);
+
+      // avoid too many same-author repeats (allow 1 repeat max)
+      if (author === lastAuthor && repeats >= 1) continue;
+
+      out.push(b.shift()!);
+      progressed = true;
+
+      if (author === lastAuthor) repeats++;
+      else {
+        lastAuthor = author;
+        repeats = 0;
+      }
+
+      if (out.length >= posts.length) break;
+    }
+
+    // if stuck, relax rule
+    if (!progressed) {
+      for (const k of keys) {
+        const b = buckets.get(k);
+        if (b && b.length) {
+          out.push(b.shift()!);
+          if (out.length >= posts.length) break;
+        }
+      }
+    }
+  }
+
+  return out;
+};
 
 /** ---------- UNERA Professional Profile Picture Generator ---------- */
 const COLORS = [
@@ -73,70 +215,37 @@ const COLORS = [
   '#D35400', // Pumpkin
 ];
 
-/**
- * Generate a consistent but unique color for a user based on their ID or name
- */
 const getUserColor = (identifier: string | number): string => {
-  if (!identifier && identifier !== 0) return '#1877F2'; // Default blue
-  
+  if (!identifier && identifier !== 0) return '#1877F2';
   const str = String(identifier);
   let hash = 0;
-  
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
   }
-  
   const index = Math.abs(hash) % COLORS.length;
   return COLORS[index];
 };
 
-/**
- * Generate initials from a name for UNERA profile pictures
- */
 const generateInitials = (name: string): string => {
   if (!name || typeof name !== 'string' || name.trim().length === 0) return 'UN';
-  
-  // Remove extra spaces and split into words
   const words = name.trim().split(/\s+/).filter(word => word.length > 0);
-  
   if (words.length === 0) return 'UN';
-  
   if (words.length === 1) {
-    // Single word: take first 2 letters or repeat first letter
     const word = words[0];
-    if (word.length >= 2) {
-      return word.substring(0, 2).toUpperCase();
-    } else {
-      return (word.charAt(0) + word.charAt(0)).toUpperCase();
-    }
+    if (word.length >= 2) return word.substring(0, 2).toUpperCase();
+    return (word.charAt(0) + word.charAt(0)).toUpperCase();
   }
-  
-  // Multiple words: take first letter of first two words
   const firstInitial = words[0].charAt(0).toUpperCase();
   const secondInitial = words[1].charAt(0).toUpperCase();
   return firstInitial + secondInitial;
 };
 
-/**
- * Generate UNERA-style profile picture URL with initials and unique color
- * Professional sizing: Smaller text (font-size=0.5) to fit circle properly
- */
 const generateProfilePictureUrl = (name: string, identifier: string | number): string => {
   const initials = generateInitials(name);
   const backgroundColor = getUserColor(identifier).replace('#', '');
-  
-  // Professional settings:
-  // - font-size=0.5: Text is 50% of image size (fits perfectly in circle)
-  // - bold=true: Makes text more readable
-  // - size=128: Optimal size for web (64px displayed at 2x for retina)
-  // - rounded=true: Perfect circle
-  // - length=2: Exactly 2 characters
-  // - color=FFFFFF: White text for contrast
-  // - background: Unique color based on user
-  const size = 128; // Base size (will be displayed at 64px in CSS)
-  const fontSize = 0.5; // 50% of image size - Professional sizing
-  const textColor = 'FFFFFF'; // White
-  
+  const size = 128;
+  const fontSize = 0.5;
+  const textColor = 'FFFFFF';
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
 };
 
@@ -146,7 +255,6 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 const normalizePost = (p: any): PostType => {
   const mediaType = p?.media_type ?? p?.mediaType ?? null;
   const mediaUrl = p?.media_url ?? p?.mediaUrl ?? null;
-
   const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
 
   return {
@@ -156,49 +264,42 @@ const normalizePost = (p: any): PostType => {
     content: safeString(p?.content),
     media_url: mediaUrl,
     media_type: mediaType,
-
     reactions: safeArray(p?.reactions),
     comments: safeArray(p?.comments),
-
     shares: safeNumber(p?.shares),
     views: safeNumber(p?.views),
-
     visibility: p?.visibility ?? 'public',
-    type: p?.type ?? (() => {
-      if (!mediaType) return 'post';
-      if (mediaType.startsWith('image/')) return 'image';
-      if (mediaType.startsWith('video/')) return 'video';
-      if (mediaType.startsWith('audio/')) return 'audio';
-      return 'post';
-    })(),
+    type:
+      p?.type ??
+      (() => {
+        if (!mediaType) return 'post';
+        if (mediaType.startsWith('image/')) return 'image';
+        if (mediaType.startsWith('video/')) return 'video';
+        if (mediaType.startsWith('audio/')) return 'audio';
+        return 'post';
+      })(),
     created_at: p?.created_at ?? new Date().toISOString(),
   } as any;
 };
 
-/**
- * Normalize user data with UNERA-style profile pictures
- */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
   const userName = safeString(u?.name, safeString(u?.username, 'User'));
   const userUsername = safeString(u?.username, safeString(u?.name, 'user'));
-  
-  // Use user ID for consistent color generation (or fallback to name)
+
   const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
-  
-  // If profile image is empty or default, generate UNERA-style initials picture
+
   const existingProfileImage = u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '';
   let profileImageUrl = existingProfileImage;
-  
-  // Check if we should generate a new profile picture
-  const shouldGenerateNewPicture = 
-    !profileImageUrl || 
+
+  const shouldGenerateNewPicture =
+    !profileImageUrl ||
     profileImageUrl.trim() === '' ||
     profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
     profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
     profileImageUrl.includes('ui-avatars.com/api/?background=1877F2&color=fff') ||
-    profileImageUrl.includes('ui-avatars.com/api/?name=') && !profileImageUrl.includes('font-size=0.5');
-  
+    (profileImageUrl.includes('ui-avatars.com/api/?name=') && !profileImageUrl.includes('font-size=0.5'));
+
   if (shouldGenerateNewPicture) {
     profileImageUrl = generateProfilePictureUrl(userName, colorIdentifier);
   }
@@ -232,10 +333,10 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   const timeoutId = setTimeout(() => controller.abort(), 20000);
 
   try {
-    const res = await fetch(url, { 
-      ...options, 
+    const res = await fetch(url, {
+      ...options,
       headers,
-      signal: controller.signal 
+      signal: controller.signal,
     });
 
     const contentType = res.headers.get('content-type') || '';
@@ -269,7 +370,7 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 /**
  * Upload file to Cloudflare R2
  */
-const uploadToCloudflareR2 = async (file: File): Promise<{url: string, type: string, filename: string}> => {
+const uploadToCloudflareR2 = async (file: File): Promise<{ url: string; type: string; filename: string }> => {
   try {
     const formData = new FormData();
     formData.append('file', file);
@@ -277,27 +378,24 @@ const uploadToCloudflareR2 = async (file: File): Promise<{url: string, type: str
     formData.append('type', file.type);
     formData.append('folder', 'posts');
     formData.append('timestamp', Date.now().toString());
-    
+
     const response = await fetch('/api/upload', {
       method: 'POST',
       body: formData,
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.error || `Upload failed: ${response.status}`);
     }
-    
+
     const result = await response.json();
-    
-    if (!result.url) {
-      throw new Error('No URL returned from upload');
-    }
-    
+    if (!result.url) throw new Error('No URL returned from upload');
+
     return {
       url: result.url,
       type: file.type,
-      filename: file.name
+      filename: file.name,
     };
   } catch (error) {
     console.error('Upload failed:', error);
@@ -348,7 +446,7 @@ const normalizeFeedRowToPost = (row: any): PostType => {
 const authorFromFeedRow = (row: any): User => {
   const username = row?.username ?? 'user';
   const name = row?.username ?? 'User';
-  
+
   return normalizeUser({
     id: row?.user_id,
     username: username,
@@ -365,28 +463,27 @@ const authorFromFeedRow = (row: any): User => {
 // Facebook-like feed merging utility
 const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
   const map = new Map<number, PostType>();
-  
-  prev.forEach(p => map.set(Number(p.id), p));
-  
+  prev.forEach(p => map.set(Number((p as any).id), p));
+
   incoming.forEach(p => {
-    const existing = map.get(Number(p.id));
+    const existing = map.get(Number((p as any).id));
     if (existing) {
-      map.set(Number(p.id), { 
-        ...existing, 
+      map.set(Number((p as any).id), {
+        ...existing,
         ...p,
-        reactions: existing.reactions,
-        shares: Math.max(existing.shares || 0, p.shares || 0),
-        comments_count: Math.max(existing.comments_count || 0, p.comments_count || 0)
-      });
+        reactions: (existing as any).reactions,
+        shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
+        comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
+      } as any);
     } else {
-      map.set(Number(p.id), p);
+      map.set(Number((p as any).id), p);
     }
   });
 
-  const prevIds = new Set(prev.map(p => Number(p.id)));
-  const newOnes = incoming.filter(p => !prevIds.has(Number(p.id)));
-  
-  return [...newOnes, ...prev.map(p => map.get(Number(p.id))!).filter(Boolean)];
+  const prevIds = new Set(prev.map(p => Number((p as any).id)));
+  const newOnes = incoming.filter(p => !prevIds.has(Number((p as any).id)));
+
+  return [...newOnes, ...prev.map(p => map.get(Number((p as any).id))!).filter(Boolean)];
 };
 
 // Minimal fallback user for UI stability
@@ -407,7 +504,7 @@ const createFallbackUser = (): User => {
     is_online: false,
     location: '',
     bio: '',
-    created_at: null
+    created_at: null,
   };
 };
 
@@ -461,14 +558,6 @@ export default function App() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
 
-  /** ---------- Facebook-like improvements ---------- */
-  const scheduleSilentRefresh = useCallback(() => {
-    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
-    scheduleSilentRefreshRef.current = setTimeout(() => {
-      fetchPostsForHome(currentUser).catch(() => {});
-    }, 8000);
-  }, [currentUser]);
-
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -500,13 +589,16 @@ export default function App() {
   }, []);
 
   /**
-   * Fetch posts for homepage - Facebook-like improvements
+   * Fetch posts for homepage - Facebook-like Fresh Feed logic
    */
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
       setIsFeedRefreshing(true);
-      
+
       try {
+        const seed = getOrCreateSessionSeed(viewer?.id ?? null);
+        const seen = getSeenSet();
+
         if (viewer?.id) {
           const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
           const rows = safeArray<any>(data?.feed);
@@ -519,11 +611,11 @@ export default function App() {
           }
 
           // Merge authors into users list
-          setUsers((prev) => {
+          setUsers(prev => {
             const map = new Map<number, User>();
-            safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
+            safeArray(prev).forEach(u => map.set(Number(u.id), normalizeUser(u)));
 
-            rows.forEach((r) => {
+            rows.forEach(r => {
               const author = authorFromFeedRow(r);
               if (!author?.id) return;
               if (!map.has(author.id)) map.set(author.id, author);
@@ -537,20 +629,30 @@ export default function App() {
           });
 
           const normalized = rows.map(normalizeFeedRowToPost);
-          
+
+          // Unseen first, and shuffle order per session (freshness)
+          const unseen = normalized.filter(p => !seen.has(Number((p as any).id)));
+          const seenOnes = normalized.filter(p => seen.has(Number((p as any).id)));
+
+          const ordered = diversifyFeed(
+            [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
+            seed
+          );
+
+          // Remember first screen as "seen"
+          pushSeenIds(ordered.slice(0, 40).map(p => Number((p as any).id)));
+
           setPosts(prev => {
-            const next = mergeFeed(prev, normalized);
+            const next = mergeFeed(prev, ordered);
             stableFeedRef.current = next;
             lastGoodPostsRef.current = next;
             return next;
           });
 
-          if (!feedHydrated) {
-            setFeedHydrated(true);
-          }
+          if (!feedHydrated) setFeedHydrated(true);
 
           if (activeCommentsPostId != null) {
-            const found = normalized.find((p) => Number(p.id) === Number(activeCommentsPostId));
+            const found = ordered.find(p => Number((p as any).id) === Number(activeCommentsPostId));
             if (found) setCommentPostSnapshot(found);
           }
           return;
@@ -561,8 +663,19 @@ export default function App() {
         const normalized = safeArray(p).map(normalizePost);
 
         if (normalized.length) {
+          const unseen = normalized.filter(x => !seen.has(Number((x as any).id)));
+          const seenOnes = normalized.filter(x => seen.has(Number((x as any).id)));
+
+          const ordered = diversifyFeed(
+            [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
+            seed
+          );
+
+          pushSeenIds(ordered.slice(0, 40).map(x => Number((x as any).id)));
+
           setPosts(prev => {
-            const next = mergeFeed(prev, normalized);
+            const next = mergeFeed(prev, ordered);
+            stableFeedRef.current = next;
             lastGoodPostsRef.current = next;
             return next;
           });
@@ -570,8 +683,10 @@ export default function App() {
           setPosts(lastGoodPostsRef.current);
         }
 
+        if (!feedHydrated) setFeedHydrated(true);
+
         if (activeCommentsPostId != null) {
-          const found = normalized.find((x) => Number(x.id) === Number(activeCommentsPostId));
+          const found = normalized.find(x => Number((x as any).id) === Number(activeCommentsPostId));
           if (found) setCommentPostSnapshot(found);
         }
       } catch {
@@ -584,6 +699,14 @@ export default function App() {
     },
     [activeCommentsPostId, feedHydrated]
   );
+
+  /** ---------- Facebook-like improvements: silent refresh helper ---------- */
+  const scheduleSilentRefresh = useCallback(() => {
+    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
+    scheduleSilentRefreshRef.current = setTimeout(() => {
+      fetchPostsForHome(currentUser).catch(() => {});
+    }, 8000);
+  }, [currentUser, fetchPostsForHome]);
 
   /**
    * Fetch other data
@@ -633,10 +756,10 @@ export default function App() {
             setCurrentUser(normalized);
             setSelectedUserId(Number(normalized.id));
 
-            setUsers((prev) => {
+            setUsers(prev => {
               const arr = safeArray(prev);
-              const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
-              if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+              const exists = arr.some(x => Number(x.id) === Number(normalized.id));
+              if (exists) return arr.map(x => (Number(x.id) === Number(normalized.id) ? normalized : x));
               return [normalized, ...arr];
             });
           }
@@ -652,18 +775,56 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchData]);
 
+  /** ---------- Return detection: when user comes back, refresh + new seed ---------- */
+  useEffect(() => {
+    const markActive = () => {
+      try {
+        localStorage.setItem(FEED_LAST_ACTIVE_KEY, String(nowMs()));
+      } catch {}
+    };
+
+    const onVisibility = async () => {
+      if (document.visibilityState === 'hidden') {
+        markActive();
+        return;
+      }
+
+      const last = Number(localStorage.getItem(FEED_LAST_ACTIVE_KEY) || '0') || 0;
+      const away = nowMs() - last;
+
+      if (away > FEED_RETURN_THRESHOLD_MS) {
+        try {
+          sessionStorage.removeItem(FEED_SESSION_KEY);
+        } catch {}
+
+        fetchPostsForHome(currentUser).catch(() => {});
+      }
+    };
+
+    const events = ['click', 'scroll', 'keydown', 'touchstart'];
+    events.forEach(e => window.addEventListener(e, markActive, { passive: true } as any));
+    document.addEventListener('visibilitychange', onVisibility);
+
+    markActive();
+
+    return () => {
+      events.forEach(e => window.removeEventListener(e, markActive as any));
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [currentUser, fetchPostsForHome]);
+
   /** ---------- Smart Polling ---------- */
   useEffect(() => {
     if (activeCommentsPostId != null) return;
-    if (document.visibilityState !== "visible") return;
+    if (document.visibilityState !== 'visible') return;
 
     let stopped = false;
 
     const tick = async () => {
       if (stopped) return;
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== 'visible') return;
       if (activeCommentsPostId != null) return;
-      
+
       await fetchPostsForHome(currentUser).catch(() => {});
     };
 
@@ -687,12 +848,12 @@ export default function App() {
       return commentPostSnapshot;
     }
 
-    return posts.find((p) => Number(p.id) === Number(activeCommentsPostId)) || null;
+    return posts.find(p => Number((p as any).id) === Number(activeCommentsPostId)) || null;
   }, [posts, activeCommentsPostId, commentPostSnapshot]);
 
   const profileUser = useMemo(() => {
     if (selectedUserId) {
-      return users.find((u) => Number(u.id) === Number(selectedUserId)) || null;
+      return users.find(u => Number(u.id) === Number(selectedUserId)) || null;
     }
     return currentUser || null;
   }, [selectedUserId, users, currentUser]);
@@ -717,12 +878,17 @@ export default function App() {
 
       localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
 
+      // New feed session when user logs in (fresh)
+      try {
+        sessionStorage.removeItem(FEED_SESSION_KEY);
+      } catch {}
+
       setCurrentUser(normalized);
 
-      setUsers((prev) => {
+      setUsers(prev => {
         const arr = safeArray(prev);
-        const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
-        if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+        const exists = arr.some(x => Number(x.id) === Number(normalized.id));
+        if (exists) return arr.map(x => (Number(x.id) === Number(normalized.id) ? normalized : x));
         return [normalized, ...arr];
       });
 
@@ -737,6 +903,12 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
+
+    // New guest session seed
+    try {
+      sessionStorage.removeItem(FEED_SESSION_KEY);
+    } catch {}
+
     setCurrentUser(null);
     setSelectedUserId(null);
     setView('home');
@@ -818,7 +990,7 @@ export default function App() {
           if (media_type.startsWith('video/')) return 'video';
           if (media_type.startsWith('audio/')) return 'audio';
           return meta?.type || 'text';
-        })()
+        })(),
       };
 
       const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
@@ -828,12 +1000,15 @@ export default function App() {
 
       const normalized = normalizePost(newPostRaw);
 
-      setPosts((prev) => {
+      setPosts(prev => {
         const next = [normalized, ...safeArray(prev)];
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
         return next;
       });
+
+      // Mark created post as "seen" to prevent weird reorder
+      pushSeenIds([Number((normalized as any).id)]);
 
       setShowCreatePostModal(false);
       scheduleSilentRefresh();
@@ -845,7 +1020,7 @@ export default function App() {
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
 
-      setPosts((prev) => {
+      setPosts(prev => {
         const next = safeArray(prev).map((p: any) => {
           if (Number(p.id) !== Number(postId)) return p;
 
@@ -876,7 +1051,7 @@ export default function App() {
     async (postId: number) => {
       if (!requireAuth('Sharing')) return;
 
-      setPosts((prev) => {
+      setPosts(prev => {
         const next = safeArray(prev).map((p: any) =>
           Number(p.id) === Number(postId) ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) : p
         );
@@ -894,44 +1069,48 @@ export default function App() {
     [requireAuth, scheduleSilentRefresh]
   );
 
-  const handleOpenShareSheet = useCallback((post: any) => {
-    if (!currentUser) {
-      setLoginError('Please login to share posts.');
-      setView('login');
-      return;
-    }
-    setActiveSharePost(post);
-    setShowShareSheet(true);
-  }, [currentUser]);
-
-  const handleShareComplete = useCallback(async (destination: string, data?: any) => {
-    if (data?.success && activeSharePost) {
-      setPosts((prev) => {
-        const next = safeArray(prev).map((p: any) =>
-          Number(p.id) === Number(activeSharePost.id) 
-            ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) 
-            : p
-        );
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
-
-      try {
-        await apiFetch(`/api/posts/${activeSharePost.id}/share`, { 
-          method: 'POST',
-          body: JSON.stringify({ destination })
-        });
-      } catch (error) {
-        console.error('Failed to record share:', error);
+  const handleOpenShareSheet = useCallback(
+    (post: any) => {
+      if (!currentUser) {
+        setLoginError('Please login to share posts.');
+        setView('login');
+        return;
       }
-    }
+      setActiveSharePost(post);
+      setShowShareSheet(true);
+    },
+    [currentUser]
+  );
 
-    setShareInProgress(false);
-    setActiveSharePost(null);
-    setShowShareSheet(false);
-    scheduleSilentRefresh();
-  }, [activeSharePost, scheduleSilentRefresh]);
+  const handleShareComplete = useCallback(
+    async (destination: string, data?: any) => {
+      if (data?.success && activeSharePost) {
+        setPosts(prev => {
+          const next = safeArray(prev).map((p: any) =>
+            Number(p.id) === Number(activeSharePost.id) ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) : p
+          );
+          lastGoodPostsRef.current = next;
+          stableFeedRef.current = next;
+          return next;
+        });
+
+        try {
+          await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
+            method: 'POST',
+            body: JSON.stringify({ destination }),
+          });
+        } catch (error) {
+          console.error('Failed to record share:', error);
+        }
+      }
+
+      setShareInProgress(false);
+      setActiveSharePost(null);
+      setShowShareSheet(false);
+      scheduleSilentRefresh();
+    },
+    [activeSharePost, scheduleSilentRefresh]
+  );
 
   const onOpenComments = (postId: number) => {
     if (!requireAuth('Commenting')) return;
@@ -939,7 +1118,7 @@ export default function App() {
     const pid = Number(postId);
     setActiveCommentsPostId(pid);
 
-    const found = posts.find((p) => Number(p.id) === pid) || null;
+    const found = posts.find(p => Number((p as any).id) === pid) || null;
     setCommentPostSnapshot(found);
   };
 
@@ -948,8 +1127,8 @@ export default function App() {
       if (!requireAuth('Deleting posts')) return;
 
       const prev = posts;
-      setPosts((p) => {
-        const next = safeArray(p).filter((x) => Number(x.id) !== Number(postId));
+      setPosts(p => {
+        const next = safeArray(p).filter(x => Number((x as any).id) !== Number(postId));
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
         return next;
@@ -973,10 +1152,8 @@ export default function App() {
       if (!trimmed) return;
 
       const prev = posts;
-      setPosts((p) => {
-        const next = safeArray(p).map((x: any) =>
-          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
-        );
+      setPosts(p => {
+        const next = safeArray(p).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x));
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
         return next;
@@ -999,10 +1176,10 @@ export default function App() {
       if (!currentUser) return;
       if (Number(targetUserId) === Number(currentUser.id)) return;
 
-      setUsers((prev) => {
+      setUsers(prev => {
         const arr = safeArray(prev).map(normalizeUser);
-        const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
-        const target = arr.find((u) => Number(u.id) === Number(targetUserId));
+        const me = arr.find(u => Number(u.id) === Number(currentUser.id));
+        const target = arr.find(u => Number(u.id) === Number(targetUserId));
         if (!me || !target) return arr;
 
         const meFollowers = new Set<number>(safeArray<number>((me as any).followers));
@@ -1018,7 +1195,7 @@ export default function App() {
           targetFollowers.add(currentUser.id);
         }
 
-        return arr.map((u) => {
+        return arr.map(u => {
           if (Number(u.id) === Number(me.id)) return normalizeUser({ ...u, followers: Array.from(meFollowers) });
           if (Number(u.id) === Number(target.id)) return normalizeUser({ ...u, followers: Array.from(targetFollowers) });
           return u;
@@ -1058,7 +1235,7 @@ export default function App() {
       setCurrentUser(merged);
       localStorage.setItem(LS_USER_KEY, JSON.stringify(merged));
 
-      setUsers((prev) => safeArray(prev).map((u) => (Number(u.id) === Number(merged.id) ? merged : u)));
+      setUsers(prev => safeArray(prev).map(u => (Number(u.id) === Number(merged.id) ? merged : u)));
     },
     [requireAuth, currentUser]
   );
@@ -1094,18 +1271,17 @@ export default function App() {
   );
 
   /** ---------- Helper function to get post author ---------- */
-  const getPostAuthor = useCallback((post: PostType) => {
-    const author = users.find((u) => Number(u.id) === Number((post as any).user_id));
-    
-    if (author) return author;
-    
-    // Fallback for posts without matching user
-    return createFallbackUser();
-  }, [users]);
+  const getPostAuthor = useCallback(
+    (post: PostType) => {
+      const author = users.find(u => Number(u.id) === Number((post as any).user_id));
+      if (author) return author;
+      return createFallbackUser();
+    },
+    [users]
+  );
 
   /** ---------- Render ---------- */
   const isLoading = false;
-
   if (isLoading) return <ProfessionalLoader />;
 
   return (
@@ -1131,7 +1307,7 @@ export default function App() {
           <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
             <Sidebar
               currentUser={currentUser}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
               onReelsClick={() => handleNavigate('reels')}
               onMarketplaceClick={() => handleNavigate('marketplace')}
               onGroupsClick={() => handleNavigate('groups')}
@@ -1144,12 +1320,12 @@ export default function App() {
             <div className="w-full pt-4 md:px-8 pb-10">
               <StoryReel
                 stories={stories}
-                onProfileClick={(id) => openProfile(id)}
+                onProfileClick={id => openProfile(id)}
                 onCreateStory={() => {
                   if (!requireAuth('Creating stories')) return;
                   setShowCreateStoryModal(true);
                 }}
-                onViewStory={(s) => setActiveStory(s)}
+                onViewStory={s => setActiveStory(s)}
                 currentUser={currentUser}
                 onRequestLogin={() => setView('login')}
               />
@@ -1157,7 +1333,7 @@ export default function App() {
               {currentUser && (
                 <CreatePost
                   currentUser={currentUser}
-                  onProfileClick={(id) => openProfile(id)}
+                  onProfileClick={id => openProfile(id)}
                   onClick={() => {
                     if (!requireAuth('Creating posts')) return;
                     setShowCreatePostModal(true);
@@ -1176,14 +1352,14 @@ export default function App() {
 
               {/* Facebook-like feed display */}
               {rankedPosts.length > 0 ? (
-                rankedPosts.map((post) => (
+                rankedPosts.map(post => (
                   <Post
                     key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
                     post={post}
                     author={getPostAuthor(post)}
                     currentUser={currentUser}
                     users={users}
-                    onProfileClick={(id) => openProfile(id)}
+                    onProfileClick={id => openProfile(id)}
                     onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
                     onShare={(postId: number) => handleOpenShareSheet(post)}
                     onViewImage={setFullScreenImage}
@@ -1199,15 +1375,11 @@ export default function App() {
                   />
                 ))
               ) : !feedHydrated ? (
-                // Show nothing during first fetch
                 <div className="text-center py-20 text-[#B0B3B8]"></div>
               ) : (
-                // Only show "No posts" after feed is hydrated and truly empty
                 <div className="text-center py-20 text-[#B0B3B8]">
                   <p>No posts available.</p>
-                  {!currentUser && (
-                    <p className="mt-2 text-sm">Sign in to see posts from your network.</p>
-                  )}
+                  {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
                 </div>
               )}
             </div>
@@ -1218,7 +1390,7 @@ export default function App() {
               reels={reels}
               users={users}
               currentUser={currentUser}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
               onCreateReelClick={() => {
                 if (!requireAuth('Creating reels')) return;
                 setShowCreateReelModal(true);
@@ -1227,7 +1399,7 @@ export default function App() {
               onComment={() => requireAuth('Commenting')}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onFollow={(id: number) => followUser(id)}
-              getCommentAuthor={(id) => users.find((u) => u.id === id)}
+              getCommentAuthor={id => users.find(u => u.id === id)}
               initialReelId={activeReelId}
             />
           )}
@@ -1255,7 +1427,7 @@ export default function App() {
               onPostToGroup={() => requireAuth('Posting')}
               onCreateGroupEvent={() => requireAuth('Creating events')}
               onInviteToGroup={() => requireAuth('Inviting')}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
               onLikePost={() => requireAuth('Liking')}
               onOpenComments={() => requireAuth('Commenting')}
               onSharePost={(post: any) => handleOpenShareSheet(post)}
@@ -1274,7 +1446,7 @@ export default function App() {
               users={users}
               onCreateBrand={() => requireAuth('Creating brands')}
               onFollowBrand={() => requireAuth('Following')}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
               onPostAsBrand={() => requireAuth('Posting')}
               onReact={() => requireAuth('Reacting')}
               onShare={(post: any) => handleOpenShareSheet(post)}
@@ -1282,7 +1454,7 @@ export default function App() {
                 if (!requireAuth('Commenting')) return;
                 const pid = Number(id);
                 setActiveCommentsPostId(pid);
-                const found = posts.find((p) => Number(p.id) === pid) || null;
+                const found = posts.find(p => Number((p as any).id) === pid) || null;
                 setCommentPostSnapshot(found);
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
@@ -1294,7 +1466,7 @@ export default function App() {
             <MusicSystem
               currentUser={currentUser}
               onPlayTrack={setCurrentAudioTrack}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
               likedTracks={[]}
               onToggleLike={() => requireAuth('Liking')}
               playHistory={[]}
@@ -1308,7 +1480,7 @@ export default function App() {
               currentUser={currentUser as any}
               users={users}
               onFollow={(id: number) => followUser(id)}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
             />
           )}
 
@@ -1321,7 +1493,7 @@ export default function App() {
                 if (!requireAuth('Creating events')) return;
                 setShowCreateEventModal(true);
               }}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
             />
           )}
 
@@ -1329,11 +1501,11 @@ export default function App() {
             <BirthdaysPage
               currentUser={currentUser as any}
               users={users}
-              onMessage={(id) => {
+              onMessage={id => {
                 if (!requireAuth('Messaging')) return;
-                setActiveChatUser(users.find((u) => u.id === id) || null);
+                setActiveChatUser(users.find(u => u.id === id) || null);
               }}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
             />
           )}
 
@@ -1342,19 +1514,17 @@ export default function App() {
               currentUser={currentUser}
               posts={posts}
               users={users}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
               onReact={() => requireAuth('Reacting')}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onViewImage={setFullScreenImage}
-              onOpenComments={(id) => onOpenComments(id)}
+              onOpenComments={id => onOpenComments(id)}
               onVideoClick={() => {}}
               onPlayAudioTrack={setCurrentAudioTrack}
             />
           )}
 
-          {view === 'settings' && currentUser && (
-            <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
-          )}
+          {view === 'settings' && currentUser && <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />}
 
           {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
           {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
@@ -1367,14 +1537,14 @@ export default function App() {
               users={users}
               posts={posts}
               reels={reels}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={id => openProfile(id)}
               onFollow={(id: number) => followUser(id)}
               onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
               onComment={() => requireAuth('Commenting')}
               onShare={(post: any) => handleOpenShareSheet(post)}
-              onMessage={(id) => {
+              onMessage={id => {
                 if (!requireAuth('Messaging')) return;
-                setActiveChatUser(users.find((u) => u.id === id) || null);
+                setActiveChatUser(users.find(u => u.id === id) || null);
               }}
               onCreatePost={createPost as any}
               onUpdateProfileImage={updateProfileImage as any}
@@ -1382,10 +1552,10 @@ export default function App() {
               onUpdateUserDetails={updateUserDetails as any}
               onDeletePost={(postId: number) => deletePost(postId)}
               onEditPost={(postId: number, content: string) => editPost(postId, content)}
-              getCommentAuthor={(id) => users.find((u) => u.id === id)}
+              getCommentAuthor={id => users.find(u => u.id === id)}
               onViewImage={setFullScreenImage}
-              onOpenComments={(postId) => onOpenComments(postId)}
-              onVideoClick={(p) => {
+              onOpenComments={postId => onOpenComments(postId)}
+              onVideoClick={p => {
                 setActiveReelId((p as any).id);
                 setView('reels');
               }}
@@ -1408,98 +1578,7 @@ export default function App() {
 
         {currentUser && (
           <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
-            <RightSidebar
-              contacts={users.filter((u) => u.id !== currentUser.id)}
-              onProfileClick={(id) => openProfile(id)}
-            />
+            <RightSidebar contacts={users.filter(u => u.id !== currentUser.id)} onProfileClick={id => openProfile(id)} />
           </div>
         )}
       </div>
-
-      {/* Modals / Overlays */}
-      {activeProduct && (
-        <ProductDetailModal
-          product={activeProduct}
-          currentUser={currentUser}
-          onClose={() => setActiveProduct(null)}
-          onMessage={(id) => {
-            if (!requireAuth('Messaging')) return;
-            setActiveChatUser(users.find((u) => u.id === id) || null);
-            setView('home');
-          }}
-        />
-      )}
-
-      {showCreateEventModal && currentUser && (
-        <CreateEventModal currentUser={currentUser} onClose={() => setShowCreateEventModal(false)} onCreate={() => {}} />
-      )}
-
-      {showCreatePostModal && currentUser && (
-        <CreatePostModal
-          currentUser={currentUser}
-          users={users}
-          onClose={() => setShowCreatePostModal(false)}
-          onCreatePost={(text: string, file: File | null, meta?: any) => createPost(text, file, meta)}
-        />
-      )}
-
-      {activePost && currentUser && (
-        <CommentsSheet
-          post={activePost}
-          currentUser={currentUser}
-          users={users}
-          onClose={() => {
-            setActiveCommentsPostId(null);
-            setCommentPostSnapshot(null);
-          }}
-          onComment={() => {}}
-          onLikeComment={() => {}}
-          getCommentAuthor={(id) => users.find((u) => u.id === id)}
-          onProfileClick={(id) => openProfile(id)}
-        />
-      )}
-
-      {/* Share Bottom Sheet */}
-      {activeSharePost && (
-        <ShareBottomSheet
-          isOpen={showShareSheet}
-          onClose={() => {
-            setShowShareSheet(false);
-            setActiveSharePost(null);
-          }}
-          post={activeSharePost}
-          currentUser={currentUser}
-          users={users}
-          groups={groups}
-          brands={brands}
-          chats={chats}
-          onShareComplete={handleShareComplete}
-        />
-      )}
-
-      {currentAudioTrack && (
-        <GlobalAudioPlayer
-          currentTrack={currentAudioTrack}
-          isPlaying={isAudioPlaying}
-          onTogglePlay={() => setIsAudioPlaying(!isAudioPlaying)}
-          onNext={() => {}}
-          onPrevious={() => {}}
-          onClose={() => setCurrentAudioTrack(null)}
-          onDownload={() => {}}
-          onLike={() => requireAuth('Liking')}
-          isLiked={false}
-        />
-      )}
-
-      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
-
-      {showCreateStoryModal && currentUser && (
-        <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
-      )}
-
-      {showCreateReelModal && currentUser && (
-        <CreateReelModal currentUser={currentUser} onClose={() => setShowCreateReelModal(false)} onCreate={() => {}} />
-      )}
-    </div>
-  );
-}
