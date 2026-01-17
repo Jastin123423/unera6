@@ -13,6 +13,48 @@ const safeNumber = (v: any, fallback = 0) => {
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
+/**
+ * ✅ ADDED: Robust media type detection for Cloudflare R2
+ */
+const getMediaTypeInfo = (post: any) => {
+  const mediaUrl = String(post?.media_url || '');
+  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
+  const typeRaw = String(post?.type || '').toLowerCase();
+
+  // Extract file extension from URL (ignoring query params and fragments)
+  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
+  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
+
+  // Check if it's an image
+  const isImage =
+    typeRaw === 'image' ||
+    mediaTypeRaw === 'image' ||
+    mediaTypeRaw.startsWith('image/') ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
+
+  // Check if it's a video
+  const isVideo =
+    typeRaw === 'video' ||
+    mediaTypeRaw === 'video' ||
+    mediaTypeRaw.startsWith('video/') ||
+    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
+
+  // Check if it's audio
+  const isAudio =
+    typeRaw === 'audio' ||
+    mediaTypeRaw.startsWith('audio/') ||
+    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
+
+  return {
+    mediaUrl,
+    isImage,
+    isVideo,
+    isAudio,
+    extension: ext,
+    mimeType: mediaTypeRaw,
+  };
+};
+
 interface EditProfileModalProps {
   user: User;
   onClose: () => void;
@@ -363,21 +405,40 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Photos</h2>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1">
               {userPosts
-                .filter((p: any) => (p as any)?.type === 'image' && (p as any)?.media_url)
-                .map((p: any) => (
-                  <div
-                    key={p.id}
-                    className="aspect-square cursor-pointer overflow-hidden relative group"
-                    onClick={() => p.media_url && onViewImage(p.media_url)}
-                  >
-                    <img
-                      src={p.media_url}
-                      alt=""
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    />
-                  </div>
-                ))}
+                .filter((p: any) => {
+                  const mediaInfo = getMediaTypeInfo(p);
+                  return mediaInfo.isImage && mediaInfo.mediaUrl && mediaInfo.mediaUrl.trim() !== '';
+                })
+                .map((p: any) => {
+                  const mediaInfo = getMediaTypeInfo(p);
+                  return (
+                    <div
+                      key={p.id}
+                      className="aspect-square cursor-pointer overflow-hidden relative group"
+                      onClick={() => mediaInfo.mediaUrl && onViewImage(mediaInfo.mediaUrl)}
+                    >
+                      <img
+                        src={mediaInfo.mediaUrl}
+                        alt=""
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        onError={(e) => {
+                          console.error('Failed to load photo in UserProfile:', mediaInfo.mediaUrl);
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  );
+                })}
             </div>
+            {userPosts.filter((p: any) => {
+              const mediaInfo = getMediaTypeInfo(p);
+              return mediaInfo.isImage && mediaInfo.mediaUrl && mediaInfo.mediaUrl.trim() !== '';
+            }).length === 0 && (
+              <div className="text-center py-8">
+                <i className="fas fa-images text-[#B0B3B8] text-4xl mb-4"></i>
+                <p className="text-[#B0B3B8]">No photos available</p>
+              </div>
+            )}
           </div>
         );
 
