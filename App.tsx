@@ -437,6 +437,13 @@ export default function App() {
     usersRef.current = users;
   }, [users]);
 
+  // ✅ FIX 6: Posts ref for stable access
+  const postsRef = useRef<PostType[]>([]);
+  useEffect(() => { postsRef.current = posts; }, [posts]);
+
+  // ✅ STEP 1: Pending composer posts
+  const [pendingComposerPosts, setPendingComposerPosts] = useState<PostType[]>([]);
+
   const [loginError, setLoginError] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [activeReelId, setActiveReelId] = useState<number | null>(null);
@@ -460,12 +467,13 @@ export default function App() {
   const [shareInProgress, setShareInProgress] = useState(false);
 
   /** ---------- Facebook-like improvements ---------- */
+  // ✅ STEP 5: Fix scheduleSilentRefresh dependency
   const scheduleSilentRefresh = useCallback(() => {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
     scheduleSilentRefreshRef.current = setTimeout(() => {
       fetchPostsForHome(currentUser).catch(() => {});
     }, 8000);
-  }, [currentUser]);
+  }, [currentUser, fetchPostsForHome]);
 
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
@@ -536,8 +544,36 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
           
+          // ✅ STEP 3: Clear pending composer posts if server now contains them
+          setPendingComposerPosts((prev) => {
+            const arr = safeArray(prev);
+            if (!arr.length) return arr;
+
+            const serverKeys = new Set(
+              normalized.map((p: any) => `${safeNumber(p.user_id)}|${safeString(p.content)}|${safeString(p.media_url)}`)
+            );
+
+            const now = Date.now();
+
+            return arr.filter((p: any) => {
+              const created = p?.created_at ? new Date(p.created_at as any).getTime() : now;
+              const ageMs = Math.abs(now - created);
+
+              const key = `${safeNumber(p.user_id)}|${safeString(p.content)}|${safeString(p.media_url)}`;
+
+              // if server has it, remove it
+              if (serverKeys.has(key)) return false;
+
+              // don't keep forever
+              if (ageMs > 2 * 60 * 1000) return false;
+
+              return true;
+            });
+          });
+
           // ✅ FIX C: Detect new posts and buffer them if user is active
-          const prevIds = new Set((stableFeedRef.current.length ? stableFeedRef.current : posts).map(p => Number(p.id)));
+          // ✅ FIX 6: Use postsRef.current instead of posts
+          const prevIds = new Set((stableFeedRef.current.length ? stableFeedRef.current : postsRef.current).map(p => Number(p.id)));
           const newOnes = normalized.filter(p => !prevIds.has(Number(p.id)));
 
           const now = Date.now();
@@ -874,30 +910,19 @@ export default function App() {
 
       const normalized = normalizePost(newPostRaw);
 
-      // ✅ FIX A: Add with a temporary flag and let it appear in next refresh
-      setPosts((prev) => {
-        const arr = safeArray(prev);
-        // Add with __pending flag at position 0 (Facebook shows it temporarily at top)
-        const pendingPost = { ...normalized, __pending: true, __localId: Date.now() };
-        const next = [pendingPost, ...arr];
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        
-        // ✅ FIX 4: Update rankedCache after new post
-        setRankedCache((prevRank) => {
-          const base = next;
-          return rankFeed(base as any, currentUser as any, usersRef.current as any) as any;
-        });
-        
-        return next;
-      });
+      // ✅ STEP 2: Add to pending composer posts (Facebook-like)
+      const pendingPost = {
+        ...normalized,
+        __pending: true,
+        __localId: Date.now(),
+      } as any;
 
+      // ✅ Show instantly, but in a separate "publishing" area (no feed reorder)
+      setPendingComposerPosts((prev) => [pendingPost, ...safeArray(prev)].slice(0, 3));
+
+      // ✅ Update ranked cache ONLY if you want it included (we do NOT include it)
       setShowCreatePostModal(false);
-      
-      // Mark interaction to prevent immediate refresh
       markInteraction();
-      
-      // Schedule silent refresh to sync with server
       scheduleSilentRefresh();
     },
     [currentUser, requireAuth, scheduleSilentRefresh, markInteraction]
@@ -1281,6 +1306,48 @@ export default function App() {
                   onViewProduct={setActiveProduct}
                   onSeeAll={() => handleNavigate('marketplace')}
                 />
+              )}
+
+              {/* ✅ STEP 4: Publishing area (Facebook-like) */}
+              {pendingComposerPosts.length > 0 && (
+                <div className="space-y-3 mb-3">
+                  {pendingComposerPosts.map((p: any) => (
+                    <div
+                      key={p.__localId || p.id}
+                      className="bg-[#242526] rounded-xl p-4 border border-[#3A3B3C]"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="text-[#E4E6EB] text-sm font-semibold">
+                          Posting...
+                        </div>
+                        <div className="text-[#B0B3B8] text-xs">
+                          Please wait
+                        </div>
+                      </div>
+
+                      {p.content ? (
+                        <div className="mt-2 text-[#E4E6EB] whitespace-pre-wrap">
+                          {p.content}
+                        </div>
+                      ) : null}
+
+                      {p.media_url ? (
+                        <div className="mt-3">
+                          {/* simple preview */}
+                          {String(p.media_type || '').startsWith('video/') ? (
+                            <video src={p.media_url} className="w-full rounded-lg" muted playsInline />
+                          ) : (
+                            <img src={p.media_url} className="w-full rounded-lg" alt="" />
+                          )}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-3 h-1 w-full bg-[#3A3B3C] rounded-full overflow-hidden">
+                        <div className="h-full w-1/2 bg-[#1877F2] animate-pulse" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
 
               {/* Facebook-like feed display */}
