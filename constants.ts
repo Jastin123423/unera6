@@ -197,40 +197,103 @@ export const GIF_CATEGORIES = {
 
 export const MOCK_GIFS = Object.values(GIF_CATEGORIES).flat();
 
-// COMPLETELY CLEANED: NO FAKE USERS AT ALL
-// All users should come from API only
+// REMOVED: Fake "UNERA Official" account
 export const INITIAL_USERS: User[] = [
-    // NO FAKE USERS - Empty array
-    // All users should be fetched from /api/users
+    // REMOVED: Fake official platform account
+    {
+        id: 2,
+        username: 'johndoe',
+        name: 'John Doe',
+        email: 'john@example.com',
+        profile_image_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
+        followers: [],
+        following: [],
+        is_online: true,
+        location: 'Nairobi, Kenya',
+        bio: 'Tech enthusiast and traveler.'
+    },
+    {
+        id: 3,
+        username: 'sarahj',
+        name: 'Sarah Johnson',
+        email: 'sarah@example.com',
+        profile_image_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
+        followers: [],
+        following: [],
+        is_online: false,
+        location: 'Kampala, Uganda',
+        bio: 'Digital Artist & Creative Soul.'
+    }
 ];
 
-// COMPLETELY CLEANED: NO FAKE GROUPS
+// REMOVED: Fake "UNERA Developers" group
 export const INITIAL_GROUPS: Group[] = [
-    // NO FAKE GROUPS - Empty array
-    // All groups should be fetched from /api/groups
+    // No fake groups - let real users create their own
 ];
 
-// COMPLETELY CLEANED: NO FAKE BRANDS
+// REMOVED: Fake "Unera Music" brand
 export const INITIAL_BRANDS: Brand[] = [
-    // NO FAKE BRANDS - Empty array
-    // All brands should be fetched from /api/brands
+    // No fake brands - let real users create their own
 ];
 
-// COMPLETELY CLEANED: NO FAKE EVENTS
 export const INITIAL_EVENTS: Event[] = [
-    // NO FAKE EVENTS - Empty array
-    // All events should be fetched from /api/events
+    // Events should be created by real users, not seeded as fake
 ];
 
-// COMPLETELY CLEANED: NO FAKE SONGS/ALBUMS/PODCASTS
-// These should be fetched from actual APIs
-export const MOCK_SONGS: Song[] = [];
+export const MOCK_SONGS: Song[] = [
+    {
+        id: 1,
+        uploader_id: 2, // Changed from fake admin to real user (John Doe)
+        title: 'Sunrise Over Arusha',
+        artist_name: 'Bongo Flava King',
+        cover_image_url: 'https://images.unsplash.com/photo-1514525253440-b393452e8d26?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
+        audio_url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+        duration_seconds: 245,
+        genre: 'Bongo Flava',
+        created_at: new Date().toISOString(),
+        stats: { plays: 1250, downloads: 450, shares: 120, likes: 800, reels_use: 45 }
+    }
+];
 
-export const MOCK_ALBUMS: Album[] = [];
+export const MOCK_ALBUMS: Album[] = [
+    {
+        id: 'a1',
+        title: 'African Rhythm',
+        artist: 'Various Artists',
+        cover: 'https://images.unsplash.com/photo-1459749411177-042180ce673c?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
+        year: '2025',
+        songs: ['1']
+    }
+];
 
-export const MOCK_PODCASTS: any[] = [];
+export const MOCK_PODCASTS: any[] = [
+    {
+        id: 1,
+        creator_id: 2, // Changed from fake admin to real user
+        title: 'The Tech Savanna',
+        host: 'Tech Guru',
+        cover_url: 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
+        description: 'Discussing the future of tech in Africa.',
+        category: 'Technology',
+        followers: 450,
+        created_at: new Date().toISOString()
+    }
+];
 
-export const MOCK_EPISODES: Episode[] = [];
+export const MOCK_EPISODES: Episode[] = [
+    {
+        id: 1,
+        podcast_id: 1,
+        uploader_id: 2, // Changed from fake admin to real user
+        title: 'Episode 1: The Rise of AI in Lagos',
+        description: 'We dive deep into the silicon savanna of Nigeria.',
+        created_at: new Date().toISOString(),
+        duration_seconds: 1800,
+        audio_url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+        cover_image_url: 'https://images.unsplash.com/photo-1478737270239-2fccd27ee086?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
+        stats: { plays: 320, downloads: 85, shares: 12, likes: 90, reels_use: 0 }
+    }
+];
 
 export const TRANSLATIONS: Record<string, any> = {
     en: {
