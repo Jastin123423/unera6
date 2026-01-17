@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONALLY FIXED VERSION (No Fake Data)
+// App.tsx - PROFESSIONALLY FIXED VERSION (With Initials Profile Pictures)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -49,6 +49,51 @@ const safeNumber = (v: any, fallback = 0) => {
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
 /**
+ * Generate initials from a name for UNERA profile pictures
+ */
+const generateInitials = (name: string): string => {
+  if (!name || typeof name !== 'string') return 'UN';
+  
+  // Remove extra spaces and split into words
+  const words = name.trim().split(/\s+/).filter(word => word.length > 0);
+  
+  if (words.length === 0) return 'UN';
+  
+  if (words.length === 1) {
+    // Single word: take first 2 letters or repeat first letter
+    const word = words[0];
+    if (word.length >= 2) {
+      return word.substring(0, 2).toUpperCase();
+    } else {
+      return (word.charAt(0) + word.charAt(0)).toUpperCase();
+    }
+  }
+  
+  // Multiple words: take first letter of first two words
+  const firstInitial = words[0].charAt(0).toUpperCase();
+  const secondInitial = words[1].charAt(0).toUpperCase();
+  return firstInitial + secondInitial;
+};
+
+/**
+ * Generate UNERA-style profile picture URL with initials
+ */
+const generateProfilePictureUrl = (name: string): string => {
+  const initials = generateInitials(name);
+  
+  // UNERA style: Blue background (#1877F2), white text, rounded
+  const backgroundColor = '1877F2'; // Facebook blue
+  const textColor = 'FFFFFF'; // White
+  const fontSize = 40;
+  const size = 200;
+  const isBold = true;
+  const rounded = true;
+  const length = 2;
+  
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=${isBold}&rounded=${rounded}&length=${length}`;
+};
+
+/**
  * Normalize raw D1 rows to UI-safe PostType shape.
  */
 const normalizePost = (p: any): PostType => {
@@ -84,19 +129,32 @@ const normalizePost = (p: any): PostType => {
 };
 
 /**
- * Normalize user data
+ * Normalize user data with UNERA-style profile pictures
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
+  const userName = safeString(u?.name, safeString(u?.username, 'User'));
+  const userUsername = safeString(u?.username, safeString(u?.name, 'user'));
+  
+  // If profile image is empty or default, generate UNERA-style initials picture
+  const existingProfileImage = u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '';
+  let profileImageUrl = existingProfileImage;
+  
+  if (!profileImageUrl || 
+      profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
+      profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
+      profileImageUrl.trim() === '') {
+    profileImageUrl = generateProfilePictureUrl(userName);
+  }
 
   return {
     ...u,
     id: resolvedId,
-    name: safeString(u?.name, safeString(u?.username, 'User')),
-    username: safeString(u?.username, safeString(u?.name, 'user')),
+    name: userName,
+    username: userUsername,
     followers: safeArray<number>(u?.followers),
     following: safeArray<number>(u?.following),
-    profile_image_url: u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '',
+    profile_image_url: profileImageUrl,
     cover_image_url: u?.cover_image_url ?? u?.coverImage ?? '',
     is_verified: Boolean(u?.is_verified ?? u?.isVerified),
     role: u?.role ?? 'user',
@@ -232,10 +290,13 @@ const normalizeFeedRowToPost = (row: any): PostType => {
 };
 
 const authorFromFeedRow = (row: any): User => {
+  const username = row?.username ?? 'user';
+  const name = row?.username ?? 'User';
+  
   return normalizeUser({
     id: row?.user_id,
-    username: row?.username ?? 'user',
-    name: row?.username ?? 'User',
+    username: username,
+    name: name,
     profile_image_url: row?.profile_image_url ?? '',
     is_verified: row?.is_verified ?? 0,
     role: row?.role ?? 'user',
@@ -273,22 +334,25 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
 };
 
 // Minimal fallback user for UI stability
-const createFallbackUser = (): User => ({
-  id: 0,
-  username: 'user',
-  name: 'User',
-  email: '',
-  profile_image_url: 'https://ui-avatars.com/api/?name=User',
-  cover_image_url: '',
-  followers: [],
-  following: [],
-  is_verified: false,
-  role: 'user',
-  is_online: false,
-  location: '',
-  bio: '',
-  created_at: null
-});
+const createFallbackUser = (): User => {
+  const fallbackName = 'User';
+  return {
+    id: 0,
+    username: 'user',
+    name: fallbackName,
+    email: '',
+    profile_image_url: generateProfilePictureUrl(fallbackName),
+    cover_image_url: '',
+    followers: [],
+    following: [],
+    is_verified: false,
+    role: 'user',
+    is_online: false,
+    location: '',
+    bio: '',
+    created_at: null
+  };
+};
 
 export default function App() {
   useLanguage();
@@ -372,9 +436,9 @@ export default function App() {
     try {
       const u = await apiFetch('/api/users').catch(() => []);
       const arr = safeArray(u).map(normalizeUser);
-      setUsers(arr); // Set whatever comes from API
+      setUsers(arr);
     } catch {
-      setUsers([]); // Empty array on error
+      setUsers([]);
     }
   }, []);
 
@@ -983,7 +1047,7 @@ export default function App() {
   }, [users]);
 
   /** ---------- Render ---------- */
-  const isLoading = false; // Removed loader logic as requested
+  const isLoading = false;
 
   if (isLoading) return <ProfessionalLoader />;
 
