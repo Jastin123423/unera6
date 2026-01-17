@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONALLY UPDATED VERSION
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -39,10 +39,6 @@ import {
   Brand,
 } from './types';
 import { INITIAL_USERS } from './constants';
-import { rankFeed } from './utils/ranking';
-
-/** ---------- TEMP: Force loader off forever (keeps component in code) ---------- */
-const FORCE_LOADER_OFF_FOREVER = true;
 
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
@@ -77,7 +73,6 @@ const normalizePost = (p: any): PostType => {
     views: safeNumber(p?.views),
 
     visibility: p?.visibility ?? 'public',
-    // IMPORTANT FIX: Use media_type to determine type for proper display
     type: p?.type ?? (() => {
       if (!mediaType) return 'post';
       if (mediaType.startsWith('image/')) return 'image';
@@ -259,6 +254,37 @@ const authorFromFeedRow = (row: any): User => {
   });
 };
 
+// ✅ Facebook-like feed merging utility
+const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
+  const map = new Map<number, PostType>();
+  
+  // Add all previous posts
+  prev.forEach(p => map.set(Number(p.id), p));
+  
+  // Update with incoming data, preserving user interactions
+  incoming.forEach(p => {
+    const existing = map.get(Number(p.id));
+    if (existing) {
+      // Keep user's reactions, shares, comments from existing post
+      map.set(Number(p.id), { 
+        ...existing, 
+        ...p,
+        reactions: existing.reactions, // Keep user's reactions
+        shares: Math.max(existing.shares || 0, p.shares || 0), // Keep higher share count
+        comments_count: Math.max(existing.comments_count || 0, p.comments_count || 0) // Keep higher comment count
+      });
+    } else {
+      map.set(Number(p.id), p);
+    }
+  });
+
+  // Keep old order, only add truly new items to the top
+  const prevIds = new Set(prev.map(p => Number(p.id)));
+  const newOnes = incoming.filter(p => !prevIds.has(Number(p.id)));
+  
+  return [...newOnes, ...prev.map(p => map.get(Number(p.id))!).filter(Boolean)];
+};
+
 export default function App() {
   useLanguage();
 
@@ -277,11 +303,18 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
 
-  // ✅ Add posts loading state
-  const [isPostsLoading, setIsPostsLoading] = useState(true);
+  // ✅ FACEBOOK-LIKE IMPROVEMENTS
+  const [feedHydrated, setFeedHydrated] = useState(false);
+  const [isFeedRefreshing, setIsFeedRefreshing] = useState(false); // internal only
 
-  // ✅ Force loader off forever (Option B)
-  const [isLoading, setIsLoading] = useState(false);
+  // ✅ Keep last good posts so polling can't wipe feed to empty
+  const lastGoodPostsRef = useRef<PostType[]>([]);
+  // ✅ Snapshot for comments so CommentsSheet never goes blank if feed refreshes
+  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
+  // ✅ Schedule silent refresh after interactions
+  const scheduleSilentRefreshRef = useRef<any>(null);
+  // ✅ Stable feed reference for merging
+  const stableFeedRef = useRef<PostType[]>([]);
 
   const [loginError, setLoginError] = useState('');
 
@@ -307,11 +340,13 @@ export default function App() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
 
-  // ✅ Keep last good posts so polling can't wipe feed to empty
-  const lastGoodPostsRef = useRef<PostType[]>([]);
-
-  // ✅ Snapshot for comments so CommentsSheet never goes blank if feed refreshes
-  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
+  /** ---------- Facebook-like improvements ---------- */
+  const scheduleSilentRefresh = useCallback(() => {
+    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
+    scheduleSilentRefreshRef.current = setTimeout(() => {
+      fetchPostsForHome(currentUser).catch(() => {});
+    }, 8000); // Refresh 8 seconds after interaction
+  }, [currentUser]);
 
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
@@ -345,15 +380,15 @@ export default function App() {
   }, []);
 
   /**
-   * ✅ Fetch posts for homepage
-   * ✅ FIX: never replace a good feed with empty results from a poll
+   * ✅ Fetch posts for homepage - FACEBOOK-LIKE IMPROVEMENTS
+   * ✅ Never show loading, never replace feed with empty
    */
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
+      // ✅ Internal refresh flag (not shown to user)
+      setIsFeedRefreshing(true);
+      
       try {
-        // ✅ Set loading state
-        setIsPostsLoading(true);
-        
         if (viewer?.id) {
           const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
           const rows = safeArray<any>(data?.feed);
@@ -366,7 +401,7 @@ export default function App() {
             return;
           }
 
-          // merge authors into users list
+          // Merge authors into users list
           setUsers((prev) => {
             const map = new Map<number, User>();
             safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
@@ -385,8 +420,19 @@ export default function App() {
           });
 
           const normalized = rows.map(normalizeFeedRowToPost);
-          setPosts(normalized);
-          lastGoodPostsRef.current = normalized;
+          
+          // ✅ FACEBOOK-LIKE: Use stable merging instead of replacement
+          setPosts(prev => {
+            const next = mergeFeed(prev, normalized);
+            stableFeedRef.current = next;
+            lastGoodPostsRef.current = next;
+            return next;
+          });
+
+          // Mark feed as hydrated after first successful load
+          if (!feedHydrated) {
+            setFeedHydrated(true);
+          }
 
           // ✅ keep snapshot updated if comments open
           if (activeCommentsPostId != null) {
@@ -400,13 +446,16 @@ export default function App() {
         const p = await apiFetch('/api/posts');
         const normalized = safeArray(p).map(normalizePost);
 
+        // ✅ FACEBOOK-LIKE: Use stable merging
         if (normalized.length) {
-          setPosts(normalized);
-          lastGoodPostsRef.current = normalized;
+          setPosts(prev => {
+            const next = mergeFeed(prev, normalized);
+            lastGoodPostsRef.current = next;
+            return next;
+          });
         } else if (lastGoodPostsRef.current.length) {
+          // Keep existing posts if API returns empty
           setPosts(lastGoodPostsRef.current);
-        } else {
-          setPosts([]);
         }
 
         if (activeCommentsPostId != null) {
@@ -419,11 +468,11 @@ export default function App() {
           setPosts(lastGoodPostsRef.current);
         }
       } finally {
-        // ✅ Clear loading state
-        setIsPostsLoading(false);
+        // ✅ Clear internal refresh flag
+        setIsFeedRefreshing(false);
       }
     },
-    [activeCommentsPostId]
+    [activeCommentsPostId, feedHydrated]
   );
 
   /**
@@ -454,12 +503,7 @@ export default function App() {
    */
   const fetchData = useCallback(
     async (viewer: User | null) => {
-      try {
-        await Promise.all([fetchUsersList(), fetchPostsForHome(viewer), fetchOtherData()]);
-      } finally {
-        // Loader is forced off; still keep state for future
-        setTimeout(() => setIsLoading(false), 300);
-      }
+      await Promise.all([fetchUsersList(), fetchPostsForHome(viewer), fetchOtherData()]);
     },
     [fetchUsersList, fetchPostsForHome, fetchOtherData]
   );
@@ -498,21 +542,37 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchData]);
 
-  /** ---------- Poll feed (light) ---------- */
+  /** ---------- Smart Polling (Facebook-style) ---------- */
   useEffect(() => {
     // ✅ Pause polling while comments are open (prevents blank/disappear while reading)
     if (activeCommentsPostId != null) return;
+    
+    // ✅ Don't poll if tab is hidden
+    if (document.visibilityState !== "visible") return;
 
-    const t = setInterval(() => {
-      fetchPostsForHome(currentUser).catch(() => {});
-    }, 15000);
-    return () => clearInterval(t);
+    let stopped = false;
+
+    const tick = async () => {
+      if (stopped) return;
+      if (document.visibilityState !== "visible") return;
+      if (activeCommentsPostId != null) return;
+      
+      await fetchPostsForHome(currentUser).catch(() => {});
+    };
+
+    const t = setInterval(tick, 30000); // ✅ slower like FB (30s)
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
   }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
 
   /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
-    return Array.isArray(posts) ? rankFeed(posts, currentUser, users) : [];
-  }, [posts, currentUser, users]);
+    // ✅ Use stable feed reference for ranking to prevent reshuffling
+    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : posts;
+    return Array.isArray(feedToRank) ? feedToRank : [];
+  }, [posts]);
 
   const activePost = useMemo(() => {
     // ✅ FIX: allow id=0 and prevent falsy bug
@@ -619,12 +679,12 @@ export default function App() {
       let media_url: string | null = null;
       let media_type: string | null = null;
 
-      // ✅ FIXED: Upload file to Cloudflare R2 if exists - IMPORTANT: Get full MIME type
+      // ✅ FIXED: Upload file to Cloudflare R2 if exists
       if (file) {
         try {
           const uploadResult = await uploadToCloudflareR2(file);
           media_url = uploadResult.url;
-          media_type = uploadResult.type; // ✅ This is the CRITICAL fix: preserve full MIME type like "image/jpeg"
+          media_type = uploadResult.type; // ✅ Preserve full MIME type like "image/jpeg"
         } catch (error: any) {
           setLoginError(`Failed to upload file: ${error.message}`);
           return;
@@ -635,14 +695,13 @@ export default function App() {
         user_id: currentUser!.id,
         content: trimmed,
         media_url,
-        media_type, // ✅ Now contains full MIME type like "image/jpeg" or "video/mp4"
+        media_type, // ✅ Now contains full MIME type
         visibility: meta?.visibility ?? 'public',
         location: meta?.location,
         feeling: meta?.feeling,
         tagged_users: meta?.taggedUsers,
         background: meta?.background,
         link_preview: meta?.linkPreview,
-        // ✅ Also set type based on MIME type for backward compatibility
         type: (() => {
           if (!media_type) return meta?.type || 'text';
           if (media_type.startsWith('image/')) return 'image';
@@ -660,23 +719,27 @@ export default function App() {
 
       const normalized = normalizePost(newPostRaw);
 
+      // ✅ Optimistic update - post appears immediately
       setPosts((prev) => {
         const next = [normalized, ...safeArray(prev)];
         lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
         return next;
       });
 
       setShowCreatePostModal(false);
 
-      fetchPostsForHome(currentUser).catch(() => {});
+      // ✅ Schedule silent refresh instead of immediate fetch
+      scheduleSilentRefresh();
     },
-    [currentUser, requireAuth, fetchPostsForHome]
+    [currentUser, requireAuth, scheduleSilentRefresh]
   );
 
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
 
+      // ✅ Optimistic update - reaction appears immediately
       setPosts((prev) => {
         const next = safeArray(prev).map((p: any) => {
           if (Number(p.id) !== Number(postId)) return p;
@@ -691,37 +754,42 @@ export default function App() {
         });
 
         lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
         return next;
       });
 
       try {
         await apiFetch(`/api/posts/${postId}/react`, { method: 'POST', body: JSON.stringify({ type }) });
       } catch {
-        fetchPostsForHome(currentUser).catch(() => {});
+        // ✅ Schedule silent refresh instead of immediate fetch
+        scheduleSilentRefresh();
       }
     },
-    [currentUser, requireAuth, fetchPostsForHome]
+    [currentUser, requireAuth, scheduleSilentRefresh]
   );
 
   const onSharePost = useCallback(
     async (postId: number) => {
       if (!requireAuth('Sharing')) return;
 
+      // ✅ Optimistic update - share count updates immediately
       setPosts((prev) => {
         const next = safeArray(prev).map((p: any) =>
           Number(p.id) === Number(postId) ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) : p
         );
         lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
         return next;
       });
 
       try {
         await apiFetch(`/api/posts/${postId}/share`, { method: 'POST' });
       } catch {
-        fetchPostsForHome(currentUser).catch(() => {});
+        // ✅ Schedule silent refresh instead of immediate fetch
+        scheduleSilentRefresh();
       }
     },
-    [requireAuth, fetchPostsForHome, currentUser]
+    [requireAuth, scheduleSilentRefresh]
   );
 
   // Handle share action from Post component
@@ -746,6 +814,7 @@ export default function App() {
             : p
         );
         lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
         return next;
       });
 
@@ -763,7 +832,10 @@ export default function App() {
     setShareInProgress(false);
     setActiveSharePost(null);
     setShowShareSheet(false);
-  }, [activeSharePost]);
+    
+    // ✅ Schedule silent refresh instead of immediate fetch
+    scheduleSilentRefresh();
+  }, [activeSharePost, scheduleSilentRefresh]);
 
   const onOpenComments = (postId: number) => {
     if (!requireAuth('Commenting')) return;
@@ -784,6 +856,7 @@ export default function App() {
       setPosts((p) => {
         const next = safeArray(p).filter((x) => Number(x.id) !== Number(postId));
         lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
         return next;
       });
 
@@ -792,6 +865,7 @@ export default function App() {
       } catch {
         setPosts(prev);
         lastGoodPostsRef.current = prev;
+        stableFeedRef.current = prev;
       }
     },
     [requireAuth, posts]
@@ -809,6 +883,7 @@ export default function App() {
           Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
         );
         lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
         return next;
       });
 
@@ -817,6 +892,7 @@ export default function App() {
       } catch {
         setPosts(prev);
         lastGoodPostsRef.current = prev;
+        stableFeedRef.current = prev;
       }
     },
     [requireAuth, posts]
@@ -864,12 +940,14 @@ export default function App() {
           });
         });
 
-        fetchPostsForHome(currentUser).catch(() => {});
+        // ✅ Schedule silent refresh instead of immediate fetch
+        scheduleSilentRefresh();
       } catch {
-        fetchPostsForHome(currentUser).catch(() => {});
+        // ✅ Schedule silent refresh instead of immediate fetch
+        scheduleSilentRefresh();
       }
     },
-    [requireAuth, currentUser, fetchPostsForHome]
+    [requireAuth, currentUser, scheduleSilentRefresh]
   );
 
   const updateUserDetails = useCallback(
@@ -923,8 +1001,6 @@ export default function App() {
   );
 
   /** ---------- Render ---------- */
-  if (!FORCE_LOADER_OFF_FOREVER && isLoading) return <ProfessionalLoader />;
-
   const profileUser =
     (selectedUserId ? users.find((u) => Number(u.id) === Number(selectedUserId)) : null) || currentUser || users[0];
 
@@ -994,10 +1070,8 @@ export default function App() {
                 />
               )}
 
-              {/* ✅ Add loading state for posts */}
-              {isPostsLoading ? (
-                <div className="text-center py-20 text-[#B0B3B8]">Loading posts…</div>
-              ) : rankedPosts.length > 0 ? (
+              {/* ✅ FACEBOOK-LIKE FEED DISPLAY: No loading states, never empty while fetching */}
+              {rankedPosts.length > 0 ? (
                 rankedPosts.map((post) => (
                   <Post
                     // ✅ fallback key prevents blank feed when id is missing/0
@@ -1025,7 +1099,13 @@ export default function App() {
                     chats={chats}
                   />
                 ))
+              ) : !feedHydrated ? (
+                // ✅ Show nothing or skeleton during first fetch (NOT loading text)
+                <div className="text-center py-20 text-[#B0B3B8]">
+                  {/* Facebook shows nothing during initial load */}
+                </div>
               ) : (
+                // ✅ Only show "No posts" after feed is hydrated and truly empty
                 <div className="text-center py-20 text-[#B0B3B8]">
                   <p>No posts available.</p>
                 </div>
