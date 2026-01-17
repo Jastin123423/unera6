@@ -84,7 +84,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const binds: any[] = [];
 
     // visibility: keep it simple; adjust if you have privacy rules
-    where.push(`p.visibility = 'public'`);
+    where.push(`(p.visibility IS NULL OR p.visibility = 'public')`);
+
 
     // cursor: older-than
     if (cursor && typeof cursor === 'string' && cursor.trim().length > 0) {
