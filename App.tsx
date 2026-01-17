@@ -68,15 +68,14 @@ const normalizePost = (p: any): PostType => {
     views: safeNumber(p?.views),
 
     visibility: p?.visibility ?? 'public',
-    type:
-      p?.type ??
-      (mediaType
-        ? String(mediaType).includes('image')
-          ? 'image'
-          : String(mediaType).includes('video')
-          ? 'video'
-          : 'post'
-        : 'post'),
+    // IMPORTANT FIX: Use media_type to determine type for proper display
+    type: p?.type ?? (() => {
+      if (!mediaType) return 'post';
+      if (mediaType.startsWith('image/')) return 'image';
+      if (mediaType.startsWith('video/')) return 'video';
+      if (mediaType.startsWith('audio/')) return 'audio';
+      return 'post';
+    })(),
     created_at: p?.created_at ?? new Date().toISOString(),
   } as any;
 };
@@ -154,17 +153,19 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 };
 
 /**
- * Upload file to Cloudflare R2
+ * ✅ FIXED: Upload file to Cloudflare R2 - returns both URL and MIME type
  */
-const uploadToCloudflareR2 = async (file: File): Promise<string> => {
+const uploadToCloudflareR2 = async (file: File): Promise<{url: string, type: string, filename: string}> => {
   try {
     // Create FormData with the file
     const formData = new FormData();
     formData.append('file', file);
     
-    // Optional: add metadata
+    // Add metadata - IMPORTANT for proper file handling
     formData.append('filename', file.name);
     formData.append('type', file.type);
+    formData.append('folder', 'posts');
+    formData.append('timestamp', Date.now().toString());
     
     // Call the upload API endpoint
     const response = await fetch('/api/upload', {
@@ -183,7 +184,12 @@ const uploadToCloudflareR2 = async (file: File): Promise<string> => {
       throw new Error('No URL returned from upload');
     }
     
-    return result.url;
+    // ✅ Return URL AND the original MIME type
+    return {
+      url: result.url,
+      type: file.type, // Keep original MIME type
+      filename: file.name
+    };
   } catch (error) {
     console.error('Upload failed:', error);
     throw error;
@@ -469,9 +475,6 @@ export default function App() {
       }
 
       await fetchData(viewer);
-
-      // ✅ 2.2 REMOVED: This bug was overwriting lastGoodPosts with empty posts array
-      // The setTimeout was causing the bug - now removed completely
     };
 
     init();
@@ -599,11 +602,12 @@ export default function App() {
       let media_url: string | null = null;
       let media_type: string | null = null;
 
-      // Upload file to Cloudflare R2 if exists
+      // ✅ FIXED: Upload file to Cloudflare R2 if exists - IMPORTANT: Get full MIME type
       if (file) {
         try {
-          media_url = await uploadToCloudflareR2(file);
-          media_type = file.type || null;
+          const uploadResult = await uploadToCloudflareR2(file);
+          media_url = uploadResult.url;
+          media_type = uploadResult.type; // ✅ This is the CRITICAL fix: preserve full MIME type like "image/jpeg"
         } catch (error: any) {
           setLoginError(`Failed to upload file: ${error.message}`);
           return;
@@ -614,13 +618,21 @@ export default function App() {
         user_id: currentUser!.id,
         content: trimmed,
         media_url,
-        media_type,
+        media_type, // ✅ Now contains full MIME type like "image/jpeg" or "video/mp4"
         visibility: meta?.visibility ?? 'public',
         location: meta?.location,
         feeling: meta?.feeling,
         tagged_users: meta?.taggedUsers,
         background: meta?.background,
         link_preview: meta?.linkPreview,
+        // ✅ Also set type based on MIME type for backward compatibility
+        type: (() => {
+          if (!media_type) return meta?.type || 'text';
+          if (media_type.startsWith('image/')) return 'image';
+          if (media_type.startsWith('video/')) return 'video';
+          if (media_type.startsWith('audio/')) return 'audio';
+          return meta?.type || 'text';
+        })()
       };
 
       const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
@@ -828,8 +840,8 @@ export default function App() {
       if (!currentUser) return;
 
       try {
-        const url = await uploadToCloudflareR2(file);
-        await updateUserDetails({ profile_image_url: url } as any);
+        const uploadResult = await uploadToCloudflareR2(file);
+        await updateUserDetails({ profile_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload profile image: ${error.message}`);
       }
@@ -843,8 +855,8 @@ export default function App() {
       if (!currentUser) return;
 
       try {
-        const url = await uploadToCloudflareR2(file);
-        await updateUserDetails({ cover_image_url: url } as any);
+        const uploadResult = await uploadToCloudflareR2(file);
+        await updateUserDetails({ cover_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload cover image: ${error.message}`);
       }
