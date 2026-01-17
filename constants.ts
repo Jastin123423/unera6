@@ -200,30 +200,7 @@ export const MOCK_GIFS = Object.values(GIF_CATEGORIES).flat();
 // REMOVED: Fake "UNERA Official" account
 export const INITIAL_USERS: User[] = [
     // REMOVED: Fake official platform account
-    {
-        id: 2,
-        username: 'johndoe',
-        name: 'John Doe',
-        email: 'john@example.com',
-        profile_image_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
-        followers: [],
-        following: [],
-        is_online: true,
-        location: 'Nairobi, Kenya',
-        bio: 'Tech enthusiast and traveler.'
-    },
-    {
-        id: 3,
-        username: 'sarahj',
-        name: 'Sarah Johnson',
-        email: 'sarah@example.com',
-        profile_image_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
-        followers: [],
-        following: [],
-        is_online: false,
-        location: 'Kampala, Uganda',
-        bio: 'Digital Artist & Creative Soul.'
-    }
+    
 ];
 
 // REMOVED: Fake "UNERA Developers" group
