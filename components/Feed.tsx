@@ -1,4 +1,4 @@
-// Feed.tsx - COMPLETE PROFESSIONAL VERSION
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -370,17 +370,13 @@ export const ReactionButton: React.FC<{
  * =========================
  * ✅ FIXED: ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
  * =========================
- * This function properly detects media types from:
- * 1. Full MIME types (image/jpeg, video/mp4)
- * 2. Simple types (image, video)
- * 3. File extensions from URL
  */
 const getMediaTypeInfo = (post: any) => {
   const mediaUrl = String(post?.media_url || '');
   const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
   const typeRaw = String(post?.type || '').toLowerCase();
 
-  // Extract file extension from URL (ignoring query params and fragments)
+  // Extract file extension from URL
   const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
   const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
 
@@ -924,9 +920,13 @@ export const Post: React.FC<{
   const reactions = Array.isArray(p.reactions) ? p.reactions : [];
   const comments = Array.isArray(p.comments) ? p.comments : [];
   
-  const [commentCount, setCommentCount] = useState(
-    typeof p.comment_count === 'number' ? p.comment_count : comments.length
-  );
+  // ✅ FIXED: Proper comment count handling
+  const [commentCount, setCommentCount] = useState(() => {
+    // Use comment_count if available, otherwise count actual comments
+    if (typeof p.comment_count === 'number') return p.comment_count;
+    if (Array.isArray(p.comments)) return p.comments.length;
+    return 0;
+  });
 
   const [showShareSheet, setShowShareSheet] = useState(false);
 
@@ -949,12 +949,18 @@ export const Post: React.FC<{
     return count.toString();
   };
 
+  // ✅ Sync comment count with post updates
   useEffect(() => {
-    const newCount = typeof p.comment_count === 'number' ? p.comment_count : comments.length;
+    const newCount = typeof p.comment_count === 'number' 
+      ? p.comment_count 
+      : Array.isArray(p.comments) 
+        ? p.comments.length 
+        : 0;
+    
     if (newCount !== commentCount) {
       setCommentCount(newCount);
     }
-  }, [p.comment_count, comments.length]);
+  }, [p.comment_count, p.comments, commentCount]);
 
   const handleShareComplete = (destination: string, data?: any) => {
     if (data?.success) {
@@ -1006,15 +1012,6 @@ export const Post: React.FC<{
                   <>
                     <span>•</span>
                     <span>feeling {p.feeling}</span>
-                  </>
-                )}
-                {p.__pending && (
-                  <>
-                    <span>•</span>
-                    <span className="text-[#B0B3B8]">
-                      <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
-                      posting…
-                    </span>
                   </>
                 )}
               </div>
@@ -1151,16 +1148,22 @@ export const Post: React.FC<{
         <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
           <div className="flex items-center gap-1.5">
             {reactions.length > 0 && (
-              <span className="hover:underline">{reactions.length} Reactions</span>
+              <span className="hover:underline">{formatCommentCount(reactions.length)} Reactions</span>
             )}
           </div>
           <div className="flex gap-4">
+            {/* ✅ FIXED: Comment count shows both inside and outside comments panel */}
             <span
               className="hover:underline cursor-pointer"
               onClick={() => onOpenComments(Number(postId))}
             >
               {formatCommentCount(commentCount)} Comments
             </span>
+            {p.shares > 0 && (
+              <span className="hover:underline">
+                {formatCommentCount(p.shares)} Shares
+              </span>
+            )}
           </div>
         </div>
 
@@ -1273,7 +1276,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * CREATE POST MODAL (WORKING)
+ * CREATE POST MODAL
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -1735,7 +1738,7 @@ export const CreatePostModal: React.FC<{
   );
 };
 
-// Global comments cache (shared across all CommentsSheet instances)
+// Global comments cache
 const commentsCache = new Map<number, { 
   data: any[], 
   timestamp: number,
@@ -1744,12 +1747,8 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ COMMENTS SHEET (FACEBOOK-LIKE BEHAVIOR - NO LOADERS)
+ * ✅ COMMENTS SHEET (FACEBOOK-LIKE BEHAVIOR)
  * =========================
- * - NO loading spinners or "sending..." indicators
- * - Comments appear immediately when panel opens (from cache)
- * - Users can comment immediately without waiting
- * - All counts update instantly
  */
 export const CommentsSheet: React.FC<{
   post: PostType;
@@ -1768,7 +1767,6 @@ export const CommentsSheet: React.FC<{
   const [comments, setComments] = useState<any[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   
-  // ✅ Enhanced resolveAuthor function with proper fallback handling
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
 
@@ -1793,7 +1791,6 @@ export const CommentsSheet: React.FC<{
     return { uid, name, image };
   };
 
-  // Format comment count display (1 comment, 1k comments, etc.)
   const formatCommentCount = (count: number): string => {
     if (count >= 1000000) {
       return `${(count / 1000000).toFixed(1)}M`;
@@ -1830,7 +1827,6 @@ export const CommentsSheet: React.FC<{
     initializeComments();
     
     return () => {
-      // Cleanup abort controller on unmount
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -1839,7 +1835,6 @@ export const CommentsSheet: React.FC<{
 
   // Silent background fetch - NO VISUAL INDICATOR
   const fetchCommentsSilently = async () => {
-    // Cancel any pending request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -1850,7 +1845,6 @@ export const CommentsSheet: React.FC<{
       const data = await apiFetch(`/api/posts/${postId}/comments`);
       const arr = Array.isArray(data) ? data : data?.comments || [];
       
-      // Update cache and state if we got new data
       if (arr.length > 0) {
         setComments(arr);
         commentsCache.set(postId, { 
@@ -1861,10 +1855,9 @@ export const CommentsSheet: React.FC<{
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        return; // Request was cancelled, ignore
+        return;
       }
       console.debug('Silent comment fetch failed:', error);
-      // Silently fail - user won't notice
     }
   };
 
@@ -1879,7 +1872,6 @@ export const CommentsSheet: React.FC<{
       user_id: safeUserId(currentUser),
       text: t,
       created_at: new Date().toISOString(),
-      // NO __pending flag - appears immediately like Facebook
     };
 
     setText('');
@@ -1887,7 +1879,6 @@ export const CommentsSheet: React.FC<{
     // IMMEDIATE optimistic update (Facebook-style)
     setComments(prev => {
       const next = [...prev, optimisticComment];
-      // Update cache immediately
       commentsCache.set(postId, { 
         data: next, 
         timestamp: Date.now(),
@@ -1896,12 +1887,11 @@ export const CommentsSheet: React.FC<{
       return next;
     });
 
-    // Notify parent about new comment for count update
     if (onComment) {
       onComment(postId, t);
     }
 
-    // Silent background POST (user doesn't see any loading)
+    // Silent background POST
     try {
       await apiFetch(`/api/posts/${postId}/comment`, {
         method: 'POST',
@@ -1911,19 +1901,15 @@ export const CommentsSheet: React.FC<{
         }),
       });
 
-      // Silent background refresh to sync with server
       fetchCommentsSilently();
     } catch (err: any) {
       console.error('Failed to post comment:', err);
-      // Silently fail - comment stays visible (Facebook behavior)
-      // In a real app, you might show a subtle retry option
     }
   };
 
   // Refresh comments when sheet is focused
   useEffect(() => {
     const handleFocus = () => {
-      // Silent refresh if cache is older than 30 seconds
       const cached = commentsCache.get(postId);
       if (cached && (Date.now() - cached.timestamp > 30000)) {
         fetchCommentsSilently();
