@@ -1,5 +1,4 @@
-
-
+// App.tsx - PROFESSIONALLY FIXED VERSION (No Fake Data)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -39,8 +38,7 @@ import {
   Group,
   Brand,
 } from './types';
-import { INITIAL_USERS } from './constants';
-import { rankFeed } from './utils/ranking'; // Import the ranking function
+import { rankFeed } from './utils/ranking';
 
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
@@ -52,7 +50,6 @@ const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallb
 
 /**
  * Normalize raw D1 rows to UI-safe PostType shape.
- * ✅ accepts id OR post_id (and common variants)
  */
 const normalizePost = (p: any): PostType => {
   const mediaType = p?.media_type ?? p?.mediaType ?? null;
@@ -87,9 +84,7 @@ const normalizePost = (p: any): PostType => {
 };
 
 /**
- * ✅ Normalize user:
- * - Accepts id OR user_id OR userId
- * - Prevents wrong profile opening
+ * Normalize user data
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
@@ -119,9 +114,8 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
 
-  // ✅ Add timeout to stop 6-minute hangs
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
 
   try {
     const res = await fetch(url, { 
@@ -159,21 +153,17 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 };
 
 /**
- * ✅ FIXED: Upload file to Cloudflare R2 - returns both URL and MIME type
+ * Upload file to Cloudflare R2
  */
 const uploadToCloudflareR2 = async (file: File): Promise<{url: string, type: string, filename: string}> => {
   try {
-    // Create FormData with the file
     const formData = new FormData();
     formData.append('file', file);
-    
-    // Add metadata - IMPORTANT for proper file handling
     formData.append('filename', file.name);
     formData.append('type', file.type);
     formData.append('folder', 'posts');
     formData.append('timestamp', Date.now().toString());
     
-    // Call the upload API endpoint
     const response = await fetch('/api/upload', {
       method: 'POST',
       body: formData,
@@ -190,10 +180,9 @@ const uploadToCloudflareR2 = async (file: File): Promise<{url: string, type: str
       throw new Error('No URL returned from upload');
     }
     
-    // ✅ Return URL AND the original MIME type
     return {
       url: result.url,
-      type: file.type, // Keep original MIME type
+      type: file.type,
       filename: file.name
     };
   } catch (error) {
@@ -225,7 +214,7 @@ type View =
 const LS_USER_KEY = 'user';
 
 /**
- * ✅ Normalize FEED rows returned by /api/feeds
+ * Normalize FEED rows returned by /api/feeds
  */
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -256,42 +245,56 @@ const authorFromFeedRow = (row: any): User => {
   });
 };
 
-// ✅ Facebook-like feed merging utility
+// Facebook-like feed merging utility
 const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
   const map = new Map<number, PostType>();
   
-  // Add all previous posts
   prev.forEach(p => map.set(Number(p.id), p));
   
-  // Update with incoming data, preserving user interactions
   incoming.forEach(p => {
     const existing = map.get(Number(p.id));
     if (existing) {
-      // Keep user's reactions, shares, comments from existing post
       map.set(Number(p.id), { 
         ...existing, 
         ...p,
-        reactions: existing.reactions, // Keep user's reactions
-        shares: Math.max(existing.shares || 0, p.shares || 0), // Keep higher share count
-        comments_count: Math.max(existing.comments_count || 0, p.comments_count || 0) // Keep higher comment count
+        reactions: existing.reactions,
+        shares: Math.max(existing.shares || 0, p.shares || 0),
+        comments_count: Math.max(existing.comments_count || 0, p.comments_count || 0)
       });
     } else {
       map.set(Number(p.id), p);
     }
   });
 
-  // Keep old order, only add truly new items to the top
   const prevIds = new Set(prev.map(p => Number(p.id)));
   const newOnes = incoming.filter(p => !prevIds.has(Number(p.id)));
   
   return [...newOnes, ...prev.map(p => map.get(Number(p.id))!).filter(Boolean)];
 };
 
+// Minimal fallback user for UI stability
+const createFallbackUser = (): User => ({
+  id: 0,
+  username: 'user',
+  name: 'User',
+  email: '',
+  profile_image_url: 'https://ui-avatars.com/api/?name=User',
+  cover_image_url: '',
+  followers: [],
+  following: [],
+  is_verified: false,
+  role: 'user',
+  is_online: false,
+  location: '',
+  bio: '',
+  created_at: null
+});
+
 export default function App() {
   useLanguage();
 
   /** ---------- State ---------- */
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS.map(normalizeUser));
+  const [users, setUsers] = useState<User[]>([]);
   const [posts, setPosts] = useState<PostType[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
@@ -305,26 +308,17 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
 
-  // ✅ FACEBOOK-LIKE IMPROVEMENTS - Feed freezing per session
-  const feedSessionSeedRef = useRef<number>(Math.floor(Math.random() * 1_000_000));
+  // Facebook-like improvements
   const [feedHydrated, setFeedHydrated] = useState(false);
-  const [isFeedRefreshing, setIsFeedRefreshing] = useState(false); // internal only
-  const [pendingPosts, setPendingPosts] = useState<PostType[]>([]);
-  const [showNewPostsPill, setShowNewPostsPill] = useState(false);
+  const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
 
-  // ✅ Keep last good posts so polling can't wipe feed to empty
+  // Refs for stable data
   const lastGoodPostsRef = useRef<PostType[]>([]);
-  // ✅ Snapshot for comments so CommentsSheet never goes blank if feed refreshes
   const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
-  // ✅ Schedule silent refresh after interactions
   const scheduleSilentRefreshRef = useRef<any>(null);
-  // ✅ Stable feed reference for merging
   const stableFeedRef = useRef<PostType[]>([]);
-  // ✅ Ranked posts reference for stable ordering
-  const rankedPostsRef = useRef<PostType[]>([]);
 
   const [loginError, setLoginError] = useState('');
-
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [activeReelId, setActiveReelId] = useState<number | null>(null);
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
@@ -342,40 +336,16 @@ export default function App() {
   const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
-  // Share states
   const [activeSharePost, setActiveSharePost] = useState<any>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
-
-  /** ---------- Apply ranking with session seed ---------- */
-  const applyAndRank = useCallback((basePosts: PostType[]) => {
-    if (!basePosts.length) {
-      rankedPostsRef.current = [];
-      return;
-    }
-    
-    try {
-      const ranked = rankFeed(
-        basePosts,
-        currentUser,
-        users,
-        feedSessionSeedRef.current
-      ) as PostType[];
-      
-      rankedPostsRef.current = ranked;
-    } catch (error) {
-      console.error('Ranking failed:', error);
-      // Fallback to original order
-      rankedPostsRef.current = [...basePosts];
-    }
-  }, [currentUser, users]);
 
   /** ---------- Facebook-like improvements ---------- */
   const scheduleSilentRefresh = useCallback(() => {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
     scheduleSilentRefreshRef.current = setTimeout(() => {
       fetchPostsForHome(currentUser).catch(() => {});
-    }, 8000); // Refresh 8 seconds after interaction
+    }, 8000);
   }, [currentUser]);
 
   /** ---------- Auth gate ---------- */
@@ -396,37 +366,30 @@ export default function App() {
   }, []);
 
   /**
-   * ✅ Fetch users list
+   * Fetch users list - NO FAKE DATA
    */
   const fetchUsersList = useCallback(async () => {
     try {
       const u = await apiFetch('/api/users').catch(() => []);
       const arr = safeArray(u).map(normalizeUser);
-      if (arr.length) setUsers(arr);
-      else setUsers(INITIAL_USERS.map(normalizeUser));
+      setUsers(arr); // Set whatever comes from API
     } catch {
-      setUsers(INITIAL_USERS.map(normalizeUser));
+      setUsers([]); // Empty array on error
     }
   }, []);
 
   /**
-   * ✅ Fetch posts for homepage - FACEBOOK-LIKE IMPROVEMENTS
-   * ✅ Never show loading, never replace feed with empty
-   * ✅ New posts go to pendingPosts, not main feed
+   * Fetch posts for homepage - Facebook-like improvements
    */
   const fetchPostsForHome = useCallback(
-    async (viewer: User | null, isSilentRefresh: boolean = false) => {
-      // ✅ Internal refresh flag (not shown to user)
-      if (!isSilentRefresh) {
-        setIsFeedRefreshing(true);
-      }
+    async (viewer: User | null) => {
+      setIsFeedRefreshing(true);
       
       try {
         if (viewer?.id) {
           const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
           const rows = safeArray<any>(data?.feed);
 
-          // ✅ If feed API returns empty, keep last good posts (prevents disappear)
           if (!rows.length) {
             if (lastGoodPostsRef.current.length) {
               setPosts(lastGoodPostsRef.current);
@@ -454,43 +417,17 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
           
-          if (!feedHydrated) {
-            // ✅ Initial feed load - apply ranking and set as current
-            setPosts(normalized);
-            lastGoodPostsRef.current = normalized;
-            stableFeedRef.current = normalized;
-            applyAndRank(normalized);
-            setFeedHydrated(true);
-          } else {
-            // ✅ Polling update - compare and add new posts to pending
-            const currentIds = new Set(lastGoodPostsRef.current.map(p => Number(p.id)));
-            const incomingNew = normalized.filter(p => !currentIds.has(Number(p.id)));
+          setPosts(prev => {
+            const next = mergeFeed(prev, normalized);
+            stableFeedRef.current = next;
+            lastGoodPostsRef.current = next;
+            return next;
+          });
 
-            if (incomingNew.length > 0) {
-              // Add new posts to pending posts, deduplicate
-              setPendingPosts(prev => {
-                const map = new Map<number, PostType>();
-                // Add incoming new posts first (most recent)
-                [...incomingNew, ...prev].forEach(p => map.set(Number(p.id), p));
-                return Array.from(map.values());
-              });
-              
-              // Show new posts notification pill
-              if (!isSilentRefresh) {
-                setShowNewPostsPill(true);
-              }
-            }
-            
-            // ✅ Update existing posts with fresh data (silently)
-            setPosts(prev => {
-              const next = mergeFeed(prev, normalized);
-              lastGoodPostsRef.current = next;
-              stableFeedRef.current = next;
-              return next;
-            });
+          if (!feedHydrated) {
+            setFeedHydrated(true);
           }
 
-          // ✅ keep snapshot updated if comments open
           if (activeCommentsPostId != null) {
             const found = normalized.find((p) => Number(p.id) === Number(activeCommentsPostId));
             if (found) setCommentPostSnapshot(found);
@@ -502,38 +439,14 @@ export default function App() {
         const p = await apiFetch('/api/posts');
         const normalized = safeArray(p).map(normalizePost);
 
-        if (!feedHydrated) {
-          // ✅ Initial load for guests
-          if (normalized.length) {
-            setPosts(normalized);
-            lastGoodPostsRef.current = normalized;
-            stableFeedRef.current = normalized;
-            applyAndRank(normalized);
-            setFeedHydrated(true);
-          }
-        } else {
-          // ✅ Polling for guests
-          const currentIds = new Set(lastGoodPostsRef.current.map(p => Number(p.id)));
-          const incomingNew = normalized.filter(p => !currentIds.has(Number(p.id)));
-
-          if (incomingNew.length > 0) {
-            setPendingPosts(prev => {
-              const map = new Map<number, PostType>();
-              [...incomingNew, ...prev].forEach(p => map.set(Number(p.id), p));
-              return Array.from(map.values());
-            });
-            
-            if (!isSilentRefresh) {
-              setShowNewPostsPill(true);
-            }
-          }
-          
+        if (normalized.length) {
           setPosts(prev => {
             const next = mergeFeed(prev, normalized);
             lastGoodPostsRef.current = next;
-            stableFeedRef.current = next;
             return next;
           });
+        } else if (lastGoodPostsRef.current.length) {
+          setPosts(lastGoodPostsRef.current);
         }
 
         if (activeCommentsPostId != null) {
@@ -541,22 +454,18 @@ export default function App() {
           if (found) setCommentPostSnapshot(found);
         }
       } catch {
-        // ✅ Keep last good feed on error
         if (lastGoodPostsRef.current.length) {
           setPosts(lastGoodPostsRef.current);
         }
       } finally {
-        // ✅ Clear internal refresh flag
-        if (!isSilentRefresh) {
-          setIsFeedRefreshing(false);
-        }
+        setIsFeedRefreshing(false);
       }
     },
-    [activeCommentsPostId, feedHydrated, applyAndRank]
+    [activeCommentsPostId, feedHydrated]
   );
 
   /**
-   * ✅ Fetch other data
+   * Fetch other data
    */
   const fetchOtherData = useCallback(async () => {
     const [s, r, pr, g, b, e, c] = await Promise.all([
@@ -579,7 +488,7 @@ export default function App() {
   }, []);
 
   /**
-   * ✅ One fetch pipeline
+   * One fetch pipeline
    */
   const fetchData = useCallback(
     async (viewer: User | null) => {
@@ -622,12 +531,9 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchData]);
 
-  /** ---------- Smart Polling (Facebook-style) ---------- */
+  /** ---------- Smart Polling ---------- */
   useEffect(() => {
-    // ✅ Pause polling while comments are open (prevents blank/disappear while reading)
     if (activeCommentsPostId != null) return;
-    
-    // ✅ Don't poll if tab is hidden
     if (document.visibilityState !== "visible") return;
 
     let stopped = false;
@@ -637,60 +543,38 @@ export default function App() {
       if (document.visibilityState !== "visible") return;
       if (activeCommentsPostId != null) return;
       
-      // ✅ Use silent refresh for polling - no UI indicators
-      await fetchPostsForHome(currentUser, true).catch(() => {});
+      await fetchPostsForHome(currentUser).catch(() => {});
     };
 
-    const t = setInterval(tick, 30000); // ✅ slower like FB (30s)
+    const t = setInterval(tick, 30000);
     return () => {
       stopped = true;
       clearInterval(t);
     };
   }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
 
-  /** ---------- Handle "New Posts" button click ---------- */
-  const handleLoadNewPosts = useCallback(() => {
-    if (pendingPosts.length === 0) {
-      setShowNewPostsPill(false);
-      return;
-    }
-
-    // Merge pending posts with current posts (deduplicate)
-    const merged = [...pendingPosts, ...lastGoodPostsRef.current];
-    const map = new Map<number, PostType>();
-    merged.forEach(p => map.set(Number(p.id), p));
-    const next = Array.from(map.values());
-
-    // Update all references
-    setPosts(next);
-    lastGoodPostsRef.current = next;
-    stableFeedRef.current = next;
-    
-    // Apply ranking to the new combined feed
-    applyAndRank(next);
-    
-    // Clear pending posts and hide pill
-    setPendingPosts([]);
-    setShowNewPostsPill(false);
-  }, [pendingPosts, applyAndRank]);
-
   /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
-    // ✅ Use ranked posts reference for stable ordering (no reshuffling on every render)
-    return rankedPostsRef.current.length > 0 ? rankedPostsRef.current : posts;
-  }, [posts]); // Still depends on posts to trigger re-render when posts change
+    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : posts;
+    return Array.isArray(feedToRank) ? feedToRank : [];
+  }, [posts]);
 
   const activePost = useMemo(() => {
-    // ✅ FIX: allow id=0 and prevent falsy bug
     if (activeCommentsPostId == null) return null;
 
-    // ✅ Prefer snapshot (stable even if posts refresh)
     if (commentPostSnapshot && Number((commentPostSnapshot as any)?.id) === Number(activeCommentsPostId)) {
       return commentPostSnapshot;
     }
 
     return posts.find((p) => Number(p.id) === Number(activeCommentsPostId)) || null;
   }, [posts, activeCommentsPostId, commentPostSnapshot]);
+
+  const profileUser = useMemo(() => {
+    if (selectedUserId) {
+      return users.find((u) => Number(u.id) === Number(selectedUserId)) || null;
+    }
+    return currentUser || null;
+  }, [selectedUserId, users, currentUser]);
 
   /** ---------- Login ---------- */
   const handleLogin = async (email: string, password: string) => {
@@ -724,11 +608,6 @@ export default function App() {
       setSelectedUserId(Number(normalized.id));
       setView('home');
 
-      // ✅ Clear old feed and start fresh on login
-      setFeedHydrated(false);
-      setPendingPosts([]);
-      setShowNewPostsPill(false);
-      rankedPostsRef.current = [];
       await fetchPostsForHome(normalized);
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
@@ -740,13 +619,6 @@ export default function App() {
     setCurrentUser(null);
     setSelectedUserId(null);
     setView('home');
-    
-    // ✅ Clear feed state on logout
-    setFeedHydrated(false);
-    setPendingPosts([]);
-    setShowNewPostsPill(false);
-    rankedPostsRef.current = [];
-    
     fetchPostsForHome(null).catch(() => {});
   };
 
@@ -797,12 +669,11 @@ export default function App() {
       let media_url: string | null = null;
       let media_type: string | null = null;
 
-      // ✅ FIXED: Upload file to Cloudflare R2 if exists
       if (file) {
         try {
           const uploadResult = await uploadToCloudflareR2(file);
           media_url = uploadResult.url;
-          media_type = uploadResult.type; // ✅ Preserve full MIME type like "image/jpeg"
+          media_type = uploadResult.type;
         } catch (error: any) {
           setLoginError(`Failed to upload file: ${error.message}`);
           return;
@@ -813,7 +684,7 @@ export default function App() {
         user_id: currentUser!.id,
         content: trimmed,
         media_url,
-        media_type, // ✅ Now contains full MIME type
+        media_type,
         visibility: meta?.visibility ?? 'public',
         location: meta?.location,
         feeling: meta?.feeling,
@@ -831,34 +702,28 @@ export default function App() {
 
       const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
 
-      // backend may return {success:true, post: {...}} or {post_id: ...}
       const newPostRaw =
         data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
 
       const normalized = normalizePost(newPostRaw);
 
-      // ✅ Optimistic update - post appears immediately
       setPosts((prev) => {
         const next = [normalized, ...safeArray(prev)];
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
-        applyAndRank(next); // ✅ Re-rank with new post included
         return next;
       });
 
       setShowCreatePostModal(false);
-
-      // ✅ Schedule silent refresh instead of immediate fetch
       scheduleSilentRefresh();
     },
-    [currentUser, requireAuth, scheduleSilentRefresh, applyAndRank]
+    [currentUser, requireAuth, scheduleSilentRefresh]
   );
 
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
 
-      // ✅ Optimistic update - reaction appears immediately
       setPosts((prev) => {
         const next = safeArray(prev).map((p: any) => {
           if (Number(p.id) !== Number(postId)) return p;
@@ -874,14 +739,12 @@ export default function App() {
 
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
-        // ✅ Don't re-rank on reaction - keep feed order stable
         return next;
       });
 
       try {
         await apiFetch(`/api/posts/${postId}/react`, { method: 'POST', body: JSON.stringify({ type }) });
       } catch {
-        // ✅ Schedule silent refresh instead of immediate fetch
         scheduleSilentRefresh();
       }
     },
@@ -892,28 +755,24 @@ export default function App() {
     async (postId: number) => {
       if (!requireAuth('Sharing')) return;
 
-      // ✅ Optimistic update - share count updates immediately
       setPosts((prev) => {
         const next = safeArray(prev).map((p: any) =>
           Number(p.id) === Number(postId) ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) : p
         );
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
-        // ✅ Don't re-rank on share - keep feed order stable
         return next;
       });
 
       try {
         await apiFetch(`/api/posts/${postId}/share`, { method: 'POST' });
       } catch {
-        // ✅ Schedule silent refresh instead of immediate fetch
         scheduleSilentRefresh();
       }
     },
     [requireAuth, scheduleSilentRefresh]
   );
 
-  // Handle share action from Post component
   const handleOpenShareSheet = useCallback((post: any) => {
     if (!currentUser) {
       setLoginError('Please login to share posts.');
@@ -924,10 +783,8 @@ export default function App() {
     setShowShareSheet(true);
   }, [currentUser]);
 
-  // Handle share completion
   const handleShareComplete = useCallback(async (destination: string, data?: any) => {
     if (data?.success && activeSharePost) {
-      // Update post share count optimistically
       setPosts((prev) => {
         const next = safeArray(prev).map((p: any) =>
           Number(p.id) === Number(activeSharePost.id) 
@@ -939,7 +796,6 @@ export default function App() {
         return next;
       });
 
-      // Call API to record share
       try {
         await apiFetch(`/api/posts/${activeSharePost.id}/share`, { 
           method: 'POST',
@@ -953,8 +809,6 @@ export default function App() {
     setShareInProgress(false);
     setActiveSharePost(null);
     setShowShareSheet(false);
-    
-    // ✅ Schedule silent refresh instead of immediate fetch
     scheduleSilentRefresh();
   }, [activeSharePost, scheduleSilentRefresh]);
 
@@ -964,7 +818,6 @@ export default function App() {
     const pid = Number(postId);
     setActiveCommentsPostId(pid);
 
-    // ✅ snapshot immediately to prevent blank if posts refresh
     const found = posts.find((p) => Number(p.id) === pid) || null;
     setCommentPostSnapshot(found);
   };
@@ -978,7 +831,6 @@ export default function App() {
         const next = safeArray(p).filter((x) => Number(x.id) !== Number(postId));
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
-        applyAndRank(next); // ✅ Re-rank after deletion
         return next;
       });
 
@@ -988,10 +840,9 @@ export default function App() {
         setPosts(prev);
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
-        applyAndRank(prev); // ✅ Restore ranking if deletion fails
       }
     },
-    [requireAuth, posts, applyAndRank]
+    [requireAuth, posts]
   );
 
   const editPost = useCallback(
@@ -1007,7 +858,6 @@ export default function App() {
         );
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
-        // ✅ Don't re-rank on edit - keep feed order stable
         return next;
       });
 
@@ -1064,10 +914,8 @@ export default function App() {
           });
         });
 
-        // ✅ Schedule silent refresh instead of immediate fetch
         scheduleSilentRefresh();
       } catch {
-        // ✅ Schedule silent refresh instead of immediate fetch
         scheduleSilentRefresh();
       }
     },
@@ -1124,9 +972,20 @@ export default function App() {
     [requireAuth, currentUser, updateUserDetails]
   );
 
+  /** ---------- Helper function to get post author ---------- */
+  const getPostAuthor = useCallback((post: PostType) => {
+    const author = users.find((u) => Number(u.id) === Number((post as any).user_id));
+    
+    if (author) return author;
+    
+    // Fallback for posts without matching user
+    return createFallbackUser();
+  }, [users]);
+
   /** ---------- Render ---------- */
-  const profileUser =
-    (selectedUserId ? users.find((u) => Number(u.id) === Number(selectedUserId)) : null) || currentUser || users[0];
+  const isLoading = false; // Removed loader logic as requested
+
+  if (isLoading) return <ProfessionalLoader />;
 
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
@@ -1194,30 +1053,13 @@ export default function App() {
                 />
               )}
 
-              {/* ✅ FACEBOOK-STYLE "NEW POSTS" BUTTON */}
-              {showNewPostsPill && pendingPosts.length > 0 && (
-                <div className="sticky top-14 z-10 flex justify-center mb-3">
-                  <button
-                    className="px-4 py-2 rounded-full bg-[#1877F2] text-white font-bold shadow hover:bg-[#166FE5] active:bg-[#1460D0] transition-colors"
-                    onClick={handleLoadNewPosts}
-                  >
-                    New posts ({pendingPosts.length})
-                  </button>
-                </div>
-              )}
-
-              {/* ✅ FACEBOOK-LIKE FEED DISPLAY: No loading states, never empty while fetching */}
+              {/* Facebook-like feed display */}
               {rankedPosts.length > 0 ? (
                 rankedPosts.map((post) => (
                   <Post
-                    // ✅ fallback key prevents blank feed when id is missing/0
                     key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
                     post={post}
-                    author={
-                      users.find((u) => Number(u.id) === Number((post as any).user_id)) ||
-                      users[0] ||
-                      INITIAL_USERS[0]
-                    }
+                    author={getPostAuthor(post)}
                     currentUser={currentUser}
                     users={users}
                     onProfileClick={(id) => openProfile(id)}
@@ -1236,14 +1078,15 @@ export default function App() {
                   />
                 ))
               ) : !feedHydrated ? (
-                // ✅ Show nothing or skeleton during first fetch (NOT loading text)
-                <div className="text-center py-20 text-[#B0B3B8]">
-                  {/* Facebook shows nothing during initial load */}
-                </div>
+                // Show nothing during first fetch
+                <div className="text-center py-20 text-[#B0B3B8]"></div>
               ) : (
-                // ✅ Only show "No posts" after feed is hydrated and truly empty
+                // Only show "No posts" after feed is hydrated and truly empty
                 <div className="text-center py-20 text-[#B0B3B8]">
                   <p>No posts available.</p>
+                  {!currentUser && (
+                    <p className="mt-2 text-sm">Sign in to see posts from your network.</p>
+                  )}
                 </div>
               )}
             </div>
@@ -1396,7 +1239,7 @@ export default function App() {
           {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
           {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
 
-          {view === 'profile' && selectedUserId && profileUser && (
+          {view === 'profile' && profileUser && (
             <UserProfile
               user={profileUser}
               currentUser={currentUser}
