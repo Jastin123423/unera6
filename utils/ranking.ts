@@ -1,4 +1,5 @@
-// utils/ranking.ts
+// utils/ranking.ts - Modified with seed parameter and fairness improvements
+
 import { Post, User } from '../types';
 
 interface ScoredPost {
@@ -53,9 +54,14 @@ const CONSTANTS = {
   NO_BACK_TO_BACK_AUTHOR: true,
 
   EXPLORE_RATIO: 0.2,
+
+  // ✅ New constants for fairness improvements
+  DISCOVERY_BOOST_MULTIPLIER: 1.25,
+  UNSEEN_AUTHOR_DAYS_THRESHOLD: 7,
+  MIN_FOLLOWER_COUNT_FOR_DISCOVERY: 200,
 };
 
-const calculatePostScore = (post: Post, viewer: User | null, author: User) => {
+const calculatePostScore = (post: Post, viewer: User | null, author: User, seed = 1) => {
   const now = Date.now();
   const postTime = post.created_at ? new Date(post.created_at as any).getTime() : now;
   const hoursSinceCreation = Math.max(0, (now - postTime) / (1000 * 60 * 60));
@@ -127,10 +133,35 @@ const calculatePostScore = (post: Post, viewer: User | null, author: User) => {
       ? CONSTANTS.SMALL_CREATOR_BOOST_TIER2
       : 1.0;
 
-  const finalBoost = newUserBoost * smallCreatorBoost;
+  // ✅ EXTRA EARLY-STAGE BOOST: Help non-followed small creators get seen
+  let discoveryBoost = 1.0;
+  if (viewer && safeNumber(viewer.id) && safeNumber(author.id)) {
+    const following = new Set<number>(safeArray<number>((viewer as any).following));
+    const authorId = safeNumber((author as any).id);
+    const viewerId = safeNumber((viewer as any).id);
+    
+    const notFollowing = authorId && !following.has(authorId) && authorId !== viewerId;
+    const isSmall = followerCount < CONSTANTS.MIN_FOLLOWER_COUNT_FOR_DISCOVERY;
 
-  const seed = safeNumber((post as any).id) * 997 + safeNumber((author as any).id) * 131;
-  const jitter = seededRand01(seed) * 0.05;
+    if (notFollowing && isSmall) {
+      discoveryBoost = CONSTANTS.DISCOVERY_BOOST_MULTIPLIER; // gentle, not spammy
+      
+      // Extra boost for very new authors (first week on platform)
+      if (daysOnPlatform <= CONSTANTS.UNSEEN_AUTHOR_DAYS_THRESHOLD) {
+        discoveryBoost *= 1.1;
+      }
+    }
+  }
+
+  const finalBoost = newUserBoost * smallCreatorBoost * discoveryBoost;
+
+  // ✅ Use session seed in jitter calculation for stable ordering
+  const jitterSeed =
+    seed +
+    safeNumber((post as any).id) * 997 +
+    safeNumber((author as any).id) * 131;
+
+  const jitter = seededRand01(jitterSeed) * 0.05;
 
   const finalScore = baseScore * finalBoost + jitter;
 
@@ -203,7 +234,15 @@ const mixExploreSlots = (scored: { post: Post; score: number }[], viewer: User |
   return out;
 };
 
-export const rankFeed = (posts: Post[], viewer: User | null, users: User[]): Post[] => {
+/**
+ * ✅ Enhanced rankFeed function with seed parameter for stable ordering
+ * @param posts - Array of posts to rank
+ * @param viewer - Current user viewing the feed
+ * @param users - Array of all users (for author info)
+ * @param seed - Session seed for stable jitter calculation (default: 1)
+ * @returns Ranked array of posts
+ */
+export const rankFeed = (posts: Post[], viewer: User | null, users: User[], seed = 1): Post[] => {
   if (!Array.isArray(posts) || posts.length === 0) return [];
 
   // ✅ CAP work for phones
@@ -230,7 +269,7 @@ export const rankFeed = (posts: Post[], viewer: User | null, users: User[]): Pos
         created_at: null,
       } as any);
 
-    const s = calculatePostScore(post, viewer, author);
+    const s = calculatePostScore(post, viewer, author, seed);
     return { post, score: s.score, debug: null };
   });
 
