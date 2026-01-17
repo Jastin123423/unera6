@@ -10,8 +10,6 @@ import {
 } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
-// Remove the incorrect import:
-// import { StickerPicker, EmojiPicker } from './Pickers';
 
 /**
  * =========================
@@ -369,7 +367,55 @@ export const ReactionButton: React.FC<{
 
 /**
  * =========================
- * POST CARD
+ * ✅ FIXED: ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
+ * =========================
+ * This function properly detects media types from:
+ * 1. Full MIME types (image/jpeg, video/mp4)
+ * 2. Simple types (image, video)
+ * 3. File extensions from URL
+ */
+const getMediaTypeInfo = (post: any) => {
+  const mediaUrl = String(post?.media_url || '');
+  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
+  const typeRaw = String(post?.type || '').toLowerCase();
+
+  // Extract file extension from URL (ignoring query params and fragments)
+  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
+  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
+
+  // Check if it's an image
+  const isImage =
+    typeRaw === 'image' ||
+    mediaTypeRaw === 'image' ||
+    mediaTypeRaw.startsWith('image/') ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
+
+  // Check if it's a video
+  const isVideo =
+    typeRaw === 'video' ||
+    mediaTypeRaw === 'video' ||
+    mediaTypeRaw.startsWith('video/') ||
+    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
+
+  // Check if it's audio
+  const isAudio =
+    typeRaw === 'audio' ||
+    mediaTypeRaw.startsWith('audio/') ||
+    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
+
+  return {
+    mediaUrl,
+    isImage,
+    isVideo,
+    isAudio,
+    extension: ext,
+    mimeType: mediaTypeRaw,
+  };
+};
+
+/**
+ * =========================
+ * POST CARD (WITH CLOUDFLARE R2 FIX)
  * =========================
  */
 export const Post: React.FC<{
@@ -419,6 +465,9 @@ export const Post: React.FC<{
 
   const createdAtLabel = formatRelativeTime(p.created_at);
   const postId = safePostId(p);
+
+  // ✅ Get media type information using robust detection
+  const mediaInfo = getMediaTypeInfo(p);
 
   // Format comment count display (1 comment, 1k comments, etc.)
   const formatCommentCount = (count: number): string => {
@@ -522,7 +571,7 @@ export const Post: React.FC<{
         </div>
       )}
 
-      {p.link_preview && !p.media_url && (
+      {p.link_preview && !mediaInfo.mediaUrl && (
         <div
           className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
           onClick={() => window.open(p.link_preview.url, '_blank')}
@@ -546,7 +595,7 @@ export const Post: React.FC<{
         </div>
       )}
 
-      {p.background && !p.media_url && (
+      {p.background && !mediaInfo.mediaUrl && (
         <div
           className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
           style={{ background: p.background, backgroundSize: 'cover' }}
@@ -555,29 +604,72 @@ export const Post: React.FC<{
         </div>
       )}
 
-      {p.media_url &&
-        (p.media_type === 'image' || p.type === 'image') &&
-        !p.background && (
-          <div
-            className="cursor-pointer bg-black"
-            onClick={() => onViewImage(p.media_url)}
-          >
-            <img
-              src={p.media_url}
-              alt=""
-              className="w-full h-auto max-h-[600px] object-contain"
-            />
-          </div>
-        )}
-
-      {p.media_url && (p.media_type === 'video' || p.type === 'video') && (
+      {/* ✅ FIXED: IMAGE BLOCK - Now works with Cloudflare R2 MIME types */}
+      {mediaInfo.mediaUrl && mediaInfo.isImage && !p.background && (
         <div
-          className="cursor-pointer relative h-[500px]"
+          className="cursor-pointer bg-black"
+          onClick={() => onViewImage(mediaInfo.mediaUrl)}
+        >
+          <img
+            src={mediaInfo.mediaUrl}
+            alt=""
+            className="w-full h-auto max-h-[600px] object-contain"
+            loading="lazy"
+            onError={(e) => {
+              console.error('Failed to load image:', mediaInfo.mediaUrl);
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        </div>
+      )}
+
+      {/* ✅ FIXED: VIDEO BLOCK - Now works with Cloudflare R2 MIME types */}
+      {mediaInfo.mediaUrl && mediaInfo.isVideo && (
+        <div
+          className="cursor-pointer relative h-[500px] bg-black"
           onClick={() => onVideoClick(post)}
         >
-          <video src={p.media_url} className="w-full h-full object-cover" />
+          <video
+            src={mediaInfo.mediaUrl}
+            className="w-full h-full object-cover"
+            preload="metadata"
+            playsInline
+            muted
+            onError={(e) => {
+              console.error('Failed to load video:', mediaInfo.mediaUrl);
+              e.currentTarget.style.display = 'none';
+            }}
+          />
           <div className="absolute inset-0 flex items-center justify-center">
             <i className="fas fa-play text-white text-4xl opacity-50"></i>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ AUDIO BLOCK - If you have audio posts */}
+      {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+        <div className="mx-3 md:mx-4 my-3 p-4 bg-[#3A3B3C] rounded-lg border border-[#3E4042]">
+          <div className="flex items-center gap-3">
+            <i className="fas fa-music text-[#1877F2] text-2xl"></i>
+            <div className="flex-1">
+              <div className="text-[#E4E6EB] font-bold">Audio Track</div>
+              <div className="text-[#B0B3B8] text-sm">
+                {p.content || 'Listen to audio'}
+              </div>
+            </div>
+            <button
+              onClick={() => onPlayAudioTrack({
+                id: postId,
+                title: p.content || 'Audio',
+                artist: a.name || 'Unknown',
+                url: mediaInfo.mediaUrl,
+                duration: 0,
+                coverImage: a.profile_image_url,
+              })}
+              className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+            >
+              <i className="fas fa-play mr-1"></i> Play
+            </button>
           </div>
         </div>
       )}
