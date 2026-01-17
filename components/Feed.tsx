@@ -1,4 +1,4 @@
-// Feed.tsx - UPDATED WITH INTEGRATED SHARE FLOWS
+// Feed.tsx - COMPLETE PROFESSIONAL VERSION
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -65,936 +65,358 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-// Helper functions
+/**
+ * =========================
+ * SMALL HELPERS
+ * =========================
+ */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+
 const safeUserId = (u: any) => safeNumber(u?.id ?? u?.user_id ?? u?.userId, 0);
 const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
 
 /**
  * =========================
- * 🟦 FLOW 1: SHARE TO UNERA FEED COMPONENT
+ * ✅ FIXED: ACCURATE RELATIVE TIME (Facebook-like)
  * =========================
  */
-export const ShareToFeedModal: React.FC<{
-  post: any;
-  currentUser: User;
-  users: User[];
-  groups?: Group[];
-  onClose: () => void;
-  onShareComplete: (success: boolean, data?: any) => void;
-}> = ({ post, currentUser, users, groups = [], onClose, onShareComplete }) => {
-  const [text, setText] = useState('');
-  const [privacy, setPrivacy] = useState<'public' | 'friends' | 'only_me'>('public');
-  const [location, setLocation] = useState('');
-  const [feeling, setFeeling] = useState('');
-  const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  const [locQuery, setLocQuery] = useState('');
-  const [locResults, setLocResults] = useState<any[]>([]);
-  const [showLocationSearch, setShowLocationSearch] = useState(false);
-  const [showTagUsers, setShowTagUsers] = useState(false);
-  const [showFeelingPicker, setShowFeelingPicker] = useState(false);
+export const formatRelativeTime = (dateInput: any): string => {
+  if (!dateInput) return 'Just now';
 
-  const FEELINGS = ['Happy', 'Blessed', 'Loved', 'Sad', 'Excited', 'Thankful', 'Crazy', 'Tired', 'Cool', 'Relaxed'];
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  const t = d.getTime();
+  if (!Number.isFinite(t)) return 'Just now';
 
-  const handleLocationSearch = async (query: string) => {
-    if (query.length < 2) {
-      setLocResults([]);
-      return;
-    }
-    try {
-      const data = await apiFetch(`/api/locations/search?q=${encodeURIComponent(query)}`);
-      setLocResults(Array.isArray(data) ? data.slice(0, 5) : []);
-    } catch {
-      setLocResults([]);
-    }
-  };
+  const now = Date.now();
+  let diffMs = now - t;
+  if (diffMs < 0) diffMs = 0;
 
-  const handleSubmit = async () => {
-    if (isSubmitting) return;
-    
-    setIsSubmitting(true);
-    try {
-      const payload = {
-        original_post_id: post.id,
-        user_id: currentUser.id,
-        text: text.trim(),
-        privacy,
-        location: location || undefined,
-        feeling: feeling || undefined,
-        tagged_users: taggedUsers.length > 0 ? taggedUsers : undefined,
-        shared_at: new Date().toISOString(),
-      };
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'Just now';
 
-      const response = await apiFetch('/api/posts/share/feed', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin === 1) return '1 min';
+  if (diffMin < 60) return `${diffMin} mins`;
 
-      onShareComplete(true, response);
-      onClose();
-    } catch (error: any) {
-      console.error('Failed to share to feed:', error);
-      onShareComplete(false, { error: error.message });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs === 1) return '1 hr';
+  if (diffHrs < 24) return `${diffHrs} hrs`;
 
-  const canPost = !isSubmitting;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays === 1) return '1 day';
+  if (diffDays < 7) return `${diffDays} days`;
 
-  if (showLocationSearch) {
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={() => setShowLocationSearch(false)}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">Add Location</h3>
-        </div>
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffWeeks === 1) return '1 week';
+  if (diffWeeks < 4) return `${diffWeeks} weeks`;
 
-        <div className="p-4 flex-1">
-          <div className="relative mb-4">
-            <input
-              type="text"
-              placeholder="Search locations..."
-              className="w-full bg-[#3A3B3C] rounded-xl p-4 text-[#E4E6EB] outline-none"
-              value={locQuery}
-              onChange={(e) => {
-                setLocQuery(e.target.value);
-                handleLocationSearch(e.target.value);
-              }}
-              autoFocus
-            />
-            <i className="fas fa-search absolute right-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
-          </div>
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths === 1) return '1 month';
+  if (diffMonths < 12) return `${diffMonths} months`;
 
-          <div className="space-y-2">
-            {locResults.map((loc, i) => (
-              <div
-                key={i}
-                className="p-3 bg-[#3A3B3C] rounded-lg cursor-pointer hover:bg-[#4E4F50]"
-                onClick={() => {
-                  setLocation(loc.name || loc.display_name);
-                  setShowLocationSearch(false);
-                }}
-              >
-                <div className="text-[#E4E6EB] font-medium">{loc.name || loc.display_name}</div>
-                {loc.address && (
-                  <div className="text-[#B0B3B8] text-sm">{loc.address}</div>
-                )}
-              </div>
-            ))}
-          </div>
+  const diffYears = Math.floor(diffDays / 365);
+  if (diffYears === 1) return '1 year';
+  return `${diffYears} years`;
+};
 
-          <div className="mt-6">
-            <div className="text-[#B0B3B8] text-sm mb-2">Recent locations</div>
-            {LOCATIONS_DATA.slice(0, 3).map((loc) => (
-              <div
-                key={loc.name}
-                className="p-3 bg-[#3A3B3C] rounded-lg cursor-pointer hover:bg-[#4E4F50] mb-2"
-                onClick={() => {
-                  setLocation(loc.name);
-                  setShowLocationSearch(false);
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="text-xl">{loc.flag}</div>
-                  <div className="text-[#E4E6EB]">{loc.name}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
+/**
+ * =========================
+ * LINK PREVIEW
+ * =========================
+ */
+const getLinkPreview = (text: string): LinkPreview | null => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const match = text.match(urlRegex);
+  if (!match?.[0]) return null;
+
+  const url = match[0];
+  let domain = '';
+  try {
+    domain = new URL(url).hostname;
+  } catch {
+    return null;
   }
 
-  if (showTagUsers) {
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={() => setShowTagUsers(false)}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">Tag People</h3>
-          <button
-            className="ml-auto text-[#1877F2] font-bold"
-            onClick={() => setShowTagUsers(false)}
-          >
-            Done
-          </button>
-        </div>
-
-        <div className="p-4 flex-1 overflow-y-auto">
-          {users
-            .filter((u: any) => safeUserId(u) !== safeUserId(currentUser))
-            .map((u: any) => (
-              <div
-                key={safeUserId(u)}
-                className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-2"
-                onClick={() => {
-                  setTaggedUsers(prev =>
-                    prev.includes(safeUserId(u))
-                      ? prev.filter(id => id !== safeUserId(u))
-                      : [...prev, safeUserId(u)]
-                  );
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <img
-                    src={u.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
-                    className="w-10 h-10 rounded-full object-cover"
-                    alt=""
-                  />
-                  <div>
-                    <div className="text-[#E4E6EB] font-medium">{u.name || u.username}</div>
-                    <div className="text-[#B0B3B8] text-sm">{taggedUsers.includes(safeUserId(u)) ? 'Tagged' : ''}</div>
-                  </div>
-                </div>
-                {taggedUsers.includes(safeUserId(u)) && (
-                  <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>
-                )}
-              </div>
-            ))}
-        </div>
-      </div>
-    );
+  if (domain.includes('youtube')) {
+    return {
+      url,
+      title: 'YouTube Video',
+      description: 'Watch this video on YouTube.',
+      image:
+        'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&w=800&q=80',
+      domain: 'youtube.com',
+    };
   }
 
-  if (showFeelingPicker) {
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={() => setShowFeelingPicker(false)}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">How are you feeling?</h3>
-        </div>
+  if (domain.includes('github')) {
+    return {
+      url,
+      title: 'GitHub Repository',
+      description: 'Open source project on GitHub.',
+      image:
+        'https://images.unsplash.com/photo-1618401471353-b98afee0b2eb?auto=format&fit=crop&w=800&q=80',
+      domain: 'github.com',
+    };
+  }
 
-        <div className="p-4 grid grid-cols-2 gap-3">
-          {FEELINGS.map((f) => (
-            <div
-              key={f}
-              className="p-4 bg-[#3A3B3C] rounded-xl text-center cursor-pointer hover:bg-[#4E4F50]"
-              onClick={() => {
-                setFeeling(f);
-                setShowFeelingPicker(false);
+  return {
+    url,
+    title: 'Website Link',
+    description: `Link from ${domain}.`,
+    image:
+      'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
+    domain,
+  };
+};
+
+const BACKGROUNDS = [
+  { id: 'none', value: '' },
+  { id: 'red', value: 'linear-gradient(45deg, #FF0057, #E64C4C)' },
+  { id: 'blue', value: 'linear-gradient(45deg, #00C6FF, #0072FF)' },
+  { id: 'green', value: 'linear-gradient(45deg, #a8ff78, #78ffd6)' },
+  { id: 'purple', value: 'linear-gradient(45deg, #e65c00, #F9D423)' },
+  {
+    id: 'heart',
+    value:
+      'url("https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=500&q=60")',
+  },
+  { id: 'dark', value: 'linear-gradient(to right, #434343 0%, black 100%)' },
+  { id: 'fire', value: 'linear-gradient(120deg, #f6d365 0%, #fda085 100%)' },
+];
+
+const FEELINGS = [
+  'Happy',
+  'Blessed',
+  'Loved',
+  'Sad',
+  'Excited',
+  'Thankful',
+  'Crazy',
+  'Tired',
+  'Cool',
+  'Relaxed',
+];
+
+/**
+ * =========================
+ * RICH TEXT (hashtags + mentions)
+ * =========================
+ */
+export const RichText = ({
+  text,
+  users,
+  onProfileClick,
+  onHashtagClick,
+}: {
+  text: string;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+}) => {
+  if (!text) return null;
+  const parts = text.split(/(#[a-zA-Z0-9_]+|@\w+(?:\s\w+)?)/g);
+
+  return (
+    <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words">
+      {parts.map((part, index) => {
+        if (part.startsWith('@')) {
+          const name = part.substring(1).trim().toLowerCase();
+          const user = users?.find((u: any) => {
+            const un = String(u?.username ?? '').toLowerCase();
+            const nm = String(u?.name ?? '').toLowerCase();
+            return un === name || nm === name;
+          });
+
+          if (user) {
+            return (
+              <span
+                key={index}
+                className="text-[#1877F2] font-semibold cursor-pointer hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onProfileClick(safeUserId(user));
+                }}
+              >
+                {part}
+              </span>
+            );
+          }
+
+          return (
+            <span key={index} className="text-[#1877F2] font-semibold">
+              {part}
+            </span>
+          );
+        }
+
+        if (part.startsWith('#')) {
+          return (
+            <span
+              key={index}
+              className="text-[#1877F2] cursor-pointer hover:underline"
+              onClick={(e) => {
+                e.stopPropagation();
+                onHashtagClick && onHashtagClick(part);
               }}
             >
-              <div className="text-[#E4E6EB] font-medium">{f}</div>
+              {part}
+            </span>
+          );
+        }
+
+        return <span key={index}>{part}</span>;
+      })}
+    </span>
+  );
+};
+
+/**
+ * =========================
+ * REACTION BUTTON (FB style)
+ * =========================
+ */
+export const ReactionButton: React.FC<{
+  currentUserReactions: ReactionType | undefined;
+  reactionCount: number;
+  onReact: (type: ReactionType) => void;
+  isGuest?: boolean;
+}> = ({ currentUserReactions, reactionCount, onReact, isGuest }) => {
+  const [showDock, setShowDock] = useState(false);
+  const timerRef = useRef<any>(null);
+
+  const handleMouseEnter = () => {
+    if (isGuest) return;
+    timerRef.current = setTimeout(() => setShowDock(true), 500);
+  };
+
+  const handleMouseLeave = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setTimeout(() => setShowDock(false), 250);
+  };
+
+  const handleClick = () => {
+    if (isGuest) return alert('Please login to react.');
+    onReact('like');
+  };
+
+  const reactionConfig = [
+    { type: 'like', icon: '👍', color: '#1877F2' },
+    { type: 'love', icon: '❤️', color: '#F3425F' },
+    { type: 'haha', icon: '😆', color: '#F7B928' },
+    { type: 'wow', icon: '😮', color: '#F7B928' },
+    { type: 'sad', icon: '😢', color: '#F7B928' },
+    { type: 'angry', icon: '😡', color: '#E41E3F' },
+  ] as const;
+
+  const activeReaction = currentUserReactions
+    ? reactionConfig.find((r) => r.type === currentUserReactions)
+    : null;
+
+  return (
+    <div
+      className="flex-1 relative group"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      {showDock && (
+        <div className="absolute -top-12 left-0 bg-[#242526] rounded-full shadow-xl p-1.5 flex gap-2 animate-fade-in border border-[#3E4042] z-50">
+          {reactionConfig.map((r) => (
+            <div
+              key={r.type}
+              className="text-2xl hover:scale-125 transition-transform cursor-pointer hover:-translate-y-2 duration-200"
+              onClick={(e) => {
+                e.stopPropagation();
+                onReact(r.type as ReactionType);
+                setShowDock(false);
+              }}
+            >
+              {r.icon}
             </div>
           ))}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-        <div className="flex items-center gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={onClose}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
-        </div>
-        <button
-          onClick={handleSubmit}
-          disabled={!canPost}
-          className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8]"
-        >
-          {isSubmitting ? 'Sharing...' : 'POST'}
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {/* User Info */}
-        <div className="p-4 border-b border-[#3E4042]">
-          <div className="flex items-center gap-3">
-            <img
-              src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
-              alt=""
-              className="w-12 h-12 rounded-full object-cover"
-            />
-            <div className="flex-1">
-              <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
-              <div className="flex items-center gap-2 mt-1">
-                <select
-                  className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg border border-[#3E4042]"
-                  value={privacy}
-                  onChange={(e) => setPrivacy(e.target.value as any)}
-                >
-                  <option value="public">🌍 Public</option>
-                  <option value="friends">👥 Friends</option>
-                  <option value="only_me">🔒 Only me</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Text Input */}
-        <div className="p-4 border-b border-[#3E4042]">
-          <textarea
-            className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[100px]"
-            placeholder="Write something..."
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            maxLength={5000}
-          />
-          <div className="text-right text-[#B0B3B8] text-sm mt-2">
-            {text.length}/5000
-          </div>
-        </div>
-
-        {/* Action Rows */}
-        <div className="space-y-1 px-2">
-          <button
-            onClick={() => setShowLocationSearch(true)}
-            className="w-full flex items-center gap-3 p-3 hover:bg-[#3A3B3C] rounded-lg"
-          >
-            <i className="fas fa-map-marker-alt text-[#F02849] text-xl w-8 text-center"></i>
-            <span className="text-[#E4E6EB]">{location || 'Add Location'}</span>
-            {location && (
-              <span className="ml-auto text-[#B0B3B8] text-sm">{location.split(',')[0]}</span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setShowFeelingPicker(true)}
-            className="w-full flex items-center gap-3 p-3 hover:bg-[#3A3B3C] rounded-lg"
-          >
-            <i className="far fa-smile text-[#F7B928] text-xl w-8 text-center"></i>
-            <span className="text-[#E4E6EB]">{feeling ? `Feeling ${feeling}` : 'Feeling/Activity'}</span>
-          </button>
-
-          <button
-            onClick={() => setShowTagUsers(true)}
-            className="w-full flex items-center gap-3 p-3 hover:bg-[#3A3B3C] rounded-lg"
-          >
-            <i className="fas fa-user-tag text-[#1877F2] text-xl w-8 text-center"></i>
-            <span className="text-[#E4E6EB]">
-              {taggedUsers.length > 0 ? `Tagged ${taggedUsers.length} people` : 'Tag People'}
-            </span>
-          </button>
-        </div>
-
-        {/* Original Post Preview */}
-        <div className="p-4 border-t border-[#3E4042] mt-4">
-          <div className="text-[#B0B3B8] text-sm mb-2">Sharing this post:</div>
-          <div className="bg-[#3A3B3C] rounded-xl p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <img
-                src={post.author?.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
-                alt=""
-                className="w-8 h-8 rounded-full"
-              />
-              <div>
-                <div className="text-[#E4E6EB] text-sm font-medium">
-                  {post.author?.name || 'Original Author'}
-                </div>
-                <div className="text-[#B0B3B8] text-xs">
-                  {formatRelativeTime(post.created_at)}
-                </div>
-              </div>
-            </div>
-            {post.content && (
-              <div className="text-[#E4E6EB] text-sm mb-2 line-clamp-3">
-                {post.content}
-              </div>
-            )}
-            {post.media_url && (
-              <div className="w-20 h-20 rounded-lg overflow-hidden">
-                <img
-                  src={post.media_url}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/**
- * =========================
- * 🟩 FLOW 2: SHARE TO GROUPS/BRANDS COMPONENT
- * =========================
- */
-export const ShareToGroupsBrandsModal: React.FC<{
-  post: any;
-  currentUser: User;
-  groups: Group[];
-  brands: Brand[];
-  onClose: () => void;
-  onShareComplete: (success: boolean, data?: any) => void;
-}> = ({ post, currentUser, groups = [], brands = [], onClose, onShareComplete }) => {
-  const [selectedTargets, setSelectedTargets] = useState<number[]>([]);
-  const [targetType, setTargetType] = useState<'groups' | 'brands'>('groups');
-  const [text, setText] = useState('');
-  const [perTargetText, setPerTargetText] = useState<Record<number, string>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [step, setStep] = useState<'select' | 'compose'>('select');
-
-  const availableTargets = targetType === 'groups' ? groups : brands;
-
-  const handleSelectTarget = (targetId: number) => {
-    setSelectedTargets(prev => {
-      if (prev.includes(targetId)) {
-        return prev.filter(id => id !== targetId);
-      }
-      if (prev.length >= 10) {
-        alert('You can only share to up to 10 targets at once');
-        return prev;
-      }
-      return [...prev, targetId];
-    });
-  };
-
-  const handleCompose = () => {
-    if (selectedTargets.length === 0) {
-      alert('Please select at least one target');
-      return;
-    }
-    setStep('compose');
-  };
-
-  const handleSubmit = async () => {
-    if (isSubmitting || selectedTargets.length === 0) return;
-    
-    setIsSubmitting(true);
-    try {
-      const payload = {
-        original_post_id: post.id,
-        user_id: currentUser.id,
-        target_type: targetType,
-        target_ids: selectedTargets,
-        shared_text: text.trim(),
-        per_target_text: Object.keys(perTargetText).length > 0 ? perTargetText : undefined,
-        shared_at: new Date().toISOString(),
-      };
-
-      const response = await apiFetch('/api/posts/share/targets', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      onShareComplete(true, response);
-      onClose();
-    } catch (error: any) {
-      console.error('Failed to share:', error);
-      onShareComplete(false, { error: error.message });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  if (step === 'compose') {
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-          <div className="flex items-center gap-4">
-            <i
-              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-              onClick={() => setStep('select')}
-            ></i>
-            <h3 className="text-[#E4E6EB] text-[20px] font-medium">
-              Share to {selectedTargets.length} {targetType}
-            </h3>
-          </div>
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8]"
-          >
-            {isSubmitting ? 'Sharing...' : 'POST'}
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4">
-          {/* General Message */}
-          <div className="mb-6">
-            <label className="block text-[#B0B3B8] text-sm mb-2">
-              Message for all {targetType} (optional)
-            </label>
-            <textarea
-              className="w-full bg-[#3A3B3C] text-[#E4E6EB] rounded-xl p-3 outline-none min-h-[100px]"
-              placeholder={`Write something to share with these ${targetType}...`}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              maxLength={2000}
-            />
-          </div>
-
-          {/* Selected Targets */}
-          <div className="space-y-3">
-            <div className="text-[#B0B3B8] text-sm">
-              Selected {targetType} ({selectedTargets.length}/10)
-            </div>
-            {selectedTargets.map((targetId) => {
-              const target = availableTargets.find(t => t.id === targetId);
-              if (!target) return null;
-              
-              return (
-                <div key={targetId} className="bg-[#3A3B3C] rounded-xl p-3">
-                  <div className="flex items-center gap-3 mb-3">
-                    <img
-                      src={target.image || target.avatar || 'https://ui-avatars.com/api/?name=Group'}
-                      alt=""
-                      className="w-10 h-10 rounded-full object-cover"
-                    />
-                    <div className="flex-1">
-                      <div className="text-[#E4E6EB] font-medium">
-                        {target.name || target.title}
-                      </div>
-                      <div className="text-[#B0B3B8] text-xs">
-                        {target.members_count || target.followers_count} members
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <label className="block text-[#B0B3B8] text-xs mb-1">
-                    Custom message for this {targetType.slice(0, -1)} (optional)
-                  </label>
-                  <textarea
-                    className="w-full bg-[#242526] text-[#E4E6EB] text-sm rounded-lg p-2 outline-none min-h-[60px]"
-                    placeholder={`Write specific message for ${target.name}...`}
-                    value={perTargetText[targetId] || ''}
-                    onChange={(e) => setPerTargetText(prev => ({
-                      ...prev,
-                      [targetId]: e.target.value
-                    }))}
-                    maxLength={1000}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-        <div className="flex items-center gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={onClose}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-[20px] font-medium">
-            Add {targetType === 'groups' ? 'Groups' : 'Brands'}
-          </h3>
-        </div>
-        <button
-          onClick={handleCompose}
-          disabled={selectedTargets.length === 0}
-          className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8]"
-        >
-          Next ({selectedTargets.length})
-        </button>
-      </div>
-
-      {/* Toggle */}
-      <div className="flex border-b border-[#3E4042]">
-        <button
-          className={`flex-1 py-3 text-center font-medium ${targetType === 'groups' ? 'text-[#1877F2] border-b-2 border-[#1877F2]' : 'text-[#B0B3B8]'}`}
-          onClick={() => setTargetType('groups')}
-        >
-          Groups
-        </button>
-        <button
-          className={`flex-1 py-3 text-center font-medium ${targetType === 'brands' ? 'text-[#1877F2] border-b-2 border-[#1877F2]' : 'text-[#B0B3B8]'}`}
-          onClick={() => setTargetType('brands')}
-        >
-          Brands
-        </button>
-      </div>
-
-      {/* Helper Text */}
-      <div className="p-4 bg-[#3A3B3C] border-b border-[#3E4042]">
-        <div className="text-[#E4E6EB] text-sm">
-          Share with up to 10 {targetType} you're in
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="p-4 border-b border-[#3E4042]">
-        <div className="relative">
-          <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
-          <input
-            type="text"
-            placeholder={`Search ${targetType}...`}
-            className="w-full bg-[#3A3B3C] text-[#E4E6EB] pl-10 pr-4 py-2 rounded-lg outline-none"
-          />
-        </div>
-      </div>
-
-      {/* List */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {availableTargets.length === 0 ? (
-          <div className="text-center py-10">
-            <i className="fas fa-users text-4xl text-[#3A3B3C] mb-3"></i>
-            <div className="text-[#E4E6EB] font-medium">No {targetType} available</div>
-            <div className="text-[#B0B3B8] text-sm mt-1">
-              Join some {targetType} to share posts with them
-            </div>
-          </div>
-        ) : (
-          availableTargets.map((target) => (
-            <div
-              key={target.id}
-              className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-2"
-              onClick={() => handleSelectTarget(target.id)}
-            >
-              <div className="flex items-center gap-3">
-                <img
-                  src={target.image || target.avatar || 'https://ui-avatars.com/api/?name=Group'}
-                  alt=""
-                  className="w-12 h-12 rounded-full object-cover"
-                />
-                <div>
-                  <div className="text-[#E4E6EB] font-medium">
-                    {target.name || target.title}
-                  </div>
-                  <div className="text-[#B0B3B8] text-sm">
-                    {target.members_count || target.followers_count} members
-                  </div>
-                </div>
-              </div>
-              
-              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${selectedTargets.includes(target.id) ? 'bg-[#1877F2] border-[#1877F2]' : 'border-[#B0B3B8]'}`}>
-                {selectedTargets.includes(target.id) && (
-                  <i className="fas fa-check text-white text-xs"></i>
-                )}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-};
-
-/**
- * =========================
- * 🟨 FLOW 3: SHARE TO MESSAGES (DMs) COMPONENT
- * =========================
- */
-export const ShareToMessagesModal: React.FC<{
-  post: any;
-  currentUser: User;
-  users: User[];
-  chats?: any[];
-  onClose: () => void;
-  onShareComplete: (success: boolean, data?: any) => void;
-}> = ({ post, currentUser, users = [], chats = [], onClose, onShareComplete }) => {
-  const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
-  const [message, setMessage] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const [sentTo, setSentTo] = useState<number[]>([]);
-
-  const filteredUsers = users.filter(user => {
-    if (user.id === currentUser.id) return false;
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        user.name.toLowerCase().includes(query) ||
-        user.username.toLowerCase().includes(query)
-      );
-    }
-    return true;
-  }).slice(0, 20);
-
-  const handleSendToUser = async (userId: number) => {
-    if (isSending || sentTo.includes(userId)) return;
-    
-    setIsSending(true);
-    try {
-      const payload = {
-        original_post_id: post.id,
-        sender_id: currentUser.id,
-        recipient_id: userId,
-        message: message.trim(),
-        shared_at: new Date().toISOString(),
-      };
-
-      const response = await apiFetch('/api/messages/share', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      setSentTo(prev => [...prev, userId]);
-      setSelectedUsers(prev => prev.filter(id => id !== userId));
-      
-      // Update chat list
-      const chatIndex = chats.findIndex(chat => 
-        chat.participants.some((p: any) => p.id === userId)
-      );
-      
-      if (chatIndex !== -1) {
-        // Move chat to top
-        const updatedChats = [...chats];
-        const chat = updatedChats.splice(chatIndex, 1)[0];
-        chat.last_message = message || 'Shared a post';
-        chat.last_message_time = new Date().toISOString();
-        updatedChats.unshift(chat);
-      }
-      
-    } catch (error: any) {
-      console.error('Failed to send message:', error);
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const handleSendToAllSelected = async () => {
-    if (isSending || selectedUsers.length === 0) return;
-    
-    setIsSending(true);
-    const successes: number[] = [];
-    
-    for (const userId of selectedUsers) {
-      try {
-        const payload = {
-          original_post_id: post.id,
-          sender_id: currentUser.id,
-          recipient_id: userId,
-          message: message.trim(),
-          shared_at: new Date().toISOString(),
-        };
-
-        await apiFetch('/api/messages/share', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
-        
-        successes.push(userId);
-      } catch (error) {
-        console.error(`Failed to send to user ${userId}:`, error);
-      }
-    }
-    
-    setSentTo(prev => [...prev, ...successes]);
-    setSelectedUsers([]);
-    setIsSending(false);
-    
-    if (successes.length > 0) {
-      onShareComplete(true, { sentTo: successes });
-      setTimeout(() => onClose(), 1500);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-        <div className="flex items-center gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={onClose}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share</h3>
-        </div>
-        <button
-          onClick={handleSendToAllSelected}
-          disabled={isSending || selectedUsers.length === 0}
-          className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8]"
-        >
-          {isSending ? 'Sending...' : `Send (${selectedUsers.length})`}
-        </button>
-      </div>
-
-      {/* Preview Card */}
-      <div className="p-4 border-b border-[#3E4042]">
-        <div className="bg-[#3A3B3C] rounded-xl p-3">
-          <div className="flex gap-3">
-            {post.media_url && (
-              <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-                <img
-                  src={post.media_url}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="text-[#E4E6EB] text-sm font-medium mb-1 line-clamp-2">
-                {post.content || 'Shared post'}
-              </div>
-              <div className="text-[#B0B3B8] text-xs">
-                From: {post.author?.name || 'Unknown'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Message Input */}
-      <div className="p-4 border-b border-[#3E4042]">
-        <textarea
-          className="w-full bg-[#3A3B3C] text-[#E4E6EB] rounded-xl p-3 outline-none min-h-[80px] resize-none"
-          placeholder="Write a message..."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          maxLength={1000}
-        />
-      </div>
-
-      {/* Search */}
-      <div className="p-4 border-b border-[#3E4042]">
-        <div className="relative">
-          <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
-          <input
-            type="text"
-            placeholder="Search recent chats, friends..."
-            className="w-full bg-[#3A3B3C] text-[#E4E6EB] pl-10 pr-4 py-2 rounded-lg outline-none"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {/* Recent Chats */}
-      {chats.length > 0 && !searchQuery && (
-        <div className="p-4 border-b border-[#3E4042]">
-          <div className="text-[#B0B3B8] text-sm mb-3">Recent chats</div>
-          <div className="space-y-2">
-            {chats.slice(0, 5).map((chat) => {
-              const otherUser = chat.participants?.find((p: any) => p.id !== currentUser.id);
-              if (!otherUser) return null;
-              
-              const isSent = sentTo.includes(otherUser.id);
-              const isSelected = selectedUsers.includes(otherUser.id);
-              
-              return (
-                <div key={chat.id} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={otherUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
-                      alt=""
-                      className="w-10 h-10 rounded-full object-cover"
-                    />
-                    <div>
-                      <div className="text-[#E4E6EB] font-medium">
-                        {otherUser.name}
-                      </div>
-                      <div className="text-[#B0B3B8] text-xs">
-                        {chat.last_message || 'No messages yet'}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {isSent ? (
-                    <div className="text-[#45BD62] text-sm font-medium">
-                      <i className="fas fa-check mr-1"></i> Sent
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        if (isSelected) {
-                          setSelectedUsers(prev => prev.filter(id => id !== otherUser.id));
-                        } else {
-                          setSelectedUsers(prev => [...prev, otherUser.id]);
-                        }
-                      }}
-                      className={`px-4 py-1.5 rounded-lg font-medium ${isSelected ? 'bg-[#1877F2] text-white' : 'bg-[#3A3B3C] text-[#E4E6EB]'}`}
-                    >
-                      {isSelected ? 'Selected' : 'Send'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
       )}
 
-      {/* All Users List */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="text-[#B0B3B8] text-sm mb-3">
-          {searchQuery ? 'Search results' : 'All friends'}
-        </div>
-        
-        {filteredUsers.length === 0 ? (
-          <div className="text-center py-10">
-            <i className="fas fa-user-friends text-4xl text-[#3A3B3C] mb-3"></i>
-            <div className="text-[#E4E6EB] font-medium">No users found</div>
-          </div>
+      <button
+        onClick={handleClick}
+        className="w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors active:scale-95"
+      >
+        {activeReaction ? (
+          <>
+            <span className="text-[20px]">{activeReaction.icon}</span>
+            <span
+              className="text-[17px] font-medium capitalize"
+              style={{ color: activeReaction.color }}
+            >
+              {activeReaction.type}
+            </span>
+          </>
         ) : (
-          filteredUsers.map((user) => {
-            const isSent = sentTo.includes(user.id);
-            const isSelected = selectedUsers.includes(user.id);
-            
-            return (
-              <div key={user.id} className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={user.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
-                    alt=""
-                    className="w-10 h-10 rounded-full object-cover"
-                  />
-                  <div>
-                    <div className="text-[#E4E6EB] font-medium">
-                      {user.name}
-                      {user.is_online && (
-                        <span className="ml-2 w-2 h-2 bg-[#45BD62] rounded-full inline-block"></span>
-                      )}
-                    </div>
-                    <div className="text-[#B0B3B8] text-xs">
-                      @{user.username}
-                    </div>
-                  </div>
-                </div>
-                
-                {isSent ? (
-                  <div className="text-[#45BD62] text-sm font-medium">
-                    <i className="fas fa-check mr-1"></i> Sent
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => {
-                      if (isSelected) {
-                        setSelectedUsers(prev => prev.filter(id => id !== user.id));
-                      } else {
-                        setSelectedUsers(prev => [...prev, user.id]);
-                      }
-                    }}
-                    className={`px-4 py-1.5 rounded-lg font-medium ${isSelected ? 'bg-[#1877F2] text-white' : 'bg-[#3A3B3C] text-[#E4E6EB]'}`}
-                  >
-                    {isSelected ? 'Selected' : 'Send'}
-                  </button>
-                )}
-              </div>
-            );
-          })
+          <>
+            <i className="far fa-thumbs-up text-[20px] text-[#B0B3B8]"></i>
+            <span className="text-[17px] font-medium text-[#B0B3B8]">Like</span>
+          </>
         )}
-      </div>
+      </button>
     </div>
   );
 };
 
 /**
  * =========================
- * MAIN SHARE BOTTOM SHEET
+ * ✅ FIXED: ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
+ * =========================
+ * This function properly detects media types from:
+ * 1. Full MIME types (image/jpeg, video/mp4)
+ * 2. Simple types (image, video)
+ * 3. File extensions from URL
+ */
+const getMediaTypeInfo = (post: any) => {
+  const mediaUrl = String(post?.media_url || '');
+  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
+  const typeRaw = String(post?.type || '').toLowerCase();
+
+  // Extract file extension from URL (ignoring query params and fragments)
+  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
+  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
+
+  // Check if it's an image
+  const isImage =
+    typeRaw === 'image' ||
+    mediaTypeRaw === 'image' ||
+    mediaTypeRaw.startsWith('image/') ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
+
+  // Check if it's a video
+  const isVideo =
+    typeRaw === 'video' ||
+    mediaTypeRaw === 'video' ||
+    mediaTypeRaw.startsWith('video/') ||
+    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
+
+  // Check if it's audio
+  const isAudio =
+    typeRaw === 'audio' ||
+    mediaTypeRaw.startsWith('audio/') ||
+    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
+
+  return {
+    mediaUrl,
+    isImage,
+    isVideo,
+    isAudio,
+    extension: ext,
+    mimeType: mediaTypeRaw,
+  };
+};
+
+/**
+ * =========================
+ * PROFESSIONAL SHARE BOTTOM SHEET
  * =========================
  */
 export const ShareBottomSheet: React.FC<{
@@ -1010,18 +432,35 @@ export const ShareBottomSheet: React.FC<{
 }> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete }) => {
   const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>('sheet');
   const [isAnimating, setIsAnimating] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const handleBackdropClick = (e: MouseEvent) => {
+      if (backdropRef.current && e.target === backdropRef.current) {
+        closeSheet();
+      }
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        closeSheet();
+      }
+    };
+
     if (isOpen) {
       setActiveFlow('sheet');
       setIsAnimating(true);
       setTimeout(() => setIsAnimating(false), 300);
       document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
+      document.addEventListener('click', handleBackdropClick);
+      document.addEventListener('keydown', handleEscape);
     }
+
     return () => {
       document.body.style.overflow = '';
+      document.removeEventListener('click', handleBackdropClick);
+      document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen]);
 
@@ -1034,100 +473,216 @@ export const ShareBottomSheet: React.FC<{
     }, 200);
   };
 
+  const handleShareAction = async (destination: string) => {
+    if (!currentUser) {
+      alert('Please login to share.');
+      return;
+    }
+
+    try {
+      const payload = {
+        post_id: post.id,
+        user_id: currentUser.id,
+        destination,
+        shared_at: new Date().toISOString(),
+      };
+
+      const response = await apiFetch('/api/posts/share', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      if (onShareComplete) {
+        onShareComplete(destination, { success: true, data: response });
+      }
+
+      closeSheet();
+    } catch (error: any) {
+      console.error('Share failed:', error);
+      if (onShareComplete) {
+        onShareComplete(destination, { success: false, error: error.message });
+      }
+    }
+  };
+
   if (!isOpen) return null;
 
-  // Handle different flows
   if (activeFlow === 'feed' && currentUser) {
     return (
-      <ShareToFeedModal
-        post={post}
-        currentUser={currentUser}
-        users={users}
-        groups={groups}
-        onClose={() => {
-          setActiveFlow('sheet');
-        }}
-        onShareComplete={(success, data) => {
-          if (success && onShareComplete) {
-            onShareComplete('feed', data);
-          }
-          if (!success) {
-            setActiveFlow('sheet');
-          }
-        }}
-      />
+      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+          <div className="flex items-center gap-4">
+            <i
+              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+              onClick={() => setActiveFlow('sheet')}
+            ></i>
+            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
+          </div>
+          <button
+            onClick={() => handleShareAction('feed')}
+            className="text-[#1877F2] font-bold text-[17px]"
+          >
+            POST
+          </button>
+        </div>
+        <div className="flex-1 p-4">
+          <div className="flex items-center gap-3 mb-4">
+            <img
+              src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+              alt=""
+              className="w-12 h-12 rounded-full object-cover"
+            />
+            <div>
+              <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
+              <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
+                <option>🌍 Public</option>
+                <option>👥 Friends</option>
+                <option>🔒 Only me</option>
+              </select>
+            </div>
+          </div>
+          <textarea
+            className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
+            placeholder="Write something..."
+          />
+        </div>
+      </div>
     );
   }
 
   if (activeFlow === 'groups' && currentUser) {
     return (
-      <ShareToGroupsBrandsModal
-        post={post}
-        currentUser={currentUser}
-        groups={groups}
-        brands={brands}
-        onClose={() => {
-          setActiveFlow('sheet');
-        }}
-        onShareComplete={(success, data) => {
-          if (success && onShareComplete) {
-            onShareComplete('groups', data);
-          }
-          if (!success) {
-            setActiveFlow('sheet');
-          }
-        }}
-      />
+      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+          <div className="flex items-center gap-4">
+            <i
+              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+              onClick={() => setActiveFlow('sheet')}
+            ></i>
+            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to Groups & Brands</h3>
+          </div>
+          <button
+            onClick={() => handleShareAction('groups')}
+            className="text-[#1877F2] font-bold text-[17px]"
+          >
+            SHARE
+          </button>
+        </div>
+        <div className="p-4 border-b border-[#3E4042]">
+          <div className="text-[#B0B3B8] text-sm mb-2">Share with up to 10 groups you're in</div>
+          <input
+            type="text"
+            placeholder="Search groups..."
+            className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg"
+          />
+        </div>
+        <div className="flex-1 p-4 overflow-y-auto">
+          {groups.length === 0 ? (
+            <div className="text-center py-10">
+              <i className="fas fa-users text-4xl text-[#3A3B3C] mb-3"></i>
+              <div className="text-[#E4E6EB]">No groups available</div>
+            </div>
+          ) : (
+            groups.slice(0, 5).map((group) => (
+              <div key={group.id} className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2">
+                <div className="flex items-center gap-3">
+                  <img
+                    src={group.image || 'https://ui-avatars.com/api/?name=Group'}
+                    alt=""
+                    className="w-10 h-10 rounded-full"
+                  />
+                  <div>
+                    <div className="text-[#E4E6EB] font-medium">{group.name}</div>
+                    <div className="text-[#B0B3B8] text-xs">{group.members_count} members</div>
+                  </div>
+                </div>
+                <button className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm">
+                  Share
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     );
   }
 
   if (activeFlow === 'messages' && currentUser) {
     return (
-      <ShareToMessagesModal
-        post={post}
-        currentUser={currentUser}
-        users={users}
-        chats={chats}
-        onClose={() => {
-          setActiveFlow('sheet');
-        }}
-        onShareComplete={(success, data) => {
-          if (success && onShareComplete) {
-            onShareComplete('messages', data);
-          }
-          if (!success) {
-            setActiveFlow('sheet');
-          }
-        }}
-      />
+      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+          <div className="flex items-center gap-4">
+            <i
+              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+              onClick={() => setActiveFlow('sheet')}
+            ></i>
+            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to Messages</h3>
+          </div>
+        </div>
+        <div className="p-4 border-b border-[#3E4042]">
+          <textarea
+            className="w-full bg-[#3A3B3C] text-[#E4E6EB] rounded-xl p-3 min-h-[80px]"
+            placeholder="Write a message..."
+          />
+        </div>
+        <div className="p-4 border-b border-[#3E4042]">
+          <input
+            type="text"
+            placeholder="Search friends..."
+            className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg"
+          />
+        </div>
+        <div className="flex-1 p-4 overflow-y-auto">
+          {users
+            .filter(u => u.id !== currentUser.id)
+            .slice(0, 10)
+            .map((user) => (
+              <div key={user.id} className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2">
+                <div className="flex items-center gap-3">
+                  <img
+                    src={user.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+                    alt=""
+                    className="w-10 h-10 rounded-full"
+                  />
+                  <div>
+                    <div className="text-[#E4E6EB] font-medium">{user.name}</div>
+                    <div className="text-[#B0B3B8] text-xs">@{user.username}</div>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => handleShareAction('message')}
+                  className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
+                >
+                  Send
+                </button>
+              </div>
+            ))}
+        </div>
+      </div>
     );
   }
 
-  // Main share sheet
   return (
     <>
-      {/* Backdrop */}
       <div
+        ref={backdropRef}
         className={`fixed inset-0 bg-black/60 z-[300] transition-opacity duration-300 ${
           isAnimating ? 'opacity-0' : 'opacity-100'
         }`}
-        onClick={closeSheet}
       />
 
-      {/* Bottom Sheet */}
       <div
+        ref={sheetRef}
         className={`fixed bottom-0 left-0 right-0 z-[301] bg-[#242526] rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col transition-transform duration-300 ease-out ${
           isAnimating ? 'translate-y-full' : 'translate-y-0'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="p-4 pb-2">
           <div className="flex justify-center mb-3">
             <div className="w-10 h-1 bg-[#3E4042] rounded-full"></div>
           </div>
 
-          {/* Post Preview */}
           {post && (
             <div className="flex items-start gap-3 mb-4 p-3 bg-[#3A3B3C] rounded-xl">
               {post.media_url && (
@@ -1158,10 +713,8 @@ export const ShareBottomSheet: React.FC<{
           )}
         </div>
 
-        {/* Share Options */}
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           <div className="space-y-1">
-            {/* 🟦 FLOW 1: Share to UNERA Feed */}
             <button
               onClick={() => {
                 if (!currentUser) {
@@ -1186,7 +739,6 @@ export const ShareBottomSheet: React.FC<{
               <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
             </button>
 
-            {/* 🟩 FLOW 2: Share to Groups & Brands */}
             <button
               onClick={() => {
                 if (!currentUser) {
@@ -1211,7 +763,6 @@ export const ShareBottomSheet: React.FC<{
               <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
             </button>
 
-            {/* 🟨 FLOW 3: Share to Messages */}
             <button
               onClick={() => {
                 if (!currentUser) {
@@ -1236,16 +787,11 @@ export const ShareBottomSheet: React.FC<{
               <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
             </button>
 
-            {/* Other Options */}
             <button
               onClick={() => {
-                if (!currentUser) {
-                  alert('Please login to use this feature');
-                  return;
-                }
-                // Open WhatsApp or other external apps
                 const text = `Check out this post on UNERA: ${window.location.origin}/post/${post.id}`;
                 window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                closeSheet();
               }}
               className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
             >
@@ -1285,7 +831,6 @@ export const ShareBottomSheet: React.FC<{
             </button>
           </div>
 
-          {/* Recent Contacts */}
           {currentUser && users.length > 0 && (
             <div className="mt-6">
               <div className="text-[#B0B3B8] text-xs font-semibold uppercase tracking-wider mb-3 px-1">
@@ -1300,7 +845,6 @@ export const ShareBottomSheet: React.FC<{
                       key={user.id}
                       onClick={() => {
                         setActiveFlow('messages');
-                        // Pre-select this user
                       }}
                       className="flex flex-col items-center gap-2"
                     >
@@ -1321,7 +865,6 @@ export const ShareBottomSheet: React.FC<{
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-4 pt-3 border-t border-[#3E4042]">
           <button
             onClick={closeSheet}
@@ -1337,7 +880,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * UPDATED POST COMPONENT WITH SHARE INTEGRATION
+ * POST CARD (WITH CLOUDFLARE R2 FIX)
  * =========================
  */
 export const Post: React.FC<{
@@ -1378,44 +921,279 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
+  const reactions = Array.isArray(p.reactions) ? p.reactions : [];
+  const comments = Array.isArray(p.comments) ? p.comments : [];
+  
+  const [commentCount, setCommentCount] = useState(
+    typeof p.comment_count === 'number' ? p.comment_count : comments.length
+  );
+
   const [showShareSheet, setShowShareSheet] = useState(false);
-  const [shareDestination, setShareDestination] = useState<string | null>(null);
 
-  // ... rest of the existing Post component code remains the same ...
+  const myReaction = currentUser
+    ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))
+        ?.type
+    : undefined;
 
-  const handleShareClick = (postId: number) => {
-    if (!currentUser) {
-      alert('Please login to share posts.');
-      return;
+  const createdAtLabel = formatRelativeTime(p.created_at);
+  const postId = safePostId(p);
+
+  const mediaInfo = getMediaTypeInfo(p);
+
+  const formatCommentCount = (count: number): string => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
     }
-    setShowShareSheet(true);
+    return count.toString();
   };
+
+  useEffect(() => {
+    const newCount = typeof p.comment_count === 'number' ? p.comment_count : comments.length;
+    if (newCount !== commentCount) {
+      setCommentCount(newCount);
+    }
+  }, [p.comment_count, comments.length]);
 
   const handleShareComplete = (destination: string, data?: any) => {
     if (data?.success) {
-      // Notify parent component about the share
-      onShare(p.id);
-      // Show success message
-      console.log(`Successfully shared to ${destination}`, data);
+      onShare(postId);
     }
     setShowShareSheet(false);
   };
 
   return (
     <>
-      {/* Existing Post component JSX */}
-      {/* ... */}
+      <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+        <div className="p-3 md:p-4 flex items-center justify-between">
+          <div
+            className="flex items-center gap-2 flex-1 min-w-0"
+            onClick={() => onProfileClick(safeUserId(a))}
+          >
+            <img
+              src={
+                a.profile_image_url ||
+                a.profileImage ||
+                a.avatar ||
+                'https://ui-avatars.com/api/?name=User'
+              }
+              alt=""
+              className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
+                  {a.name || a.username || 'User'}
+                </h4>
+                {a.is_verified && (
+                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                <span>{createdAtLabel}</span>
+                <span>•</span>
+                <i className="fas fa-globe-americas text-[12px]"></i>
+                {p.location && (
+                  <>
+                    <span>•</span>
+                    <span className="truncate max-w-[160px]">
+                      {String(p.location).split(',')[0]}
+                    </span>
+                  </>
+                )}
+                {p.feeling && (
+                  <>
+                    <span>•</span>
+                    <span>feeling {p.feeling}</span>
+                  </>
+                )}
+                {p.__pending && (
+                  <>
+                    <span>•</span>
+                    <span className="text-[#B0B3B8]">
+                      <i className="fas fa-spinner fa-spin mr-1 text-[#1877F2]" />
+                      posting…
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
 
-      {/* Share button in action bar */}
-      <button
-        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-        onClick={() => handleShareClick(p.id)}
-      >
-        <i className="fas fa-share text-[20px]"></i>
-        <span className="text-[17px] font-medium">Share</span>
-      </button>
+          {onDelete &&
+            currentUser &&
+            safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
+              <button
+                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(postId);
+                }}
+                title="Delete"
+              >
+                <i className="fas fa-trash text-[#B0B3B8]"></i>
+              </button>
+            )}
+        </div>
 
-      {/* Share Bottom Sheet */}
+        {p.content && (
+          <div className="px-3 md:px-4 pb-2 text-[#E4E6EB] text-[17px]">
+            <RichText
+              text={p.content}
+              users={users}
+              onProfileClick={onProfileClick}
+              onHashtagClick={onHashtagClick}
+            />
+          </div>
+        )}
+
+        {p.link_preview && !mediaInfo.mediaUrl && (
+          <div
+            className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+            onClick={() => window.open(p.link_preview.url, '_blank')}
+          >
+            <img
+              src={p.link_preview.image}
+              alt=""
+              className="w-full h-48 object-cover"
+            />
+            <div className="p-3 bg-[#3A3B3C]">
+              <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+                {p.link_preview.domain}
+              </div>
+              <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
+                {p.link_preview.title}
+              </div>
+              <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
+                {p.link_preview.description}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {p.background && !mediaInfo.mediaUrl && (
+          <div
+            className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
+            style={{ background: p.background, backgroundSize: 'cover' }}
+          >
+            {p.content}
+          </div>
+        )}
+
+        {mediaInfo.mediaUrl && mediaInfo.isImage && !p.background && (
+          <div
+            className="cursor-pointer bg-black"
+            onClick={() => onViewImage(mediaInfo.mediaUrl)}
+          >
+            <img
+              src={mediaInfo.mediaUrl}
+              alt=""
+              className="w-full h-auto max-h-[600px] object-contain"
+              loading="lazy"
+              onError={(e) => {
+                console.error('Failed to load image:', mediaInfo.mediaUrl);
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          </div>
+        )}
+
+        {mediaInfo.mediaUrl && mediaInfo.isVideo && (
+          <div
+            className="cursor-pointer relative h-[500px] bg-black"
+            onClick={() => onVideoClick(post)}
+          >
+            <video
+              src={mediaInfo.mediaUrl}
+              className="w-full h-full object-cover"
+              preload="metadata"
+              playsInline
+              muted
+              onError={(e) => {
+                console.error('Failed to load video:', mediaInfo.mediaUrl);
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <i className="fas fa-play text-white text-4xl opacity-50"></i>
+            </div>
+          </div>
+        )}
+
+        {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+          <div className="mx-3 md:mx-4 my-3 p-4 bg-[#3A3B3C] rounded-lg border border-[#3E4042]">
+            <div className="flex items-center gap-3">
+              <i className="fas fa-music text-[#1877F2] text-2xl"></i>
+              <div className="flex-1">
+                <div className="text-[#E4E6EB] font-bold">Audio Track</div>
+                <div className="text-[#B0B3B8] text-sm">
+                  {p.content || 'Listen to audio'}
+                </div>
+              </div>
+              <button
+                onClick={() => onPlayAudioTrack({
+                  id: postId,
+                  title: p.content || 'Audio',
+                  artist: a.name || 'Unknown',
+                  url: mediaInfo.mediaUrl,
+                  duration: 0,
+                  coverImage: a.profile_image_url,
+                })}
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+              >
+                <i className="fas fa-play mr-1"></i> Play
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+          <div className="flex items-center gap-1.5">
+            {reactions.length > 0 && (
+              <span className="hover:underline">{reactions.length} Reactions</span>
+            )}
+          </div>
+          <div className="flex gap-4">
+            <span
+              className="hover:underline cursor-pointer"
+              onClick={() => onOpenComments(Number(postId))}
+            >
+              {formatCommentCount(commentCount)} Comments
+            </span>
+          </div>
+        </div>
+
+        <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
+          <ReactionButton
+            currentUserReactions={myReaction}
+            reactionCount={reactions.length}
+            onReact={(type) => onReact(postId, type)}
+            isGuest={!currentUser}
+          />
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
+          >
+            <i className="far fa-comment-alt text-[20px]"></i>
+            <span className="text-[17px] font-medium">Comment</span>
+          </button>
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => {
+              if (!currentUser) {
+                alert('Please login to share posts.');
+                return;
+              }
+              setShowShareSheet(true);
+            }}
+          >
+            <i className="fas fa-share text-[20px]"></i>
+            <span className="text-[17px] font-medium">Share</span>
+          </button>
+        </div>
+      </div>
+
       <ShareBottomSheet
         isOpen={showShareSheet}
         onClose={() => setShowShareSheet(false)}
@@ -1431,4 +1209,868 @@ export const Post: React.FC<{
   );
 };
 
-// ... rest of the existing Feed.tsx code (CreatePost, CreatePostModal, CommentsSheet, etc.)
+/**
+ * =========================
+ * CREATE POST CARD
+ * =========================
+ */
+export const CreatePost: React.FC<{
+  currentUser: User;
+  onProfileClick: (id: number) => void;
+  onClick: () => void;
+  onCreateEventClick?: () => void;
+}> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
+  <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
+    <div className="flex gap-2 mb-3">
+      <img
+        src={
+          (currentUser as any).profile_image_url ||
+          (currentUser as any).profileImage ||
+          (currentUser as any).avatar ||
+          'https://ui-avatars.com/api/?name=User'
+        }
+        alt=""
+        className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+        onClick={() => onProfileClick(safeUserId(currentUser))}
+      />
+      <div
+        className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
+        onClick={onClick}
+      >
+        <span className="text-[#B0B3B8] text-[17px] truncate">
+          What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
+        </span>
+      </div>
+    </div>
+
+    <div className="border-t border-[#3E4042] pt-2 flex justify-between">
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onCreateEventClick}
+      >
+        <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
+      </div>
+    </div>
+  </div>
+);
+
+/**
+ * =========================
+ * CREATE POST MODAL (WORKING)
+ * =========================
+ */
+export const CreatePostModal: React.FC<{
+  currentUser: User;
+  users: User[];
+  onClose: () => void;
+  onCreatePost: (
+    text: string,
+    file: File | null,
+    meta?: {
+      type?: 'text' | 'image' | 'video';
+      visibility?: string;
+      location?: string;
+      feeling?: string;
+      taggedUsers?: number[];
+      background?: string;
+      linkPreview?: LinkPreview | null;
+    }
+  ) => void;
+  onCreateEventClick?: () => void;
+}> = ({ currentUser, users, onClose, onCreatePost }) => {
+  const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
+  const [text, setText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [type, setType] = useState<'text' | 'image' | 'video'>('text');
+
+  const [visibility] = useState<'Public' | 'Friends'>('Public');
+  const [activeBackground, setActiveBackground] = useState('');
+  const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
+
+  const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
+  const [feeling, setFeeling] = useState('');
+  const [location, setLocation] = useState('');
+
+  const [locQuery, setLocQuery] = useState('');
+  const [locResults, setLocResults] = useState<any[]>([]);
+  const [locLoading, setLocLoading] = useState(false);
+  const searchTimeout = useRef<any>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLinkPreview(getLinkPreview(text));
+  }, [text]);
+
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+
+    setFile(f);
+    const url = URL.createObjectURL(f);
+    setPreview(url);
+    setType(f.type.startsWith('image') ? 'image' : 'video');
+    setActiveBackground('');
+    setView('main');
+  };
+
+  const handleLocationSearch = async (q: string) => {
+    if (q.trim().length < 3) {
+      setLocResults([]);
+      return;
+    }
+    setLocLoading(true);
+    try {
+      const data = await apiFetch(`/api/locations/search?q=${encodeURIComponent(q)}`);
+      setLocResults(Array.isArray(data) ? data : []);
+    } catch {
+      setLocResults([]);
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
+  const onLocQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setLocQuery(val);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
+  };
+
+  const canPost = !!text.trim() || !!file || !!activeBackground;
+
+  const submit = () => {
+    if (!canPost) return;
+
+    onCreatePost(text, file, {
+      type: file ? type : 'text',
+      visibility,
+      location: location || undefined,
+      feeling: feeling || undefined,
+      taggedUsers: taggedUsers.length ? taggedUsers : undefined,
+      background: activeBackground || undefined,
+      linkPreview: linkPreview || null,
+    });
+
+    onClose();
+  };
+
+  const OptionsItem = ({
+    icon,
+    color,
+    label,
+    onClick,
+  }: {
+    icon: string;
+    color: string;
+    label: string;
+    onClick?: () => void;
+  }) => (
+    <div
+      className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors"
+      onClick={onClick}
+    >
+      <i className={`${icon} text-[24px] w-8 text-center`} style={{ color }}></i>
+      <span className="text-[#E4E6EB] text-[17px] font-medium">{label}</span>
+    </div>
+  );
+
+  if (view === 'tag') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={() => setView('main')}
+          ></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">Tag People</h3>
+          <button
+            onClick={() => setView('main')}
+            className="ml-auto text-[#1877F2] font-bold"
+          >
+            Done
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {users
+            .filter((u: any) => safeUserId(u) !== safeUserId(currentUser))
+            .map((u: any) => (
+              <div
+                key={safeUserId(u)}
+                className="flex items-center justify-between p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
+                onClick={() =>
+                  setTaggedUsers((prev) =>
+                    prev.includes(safeUserId(u))
+                      ? prev.filter((uid) => uid !== safeUserId(u))
+                      : [...prev, safeUserId(u)]
+                  )
+                }
+              >
+                <div className="flex items-center gap-3">
+                  <img
+                    src={
+                      u.profile_image_url ||
+                      u.profileImage ||
+                      u.avatar ||
+                      'https://ui-avatars.com/api/?name=User'
+                    }
+                    className="w-10 h-10 rounded-full object-cover"
+                    alt=""
+                  />
+                  <span className="text-[#E4E6EB] font-semibold">{u.name || u.username || 'User'}</span>
+                </div>
+                {taggedUsers.includes(safeUserId(u)) && (
+                  <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>
+                )}
+              </div>
+            ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'feeling') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={() => setView('main')}
+          ></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">How are you feeling?</h3>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-2">
+          {FEELINGS.map((f) => (
+            <div
+              key={f}
+              className="p-3 bg-[#242526] rounded-lg text-center cursor-pointer hover:bg-[#3A3B3C] text-[#E4E6EB]"
+              onClick={() => {
+                setFeeling(f);
+                setView('main');
+              }}
+            >
+              {f}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'location') {
+    return (
+      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={() => setView('main')}
+          ></i>
+          <h3 className="text-[#E4E6EB] text-lg font-bold">Search Location</h3>
+        </div>
+
+        <div className="p-4 flex-1 flex flex-col overflow-hidden">
+          <div className="relative mb-4">
+            <input
+              type="text"
+              placeholder="Where are you?"
+              className="w-full bg-[#3A3B3C] rounded-xl p-4 pl-12 text-[#E4E6EB] outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+              autoFocus
+              value={locQuery}
+              onChange={onLocQueryChange}
+            />
+            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+            {locLoading && (
+              <i className="fas fa-spinner fa-spin absolute right-4 top-1/2 -translate-y-1/2 text-[#1877F2]"></i>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            {locResults.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {locResults.map((loc, i) => {
+                  const display =
+                    loc.display_name ||
+                    loc.name ||
+                    loc.label ||
+                    `${loc.city || ''}${loc.country ? `, ${loc.country}` : ''}`.trim();
+
+                  const title = (display || '').split(',')[0] || 'Location';
+
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-4 p-4 hover:bg-[#3A3B3C] rounded-xl cursor-pointer border border-[#3E4042]/30 transition-colors group"
+                      onClick={() => {
+                        setLocation(display);
+                        setView('main');
+                      }}
+                    >
+                      <div className="w-12 h-12 bg-[#3A3B3C] rounded-xl flex items-center justify-center group-hover:bg-[#1877F2] transition-colors">
+                        <i className="fas fa-location-dot text-[#E4E6EB]"></i>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[#E4E6EB] font-bold block truncate">{title}</span>
+                        <span className="text-[#B0B3B8] text-xs block truncate">{display}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : locQuery.length >= 3 && !locLoading ? (
+              <div className="text-center py-10">
+                <i className="fas fa-map-marked-alt text-4xl text-[#3A3B3C] mb-4"></i>
+                <p className="text-[#B0B3B8]">No matching locations found.</p>
+            </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
+                  Nearby Suggestions
+                </p>
+                {LOCATIONS_DATA.slice(0, 6).map((loc) => (
+                  <div
+                    key={loc.name}
+                    className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors"
+                    onClick={() => {
+                      setLocation(loc.name);
+                      setView('main');
+                    }}
+                  >
+                    <div className="w-10 h-10 bg-[#3A3B3C] rounded-full flex items-center justify-center text-xl">
+                      {loc.flag}
+                    </div>
+                    <span className="text-[#E4E6EB] font-semibold">{loc.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
+      <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+        <div className="flex items-center gap-4">
+          <i
+            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+            onClick={onClose}
+          ></i>
+          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Create Post</h3>
+        </div>
+        <button
+          onClick={submit}
+          disabled={!canPost}
+          className="text-[#E4E6EB] font-bold text-[17px] disabled:text-[#B0B3B8]"
+        >
+          POST
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="p-4">
+          <div className="flex items-center gap-3 mb-4">
+            <img
+              src={
+                (currentUser as any).profile_image_url ||
+                (currentUser as any).profileImage ||
+                (currentUser as any).avatar ||
+                'https://ui-avatars.com/api/?name=User'
+              }
+              alt=""
+              className="w-12 h-12 rounded-full object-cover"
+            />
+            <div>
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[17px]">
+                  {(currentUser as any).name || (currentUser as any).username || 'User'}
+                </h4>
+                {feeling && <span className="text-[#E4E6EB] text-[15px]"> is feeling {feeling}</span>}
+                {location && <span className="text-[#E4E6EB] text-[15px]"> in {location.split(',')[0]}</span>}
+                {taggedUsers.length > 0 && (
+                  <span className="text-[#E4E6EB] text-[15px]"> with {taggedUsers.length} others</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 mt-0.5">
+                <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[13px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
+                  <i className="fas fa-globe-americas text-[12px]"></i>
+                  <span>{visibility}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`relative min-h-[150px] mb-4 transition-all ${
+              activeBackground ? 'flex items-center justify-center p-8 rounded-lg text-center min-h-[300px]' : ''
+            }`}
+            style={{ background: activeBackground, backgroundSize: 'cover' }}
+          >
+            <textarea
+              className={`w-full bg-transparent outline-none text-[#E4E6EB] placeholder-[#B0B3B8] resize-none ${
+                activeBackground
+                  ? 'text-center font-bold text-3xl drop-shadow-md placeholder-white/70'
+                  : 'text-[24px]'
+              }`}
+              placeholder="What's on your mind?"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={activeBackground ? 4 : 5}
+            />
+          </div>
+
+          {linkPreview && !file && !activeBackground && (
+            <div
+              className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+              onClick={() => window.open(linkPreview.url, '_blank')}
+            >
+              <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
+              <div className="p-3 bg-[#3A3B3C]">
+                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{linkPreview.domain}</div>
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{linkPreview.title}</div>
+                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{linkPreview.description}</div>
+              </div>
+            </div>
+          )}
+
+          {!preview && (
+            <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+              <div
+                className={`w-8 h-8 rounded-lg cursor-pointer border-2 bg-[#3A3B3C] flex items-center justify-center flex-shrink-0 ${
+                  !activeBackground ? 'border-white' : 'border-[#3E4042]'
+                }`}
+                onClick={() => setActiveBackground('')}
+              >
+                <div className="w-6 h-6 bg-white rounded flex items-center justify-center">
+                  <i className="fas fa-font text-black text-xs"></i>
+                </div>
+              </div>
+
+              {BACKGROUNDS.filter((b) => b.id !== 'none').map((bg) => (
+                <div
+                  key={bg.id}
+                  className={`w-8 h-8 rounded-lg cursor-pointer border-2 flex-shrink-0 ${
+                    activeBackground === bg.value ? 'border-white' : 'border-transparent'
+                  }`}
+                  style={{ background: bg.value, backgroundSize: 'cover' }}
+                  onClick={() => setActiveBackground(bg.value)}
+                />
+              ))}
+            </div>
+          )}
+
+          {preview && (
+            <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
+              <div
+                onClick={() => {
+                  setFile(null);
+                  setPreview(null);
+                  setType('text');
+                }}
+                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
+              >
+                <i className="fas fa-times text-white"></i>
+              </div>
+
+              {type === 'image' ? (
+                <img src={preview} alt="preview" className="w-full h-auto max-h-[400px] object-contain bg-black" />
+              ) : (
+                <video src={preview} controls className="w-full h-auto max-h-[400px] bg-black" />
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-[#3E4042]">
+          <OptionsItem icon="fas fa-images" color="#45BD62" label="Photo/video" onClick={() => fileInputRef.current?.click()} />
+          <OptionsItem icon="fas fa-camera" color="#45BD62" label="Camera" onClick={() => cameraInputRef.current?.click()} />
+          <OptionsItem icon="fas fa-user-tag" color="#1877F2" label="Tag people" onClick={() => setView('tag')} />
+          <OptionsItem icon="far fa-smile" color="#F7B928" label="Feeling/activity" onClick={() => setView('feeling')} />
+          <OptionsItem icon="fas fa-map-marker-alt" color="#F02849" label="Check in" onClick={() => setView('location')} />
+        </div>
+      </div>
+
+      <div className="p-4 border-t border-[#3E4042]">
+        <button
+          onClick={submit}
+          disabled={!canPost}
+          className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors disabled:bg-[#3A3B3C] text-lg shadow-sm"
+        >
+          POST
+        </button>
+      </div>
+
+      <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileChange} />
+      <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
+    </div>
+  );
+};
+
+// Global comments cache (shared across all CommentsSheet instances)
+const commentsCache = new Map<number, { 
+  data: any[], 
+  timestamp: number,
+  postId: number 
+}>();
+
+/**
+ * =========================
+ * ✅ COMMENTS SHEET (FACEBOOK-LIKE BEHAVIOR - NO LOADERS)
+ * =========================
+ * - NO loading spinners or "sending..." indicators
+ * - Comments appear immediately when panel opens (from cache)
+ * - Users can comment immediately without waiting
+ * - All counts update instantly
+ */
+export const CommentsSheet: React.FC<{
+  post: PostType;
+  currentUser: User;
+  users: User[];
+  onClose: () => void;
+  onComment?: (postId: number, text: string) => void;
+  onLikeComment?: (commentId: number) => void;
+  getCommentAuthor?: (id: number) => User | undefined;
+  onProfileClick: (id: number) => void;
+}> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick }) => {
+  const p: any = post as any;
+  const postId = safePostId(p);
+  
+  const [text, setText] = useState('');
+  const [comments, setComments] = useState<any[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // ✅ Enhanced resolveAuthor function with proper fallback handling
+  const resolveAuthor = (c: any) => {
+    const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
+
+    const u =
+      (Number.isFinite(uid) ? users.find((x: any) => Number(x?.id) === uid) : null) ||
+      (getCommentAuthor ? getCommentAuthor(uid) : null) ||
+      null;
+
+    const name =
+      String(c?.author_name ?? c?.authorName ?? '').trim() ||
+      String(u?.name ?? '').trim() ||
+      String(u?.username ?? '').trim() ||
+      'User';
+
+    const image =
+      String(c?.author_image ?? c?.authorImage ?? '').trim() ||
+      String(u?.profile_image_url ?? '').trim() ||
+      String(u?.profileImage ?? '').trim() ||
+      String(u?.avatar ?? '').trim() ||
+      'https://ui-avatars.com/api/?name=User';
+
+    return { uid, name, image };
+  };
+
+  // Format comment count display (1 comment, 1k comments, etc.)
+  const formatCommentCount = (count: number): string => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
+  };
+
+  // Initialize comments when sheet opens - NO LOADING STATE
+  useEffect(() => {
+    const initializeComments = async () => {
+      // 1. Show cached comments immediately
+      const cached = commentsCache.get(postId);
+      if (cached) {
+        setComments(cached.data);
+      }
+      
+      // 2. Also check if post has inline comments and use them
+      const postComments = Array.isArray(p.comments) ? p.comments : [];
+      if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
+        setComments(postComments);
+        commentsCache.set(postId, { 
+          data: postComments, 
+          timestamp: Date.now(),
+          postId 
+        });
+      }
+      
+      // 3. Do a silent background fetch (NO LOADING INDICATOR)
+      fetchCommentsSilently();
+    };
+
+    initializeComments();
+    
+    return () => {
+      // Cleanup abort controller on unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [postId, p.comments]);
+
+  // Silent background fetch - NO VISUAL INDICATOR
+  const fetchCommentsSilently = async () => {
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    
+    try {
+      const data = await apiFetch(`/api/posts/${postId}/comments`);
+      const arr = Array.isArray(data) ? data : data?.comments || [];
+      
+      // Update cache and state if we got new data
+      if (arr.length > 0) {
+        setComments(arr);
+        commentsCache.set(postId, { 
+          data: arr, 
+          timestamp: Date.now(),
+          postId 
+        });
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        return; // Request was cancelled, ignore
+      }
+      console.debug('Silent comment fetch failed:', error);
+      // Silently fail - user won't notice
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t) return;
+
+    const optimisticComment = {
+      id: `tmp-${Date.now()}`,
+      post_id: postId,
+      user_id: safeUserId(currentUser),
+      text: t,
+      created_at: new Date().toISOString(),
+      // NO __pending flag - appears immediately like Facebook
+    };
+
+    setText('');
+
+    // IMMEDIATE optimistic update (Facebook-style)
+    setComments(prev => {
+      const next = [...prev, optimisticComment];
+      // Update cache immediately
+      commentsCache.set(postId, { 
+        data: next, 
+        timestamp: Date.now(),
+        postId 
+      });
+      return next;
+    });
+
+    // Notify parent about new comment for count update
+    if (onComment) {
+      onComment(postId, t);
+    }
+
+    // Silent background POST (user doesn't see any loading)
+    try {
+      await apiFetch(`/api/posts/${postId}/comment`, {
+        method: 'POST',
+        body: JSON.stringify({
+          text: t,
+          user_id: safeUserId(currentUser),
+        }),
+      });
+
+      // Silent background refresh to sync with server
+      fetchCommentsSilently();
+    } catch (err: any) {
+      console.error('Failed to post comment:', err);
+      // Silently fail - comment stays visible (Facebook behavior)
+      // In a real app, you might show a subtle retry option
+    }
+  };
+
+  // Refresh comments when sheet is focused
+  useEffect(() => {
+    const handleFocus = () => {
+      // Silent refresh if cache is older than 30 seconds
+      const cached = commentsCache.get(postId);
+      if (cached && (Date.now() - cached.timestamp > 30000)) {
+        fetchCommentsSilently();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [postId]);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col justify-end md:items-center md:justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose}></div>
+
+      <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
+        <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]">
+          <h3 className="font-bold text-[#E4E6EB]">
+            Comments ({formatCommentCount(comments.length)})
+          </h3>
+          <i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {comments.length === 0 ? (
+            <div className="text-[#B0B3B8] text-center py-6">
+              No comments yet.
+              <p className="text-sm mt-2">Be the first to comment!</p>
+            </div>
+          ) : (
+            comments.map((c) => {
+              const a = resolveAuthor(c);
+              return (
+                <div key={String(c.id)} className="flex gap-2 animate-fade-in">
+                  <img
+                    src={a.image}
+                    className="w-8 h-8 rounded-full object-cover cursor-pointer flex-shrink-0"
+                    alt=""
+                    onClick={() => a.uid && onProfileClick(a.uid)}
+                  />
+                  <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1 min-w-0">
+                    <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
+                      <span
+                        className="cursor-pointer hover:underline truncate max-w-[150px]"
+                        onClick={() => a.uid && onProfileClick(a.uid)}
+                        title={a.name}
+                      >
+                        {a.name}
+                      </span>
+                      <span className="text-[12px] font-normal text-[#B0B3B8]">
+                        • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
+                      </span>
+                    </p>
+                    <p className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
+                      {c.text}
+                    </p>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <form className="p-3 border-t border-[#3E4042] flex gap-2" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+            placeholder="Write a comment..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            autoFocus
+          />
+          <button 
+            type="submit" 
+            className="text-[#1877F2] font-bold disabled:text-[#B0B3B8] disabled:cursor-not-allowed"
+            disabled={!text.trim()}
+          >
+            Post
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * =========================
+ * SUGGESTED PRODUCTS WIDGET
+ * =========================
+ */
+export const SuggestedProductsWidget: React.FC<{
+  products: Product[];
+  currentUser: User;
+  onViewProduct: (product: Product) => void;
+  onSeeAll: () => void;
+}> = ({ products, currentUser, onViewProduct, onSeeAll }) => {
+  const suggested = (products || [])
+    .filter((p: any) => p.seller_id !== safeUserId(currentUser))
+    .slice(0, 4);
+
+  if (suggested.length === 0) return null;
+
+  return (
+    <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
+        <button
+          onClick={onSeeAll}
+          className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
+        >
+          See all
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {suggested.map((product: any) => {
+          const countryData = MARKETPLACE_COUNTRIES.find((c) =>
+            String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
+          );
+          const symbol = countryData ? countryData.symbol : '$';
+
+          return (
+            <div
+              key={String(product.id)}
+              className="cursor-pointer group"
+              onClick={() => onViewProduct(product)}
+            >
+              <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
+                <img
+                  src={product.images?.[0]}
+                  alt={product.title}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                />
+                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
+                  {symbol}
+                  {product.main_price}
+                </div>
+              </div>
+              <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">
+                {product.title}
+              </h4>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// Export all components
+export { getMediaTypeInfo };
