@@ -392,7 +392,13 @@ const reconcilePendingPosts = (prev: PostType[], incoming: PostType[]) => {
 };
 
 export default function App() {
-  useLanguage();
+  // B) Comment out useLanguage temporarily to test if it's causing the blank screen
+  // useLanguage();
+  try {
+    useLanguage();
+  } catch (error) {
+    console.error('LanguageContext error:', error);
+  }
 
   /** ---------- State ---------- */
   const [users, setUsers] = useState<User[]>([]);
@@ -440,6 +446,9 @@ export default function App() {
   // ✅ FIX C: Buffer for new server posts
   const [pendingServerPosts, setPendingServerPosts] = useState<PostType[]>([]);
 
+  // ✅ 1️⃣ Placeholder ref for fetchPostsForHome to avoid hoisting issues
+  const fetchPostsForHomeRef = useRef<(viewer: User | null) => Promise<void>>(async () => {});
+
   const [loginError, setLoginError] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [activeReelId, setActiveReelId] = useState<number | null>(null);
@@ -461,15 +470,6 @@ export default function App() {
   const [activeSharePost, setActiveSharePost] = useState<any>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
-
-  /** ---------- Facebook-like improvements ---------- */
-  // ✅ Step 5: Fix scheduleSilentRefresh dependency bug
-  const scheduleSilentRefresh = useCallback(() => {
-    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
-    scheduleSilentRefreshRef.current = setTimeout(() => {
-      fetchPostsForHome(currentUser).catch(() => {});
-    }, 8000);
-  }, [currentUser, fetchPostsForHome]);
 
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
@@ -617,8 +617,14 @@ export default function App() {
 
           // ✅ FIX B: Compute ranking ONCE and store it
           const baseList = stableFeedRef.current.length ? stableFeedRef.current : normalized;
-          const ranked = rankFeed(baseList as any, viewer as any, users as any) as any;
-          setRankedCache(ranked);
+          
+          // ✅ A) Wrap rankFeed in try-catch to prevent crashes
+          try {
+            const ranked = rankFeed(baseList as any, viewer as any, users as any) as any;
+            setRankedCache(Array.isArray(ranked) ? ranked : []);
+          } catch {
+            setRankedCache(baseList);
+          }
 
           if (!feedHydrated) {
             setFeedHydrated(true);
@@ -643,8 +649,12 @@ export default function App() {
           });
           
           // ✅ FIX B: Compute ranking for guest too
-          const ranked = rankFeed(normalized as any, null as any, users as any) as any;
-          setRankedCache(ranked);
+          try {
+            const ranked = rankFeed(normalized as any, null as any, users as any) as any;
+            setRankedCache(Array.isArray(ranked) ? ranked : []);
+          } catch {
+            setRankedCache(normalized);
+          }
         } else if (lastGoodPostsRef.current.length) {
           setPosts(lastGoodPostsRef.current);
         }
@@ -663,6 +673,11 @@ export default function App() {
     },
     [activeCommentsPostId, feedHydrated, users, pendingServerPosts]
   );
+
+  // ✅ 2️⃣ After fetchPostsForHome is defined, set the ref
+  useEffect(() => {
+    fetchPostsForHomeRef.current = fetchPostsForHome as any;
+  }, [fetchPostsForHome]);
 
   /**
    * Fetch other data
@@ -696,6 +711,15 @@ export default function App() {
     },
     [fetchUsersList, fetchPostsForHome, fetchOtherData]
   );
+
+  /** ---------- Facebook-like improvements ---------- */
+  // ✅ 3️⃣ Now define scheduleSilentRefresh safely (it no longer depends on hoisting)
+  const scheduleSilentRefresh = useCallback(() => {
+    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
+    scheduleSilentRefreshRef.current = setTimeout(() => {
+      fetchPostsForHomeRef.current(currentUser).catch(() => {});
+    }, 8000);
+  }, [currentUser]);
 
   /** ---------- Restore session + initial load ---------- */
   useEffect(() => {
