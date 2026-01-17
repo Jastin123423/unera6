@@ -1,8 +1,15 @@
-// App.tsx
+// App.tsx - PROFESSIONALLY UPDATED VERSION
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
-import { CreatePost, Post, CommentsSheet, CreatePostModal, SuggestedProductsWidget } from './components/Feed';
+import { 
+  CreatePost, 
+  Post, 
+  CommentsSheet, 
+  CreatePostModal, 
+  SuggestedProductsWidget,
+  ShareBottomSheet 
+} from './components/Feed';
 import { StoryReel, CreateStoryModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
@@ -28,6 +35,8 @@ import {
   Product,
   AudioTrack,
   ReactionType,
+  Group,
+  Brand,
 } from './types';
 import { INITIAL_USERS } from './constants';
 import { rankFeed } from './utils/ranking';
@@ -113,7 +122,7 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
 
-  // ✅ 2.3 Add timeout to stop 6-minute hangs
+  // ✅ Add timeout to stop 6-minute hangs
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
 
@@ -259,15 +268,16 @@ export default function App() {
   const [stories, setStories] = useState<Story[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [groups, setGroups] = useState<any[]>([]);
-  const [brands, setBrands] = useState<any[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [chats, setChats] = useState<any[]>([]);
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
 
-  // ✅ 2.1 Add posts loading state
+  // ✅ Add posts loading state
   const [isPostsLoading, setIsPostsLoading] = useState(true);
 
   // ✅ Force loader off forever (Option B)
@@ -291,6 +301,11 @@ export default function App() {
 
   const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+
+  // Share states
+  const [activeSharePost, setActiveSharePost] = useState<any>(null);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [shareInProgress, setShareInProgress] = useState(false);
 
   // ✅ Keep last good posts so polling can't wipe feed to empty
   const lastGoodPostsRef = useRef<PostType[]>([]);
@@ -336,7 +351,7 @@ export default function App() {
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
       try {
-        // ✅ 2.1 Set loading state
+        // ✅ Set loading state
         setIsPostsLoading(true);
         
         if (viewer?.id) {
@@ -404,7 +419,7 @@ export default function App() {
           setPosts(lastGoodPostsRef.current);
         }
       } finally {
-        // ✅ 2.1 Clear loading state
+        // ✅ Clear loading state
         setIsPostsLoading(false);
       }
     },
@@ -415,13 +430,14 @@ export default function App() {
    * ✅ Fetch other data
    */
   const fetchOtherData = useCallback(async () => {
-    const [s, r, pr, g, b, e] = await Promise.all([
+    const [s, r, pr, g, b, e, c] = await Promise.all([
       apiFetch('/api/stories').catch(() => []),
       apiFetch('/api/reels').catch(() => []),
       apiFetch('/api/products').catch(() => []),
       apiFetch('/api/groups').catch(() => []),
       apiFetch('/api/brands').catch(() => []),
       apiFetch('/api/events').catch(() => []),
+      apiFetch('/api/chats').catch(() => []),
     ]);
 
     setStories(safeArray(s));
@@ -430,6 +446,7 @@ export default function App() {
     setGroups(safeArray(g));
     setBrands(safeArray(b));
     setEvents(safeArray(e));
+    setChats(safeArray(c));
   }, []);
 
   /**
@@ -707,6 +724,47 @@ export default function App() {
     [requireAuth, fetchPostsForHome, currentUser]
   );
 
+  // Handle share action from Post component
+  const handleOpenShareSheet = useCallback((post: any) => {
+    if (!currentUser) {
+      setLoginError('Please login to share posts.');
+      setView('login');
+      return;
+    }
+    setActiveSharePost(post);
+    setShowShareSheet(true);
+  }, [currentUser]);
+
+  // Handle share completion
+  const handleShareComplete = useCallback(async (destination: string, data?: any) => {
+    if (data?.success && activeSharePost) {
+      // Update post share count optimistically
+      setPosts((prev) => {
+        const next = safeArray(prev).map((p: any) =>
+          Number(p.id) === Number(activeSharePost.id) 
+            ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 }) 
+            : p
+        );
+        lastGoodPostsRef.current = next;
+        return next;
+      });
+
+      // Call API to record share
+      try {
+        await apiFetch(`/api/posts/${activeSharePost.id}/share`, { 
+          method: 'POST',
+          body: JSON.stringify({ destination })
+        });
+      } catch (error) {
+        console.error('Failed to record share:', error);
+      }
+    }
+
+    setShareInProgress(false);
+    setActiveSharePost(null);
+    setShowShareSheet(false);
+  }, [activeSharePost]);
+
   const onOpenComments = (postId: number) => {
     if (!requireAuth('Commenting')) return;
 
@@ -936,7 +994,7 @@ export default function App() {
                 />
               )}
 
-              {/* ✅ 2.1 Add loading state for posts */}
+              {/* ✅ Add loading state for posts */}
               {isPostsLoading ? (
                 <div className="text-center py-20 text-[#B0B3B8]">Loading posts…</div>
               ) : rankedPosts.length > 0 ? (
@@ -954,7 +1012,7 @@ export default function App() {
                     users={users}
                     onProfileClick={(id) => openProfile(id)}
                     onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                    onShare={(postId: number) => onSharePost(postId)}
+                    onShare={(postId: number) => handleOpenShareSheet(post)}
                     onViewImage={setFullScreenImage}
                     onOpenComments={(postId: number) => onOpenComments(postId)}
                     onVideoClick={(p: any) => {
@@ -962,6 +1020,9 @@ export default function App() {
                       setView('reels');
                     }}
                     onPlayAudioTrack={setCurrentAudioTrack}
+                    groups={groups}
+                    brands={brands}
+                    chats={chats}
                   />
                 ))
               ) : (
@@ -984,7 +1045,7 @@ export default function App() {
               }}
               onReact={() => requireAuth('Reacting')}
               onComment={() => requireAuth('Commenting')}
-              onShare={() => requireAuth('Sharing')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
               onFollow={(id: number) => followUser(id)}
               getCommentAuthor={(id) => users.find((u) => u.id === id)}
               initialReelId={activeReelId}
@@ -1017,7 +1078,7 @@ export default function App() {
               onProfileClick={(id) => openProfile(id)}
               onLikePost={() => requireAuth('Liking')}
               onOpenComments={() => requireAuth('Commenting')}
-              onSharePost={() => requireAuth('Sharing')}
+              onSharePost={(post: any) => handleOpenShareSheet(post)}
               onDeleteGroupPost={() => requireAuth('Deleting posts')}
               onRemoveMember={() => requireAuth('Removing members')}
               onUpdateGroupSettings={() => requireAuth('Updating settings')}
@@ -1036,7 +1097,7 @@ export default function App() {
               onProfileClick={(id) => openProfile(id)}
               onPostAsBrand={() => requireAuth('Posting')}
               onReact={() => requireAuth('Reacting')}
-              onShare={() => requireAuth('Sharing')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
               onOpenComments={(id: any) => {
                 if (!requireAuth('Commenting')) return;
                 const pid = Number(id);
@@ -1103,7 +1164,7 @@ export default function App() {
               users={users}
               onProfileClick={(id) => openProfile(id)}
               onReact={() => requireAuth('Reacting')}
-              onShare={() => requireAuth('Sharing')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
               onViewImage={setFullScreenImage}
               onOpenComments={(id) => onOpenComments(id)}
               onVideoClick={() => {}}
@@ -1130,7 +1191,7 @@ export default function App() {
               onFollow={(id: number) => followUser(id)}
               onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
               onComment={() => requireAuth('Commenting')}
-              onShare={(postId: number) => onSharePost(postId)}
+              onShare={(post: any) => handleOpenShareSheet(post)}
               onMessage={(id) => {
                 if (!requireAuth('Messaging')) return;
                 setActiveChatUser(users.find((u) => u.id === id) || null);
@@ -1215,6 +1276,24 @@ export default function App() {
           onLikeComment={() => {}}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
+        />
+      )}
+
+      {/* Share Bottom Sheet */}
+      {activeSharePost && (
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => {
+            setShowShareSheet(false);
+            setActiveSharePost(null);
+          }}
+          post={activeSharePost}
+          currentUser={currentUser}
+          users={users}
+          groups={groups}
+          brands={brands}
+          chats={chats}
+          onShareComplete={handleShareComplete}
         />
       )}
 
