@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONALLY FIXED VERSION (Unique Profile Colors & Proper Sizing)
+// App.tsx - PROFESSIONALLY FIXED VERSION (Facebook-style feed behavior)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -48,58 +48,17 @@ const safeNumber = (v: any, fallback = 0) => {
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
-/** ---------- UNERA Professional Profile Picture Generator ---------- */
-const COLORS = [
-  '#1877F2', // Facebook Blue
-  '#45BD62', // Success Green
-  '#F3425F', // Love Red
-  '#F7B928', // Gold Yellow
-  '#9360F7', // Purple
-  '#FF6B35', // Orange
-  '#00B5AD', // Teal
-  '#E41E3F', // Crimson
-  '#7B68EE', // Medium Slate Blue
-  '#20B2AA', // Light Sea Green
-  '#FF6347', // Tomato
-  '#9B59B6', // Amethyst
-  '#1ABC9C', // Turquoise
-  '#3498DB', // Peter River
-  '#E74C3C', // Alizarin
-  '#2ECC71', // Emerald
-  '#F39C12', // Sun Flower
-  '#D35400', // Pumpkin
-];
-
-/**
- * Generate a consistent but unique color for a user based on their ID or name
- */
-const getUserColor = (identifier: string | number): string => {
-  if (!identifier && identifier !== 0) return '#1877F2'; // Default blue
-  
-  const str = String(identifier);
-  let hash = 0;
-  
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  
-  const index = Math.abs(hash) % COLORS.length;
-  return COLORS[index];
-};
-
 /**
  * Generate initials from a name for UNERA profile pictures
  */
 const generateInitials = (name: string): string => {
-  if (!name || typeof name !== 'string' || name.trim().length === 0) return 'UN';
+  if (!name || typeof name !== 'string') return 'UN';
   
-  // Remove extra spaces and split into words
   const words = name.trim().split(/\s+/).filter(word => word.length > 0);
   
   if (words.length === 0) return 'UN';
   
   if (words.length === 1) {
-    // Single word: take first 2 letters or repeat first letter
     const word = words[0];
     if (word.length >= 2) {
       return word.substring(0, 2).toUpperCase();
@@ -108,33 +67,26 @@ const generateInitials = (name: string): string => {
     }
   }
   
-  // Multiple words: take first letter of first two words
   const firstInitial = words[0].charAt(0).toUpperCase();
   const secondInitial = words[1].charAt(0).toUpperCase();
   return firstInitial + secondInitial;
 };
 
 /**
- * Generate UNERA-style profile picture URL with initials and unique color
- * Professional sizing: Smaller text (font-size=0.5) to fit circle properly
+ * Generate UNERA-style profile picture URL with initials
  */
-const generateProfilePictureUrl = (name: string, identifier: string | number): string => {
+const generateProfilePictureUrl = (name: string): string => {
   const initials = generateInitials(name);
-  const backgroundColor = getUserColor(identifier).replace('#', '');
   
-  // Professional settings:
-  // - font-size=0.5: Text is 50% of image size (fits perfectly in circle)
-  // - bold=true: Makes text more readable
-  // - size=128: Optimal size for web (64px displayed at 2x for retina)
-  // - rounded=true: Perfect circle
-  // - length=2: Exactly 2 characters
-  // - color=FFFFFF: White text for contrast
-  // - background: Unique color based on user
-  const size = 128; // Base size (will be displayed at 64px in CSS)
-  const fontSize = 0.5; // 50% of image size - Professional sizing
-  const textColor = 'FFFFFF'; // White
+  const backgroundColor = '1877F2';
+  const textColor = 'FFFFFF';
+  const fontSize = 40;
+  const size = 200;
+  const isBold = true;
+  const rounded = true;
+  const length = 2;
   
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=${isBold}&rounded=${rounded}&length=${length}`;
 };
 
 /**
@@ -180,24 +132,14 @@ const normalizeUser = (u: any): User => {
   const userName = safeString(u?.name, safeString(u?.username, 'User'));
   const userUsername = safeString(u?.username, safeString(u?.name, 'user'));
   
-  // Use user ID for consistent color generation (or fallback to name)
-  const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
-  
-  // If profile image is empty or default, generate UNERA-style initials picture
   const existingProfileImage = u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '';
   let profileImageUrl = existingProfileImage;
   
-  // Check if we should generate a new profile picture
-  const shouldGenerateNewPicture = 
-    !profileImageUrl || 
-    profileImageUrl.trim() === '' ||
-    profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
-    profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
-    profileImageUrl.includes('ui-avatars.com/api/?background=1877F2&color=fff') ||
-    profileImageUrl.includes('ui-avatars.com/api/?name=') && !profileImageUrl.includes('font-size=0.5');
-  
-  if (shouldGenerateNewPicture) {
-    profileImageUrl = generateProfilePictureUrl(userName, colorIdentifier);
+  if (!profileImageUrl || 
+      profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
+      profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
+      profileImageUrl.trim() === '') {
+    profileImageUrl = generateProfilePictureUrl(userName);
   }
 
   return {
@@ -359,43 +301,53 @@ const authorFromFeedRow = (row: any): User => {
   });
 };
 
-// Facebook-like feed merging utility
-const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
+/**
+ * ✅ FIX 1: Stable feed merging (Facebook-style)
+ * Updates existing posts but does NOT push new ones to the top
+ */
+const mergeFeedStable = (prev: PostType[], incoming: PostType[]): PostType[] => {
   const map = new Map<number, PostType>();
-  
-  prev.forEach(p => map.set(Number(p.id), p));
-  
-  incoming.forEach(p => {
-    const existing = map.get(Number(p.id));
+
+  // Start with previous order (keeps the feed stable)
+  prev.forEach((p) => map.set(Number(p.id), p));
+
+  // Update existing + append truly new ones at the end (NOT the top)
+  const prevIds = new Set(prev.map((p) => Number(p.id)));
+
+  const appended: PostType[] = [];
+
+  incoming.forEach((p) => {
+    const id = Number(p.id);
+    const existing = map.get(id);
+
     if (existing) {
-      map.set(Number(p.id), { 
-        ...existing, 
+      // Preserve local optimistic state like reactions/comments
+      map.set(id, {
+        ...existing,
         ...p,
-        reactions: existing.reactions,
-        shares: Math.max(existing.shares || 0, p.shares || 0),
-        comments_count: Math.max(existing.comments_count || 0, p.comments_count || 0)
+        reactions: existing.reactions ?? p.reactions,
+        comments: existing.comments ?? p.comments,
+        shares: Math.max(safeNumber(existing.shares), safeNumber(p.shares)),
+        views: Math.max(safeNumber(existing.views), safeNumber(p.views)),
       });
     } else {
-      map.set(Number(p.id), p);
+      // New post: append to end (stable, no jump)
+      appended.push(p);
     }
   });
 
-  const prevIds = new Set(prev.map(p => Number(p.id)));
-  const newOnes = incoming.filter(p => !prevIds.has(Number(p.id)));
-  
-  return [...newOnes, ...prev.map(p => map.get(Number(p.id))!).filter(Boolean)];
+  return [...prev.map((p) => map.get(Number(p.id))!).filter(Boolean), ...appended];
 };
 
 // Minimal fallback user for UI stability
 const createFallbackUser = (): User => {
   const fallbackName = 'User';
-  const fallbackId = 0;
   return {
-    id: fallbackId,
+    id: 0,
     username: 'user',
     name: fallbackName,
     email: '',
-    profile_image_url: generateProfilePictureUrl(fallbackName, fallbackId),
+    profile_image_url: generateProfilePictureUrl(fallbackName),
     cover_image_url: '',
     followers: [],
     following: [],
@@ -435,6 +387,12 @@ export default function App() {
   const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
   const scheduleSilentRefreshRef = useRef<any>(null);
   const stableFeedRef = useRef<PostType[]>([]);
+
+  // ✅ FIX 4: Interaction tracking for quiet window
+  const lastInteractionRef = useRef<number>(0);
+  const markInteraction = useCallback(() => {
+    lastInteractionRef.current = Date.now();
+  }, []);
 
   const [loginError, setLoginError] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -535,8 +493,9 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
           
+          // ✅ FIX 1: Use stable merging instead of push-to-top
           setPosts(prev => {
-            const next = mergeFeed(prev, normalized);
+            const next = mergeFeedStable(prev, normalized);
             stableFeedRef.current = next;
             lastGoodPostsRef.current = next;
             return next;
@@ -559,7 +518,7 @@ export default function App() {
 
         if (normalized.length) {
           setPosts(prev => {
-            const next = mergeFeed(prev, normalized);
+            const next = mergeFeedStable(prev, normalized);
             lastGoodPostsRef.current = next;
             return next;
           });
@@ -649,7 +608,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchData]);
 
-  /** ---------- Smart Polling ---------- */
+  /** ---------- Smart Polling with Quiet Window ---------- */
   useEffect(() => {
     if (activeCommentsPostId != null) return;
     if (document.visibilityState !== "visible") return;
@@ -660,6 +619,10 @@ export default function App() {
       if (stopped) return;
       if (document.visibilityState !== "visible") return;
       if (activeCommentsPostId != null) return;
+      
+      // ✅ FIX 4: Check quiet window (8 seconds after interaction)
+      const now = Date.now();
+      if (now - lastInteractionRef.current < 8000) return;
       
       await fetchPostsForHome(currentUser).catch(() => {});
     };
@@ -672,10 +635,13 @@ export default function App() {
   }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
 
   /** ---------- Derived ---------- */
+  // ✅ FIX 3: Actually use rankFeed algorithm
   const rankedPosts = useMemo(() => {
-    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : posts;
-    return Array.isArray(feedToRank) ? feedToRank : [];
-  }, [posts]);
+    const base = stableFeedRef.current.length ? stableFeedRef.current : posts;
+    if (!Array.isArray(base) || base.length === 0) return [];
+
+    return rankFeed(base as any, currentUser as any, users as any) as any;
+  }, [posts, users, currentUser]);
 
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
@@ -825,22 +791,35 @@ export default function App() {
 
       const normalized = normalizePost(newPostRaw);
 
+      // ✅ FIX 2: Option B - Buffer even your own post
+      // Add with a temporary flag and let it appear in next refresh
       setPosts((prev) => {
-        const next = [normalized, ...safeArray(prev)];
+        const arr = safeArray(prev);
+        // Add with __pending flag at position 0 (Facebook shows it temporarily at top)
+        const pendingPost = { ...normalized, __pending: true, __localId: Date.now() };
+        const next = [pendingPost, ...arr];
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
         return next;
       });
 
       setShowCreatePostModal(false);
+      
+      // Mark interaction to prevent immediate refresh
+      markInteraction();
+      
+      // Schedule silent refresh to sync with server
       scheduleSilentRefresh();
     },
-    [currentUser, requireAuth, scheduleSilentRefresh]
+    [currentUser, requireAuth, scheduleSilentRefresh, markInteraction]
   );
 
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
+
+      // Mark interaction
+      markInteraction();
 
       setPosts((prev) => {
         const next = safeArray(prev).map((p: any) => {
@@ -866,12 +845,15 @@ export default function App() {
         scheduleSilentRefresh();
       }
     },
-    [currentUser, requireAuth, scheduleSilentRefresh]
+    [currentUser, requireAuth, scheduleSilentRefresh, markInteraction]
   );
 
   const onSharePost = useCallback(
     async (postId: number) => {
       if (!requireAuth('Sharing')) return;
+
+      // Mark interaction
+      markInteraction();
 
       setPosts((prev) => {
         const next = safeArray(prev).map((p: any) =>
@@ -888,7 +870,7 @@ export default function App() {
         scheduleSilentRefresh();
       }
     },
-    [requireAuth, scheduleSilentRefresh]
+    [requireAuth, scheduleSilentRefresh, markInteraction]
   );
 
   const handleOpenShareSheet = useCallback((post: any) => {
@@ -927,14 +909,20 @@ export default function App() {
     setShareInProgress(false);
     setActiveSharePost(null);
     setShowShareSheet(false);
+    
+    // Mark interaction
+    markInteraction();
     scheduleSilentRefresh();
-  }, [activeSharePost, scheduleSilentRefresh]);
+  }, [activeSharePost, scheduleSilentRefresh, markInteraction]);
 
   const onOpenComments = (postId: number) => {
     if (!requireAuth('Commenting')) return;
 
     const pid = Number(postId);
     setActiveCommentsPostId(pid);
+    
+    // Mark interaction
+    markInteraction();
 
     const found = posts.find((p) => Number(p.id) === pid) || null;
     setCommentPostSnapshot(found);
