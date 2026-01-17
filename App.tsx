@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONALLY FIXED VERSION (With Initials Profile Pictures)
+// App.tsx - PROFESSIONALLY FIXED VERSION (Unique Profile Colors & Proper Sizing)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -48,11 +48,50 @@ const safeNumber = (v: any, fallback = 0) => {
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
+/** ---------- UNERA Professional Profile Picture Generator ---------- */
+const COLORS = [
+  '#1877F2', // Facebook Blue
+  '#45BD62', // Success Green
+  '#F3425F', // Love Red
+  '#F7B928', // Gold Yellow
+  '#9360F7', // Purple
+  '#FF6B35', // Orange
+  '#00B5AD', // Teal
+  '#E41E3F', // Crimson
+  '#7B68EE', // Medium Slate Blue
+  '#20B2AA', // Light Sea Green
+  '#FF6347', // Tomato
+  '#9B59B6', // Amethyst
+  '#1ABC9C', // Turquoise
+  '#3498DB', // Peter River
+  '#E74C3C', // Alizarin
+  '#2ECC71', // Emerald
+  '#F39C12', // Sun Flower
+  '#D35400', // Pumpkin
+];
+
+/**
+ * Generate a consistent but unique color for a user based on their ID or name
+ */
+const getUserColor = (identifier: string | number): string => {
+  if (!identifier && identifier !== 0) return '#1877F2'; // Default blue
+  
+  const str = String(identifier);
+  let hash = 0;
+  
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  const index = Math.abs(hash) % COLORS.length;
+  return COLORS[index];
+};
+
 /**
  * Generate initials from a name for UNERA profile pictures
  */
 const generateInitials = (name: string): string => {
-  if (!name || typeof name !== 'string') return 'UN';
+  if (!name || typeof name !== 'string' || name.trim().length === 0) return 'UN';
   
   // Remove extra spaces and split into words
   const words = name.trim().split(/\s+/).filter(word => word.length > 0);
@@ -76,21 +115,26 @@ const generateInitials = (name: string): string => {
 };
 
 /**
- * Generate UNERA-style profile picture URL with initials
+ * Generate UNERA-style profile picture URL with initials and unique color
+ * Professional sizing: Smaller text (font-size=0.5) to fit circle properly
  */
-const generateProfilePictureUrl = (name: string): string => {
+const generateProfilePictureUrl = (name: string, identifier: string | number): string => {
   const initials = generateInitials(name);
+  const backgroundColor = getUserColor(identifier).replace('#', '');
   
-  // UNERA style: Blue background (#1877F2), white text, rounded
-  const backgroundColor = '1877F2'; // Facebook blue
+  // Professional settings:
+  // - font-size=0.5: Text is 50% of image size (fits perfectly in circle)
+  // - bold=true: Makes text more readable
+  // - size=128: Optimal size for web (64px displayed at 2x for retina)
+  // - rounded=true: Perfect circle
+  // - length=2: Exactly 2 characters
+  // - color=FFFFFF: White text for contrast
+  // - background: Unique color based on user
+  const size = 128; // Base size (will be displayed at 64px in CSS)
+  const fontSize = 0.5; // 50% of image size - Professional sizing
   const textColor = 'FFFFFF'; // White
-  const fontSize = 40;
-  const size = 200;
-  const isBold = true;
-  const rounded = true;
-  const length = 2;
   
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=${isBold}&rounded=${rounded}&length=${length}`;
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
 };
 
 /**
@@ -136,15 +180,24 @@ const normalizeUser = (u: any): User => {
   const userName = safeString(u?.name, safeString(u?.username, 'User'));
   const userUsername = safeString(u?.username, safeString(u?.name, 'user'));
   
+  // Use user ID for consistent color generation (or fallback to name)
+  const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
+  
   // If profile image is empty or default, generate UNERA-style initials picture
   const existingProfileImage = u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '';
   let profileImageUrl = existingProfileImage;
   
-  if (!profileImageUrl || 
-      profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
-      profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
-      profileImageUrl.trim() === '') {
-    profileImageUrl = generateProfilePictureUrl(userName);
+  // Check if we should generate a new profile picture
+  const shouldGenerateNewPicture = 
+    !profileImageUrl || 
+    profileImageUrl.trim() === '' ||
+    profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
+    profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
+    profileImageUrl.includes('ui-avatars.com/api/?background=1877F2&color=fff') ||
+    profileImageUrl.includes('ui-avatars.com/api/?name=') && !profileImageUrl.includes('font-size=0.5');
+  
+  if (shouldGenerateNewPicture) {
+    profileImageUrl = generateProfilePictureUrl(userName, colorIdentifier);
   }
 
   return {
@@ -336,12 +389,13 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
 // Minimal fallback user for UI stability
 const createFallbackUser = (): User => {
   const fallbackName = 'User';
+  const fallbackId = 0;
   return {
-    id: 0,
+    id: fallbackId,
     username: 'user',
     name: fallbackName,
     email: '',
-    profile_image_url: generateProfilePictureUrl(fallbackName),
+    profile_image_url: generateProfilePictureUrl(fallbackName, fallbackId),
     cover_image_url: '',
     followers: [],
     following: [],
