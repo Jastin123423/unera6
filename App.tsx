@@ -1,4 +1,3 @@
-
 // App.tsx - PROFESSIONALLY FIXED VERSION (Facebook-style feed behavior)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -414,11 +413,20 @@ export default function App() {
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
 
+  // ✅ Step 1: Add a "pending composer posts" state
+  const [pendingComposerPosts, setPendingComposerPosts] = useState<PostType[]>([]);
+
   // Refs for stable data
   const lastGoodPostsRef = useRef<PostType[]>([]);
   const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
   const scheduleSilentRefreshRef = useRef<any>(null);
   const stableFeedRef = useRef<PostType[]>([]);
+
+  // ✅ Step 6: fix stale posts inside fetchPostsForHome
+  const postsRef = useRef<PostType[]>([]);
+  useEffect(() => { 
+    postsRef.current = posts; 
+  }, [posts]);
 
   // ✅ FIX 4: Interaction tracking for quiet window
   const lastInteractionRef = useRef<number>(0);
@@ -455,12 +463,13 @@ export default function App() {
   const [shareInProgress, setShareInProgress] = useState(false);
 
   /** ---------- Facebook-like improvements ---------- */
+  // ✅ Step 5: Fix scheduleSilentRefresh dependency bug
   const scheduleSilentRefresh = useCallback(() => {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
     scheduleSilentRefreshRef.current = setTimeout(() => {
       fetchPostsForHome(currentUser).catch(() => {});
     }, 8000);
-  }, [currentUser]);
+  }, [currentUser, fetchPostsForHome]);
 
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
@@ -531,8 +540,35 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
           
+          // ✅ Step 3: Clear pending composer post once the server returns it
+          setPendingComposerPosts((prev) => {
+            const arr = safeArray(prev);
+            if (!arr.length) return arr;
+
+            const serverKeys = new Set(
+              normalized.map((p: any) => `${safeNumber(p.user_id)}|${safeString(p.content)}|${safeString(p.media_url)}`)
+            );
+
+            const now = Date.now();
+
+            return arr.filter((p: any) => {
+              const created = p?.created_at ? new Date(p.created_at as any).getTime() : now;
+              const ageMs = Math.abs(now - created);
+
+              const key = `${safeNumber(p.user_id)}|${safeString(p.content)}|${safeString(p.media_url)}`;
+
+              // if server has it, remove it
+              if (serverKeys.has(key)) return false;
+
+              // don't keep forever
+              if (ageMs > 2 * 60 * 1000) return false;
+
+              return true;
+            });
+          });
+
           // ✅ FIX C: Detect new posts and buffer them if user is active
-          const prevIds = new Set((stableFeedRef.current.length ? stableFeedRef.current : posts).map(p => Number(p.id)));
+          const prevIds = new Set((stableFeedRef.current.length ? stableFeedRef.current : postsRef.current).map(p => Number(p.id)));
           const newOnes = normalized.filter(p => !prevIds.has(Number(p.id)));
 
           const now = Date.now();
@@ -625,7 +661,7 @@ export default function App() {
         setIsFeedRefreshing(false);
       }
     },
-    [activeCommentsPostId, feedHydrated, users, pendingServerPosts, posts]
+    [activeCommentsPostId, feedHydrated, users, pendingServerPosts]
   );
 
   /**
@@ -875,23 +911,19 @@ export default function App() {
 
       const normalized = normalizePost(newPostRaw);
 
-      // ✅ FIX A: Add with a temporary flag and let it appear in next refresh
-      setPosts((prev) => {
-        const arr = safeArray(prev);
-        // Add with __pending flag at position 0 (Facebook shows it temporarily at top)
-        const pendingPost = { ...normalized, __pending: true, __localId: Date.now() };
-        const next = [pendingPost, ...arr];
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
+      // ✅ Step 2: When creating a post, do NOT push it into posts
+      const pendingPost = {
+        ...normalized,
+        __pending: true,
+        __localId: Date.now(),
+      } as any;
 
+      // ✅ Show instantly, but in a separate "publishing" area (no feed reorder)
+      setPendingComposerPosts((prev) => [pendingPost, ...safeArray(prev)].slice(0, 3));
+
+      // ✅ Update ranked cache ONLY if you want it included (we do NOT include it)
       setShowCreatePostModal(false);
-      
-      // Mark interaction to prevent immediate refresh
       markInteraction();
-      
-      // Schedule silent refresh to sync with server
       scheduleSilentRefresh();
     },
     [currentUser, requireAuth, scheduleSilentRefresh, markInteraction]
@@ -1231,6 +1263,48 @@ export default function App() {
                     setShowCreatePostModal(true);
                   }}
                 />
+              )}
+
+              {/* ✅ Step 4: Render "Publishing..." posts above the feed */}
+              {pendingComposerPosts.length > 0 && (
+                <div className="space-y-3 mb-3">
+                  {pendingComposerPosts.map((p: any) => (
+                    <div
+                      key={p.__localId || p.id}
+                      className="bg-[#242526] rounded-xl p-4 border border-[#3A3B3C]"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="text-[#E4E6EB] text-sm font-semibold">
+                          Posting...
+                        </div>
+                        <div className="text-[#B0B3B8] text-xs">
+                          Please wait
+                        </div>
+                      </div>
+
+                      {p.content ? (
+                        <div className="mt-2 text-[#E4E6EB] whitespace-pre-wrap">
+                          {p.content}
+                        </div>
+                      ) : null}
+
+                      {p.media_url ? (
+                        <div className="mt-3">
+                          {/* simple preview */}
+                          {String(p.media_type || '').startsWith('video/') ? (
+                            <video src={p.media_url} className="w-full rounded-lg" muted playsInline />
+                          ) : (
+                            <img src={p.media_url} className="w-full rounded-lg" alt="" />
+                          )}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-3 h-1 w-full bg-[#3A3B3C] rounded-full overflow-hidden">
+                        <div className="h-full w-1/2 bg-[#1877F2] animate-pulse" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
 
               {currentUser && products.length > 0 && (
