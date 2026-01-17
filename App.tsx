@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONALLY FIXED VERSION (Facebook-style feed behavior)
+// App.tsx - PROFESSIONALLY FIXED VERSION (With Initials Profile Pictures)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -54,11 +54,13 @@ const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallb
 const generateInitials = (name: string): string => {
   if (!name || typeof name !== 'string') return 'UN';
   
+  // Remove extra spaces and split into words
   const words = name.trim().split(/\s+/).filter(word => word.length > 0);
   
   if (words.length === 0) return 'UN';
   
   if (words.length === 1) {
+    // Single word: take first 2 letters or repeat first letter
     const word = words[0];
     if (word.length >= 2) {
       return word.substring(0, 2).toUpperCase();
@@ -67,6 +69,7 @@ const generateInitials = (name: string): string => {
     }
   }
   
+  // Multiple words: take first letter of first two words
   const firstInitial = words[0].charAt(0).toUpperCase();
   const secondInitial = words[1].charAt(0).toUpperCase();
   return firstInitial + secondInitial;
@@ -78,8 +81,9 @@ const generateInitials = (name: string): string => {
 const generateProfilePictureUrl = (name: string): string => {
   const initials = generateInitials(name);
   
-  const backgroundColor = '1877F2';
-  const textColor = 'FFFFFF';
+  // UNERA style: Blue background (#1877F2), white text, rounded
+  const backgroundColor = '1877F2'; // Facebook blue
+  const textColor = 'FFFFFF'; // White
   const fontSize = 40;
   const size = 200;
   const isBold = true;
@@ -132,6 +136,7 @@ const normalizeUser = (u: any): User => {
   const userName = safeString(u?.name, safeString(u?.username, 'User'));
   const userUsername = safeString(u?.username, safeString(u?.name, 'user'));
   
+  // If profile image is empty or default, generate UNERA-style initials picture
   const existingProfileImage = u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '';
   let profileImageUrl = existingProfileImage;
   
@@ -301,42 +306,31 @@ const authorFromFeedRow = (row: any): User => {
   });
 };
 
-/**
- * ✅ FIX 1: Stable feed merging (Facebook-style)
- * Updates existing posts but does NOT push new ones to the top
- */
-const mergeFeedStable = (prev: PostType[], incoming: PostType[]): PostType[] => {
+// Facebook-like feed merging utility
+const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
   const map = new Map<number, PostType>();
-
-  // Start with previous order (keeps the feed stable)
-  prev.forEach((p) => map.set(Number(p.id), p));
-
-  // Update existing + append truly new ones at the end (NOT the top)
-  const prevIds = new Set(prev.map((p) => Number(p.id)));
-
-  const appended: PostType[] = [];
-
-  incoming.forEach((p) => {
-    const id = Number(p.id);
-    const existing = map.get(id);
-
+  
+  prev.forEach(p => map.set(Number(p.id), p));
+  
+  incoming.forEach(p => {
+    const existing = map.get(Number(p.id));
     if (existing) {
-      // Preserve local optimistic state like reactions/comments
-      map.set(id, {
-        ...existing,
+      map.set(Number(p.id), { 
+        ...existing, 
         ...p,
-        reactions: existing.reactions ?? p.reactions,
-        comments: existing.comments ?? p.comments,
-        shares: Math.max(safeNumber(existing.shares), safeNumber(p.shares)),
-        views: Math.max(safeNumber(existing.views), safeNumber(p.views)),
+        reactions: existing.reactions,
+        shares: Math.max(existing.shares || 0, p.shares || 0),
+        comments_count: Math.max(existing.comments_count || 0, p.comments_count || 0)
       });
     } else {
-      // New post: append to end (stable, no jump)
-      appended.push(p);
+      map.set(Number(p.id), p);
     }
   });
 
-  return [...prev.map((p) => map.get(Number(p.id))!).filter(Boolean), ...appended];
+  const prevIds = new Set(prev.map(p => Number(p.id)));
+  const newOnes = incoming.filter(p => !prevIds.has(Number(p.id)));
+  
+  return [...newOnes, ...prev.map(p => map.get(Number(p.id))!).filter(Boolean)];
 };
 
 // Minimal fallback user for UI stability
@@ -360,45 +354,8 @@ const createFallbackUser = (): User => {
   };
 };
 
-/**
- * ✅ FIX A: Remove __pending after refresh
- */
-const reconcilePendingPosts = (prev: PostType[], incoming: PostType[]) => {
-  // If we have a pending post that matches a real post from server, remove pending one.
-  // Match by: same user_id + same content + same media_url within last 2 minutes.
-  const now = Date.now();
-  const incomingKeys = new Set(
-    incoming.map((p: any) =>
-      `${safeNumber(p.user_id)}|${safeString(p.content)}|${safeString(p.media_url)}`
-    )
-  );
-
-  return prev.filter((p: any) => {
-    if (!p?.__pending) return true;
-
-    const created = p?.created_at ? new Date(p.created_at as any).getTime() : now;
-    const ageMs = Math.abs(now - created);
-
-    const key = `${safeNumber((p as any).user_id)}|${safeString((p as any).content)}|${safeString((p as any).media_url)}`;
-
-    // if server already has it, remove pending
-    if (incomingKeys.has(key)) return false;
-
-    // don't keep pending forever
-    if (ageMs > 2 * 60 * 1000) return false;
-
-    return true;
-  });
-};
-
 export default function App() {
-  // B) Comment out useLanguage temporarily to test if it's causing the blank screen
-  // useLanguage();
-  try {
-    useLanguage();
-  } catch (error) {
-    console.error('LanguageContext error:', error);
-  }
+  useLanguage();
 
   /** ---------- State ---------- */
   const [users, setUsers] = useState<User[]>([]);
@@ -419,35 +376,11 @@ export default function App() {
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
 
-  // ✅ Step 1: Add a "pending composer posts" state
-  const [pendingComposerPosts, setPendingComposerPosts] = useState<PostType[]>([]);
-
   // Refs for stable data
   const lastGoodPostsRef = useRef<PostType[]>([]);
   const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
   const scheduleSilentRefreshRef = useRef<any>(null);
   const stableFeedRef = useRef<PostType[]>([]);
-
-  // ✅ Step 6: fix stale posts inside fetchPostsForHome
-  const postsRef = useRef<PostType[]>([]);
-  useEffect(() => { 
-    postsRef.current = posts; 
-  }, [posts]);
-
-  // ✅ FIX 4: Interaction tracking for quiet window
-  const lastInteractionRef = useRef<number>(0);
-  const markInteraction = useCallback(() => {
-    lastInteractionRef.current = Date.now();
-  }, []);
-
-  // ✅ FIX B: Cache for ranked posts
-  const [rankedCache, setRankedCache] = useState<PostType[]>([]);
-
-  // ✅ FIX C: Buffer for new server posts
-  const [pendingServerPosts, setPendingServerPosts] = useState<PostType[]>([]);
-
-  // ✅ 1️⃣ Placeholder ref for fetchPostsForHome to avoid hoisting issues
-  const fetchPostsForHomeRef = useRef<(viewer: User | null) => Promise<void>>(async () => {});
 
   const [loginError, setLoginError] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -470,6 +403,14 @@ export default function App() {
   const [activeSharePost, setActiveSharePost] = useState<any>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
+
+  /** ---------- Facebook-like improvements ---------- */
+  const scheduleSilentRefresh = useCallback(() => {
+    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
+    scheduleSilentRefreshRef.current = setTimeout(() => {
+      fetchPostsForHome(currentUser).catch(() => {});
+    }, 8000);
+  }, [currentUser]);
 
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
@@ -540,91 +481,12 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
           
-          // ✅ Step 3: Clear pending composer post once the server returns it
-          setPendingComposerPosts((prev) => {
-            const arr = safeArray(prev);
-            if (!arr.length) return arr;
-
-            const serverKeys = new Set(
-              normalized.map((p: any) => `${safeNumber(p.user_id)}|${safeString(p.content)}|${safeString(p.media_url)}`)
-            );
-
-            const now = Date.now();
-
-            return arr.filter((p: any) => {
-              const created = p?.created_at ? new Date(p.created_at as any).getTime() : now;
-              const ageMs = Math.abs(now - created);
-
-              const key = `${safeNumber(p.user_id)}|${safeString(p.content)}|${safeString(p.media_url)}`;
-
-              // if server has it, remove it
-              if (serverKeys.has(key)) return false;
-
-              // don't keep forever
-              if (ageMs > 2 * 60 * 1000) return false;
-
-              return true;
-            });
+          setPosts(prev => {
+            const next = mergeFeed(prev, normalized);
+            stableFeedRef.current = next;
+            lastGoodPostsRef.current = next;
+            return next;
           });
-
-          // ✅ FIX C: Detect new posts and buffer them if user is active
-          const prevIds = new Set((stableFeedRef.current.length ? stableFeedRef.current : postsRef.current).map(p => Number(p.id)));
-          const newOnes = normalized.filter(p => !prevIds.has(Number(p.id)));
-
-          const now = Date.now();
-          const isBusy = now - lastInteractionRef.current < 8000;
-
-          if (isBusy && newOnes.length) {
-            // buffer new posts, don't change UI
-            setPendingServerPosts((prev) => {
-              const map = new Map<number, PostType>();
-              safeArray(prev).forEach(p => map.set(Number(p.id), p));
-              newOnes.forEach(p => map.set(Number(p.id), p));
-              return Array.from(map.values());
-            });
-
-            // but still update existing posts counts silently
-            setPosts(prev => {
-              const cleanedPrev = reconcilePendingPosts(prev, normalized);
-              const next = mergeFeedStable(cleanedPrev, normalized.filter(p => prevIds.has(Number(p.id))));
-              stableFeedRef.current = next;
-              lastGoodPostsRef.current = next;
-              return next;
-            });
-
-          } else {
-            // user idle: apply everything
-            setPosts(prev => {
-              // ✅ FIX A: Reconcile pending posts first
-              const cleanedPrev = reconcilePendingPosts(prev, normalized);
-              const next = mergeFeedStable(cleanedPrev, normalized);
-              stableFeedRef.current = next;
-              lastGoodPostsRef.current = next;
-              return next;
-            });
-
-            // apply buffered too
-            if (pendingServerPosts.length) {
-              setPosts(prev => {
-                const combined = mergeFeedStable(prev, pendingServerPosts);
-                stableFeedRef.current = combined;
-                lastGoodPostsRef.current = combined;
-                return combined;
-              });
-              setPendingServerPosts([]);
-            }
-          }
-
-          // ✅ FIX B: Compute ranking ONCE and store it
-          const baseList = stableFeedRef.current.length ? stableFeedRef.current : normalized;
-          
-          // ✅ A) Wrap rankFeed in try-catch to prevent crashes
-          try {
-            const ranked = rankFeed(baseList as any, viewer as any, users as any) as any;
-            setRankedCache(Array.isArray(ranked) ? ranked : []);
-          } catch {
-            setRankedCache(baseList);
-          }
 
           if (!feedHydrated) {
             setFeedHydrated(true);
@@ -643,18 +505,10 @@ export default function App() {
 
         if (normalized.length) {
           setPosts(prev => {
-            const next = mergeFeedStable(prev, normalized);
+            const next = mergeFeed(prev, normalized);
             lastGoodPostsRef.current = next;
             return next;
           });
-          
-          // ✅ FIX B: Compute ranking for guest too
-          try {
-            const ranked = rankFeed(normalized as any, null as any, users as any) as any;
-            setRankedCache(Array.isArray(ranked) ? ranked : []);
-          } catch {
-            setRankedCache(normalized);
-          }
         } else if (lastGoodPostsRef.current.length) {
           setPosts(lastGoodPostsRef.current);
         }
@@ -671,13 +525,8 @@ export default function App() {
         setIsFeedRefreshing(false);
       }
     },
-    [activeCommentsPostId, feedHydrated, users, pendingServerPosts]
+    [activeCommentsPostId, feedHydrated]
   );
-
-  // ✅ 2️⃣ After fetchPostsForHome is defined, set the ref
-  useEffect(() => {
-    fetchPostsForHomeRef.current = fetchPostsForHome as any;
-  }, [fetchPostsForHome]);
 
   /**
    * Fetch other data
@@ -711,15 +560,6 @@ export default function App() {
     },
     [fetchUsersList, fetchPostsForHome, fetchOtherData]
   );
-
-  /** ---------- Facebook-like improvements ---------- */
-  // ✅ 3️⃣ Now define scheduleSilentRefresh safely (it no longer depends on hoisting)
-  const scheduleSilentRefresh = useCallback(() => {
-    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
-    scheduleSilentRefreshRef.current = setTimeout(() => {
-      fetchPostsForHomeRef.current(currentUser).catch(() => {});
-    }, 8000);
-  }, [currentUser]);
 
   /** ---------- Restore session + initial load ---------- */
   useEffect(() => {
@@ -755,7 +595,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchData]);
 
-  /** ---------- Smart Polling with Quiet Window ---------- */
+  /** ---------- Smart Polling ---------- */
   useEffect(() => {
     if (activeCommentsPostId != null) return;
     if (document.visibilityState !== "visible") return;
@@ -766,10 +606,6 @@ export default function App() {
       if (stopped) return;
       if (document.visibilityState !== "visible") return;
       if (activeCommentsPostId != null) return;
-      
-      // ✅ FIX 4: Check quiet window (8 seconds after interaction)
-      const now = Date.now();
-      if (now - lastInteractionRef.current < 8000) return;
       
       await fetchPostsForHome(currentUser).catch(() => {});
     };
@@ -782,10 +618,10 @@ export default function App() {
   }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
 
   /** ---------- Derived ---------- */
-  // ✅ FIX B: Actually use cached ranking
   const rankedPosts = useMemo(() => {
-    return rankedCache.length ? rankedCache : (stableFeedRef.current.length ? stableFeedRef.current : posts);
-  }, [rankedCache, posts]);
+    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : posts;
+    return Array.isArray(feedToRank) ? feedToRank : [];
+  }, [posts]);
 
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
@@ -935,30 +771,22 @@ export default function App() {
 
       const normalized = normalizePost(newPostRaw);
 
-      // ✅ Step 2: When creating a post, do NOT push it into posts
-      const pendingPost = {
-        ...normalized,
-        __pending: true,
-        __localId: Date.now(),
-      } as any;
+      setPosts((prev) => {
+        const next = [normalized, ...safeArray(prev)];
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
 
-      // ✅ Show instantly, but in a separate "publishing" area (no feed reorder)
-      setPendingComposerPosts((prev) => [pendingPost, ...safeArray(prev)].slice(0, 3));
-
-      // ✅ Update ranked cache ONLY if you want it included (we do NOT include it)
       setShowCreatePostModal(false);
-      markInteraction();
       scheduleSilentRefresh();
     },
-    [currentUser, requireAuth, scheduleSilentRefresh, markInteraction]
+    [currentUser, requireAuth, scheduleSilentRefresh]
   );
 
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
-
-      // Mark interaction
-      markInteraction();
 
       setPosts((prev) => {
         const next = safeArray(prev).map((p: any) => {
@@ -984,15 +812,12 @@ export default function App() {
         scheduleSilentRefresh();
       }
     },
-    [currentUser, requireAuth, scheduleSilentRefresh, markInteraction]
+    [currentUser, requireAuth, scheduleSilentRefresh]
   );
 
   const onSharePost = useCallback(
     async (postId: number) => {
       if (!requireAuth('Sharing')) return;
-
-      // Mark interaction
-      markInteraction();
 
       setPosts((prev) => {
         const next = safeArray(prev).map((p: any) =>
@@ -1009,7 +834,7 @@ export default function App() {
         scheduleSilentRefresh();
       }
     },
-    [requireAuth, scheduleSilentRefresh, markInteraction]
+    [requireAuth, scheduleSilentRefresh]
   );
 
   const handleOpenShareSheet = useCallback((post: any) => {
@@ -1048,20 +873,14 @@ export default function App() {
     setShareInProgress(false);
     setActiveSharePost(null);
     setShowShareSheet(false);
-    
-    // Mark interaction
-    markInteraction();
     scheduleSilentRefresh();
-  }, [activeSharePost, scheduleSilentRefresh, markInteraction]);
+  }, [activeSharePost, scheduleSilentRefresh]);
 
   const onOpenComments = (postId: number) => {
     if (!requireAuth('Commenting')) return;
 
     const pid = Number(postId);
     setActiveCommentsPostId(pid);
-    
-    // Mark interaction
-    markInteraction();
 
     const found = posts.find((p) => Number(p.id) === pid) || null;
     setCommentPostSnapshot(found);
@@ -1287,48 +1106,6 @@ export default function App() {
                     setShowCreatePostModal(true);
                   }}
                 />
-              )}
-
-              {/* ✅ Step 4: Render "Publishing..." posts above the feed */}
-              {pendingComposerPosts.length > 0 && (
-                <div className="space-y-3 mb-3">
-                  {pendingComposerPosts.map((p: any) => (
-                    <div
-                      key={p.__localId || p.id}
-                      className="bg-[#242526] rounded-xl p-4 border border-[#3A3B3C]"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="text-[#E4E6EB] text-sm font-semibold">
-                          Posting...
-                        </div>
-                        <div className="text-[#B0B3B8] text-xs">
-                          Please wait
-                        </div>
-                      </div>
-
-                      {p.content ? (
-                        <div className="mt-2 text-[#E4E6EB] whitespace-pre-wrap">
-                          {p.content}
-                        </div>
-                      ) : null}
-
-                      {p.media_url ? (
-                        <div className="mt-3">
-                          {/* simple preview */}
-                          {String(p.media_type || '').startsWith('video/') ? (
-                            <video src={p.media_url} className="w-full rounded-lg" muted playsInline />
-                          ) : (
-                            <img src={p.media_url} className="w-full rounded-lg" alt="" />
-                          )}
-                        </div>
-                      ) : null}
-
-                      <div className="mt-3 h-1 w-full bg-[#3A3B3C] rounded-full overflow-hidden">
-                        <div className="h-full w-1/2 bg-[#1877F2] animate-pulse" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
               )}
 
               {currentUser && products.length > 0 && (
