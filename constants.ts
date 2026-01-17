@@ -1,4 +1,3 @@
-
 import { User, Post, Story, Reel, LocationData, Event, Group, Song, Album, Podcast, Episode, Brand, Reaction } from './types';
 
 // Comprehensive List of Locations with Flags (Focus on World + Africa)
@@ -198,30 +197,17 @@ export const GIF_CATEGORIES = {
 
 export const MOCK_GIFS = Object.values(GIF_CATEGORIES).flat();
 
+// REMOVED: Fake "UNERA Official" account
 export const INITIAL_USERS: User[] = [
-    {
-        id: 1,
-        username: 'unera_official',
-        name: 'UNERA Official',
-        email: 'admin@unera.social',
-        profile_image_url: 'https://ui-avatars.com/api/?name=UNERA+Official&background=1877F2&color=fff',
-        cover_image_url: 'https://images.unsplash.com/photo-1557683316-973673baf926?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
-        followers: [2, 3],
-        following: [2],
-        is_verified: true,
-        role: 'admin',
-        is_online: true,
-        location: 'Dar es Salaam, Tanzania',
-        bio: 'Welcome to the official UNERA platform. Connect and share with your community.'
-    },
+    // REMOVED: Fake official platform account
     {
         id: 2,
         username: 'johndoe',
         name: 'John Doe',
         email: 'john@example.com',
         profile_image_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
-        followers: [1],
-        following: [1, 3],
+        followers: [],
+        following: [],
         is_online: true,
         location: 'Nairobi, Kenya',
         bio: 'Tech enthusiast and traveler.'
@@ -232,64 +218,32 @@ export const INITIAL_USERS: User[] = [
         name: 'Sarah Johnson',
         email: 'sarah@example.com',
         profile_image_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
-        followers: [2],
-        following: [1],
+        followers: [],
+        following: [],
         is_online: false,
         location: 'Kampala, Uganda',
         bio: 'Digital Artist & Creative Soul.'
     }
 ];
 
+// REMOVED: Fake "UNERA Developers" group
 export const INITIAL_GROUPS: Group[] = [
-    {
-        // @google/genai-api-fix: Corrected id from string 'g1' to number 1001 to match Group type.
-        id: 1001,
-        name: 'UNERA Developers',
-        description: 'A community for developers building on the UNERA ecosystem.',
-        type: 'public',
-        profile_image: 'https://ui-avatars.com/api/?name=Developers&background=random',
-        cover_image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
-        admin_id: 1,
-        members: [1, 2],
-        posts: [],
-        created_at: new Date().toISOString()
-    }
+    // No fake groups - let real users create their own
 ];
 
+// REMOVED: Fake "Unera Music" brand
 export const INITIAL_BRANDS: Brand[] = [
-    {
-        id: 101,
-        name: 'Unera Music',
-        description: 'The heartbeat of African music.',
-        category: 'Musician/Band',
-        profile_image_url: 'https://ui-avatars.com/api/?name=Unera+Music&background=FF0050',
-        cover_image_url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
-        admin_id: 1,
-        followers: [1, 2, 3],
-        location: 'Lagos, Nigeria',
-        is_verified: true,
-        created_at: new Date().toISOString()
-    }
+    // No fake brands - let real users create their own
 ];
 
 export const INITIAL_EVENTS: Event[] = [
-    {
-        id: 1,
-        creator_id: 1,
-        title: 'UNERA Launch Party',
-        description: 'Join us as we celebrate the launch of the most innovative social network in Africa!',
-        event_date: new Date(Date.now() + 86400000).toISOString(),
-        location: 'Dar es Salaam, Tanzania',
-        cover_url: 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
-        attendees: [1, 2, 3],
-        interested_ids: [1, 2, 3]
-    }
+    // Events should be created by real users, not seeded as fake
 ];
 
 export const MOCK_SONGS: Song[] = [
     {
         id: 1,
-        uploader_id: 1,
+        uploader_id: 2, // Changed from fake admin to real user (John Doe)
         title: 'Sunrise Over Arusha',
         artist_name: 'Bongo Flava King',
         cover_image_url: 'https://images.unsplash.com/photo-1514525253440-b393452e8d26?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
@@ -315,7 +269,7 @@ export const MOCK_ALBUMS: Album[] = [
 export const MOCK_PODCASTS: any[] = [
     {
         id: 1,
-        creator_id: 1,
+        creator_id: 2, // Changed from fake admin to real user
         title: 'The Tech Savanna',
         host: 'Tech Guru',
         cover_url: 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
@@ -330,7 +284,7 @@ export const MOCK_EPISODES: Episode[] = [
     {
         id: 1,
         podcast_id: 1,
-        uploader_id: 1,
+        uploader_id: 2, // Changed from fake admin to real user
         title: 'Episode 1: The Rise of AI in Lagos',
         description: 'We dive deep into the silicon savanna of Nigeria.',
         created_at: new Date().toISOString(),
