@@ -243,13 +243,22 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [loginError, setLoginError] = useState(''); // ✅ ADDED: For image validation errors
 
   // Defensive: followers/following arrays may be missing with guest / raw user objects
   const userFollowers = useMemo(() => safeArray<number>((user as any).followers), [user]);
-  const currentFollowing = useMemo(() => safeArray<number>((currentUser as any)?.following), [currentUser]);
+  
+  // ✅ FIXED: Use mutual followers logic to match App.tsx follow logic
+  const isFollowing = useMemo(() => {
+    if (!currentUser) return false;
+    
+    // Check mutual followers: currentUser follows user AND user follows currentUser
+    const currentUserFollowsUser = safeArray<number>((currentUser as any)?.followers).includes(user.id);
+    const userFollowsCurrentUser = userFollowers.includes(currentUser.id);
+    
+    return currentUserFollowsUser && userFollowsCurrentUser;
+  }, [currentUser, user, userFollowers]);
 
-  const isCurrentUser = Boolean(currentUser && user?.id === currentUser.id);
-  const isFollowing = Boolean(currentUser && currentFollowing.includes(user.id));
   const followerCount = userFollowers.length;
 
   const isAdmin = (currentUser as any)?.role === 'admin';
@@ -300,10 +309,32 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
   const totalEngagement = totalLikes + totalComments + totalShares;
 
-  // ✅ UPDATED: Use R2 URLs directly (App.tsx ensures they're proper URLs)
   const safeProfileImage = safeString((user as any)?.profile_image_url, '');
   const safeCoverImage = safeString((user as any)?.cover_image_url, '');
   const safeBio = safeString((user as any)?.bio, '');
+
+  // ✅ ADDED: Image validation handler
+  const validateAndUploadImage = (file: File, uploadCallback: (file: File) => void) => {
+    if (!file.type || !file.type.startsWith('image/')) {
+      setLoginError('Only image files are allowed.');
+      // Clear error after 3 seconds
+      setTimeout(() => setLoginError(''), 3000);
+      return;
+    }
+    
+    // Check file size (limit to 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      setLoginError('Image size should be less than 10MB.');
+      setTimeout(() => setLoginError(''), 3000);
+      return;
+    }
+    
+    // Clear any previous errors
+    setLoginError('');
+    
+    // Call the upload callback
+    uploadCallback(file);
+  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -522,6 +553,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             </div>
 
             <div className="flex-1 min-w-0">
+              {/* ✅ ADDED: Error display for image validation */}
+              {loginError && (
+                <div className="mb-4 p-3 bg-red-900/80 border border-red-700 rounded-lg text-red-200 text-sm">
+                  <div className="flex items-center gap-2">
+                    <i className="fas fa-exclamation-circle"></i>
+                    <span>{loginError}</span>
+                  </div>
+                </div>
+              )}
+
               {isCurrentUser && (
                 <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
                   <div className="grid grid-cols-2 gap-3">
@@ -582,9 +623,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   };
 
+  const isCurrentUser = Boolean(currentUser && user?.id === currentUser.id);
+
   return (
     <div className="w-full bg-[#18191A] min-h-screen">
-      {/* ✅ SIMPLIFIED: Profile image file input */}
       <input
         type="file"
         ref={profileInputRef}
@@ -592,11 +634,14 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         accept="image/*"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) onUpdateProfileImage(file);
+          if (file) {
+            // ✅ ADDED: Image validation before upload
+            validateAndUploadImage(file, onUpdateProfileImage);
+          }
+          // Reset input to allow selecting same file again
+          if (e.target) e.target.value = '';
         }}
       />
-      
-      {/* ✅ SIMPLIFIED: Cover image file input */}
       <input
         type="file"
         ref={coverInputRef}
@@ -604,7 +649,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         accept="image/*"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) onUpdateCoverImage(file);
+          if (file) {
+            // ✅ ADDED: Image validation before upload
+            validateAndUploadImage(file, onUpdateCoverImage);
+          }
+          // Reset input to allow selecting same file again
+          if (e.target) e.target.value = '';
         }}
       />
 
@@ -616,7 +666,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 src={safeCoverImage}
                 alt="Cover"
                 className="w-full h-full object-cover cursor-pointer"
-                onClick={() => safeCoverImage && onViewImage(safeCoverImage)}
+                onClick={() => onViewImage(safeCoverImage)}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-500">No Cover</div>
@@ -624,13 +674,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
             {isCurrentUser && (
               <>
+                {/* ✅ UPDATED: Cover image upload button */}
                 <div
                   className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-md cursor-pointer hover:bg-white/20 font-semibold text-white text-[15px] flex items-center gap-2"
                   onClick={() => coverInputRef.current?.click()}
                 >
-                  <i className="fas fa-camera"></i> {safeCoverImage ? 'Edit cover photo' : 'Add cover photo'}
+                  <i className="fas fa-camera"></i> Edit cover photo
                 </div>
                 
+                {/* ✅ ADDED: Add cover photo button when no cover exists */}
                 {!safeCoverImage && (
                   <div
                     className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/50"
@@ -654,7 +706,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     src={safeProfileImage}
                     alt={safeString((user as any).name, 'User')}
                     className="w-full h-full object-cover"
-                    onClick={() => safeProfileImage && onViewImage(safeProfileImage)}
+                    onClick={() => onViewImage(safeProfileImage)}
                   />
                 ) : (
                   <div className="w-full h-full bg-[#3A3B3C] flex items-center justify-center text-[#B0B3B8]">
@@ -671,6 +723,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       <i className="fas fa-camera text-white text-3xl"></i>
                     </div>
                     
+                    {/* ✅ ADDED: Add profile photo button when no photo exists */}
                     {!safeProfileImage && (
                       <div
                         className="absolute inset-0 flex items-center justify-center bg-black/60 cursor-pointer"
@@ -701,6 +754,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 md:mt-0 md:mb-6">
                 {isCurrentUser ? (
                   <>
+                    {/* ✅ UPDATED: "Add to story" button now calls onCreateStoryClick */}
                     <button
                       className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5]"
                       onClick={() => {
@@ -725,6 +779,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   </>
                 ) : (
                   <>
+                    {/* ✅ FIXED: Follow button now shows correct state based on mutual followers */}
                     <button
                       onClick={() => onFollow(user.id)}
                       className={`${
