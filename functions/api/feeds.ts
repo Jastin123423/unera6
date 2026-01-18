@@ -31,7 +31,7 @@ const parseSeenIds = (raw: string | null, max = 250) => {
   return Array.from(new Set(ids)).slice(0, max);
 };
 
-// Deterministic seeded RNG + shuffle (for stable "freshness")
+// Deterministic seeded RNG + shuffle
 const mulberry32 = (seed: number) => {
   return function () {
     let t = (seed += 0x6d2b79f5);
@@ -63,27 +63,27 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     if (!userId) return json({ success: false, error: 'Missing userId' }, 400);
 
     const limit = clamp(toInt(url.searchParams.get('limit'), 20), 1, 50);
-    const cursor = url.searchParams.get('cursor'); // ISO timestamp; fetch older than this
+    const cursor = url.searchParams.get('cursor'); // ISO timestamp older-than
     const seed = toInt(url.searchParams.get('seed'), 1);
     const seen = parseSeenIds(url.searchParams.get('seen'), 250);
+    const debug = url.searchParams.get('debug') === '1';
 
-    // Blend strategy: fresh newest + explore random older to avoid boredom
     const freshCount = Math.max(5, Math.floor(limit * 0.65));
     const exploreCount = Math.max(0, limit - freshCount);
 
     const where: string[] = [];
     const binds: any[] = [];
 
-    // ✅ IMPORTANT: treat NULL visibility as public
-    where.push(`(p.visibility IS NULL OR p.visibility = 'public')`);
+    // ✅ Visibility: do NOT accidentally hide posts
+    // Keep public + null; also allow legacy/unknown visibility values by NOT filtering them out
+    // If you want strict public-only later, keep only (visibility is null or 'public').
+    where.push(`(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`);
 
-    // Cursor pagination (older than)
     if (cursor && typeof cursor === 'string' && cursor.trim().length > 0) {
       where.push(`p.created_at < ?`);
       binds.push(cursor.trim());
     }
 
-    // Exclude seen ids
     if (seen.length > 0) {
       where.push(`p.id NOT IN (${seen.map(() => '?').join(',')})`);
       binds.push(...seen);
@@ -91,39 +91,47 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // NOTE: baseSelect MUST NOT contain WHERE (prevents "near WHERE" syntax error)
+    // ✅ CRITICAL FIX: LEFT JOIN so posts still show even if user row is missing
     const baseSelect = `
       SELECT
-        p.id, p.user_id, p.content,
+        p.id,
+        p.user_id,
+        p.content,
 
-        -- ✅ block huge base64 post media
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
           WHEN length(p.media_url) > 300 THEN NULL
           ELSE p.media_url
         END AS media_url,
+
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
           WHEN length(p.media_url) > 300 THEN NULL
           ELSE p.media_type
         END AS media_type,
 
-        p.visibility, p.created_at, p.views, p.shares,
-        u.username,
+        p.visibility,
+        p.created_at,
+        p.views,
+        p.shares,
 
-        -- ✅ block huge base64 profile images
+        -- Safe user fields
+        COALESCE(u.username, 'user') AS username,
+
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
           ELSE u.profile_image_url
         END AS profile_image_url,
 
-        u.is_verified, u.role
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role
+
       FROM posts p
-      JOIN users u ON u.id = p.user_id
+      LEFT JOIN users u ON u.id = p.user_id
     `;
 
-    // 1) Fresh pool: newest first
+    // 1) Fresh pool
     const qFresh = `
       ${baseSelect}
       ${whereSql}
@@ -131,14 +139,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    const freshResults = await env.DB
-      .prepare(qFresh)
-      .bind(...binds, freshCount)
-      .all();
+    const freshRes = await env.DB.prepare(qFresh).bind(...binds, freshCount).all();
+    const fresh = Array.isArray(freshRes?.results) ? freshRes.results : [];
 
-    const fresh = Array.isArray(freshResults?.results) ? freshResults.results : [];
-
-    // 2) Explore pool: random older posts (helps feed feel different)
+    // 2) Explore pool
     let explore: any[] = [];
     if (exploreCount > 0) {
       const qExplore = `
@@ -147,16 +151,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         ORDER BY RANDOM()
         LIMIT ?
       `;
-
-      const exploreResults = await env.DB
-        .prepare(qExplore)
-        .bind(...binds, exploreCount)
-        .all();
-
-      explore = Array.isArray(exploreResults?.results) ? exploreResults.results : [];
+      const exploreRes = await env.DB.prepare(qExplore).bind(...binds, exploreCount).all();
+      explore = Array.isArray(exploreRes?.results) ? exploreRes.results : [];
     }
 
-    // Merge + dedup by id
+    // Merge + dedup
     const map = new Map<number, any>();
     for (const row of [...fresh, ...explore]) {
       const id = Number((row as any)?.id);
@@ -165,21 +164,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     const merged = Array.from(map.values());
-
-    // Seed shuffle => order changes per session/return but stable within same seed
     const ordered = seededShuffle(merged, seed);
 
-    // nextCursor for pagination (use last item's created_at)
     const last = ordered.length ? ordered[ordered.length - 1] : null;
     const nextCursor = last?.created_at ?? null;
 
-    // hasMore check: is there at least one older post beyond nextCursor (excluding seen)
+    // hasMore
     let hasMore = false;
     if (nextCursor) {
       const whereMore: string[] = [];
       const bindsMore: any[] = [];
 
-      whereMore.push(`(p.visibility IS NULL OR p.visibility = 'public')`);
+      whereMore.push(`(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`);
       whereMore.push(`p.created_at < ?`);
       bindsMore.push(nextCursor);
 
@@ -198,6 +194,34 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
       const more = await env.DB.prepare(qMore).bind(...bindsMore).first();
       hasMore = !!more;
+    }
+
+    // ✅ Debug info to quickly diagnose empty feed
+    if (debug) {
+      const totalPosts = await env.DB.prepare(`SELECT COUNT(*) as c FROM posts`).first();
+      const joinableUsers = await env.DB
+        .prepare(`SELECT COUNT(*) as c FROM posts p JOIN users u ON u.id = p.user_id`)
+        .first();
+      const publicOrNull = await env.DB
+        .prepare(`SELECT COUNT(*) as c FROM posts p WHERE (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`)
+        .first();
+
+      return json({
+        success: true,
+        userId,
+        limit,
+        cursor: cursor ?? null,
+        nextCursor,
+        hasMore,
+        feed: ordered,
+        debug: {
+          totalPosts: (totalPosts as any)?.c ?? null,
+          joinableUsers: (joinableUsers as any)?.c ?? null,
+          publicOrNull: (publicOrNull as any)?.c ?? null,
+          seenCount: seen.length,
+          returned: ordered.length,
+        },
+      });
     }
 
     return json({
