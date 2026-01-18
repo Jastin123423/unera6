@@ -300,6 +300,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
   const totalEngagement = totalLikes + totalComments + totalShares;
 
+  // ✅ UPDATED: Use R2 URLs directly (App.tsx ensures they're proper URLs)
   const safeProfileImage = safeString((user as any)?.profile_image_url, '');
   const safeCoverImage = safeString((user as any)?.cover_image_url, '');
   const safeBio = safeString((user as any)?.bio, '');
@@ -583,6 +584,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
   return (
     <div className="w-full bg-[#18191A] min-h-screen">
+      {/* ✅ SIMPLIFIED: Profile image file input */}
       <input
         type="file"
         ref={profileInputRef}
@@ -593,6 +595,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           if (file) onUpdateProfileImage(file);
         }}
       />
+      
+      {/* ✅ SIMPLIFIED: Cover image file input */}
       <input
         type="file"
         ref={coverInputRef}
@@ -612,7 +616,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 src={safeCoverImage}
                 alt="Cover"
                 className="w-full h-full object-cover cursor-pointer"
-                onClick={() => onViewImage(safeCoverImage)}
+                onClick={() => safeCoverImage && onViewImage(safeCoverImage)}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-500">No Cover</div>
@@ -620,15 +624,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
             {isCurrentUser && (
               <>
-                {/* ✅ UPDATED: Cover image upload button */}
                 <div
                   className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-md cursor-pointer hover:bg-white/20 font-semibold text-white text-[15px] flex items-center gap-2"
                   onClick={() => coverInputRef.current?.click()}
                 >
-                  <i className="fas fa-camera"></i> Edit cover photo
+                  <i className="fas fa-camera"></i> {safeCoverImage ? 'Edit cover photo' : 'Add cover photo'}
                 </div>
                 
-                {/* ✅ ADDED: Add cover photo button when no cover exists */}
                 {!safeCoverImage && (
                   <div
                     className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/50"
@@ -652,7 +654,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     src={safeProfileImage}
                     alt={safeString((user as any).name, 'User')}
                     className="w-full h-full object-cover"
-                    onClick={() => onViewImage(safeProfileImage)}
+                    onClick={() => safeProfileImage && onViewImage(safeProfileImage)}
                   />
                 ) : (
                   <div className="w-full h-full bg-[#3A3B3C] flex items-center justify-center text-[#B0B3B8]">
@@ -669,7 +671,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       <i className="fas fa-camera text-white text-3xl"></i>
                     </div>
                     
-                    {/* ✅ ADDED: Add profile photo button when no photo exists */}
                     {!safeProfileImage && (
                       <div
                         className="absolute inset-0 flex items-center justify-center bg-black/60 cursor-pointer"
@@ -700,7 +701,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 md:mt-0 md:mb-6">
                 {isCurrentUser ? (
                   <>
-                    {/* ✅ UPDATED: "Add to story" button now calls onCreateStoryClick */}
                     <button
                       className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5]"
                       onClick={() => {
