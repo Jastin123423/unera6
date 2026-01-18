@@ -1,5 +1,6 @@
 // App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
+// ADMIN INTEGRATION ADDED
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -610,6 +611,28 @@ export default function App() {
     [currentUser]
   );
 
+  /** ---------- ADMIN ROLE GUARDS (ADDED) ---------- */
+  const isAdmin = (u: any) => (u?.role || "").toLowerCase() === "admin";
+  const isModerator = (u: any) => (u?.role || "").toLowerCase() === "moderator";
+
+  const requireAdmin = useCallback((action = "This action") => {
+    if (!requireAuth(action)) return false;
+    if (!isAdmin(currentUser)) {
+      setLoginError(`${action} requires admin.`);
+      return false;
+    }
+    return true;
+  }, [requireAuth, currentUser]);
+
+  const requireModOrAdmin = useCallback((action = "This action") => {
+    if (!requireAuth(action)) return false;
+    if (!(isAdmin(currentUser) || isModerator(currentUser))) {
+      setLoginError(`${action} requires moderator or admin.`);
+      return false;
+    }
+    return true;
+  }, [requireAuth, currentUser]);
+
   const openProfile = useCallback((id: number) => {
     setSelectedUserId(Number(id));
     setView('profile');
@@ -937,6 +960,79 @@ export default function App() {
       clearInterval(t);
     };
   }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
+
+  /** ---------- ADMIN API ACTIONS (ADDED) ---------- */
+  const verifyUser = useCallback(async (userId: number) => {
+    if (!requireAdmin("Verify user")) return;
+
+    // optimistic UI
+    setUsers(prev => prev.map(u =>
+      Number(u.id) === Number(userId) ? { ...u, is_verified: !(u as any).is_verified } as any : u
+    ));
+
+    try {
+      await apiFetch("/api/admin/users/verify", {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId }),
+      });
+
+      await fetchUsersList(); // refresh from server
+    } catch (e) {
+      await fetchUsersList(); // rollback by refetch
+      setLoginError((e as any)?.message || "Verify failed");
+    }
+  }, [requireAdmin, fetchUsersList]);
+
+  const suspendUser = useCallback(async (userId: number, duration: "24h"|"5d"|"30d"|"manual") => {
+    if (!requireModOrAdmin("Suspend user")) return;
+
+    try {
+      await apiFetch("/api/admin/users/suspend", {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId, duration }),
+      });
+
+      await fetchUsersList();
+    } catch (e) {
+      setLoginError((e as any)?.message || "Suspend failed");
+    }
+  }, [requireModOrAdmin, fetchUsersList]);
+
+  const deleteUserAccount = useCallback(async (userId: number) => {
+    if (!requireAdmin("Delete account")) return;
+
+    // optimistic: remove from UI
+    setUsers(prev => prev.filter(u => Number(u.id) !== Number(userId)));
+
+    try {
+      await apiFetch("/api/admin/users/delete", {
+        method: "DELETE",
+        body: JSON.stringify({ user_id: userId }),
+      });
+
+      await fetchUsersList();
+      // optional: also refresh posts feed
+      fetchPostsForHome(currentUser).catch(()=>{});
+    } catch (e) {
+      await fetchUsersList(); // rollback
+      setLoginError((e as any)?.message || "Delete failed");
+    }
+  }, [requireAdmin, fetchUsersList, currentUser, fetchPostsForHome]);
+
+  const setModerator = useCallback(async (userId: number, makeModerator: boolean) => {
+    if (!requireAdmin("Promote moderator")) return;
+
+    try {
+      await apiFetch("/api/admin/users/role", {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId, role: makeModerator ? "moderator" : "user" }),
+      });
+
+      await fetchUsersList();
+    } catch (e) {
+      setLoginError((e as any)?.message || "Role update failed");
+    }
+  }, [requireAdmin, fetchUsersList]);
 
   /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
@@ -1801,6 +1897,11 @@ export default function App() {
               }}
               onPlayAudioTrack={setCurrentAudioTrack}
               onCreateStoryClick={handleCreateStoryFromProfile}
+              // ✅ ADDED: Admin handlers
+              onVerifyUser={(id) => verifyUser(id)}
+              onRestrictUser={(id) => suspendUser(id, "24h")}
+              onDeleteUser={(id) => deleteUserAccount(id)}
+              onMakeModerator={(id) => setModerator(id, true)}
             />
           )}
 
