@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
@@ -82,46 +81,75 @@ const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
 
 /**
  * =========================
- * ✅ FIXED: ACCURATE RELATIVE TIME (Facebook-like)
+ * ✅ FIXED: TIMEZONE-SAFE RELATIVE TIME FORMATTER
  * =========================
  */
-export const formatRelativeTime = (dateInput: any): string => {
-  if (!dateInput) return 'Just now';
+const toDateSafe = (input: any): Date | null => {
+  if (!input) return null;
 
-  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
-  const t = d.getTime();
-  if (!Number.isFinite(t)) return 'Just now';
+  // If already Date
+  if (input instanceof Date && Number.isFinite(input.getTime())) return input;
+
+  // If numeric (seconds or ms)
+  if (typeof input === 'number') {
+    const ms = input < 1e12 ? input * 1000 : input; // seconds -> ms
+    const d = new Date(ms);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+
+  if (typeof input === 'string') {
+    const s = input.trim();
+
+    // "YYYY-MM-DD HH:MM:SS" -> treat as UTC
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
+      const iso = s.replace(' ', 'T') + 'Z';
+      const d = new Date(iso);
+      return Number.isFinite(d.getTime()) ? d : null;
+    }
+
+    // "YYYY-MM-DDTHH:MM:SS" (no timezone) -> treat as UTC by appending Z
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
+      const d = new Date(s + 'Z');
+      return Number.isFinite(d.getTime()) ? d : null;
+    }
+
+    const d = new Date(s);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+
+  return null;
+};
+
+export const formatRelativeTime = (dateInput: any): string => {
+  const d = toDateSafe(dateInput);
+  if (!d) return 'Just now';
 
   const now = Date.now();
-  let diffMs = now - t;
+  let diffMs = now - d.getTime();
+
+  // If server time slightly ahead (clock drift), clamp
   if (diffMs < 0) diffMs = 0;
 
-  const diffSec = Math.floor(diffMs / 1000);
-  if (diffSec < 60) return 'Just now';
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return 'Just now';
 
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin === 1) return '1 min';
-  if (diffMin < 60) return `${diffMin} mins`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return min === 1 ? '1 min' : `${min} mins`;
 
-  const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs === 1) return '1 hr';
-  if (diffHrs < 24) return `${diffHrs} hrs`;
+  const hrs = Math.floor(min / 60);
+  if (hrs < 24) return hrs === 1 ? '1 hr' : `${hrs} hrs`;
 
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays === 1) return '1 day';
-  if (diffDays < 7) return `${diffDays} days`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return days === 1 ? '1 day' : `${days} days`;
 
-  const diffWeeks = Math.floor(diffDays / 7);
-  if (diffWeeks === 1) return '1 week';
-  if (diffWeeks < 4) return `${diffWeeks} weeks`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) return weeks === 1 ? '1 week' : `${weeks} weeks`;
 
-  const diffMonths = Math.floor(diffDays / 30);
-  if (diffMonths === 1) return '1 month';
-  if (diffMonths < 12) return `${diffMonths} months`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? '1 month' : `${months} months`;
 
-  const diffYears = Math.floor(diffDays / 365);
-  if (diffYears === 1) return '1 year';
-  return `${diffYears} years`;
+  const years = Math.floor(days / 365);
+  return years === 1 ? '1 year' : `${years} years`;
 };
 
 /**
@@ -202,6 +230,36 @@ const FEELINGS = [
   'Relaxed',
 ];
 
+// Quick emojis for comments
+const QUICK_EMOJIS = ['😀', '😂', '😍', '🔥', '😢', '😡', '👍', '❤️'];
+
+/**
+ * =========================
+ * ✅ FACEBOOK-STYLE REACTION DOCK ANIMATIONS
+ * =========================
+ */
+// Add these styles to your global CSS or create a style tag
+const reactionStyles = `
+  @keyframes popFloat {
+    0% { transform: translateY(6px) scale(0.9); opacity: 0; }
+    60% { transform: translateY(-6px) scale(1.15); opacity: 1; }
+    100% { transform: translateY(0px) scale(1); }
+  }
+  
+  @keyframes wiggle {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(-2deg); }
+    75% { transform: rotate(2deg); }
+  }
+  
+  .react-pop { animation: popFloat 220ms ease-out; }
+  .react-hover { transition: transform 120ms ease; }
+  .react-hover:hover { 
+    transform: translateY(-10px) scale(1.25); 
+    animation: wiggle 300ms ease-in-out; 
+  }
+`;
+
 /**
  * =========================
  * RICH TEXT (hashtags + mentions)
@@ -277,7 +335,7 @@ export const RichText = ({
 
 /**
  * =========================
- * REACTION BUTTON (FB style)
+ * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON WITH BACKEND SYNC
  * =========================
  */
 export const ReactionButton: React.FC<{
@@ -287,7 +345,20 @@ export const ReactionButton: React.FC<{
   isGuest?: boolean;
 }> = ({ currentUserReactions, reactionCount, onReact, isGuest }) => {
   const [showDock, setShowDock] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
   const timerRef = useRef<any>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+
+  // Add styles on mount
+  useEffect(() => {
+    const styleTag = document.createElement('style');
+    styleTag.textContent = reactionStyles;
+    document.head.appendChild(styleTag);
+    
+    return () => {
+      document.head.removeChild(styleTag);
+    };
+  }, []);
 
   const handleMouseEnter = () => {
     if (isGuest) return;
@@ -301,16 +372,25 @@ export const ReactionButton: React.FC<{
 
   const handleClick = () => {
     if (isGuest) return alert('Please login to react.');
+    setIsAnimating(true);
     onReact('like');
+    setTimeout(() => setIsAnimating(false), 300);
+  };
+
+  const handleDockReact = (type: ReactionType) => {
+    setIsAnimating(true);
+    onReact(type);
+    setShowDock(false);
+    setTimeout(() => setIsAnimating(false), 300);
   };
 
   const reactionConfig = [
-    { type: 'like', icon: '👍', color: '#1877F2' },
-    { type: 'love', icon: '❤️', color: '#F3425F' },
-    { type: 'haha', icon: '😆', color: '#F7B928' },
-    { type: 'wow', icon: '😮', color: '#F7B928' },
-    { type: 'sad', icon: '😢', color: '#F7B928' },
-    { type: 'angry', icon: '😡', color: '#E41E3F' },
+    { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
+    { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
+    { type: 'haha', icon: '😆', color: '#F7B928', label: 'Haha' },
+    { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
+    { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
+    { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
   ] as const;
 
   const activeReaction = currentUserReactions
@@ -324,16 +404,19 @@ export const ReactionButton: React.FC<{
       onMouseLeave={handleMouseLeave}
     >
       {showDock && (
-        <div className="absolute -top-12 left-0 bg-[#242526] rounded-full shadow-xl p-1.5 flex gap-2 animate-fade-in border border-[#3E4042] z-50">
+        <div 
+          ref={dockRef}
+          className="absolute -top-12 left-0 bg-[#242526] rounded-full shadow-2xl p-2 flex gap-2 border border-[#3E4042] z-50 react-pop"
+        >
           {reactionConfig.map((r) => (
             <div
               key={r.type}
-              className="text-2xl hover:scale-125 transition-transform cursor-pointer hover:-translate-y-2 duration-200"
+              className="text-2xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors"
               onClick={(e) => {
                 e.stopPropagation();
-                onReact(r.type as ReactionType);
-                setShowDock(false);
+                handleDockReact(r.type as ReactionType);
               }}
+              title={r.label}
             >
               {r.icon}
             </div>
@@ -343,16 +426,20 @@ export const ReactionButton: React.FC<{
 
       <button
         onClick={handleClick}
-        className="w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors active:scale-95"
+        className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
+          isAnimating ? 'scale-110' : ''
+        }`}
       >
         {activeReaction ? (
           <>
-            <span className="text-[20px]">{activeReaction.icon}</span>
+            <span className="text-[20px] transition-transform duration-300">
+              {activeReaction.icon}
+            </span>
             <span
-              className="text-[17px] font-medium capitalize"
+              className="text-[17px] font-medium capitalize transition-colors duration-300"
               style={{ color: activeReaction.color }}
             >
-              {activeReaction.type}
+              {activeReaction.label}
             </span>
           </>
         ) : (
@@ -368,7 +455,7 @@ export const ReactionButton: React.FC<{
 
 /**
  * =========================
- * ✅ FIXED: ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
+ * ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
  * =========================
  */
 const getMediaTypeInfo = (post: any) => {
@@ -412,7 +499,7 @@ const getMediaTypeInfo = (post: any) => {
 
 /**
  * =========================
- * PROFESSIONAL SHARE BOTTOM SHEET
+ * ✅ UPDATED: SHARE BOTTOM SHEET WITH REAL SHARE COUNT
  * =========================
  */
 export const ShareBottomSheet: React.FC<{
@@ -489,14 +576,21 @@ export const ShareBottomSheet: React.FC<{
       });
 
       if (onShareComplete) {
-        onShareComplete(destination, { success: true, data: response });
+        onShareComplete(destination, { 
+          success: true, 
+          data: response,
+          shares: response?.shares || response?.share_count || (post.shares || 0) + 1
+        });
       }
 
       closeSheet();
     } catch (error: any) {
       console.error('Share failed:', error);
       if (onShareComplete) {
-        onShareComplete(destination, { success: false, error: error.message });
+        onShareComplete(destination, { 
+          success: false, 
+          error: error.message 
+        });
       }
     }
   };
@@ -592,7 +686,10 @@ export const ShareBottomSheet: React.FC<{
                     <div className="text-[#B0B3B8] text-xs">{group.members_count} members</div>
                   </div>
                 </div>
-                <button className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm">
+                <button 
+                  onClick={() => handleShareAction('group')}
+                  className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
+                >
                   Share
                 </button>
               </div>
@@ -876,7 +973,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * POST CARD (WITH CLOUDFLARE R2 FIX)
+ * ✅ UPDATED: POST CARD WITH INSTANT UPDATES
  * =========================
  */
 export const Post: React.FC<{
@@ -886,7 +983,7 @@ export const Post: React.FC<{
   users?: User[];
   onProfileClick: (id: number) => void;
   onReact: (id: number, type: ReactionType) => void;
-  onShare: (id: number) => void;
+  onShare: (id: number, newShareCount: number) => void;
   onDelete?: (id: number) => void;
   onViewImage: (url: string) => void;
   onOpenComments: (id: number) => void;
@@ -918,14 +1015,17 @@ export const Post: React.FC<{
   const a: any = author as any;
 
   const reactions = Array.isArray(p.reactions) ? p.reactions : [];
-  const comments = Array.isArray(p.comments) ? p.comments : [];
   
-  // ✅ FIXED: Proper comment count handling
+  // ✅ INSTANT COMMENT COUNT UPDATES
   const [commentCount, setCommentCount] = useState(() => {
-    // Use comment_count if available, otherwise count actual comments
     if (typeof p.comment_count === 'number') return p.comment_count;
     if (Array.isArray(p.comments)) return p.comments.length;
     return 0;
+  });
+
+  // ✅ INSTANT SHARE COUNT
+  const [shareCount, setShareCount] = useState(() => {
+    return safeNumber(p.shares ?? p.shares_count, 0);
   });
 
   const [showShareSheet, setShowShareSheet] = useState(false);
@@ -940,7 +1040,7 @@ export const Post: React.FC<{
 
   const mediaInfo = getMediaTypeInfo(p);
 
-  const formatCommentCount = (count: number): string => {
+  const formatCount = (count: number): string => {
     if (count >= 1000000) {
       return `${(count / 1000000).toFixed(1)}M`;
     } else if (count >= 1000) {
@@ -949,22 +1049,28 @@ export const Post: React.FC<{
     return count.toString();
   };
 
-  // ✅ Sync comment count with post updates
+  // ✅ Sync counts with post updates
   useEffect(() => {
-    const newCount = typeof p.comment_count === 'number' 
+    const newCommentCount = typeof p.comment_count === 'number' 
       ? p.comment_count 
       : Array.isArray(p.comments) 
         ? p.comments.length 
         : 0;
     
-    if (newCount !== commentCount) {
-      setCommentCount(newCount);
+    if (newCommentCount !== commentCount) {
+      setCommentCount(newCommentCount);
     }
-  }, [p.comment_count, p.comments, commentCount]);
+
+    const newShareCount = safeNumber(p.shares ?? p.shares_count, 0);
+    if (newShareCount !== shareCount) {
+      setShareCount(newShareCount);
+    }
+  }, [p.comment_count, p.comments, p.shares, p.shares_count, commentCount, shareCount]);
 
   const handleShareComplete = (destination: string, data?: any) => {
-    if (data?.success) {
-      onShare(postId);
+    if (data?.success && typeof data.shares === 'number') {
+      setShareCount(data.shares);
+      onShare(postId, data.shares);
     }
     setShowShareSheet(false);
   };
@@ -1148,20 +1254,20 @@ export const Post: React.FC<{
         <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
           <div className="flex items-center gap-1.5">
             {reactions.length > 0 && (
-              <span className="hover:underline">{formatCommentCount(reactions.length)} Reactions</span>
+              <span className="hover:underline">{formatCount(reactions.length)} Reactions</span>
             )}
           </div>
           <div className="flex gap-4">
-            {/* ✅ FIXED: Comment count shows both inside and outside comments panel */}
+            {/* ✅ INSTANT COMMENT COUNT BOTH PLACES */}
             <span
               className="hover:underline cursor-pointer"
               onClick={() => onOpenComments(Number(postId))}
             >
-              {formatCommentCount(commentCount)} Comments
+              {formatCount(commentCount)} Comments
             </span>
-            {p.shares > 0 && (
+            {shareCount > 0 && (
               <span className="hover:underline">
-                {formatCommentCount(p.shares)} Shares
+                {formatCount(shareCount)} Shares
               </span>
             )}
           </div>
@@ -1747,7 +1853,7 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ COMMENTS SHEET (FACEBOOK-LIKE BEHAVIOR)
+ * ✅ UPDATED: COMMENTS SHEET WITH INSTANT UPDATES & REPLY SYSTEM
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -1765,7 +1871,10 @@ export const CommentsSheet: React.FC<{
   
   const [text, setText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
+  const [replyTo, setReplyTo] = useState<any | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
@@ -1791,7 +1900,7 @@ export const CommentsSheet: React.FC<{
     return { uid, name, image };
   };
 
-  const formatCommentCount = (count: number): string => {
+  const formatCount = (count: number): string => {
     if (count >= 1000000) {
       return `${(count / 1000000).toFixed(1)}M`;
     } else if (count >= 1000) {
@@ -1800,19 +1909,64 @@ export const CommentsSheet: React.FC<{
     return count.toString();
   };
 
-  // Initialize comments when sheet opens - NO LOADING STATE
+  // ✅ Optimistic comment like
+  const handleLikeComment = async (comment: any) => {
+    if (!currentUser) return;
+
+    const optimisticLiked = !comment.liked_by_me;
+    const optimisticCount = comment.liked_by_me 
+      ? Math.max(0, (comment.likes_count || 0) - 1)
+      : (comment.likes_count || 0) + 1;
+
+    setComments(prev => prev.map(c => 
+      c.id === comment.id 
+        ? { 
+            ...c, 
+            liked_by_me: optimisticLiked,
+            likes_count: optimisticCount 
+          } 
+        : c
+    ));
+
+    if (onLikeComment) {
+      onLikeComment(comment.id);
+    }
+
+    try {
+      await apiFetch(`/api/comments/${comment.id}/like`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+    } catch (error) {
+      console.error('Failed to like comment:', error);
+      // Revert optimistic update
+      setComments(prev => prev.map(c => 
+        c.id === comment.id 
+          ? { 
+              ...c, 
+              liked_by_me: !optimisticLiked,
+              likes_count: comment.likes_count || 0 
+            } 
+          : c
+      ));
+    }
+  };
+
+  // Initialize comments when sheet opens
   useEffect(() => {
     const initializeComments = async () => {
-      // 1. Show cached comments immediately
+      // Show cached comments immediately
       const cached = commentsCache.get(postId);
       if (cached) {
-        setComments(cached.data);
+        const sorted = sortComments(cached.data);
+        setComments(sorted);
       }
       
-      // 2. Also check if post has inline comments and use them
+      // Also check if post has inline comments
       const postComments = Array.isArray(p.comments) ? p.comments : [];
       if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
-        setComments(postComments);
+        const sorted = sortComments(postComments);
+        setComments(sorted);
         commentsCache.set(postId, { 
           data: postComments, 
           timestamp: Date.now(),
@@ -1820,7 +1974,7 @@ export const CommentsSheet: React.FC<{
         });
       }
       
-      // 3. Do a silent background fetch (NO LOADING INDICATOR)
+      // Silent background fetch
       fetchCommentsSilently();
     };
 
@@ -1833,7 +1987,30 @@ export const CommentsSheet: React.FC<{
     };
   }, [postId, p.comments]);
 
-  // Silent background fetch - NO VISUAL INDICATOR
+  // Sort comments with replies
+  const sortComments = (comments: any[]) => {
+    const root = comments.filter(c => !c.parent_comment_id);
+    const repliesByParent = new Map<number, any[]>();
+    
+    comments.forEach(c => {
+      const pid = Number(c.parent_comment_id || 0);
+      if (pid) {
+        if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
+        repliesByParent.get(pid)!.push(c);
+      }
+    });
+
+    const sorted: any[] = [];
+    root.forEach(comment => {
+      sorted.push(comment);
+      const replies = repliesByParent.get(comment.id) || [];
+      sorted.push(...replies);
+    });
+
+    return sorted;
+  };
+
+  // Silent background fetch
   const fetchCommentsSilently = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -1844,9 +2021,10 @@ export const CommentsSheet: React.FC<{
     try {
       const data = await apiFetch(`/api/posts/${postId}/comments`);
       const arr = Array.isArray(data) ? data : data?.comments || [];
+      const sorted = sortComments(arr);
       
       if (arr.length > 0) {
-        setComments(arr);
+        setComments(sorted);
         commentsCache.set(postId, { 
           data: arr, 
           timestamp: Date.now(),
@@ -1871,20 +2049,26 @@ export const CommentsSheet: React.FC<{
       post_id: postId,
       user_id: safeUserId(currentUser),
       text: t,
+      parent_comment_id: replyTo?.id || null,
       created_at: new Date().toISOString(),
+      replies_count: 0,
+      likes_count: 0,
+      liked_by_me: false,
     };
 
     setText('');
+    setReplyTo(null);
 
-    // IMMEDIATE optimistic update (Facebook-style)
+    // IMMEDIATE optimistic update
     setComments(prev => {
       const next = [...prev, optimisticComment];
+      const allComments = commentsCache.get(postId)?.data || [];
       commentsCache.set(postId, { 
-        data: next, 
+        data: [...allComments, optimisticComment], 
         timestamp: Date.now(),
         postId 
       });
-      return next;
+      return sortComments(next);
     });
 
     if (onComment) {
@@ -1898,6 +2082,7 @@ export const CommentsSheet: React.FC<{
         body: JSON.stringify({
           text: t,
           user_id: safeUserId(currentUser),
+          parent_comment_id: replyTo?.id || null,
         }),
       });
 
@@ -1905,6 +2090,12 @@ export const CommentsSheet: React.FC<{
     } catch (err: any) {
       console.error('Failed to post comment:', err);
     }
+  };
+
+  const addEmoji = (emoji: string) => {
+    setText(prev => prev + emoji);
+    setShowEmojiPicker(false);
+    inputRef.current?.focus();
   };
 
   // Refresh comments when sheet is focused
@@ -1925,12 +2116,45 @@ export const CommentsSheet: React.FC<{
       <div className="absolute inset-0 bg-black/60" onClick={onClose}></div>
 
       <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
-        <div className="p-3 border-b border-[#3E4042] flex justify-between bg-[#242526]">
+        <div className="p-3 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
           <h3 className="font-bold text-[#E4E6EB]">
-            Comments ({formatCommentCount(comments.length)})
+            Comments ({formatCount(comments.length)})
           </h3>
-          <i className="fas fa-times text-[#B0B3B8] cursor-pointer" onClick={onClose}></i>
+          <i className="fas fa-times text-[#B0B3B8] cursor-pointer text-xl" onClick={onClose}></i>
         </div>
+
+        {/* Reply indicator */}
+        {replyTo && (
+          <div className="p-3 bg-[#3A3B3C] border-b border-[#3E4042] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-[#B0B3B8] text-sm">Replying to</span>
+              <span className="text-[#1877F2] font-medium">{replyTo.author?.name || 'User'}</span>
+            </div>
+            <button
+              onClick={() => setReplyTo(null)}
+              className="text-[#B0B3B8] hover:text-[#E4E6EB]"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+        )}
+
+        {/* Emoji picker */}
+        {showEmojiPicker && (
+          <div className="border-b border-[#3E4042] p-2 overflow-x-auto scrollbar-hide">
+            <div className="flex gap-2">
+              {QUICK_EMOJIS.map(emoji => (
+                <button
+                  key={emoji}
+                  onClick={() => addEmoji(emoji)}
+                  className="text-2xl hover:scale-125 transition-transform p-1"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {comments.length === 0 ? (
@@ -1941,30 +2165,61 @@ export const CommentsSheet: React.FC<{
           ) : (
             comments.map((c) => {
               const a = resolveAuthor(c);
+              const isReply = !!c.parent_comment_id;
+              
               return (
-                <div key={String(c.id)} className="flex gap-2 animate-fade-in">
+                <div 
+                  key={String(c.id)} 
+                  className={`flex gap-2 animate-fade-in ${isReply ? 'ml-8' : ''}`}
+                >
                   <img
                     src={a.image}
                     className="w-8 h-8 rounded-full object-cover cursor-pointer flex-shrink-0"
                     alt=""
                     onClick={() => a.uid && onProfileClick(a.uid)}
                   />
-                  <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl flex-1 min-w-0">
-                    <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
-                      <span
-                        className="cursor-pointer hover:underline truncate max-w-[150px]"
-                        onClick={() => a.uid && onProfileClick(a.uid)}
-                        title={a.name}
+                  <div className="flex-1 min-w-0">
+                    <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl">
+                      <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
+                        <span
+                          className="cursor-pointer hover:underline truncate max-w-[150px]"
+                          onClick={() => a.uid && onProfileClick(a.uid)}
+                          title={a.name}
+                        >
+                          {a.name}
+                        </span>
+                        <span className="text-[12px] font-normal text-[#B0B3B8]">
+                          • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
+                        </span>
+                      </p>
+                      <p className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
+                        {c.text}
+                      </p>
+                    </div>
+                    
+                    {/* Comment actions */}
+                    <div className="flex items-center gap-4 mt-1 px-1">
+                      <button
+                        onClick={() => handleLikeComment(c)}
+                        className={`text-xs ${c.liked_by_me ? 'text-[#1877F2] font-bold' : 'text-[#B0B3B8]'}`}
                       >
-                        {a.name}
-                      </span>
-                      <span className="text-[12px] font-normal text-[#B0B3B8]">
-                        • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
-                      </span>
-                    </p>
-                    <p className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
-                      {c.text}
-                    </p>
+                        {c.liked_by_me ? 'Liked' : 'Like'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setReplyTo(c);
+                          inputRef.current?.focus();
+                        }}
+                        className="text-xs text-[#B0B3B8] hover:text-[#E4E6EB]"
+                      >
+                        Reply
+                      </button>
+                      {c.likes_count > 0 && (
+                        <span className="text-xs text-[#B0B3B8]">
+                          {formatCount(c.likes_count)} like{c.likes_count !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -1972,18 +2227,26 @@ export const CommentsSheet: React.FC<{
           )}
         </div>
 
-        <form className="p-3 border-t border-[#3E4042] flex gap-2" onSubmit={handleSubmit}>
+        <form className="p-3 border-t border-[#3E4042] flex gap-2 items-center" onSubmit={handleSubmit}>
+          <button
+            type="button"
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+            className="text-[#B0B3B8] hover:text-[#E4E6EB] text-xl p-2"
+          >
+            😀
+          </button>
           <input
+            ref={inputRef}
             type="text"
             className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
-            placeholder="Write a comment..."
+            placeholder={replyTo ? `Reply to ${replyTo.author?.name || 'user'}...` : "Write a comment..."}
             value={text}
             onChange={(e) => setText(e.target.value)}
             autoFocus
           />
           <button 
             type="submit" 
-            className="text-[#1877F2] font-bold disabled:text-[#B0B3B8] disabled:cursor-not-allowed"
+            className="text-[#1877F2] font-bold disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-3"
             disabled={!text.trim()}
           >
             Post
