@@ -203,10 +203,10 @@ interface UserProfileProps {
 
   onHashtagClick?: (tag: string) => void;
   onVerifyUser?: (id: number) => void;
-  onRestrictUser?: (id: number) => void;
+  onRestrictUser?: (id: number, duration: "24h" | "5d" | "30d" | "manual") => void;
   onDeleteUser?: (id: number) => void;
-  onMakeModerator?: (id: number) => void;
-  onCreateStoryClick?: () => void; // ✅ ADDED: New prop for creating stories
+  onMakeModerator?: (id: number, make: boolean) => void;
+  onCreateStoryClick?: () => void;
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -238,51 +238,39 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   onRestrictUser,
   onDeleteUser,
   onMakeModerator,
-  onCreateStoryClick, // ✅ ADDED: Receive story creation handler
+  onCreateStoryClick,
 }) => {
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const [loginError, setLoginError] = useState(''); // ✅ ADDED: For image validation errors
-  const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false); // ✅ ADDED: For button animation
+  const [loginError, setLoginError] = useState('');
+  const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false);
 
-  // ✅ ADDED: State for admin suspend duration modal
-  const [showSuspendModal, setShowSuspendModal] = useState(false);
-
-  // ✅ FIXED: Simple and correct follow logic - Follow state is based on whether currentUser is in user's followers array
+  // ✅ FIXED: Simple and correct follow logic
   const isFollowing = useMemo(() => {
     if (!currentUser) return false;
     
-    // Check if current user's ID is in this user's followers array
     const userFollowers = safeArray<number>((user as any)?.followers || []);
     return userFollowers.includes(currentUser.id);
   }, [currentUser, user]);
 
-  // Defensive: followers/following arrays may be missing with guest / raw user objects
   const userFollowers = useMemo(() => safeArray<number>((user as any).followers || []), [user]);
   const followerCount = userFollowers.length;
 
   // ✅ FIXED: Check if current user is admin or moderator
-  const isAdmin = currentUser ? (currentUser as any)?.role === 'admin' : false;
-  const isModerator = currentUser ? (currentUser as any)?.role === 'moderator' : false;
+  const isAdmin = currentUser ? String((currentUser as any)?.role || "").toLowerCase() === "admin" : false;
+  const isModerator = currentUser ? String((currentUser as any)?.role || "").toLowerCase() === "moderator" : false;
   const isAdminOrModerator = isAdmin || isModerator;
 
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ UPDATED: Trust posts from App.tsx (already filtered for this user)
-  // Just sort latest-first like Facebook profile
   const userPosts = useMemo(() => {
     const arr = safeArray<PostType>(posts);
-
-    // ✅ posts already belong to this profile (provided by App.tsx)
-    // Just ensure latest-first like Facebook profile
     const sorted = arr.slice().sort((a: any, b: any) => String(b?.created_at).localeCompare(String(a?.created_at)));
-
     return sorted;
   }, [posts]);
 
-  // ✅ UPDATED: User reels filtering (keep existing logic but use safe array)
   const userReels = useMemo(
     () => safeArray<Reel>(reels).filter((reel: any) => Number(reel?.user_id) === Number(user?.id)),
     [reels, user?.id]
@@ -321,22 +309,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const validateAndUploadImage = (file: File, uploadCallback: (file: File) => void) => {
     if (!file.type || !file.type.startsWith('image/')) {
       setLoginError('Only image files are allowed.');
-      // Clear error after 3 seconds
       setTimeout(() => setLoginError(''), 3000);
       return;
     }
     
-    // Check file size (limit to 10MB)
     if (file.size > 10 * 1024 * 1024) {
       setLoginError('Image size should be less than 10MB.');
       setTimeout(() => setLoginError(''), 3000);
       return;
     }
     
-    // Clear any previous errors
     setLoginError('');
-    
-    // Call the upload callback
     uploadCallback(file);
   };
 
@@ -344,84 +327,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const handleFollowClick = () => {
     if (!currentUser) return;
     
-    // Trigger button animation
     setIsFollowButtonClicked(true);
-    
-    // Call the original follow function
     onFollow(user.id);
     
-    // Reset animation after 300ms
     setTimeout(() => {
       setIsFollowButtonClicked(false);
     }, 300);
   };
-
-  // ✅ ADDED: Suspend modal component
-  const SuspendModal = () => (
-    <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4 animate-fade-in font-sans">
-      <div className="bg-[#242526] w-full max-w-[400px] rounded-xl border border-[#3E4042] shadow-2xl flex flex-col">
-        <div className="p-4 border-b border-[#3E4042] flex justify-between items-center">
-          <h2 className="text-xl font-bold text-[#E4E6EB]">Suspend User</h2>
-          <div
-            onClick={() => setShowSuspendModal(false)}
-            className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center cursor-pointer"
-          >
-            <i className="fas fa-times text-[#B0B3B8]"></i>
-          </div>
-        </div>
-
-        <div className="p-4 space-y-4">
-          <p className="text-[#B0B3B8] text-center">
-            Select suspension duration for {user.name}
-          </p>
-          
-          <div className="space-y-2">
-            <button
-              onClick={() => {
-                onRestrictUser?.(user.id);
-                setShowSuspendModal(false);
-              }}
-              className="w-full bg-yellow-900/80 text-yellow-300 py-3 rounded-lg font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
-            >
-              24 Hours
-            </button>
-            
-            <button
-              onClick={() => {
-                // For now, we'll use 24h as default, but you can implement different durations
-                // by modifying the onRestrictUser prop to accept duration parameter
-                onRestrictUser?.(user.id);
-                setShowSuspendModal(false);
-              }}
-              className="w-full bg-orange-900/80 text-orange-300 py-3 rounded-lg font-semibold hover:bg-orange-800 transition-colors active:scale-95 active:shadow-inner"
-            >
-              5 Days
-            </button>
-            
-            <button
-              onClick={() => {
-                onRestrictUser?.(user.id);
-                setShowSuspendModal(false);
-              }}
-              className="w-full bg-red-900/80 text-red-300 py-3 rounded-lg font-semibold hover:bg-red-800 transition-colors active:scale-95 active:shadow-inner"
-            >
-              30 Days
-            </button>
-            
-            <button
-              onClick={() => {
-                onRestrictUser?.(user.id);
-                setShowSuspendModal(false);
-              }}
-              className="w-full bg-purple-900/80 text-purple-300 py-3 rounded-lg font-semibold hover:bg-purple-800 transition-colors active:scale-95 active:shadow-inner"
-            >
-              Manual (Until Admin Changes)
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 
   const renderContent = () => {
     switch (activeTab) {
@@ -575,14 +487,14 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         return (
           <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
             <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
-              {/* ✅ ENHANCED: Admin Controls Section - Now shows for both admin and moderator */}
+              {/* ✅ ENHANCED: Admin Controls Section */}
               {isAdminOrModerator && !isCurrentUser && (
                 <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-red-900/50">
                   <h2 className="text-xl font-bold text-red-500 mb-4">
                     {isAdmin ? 'Admin Controls' : 'Moderator Controls'}
                   </h2>
                   <div className="flex flex-col gap-2">
-                    {/* ✅ Only show verify button for admins */}
+                    {/* ✅ Verify button (Admin only) */}
                     {isAdmin && (
                       <button
                         onClick={() => onVerifyUser?.(user.id)}
@@ -592,34 +504,63 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       </button>
                     )}
                     
-                    {/* ✅ Suspend button shows for both admin and moderator */}
-                    <button
-                      onClick={() => setShowSuspendModal(true)}
-                      className="w-full bg-yellow-900/80 text-yellow-300 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
-                    >
-                      Suspend User
-                    </button>
-                    
-                    {/* ✅ Only show delete and promote buttons for admins */}
+                    {/* ✅ Suspend buttons grid (Admin and Moderator) */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => onRestrictUser?.(user.id, "24h")}
+                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
+                      >
+                        Suspend 24h
+                      </button>
+                      <button
+                        onClick={() => onRestrictUser?.(user.id, "5d")}
+                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
+                      >
+                        Suspend 5d
+                      </button>
+                      <button
+                        onClick={() => onRestrictUser?.(user.id, "30d")}
+                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
+                      >
+                        Suspend 30d
+                      </button>
+                      <button
+                        onClick={() => onRestrictUser?.(user.id, "manual")}
+                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
+                      >
+                        Suspend Manual
+                      </button>
+                    </div>
+
+                    {/* ✅ Moderator role buttons (Admin only) */}
                     {isAdmin && (
-                      <>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
                         <button
-                          onClick={() => onDeleteUser?.(user.id)}
-                          className="w-full bg-red-900/80 text-white py-2 rounded font-semibold hover:bg-red-800 mt-2 transition-colors active:scale-95 active:shadow-inner"
+                          onClick={() => onMakeModerator?.(user.id, true)}
+                          className="w-full bg-[#3A3B3C] text-[#E4E6EB] py-2 rounded font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
                         >
-                          Delete Account
+                          Make Moderator
                         </button>
-                        
                         <button
-                          onClick={() => onMakeModerator?.(user.id)}
-                          className="w-full bg-purple-900/80 text-purple-300 py-2 rounded font-semibold hover:bg-purple-800 transition-colors active:scale-95 active:shadow-inner"
+                          onClick={() => onMakeModerator?.(user.id, false)}
+                          className="w-full bg-[#3A3B3C] text-[#E4E6EB] py-2 rounded font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
                         >
-                          {user.role === 'moderator' ? 'Remove Moderator' : 'Make Moderator'}
+                          Remove Moderator
                         </button>
-                      </>
+                      </div>
+                    )}
+
+                    {/* ✅ Delete button (Admin only) */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => onDeleteUser?.(user.id)}
+                        className="w-full bg-red-900/80 text-white py-2 rounded font-semibold hover:bg-red-800 mt-2 transition-colors active:scale-95 active:shadow-inner"
+                      >
+                        Delete Account
+                      </button>
                     )}
                     
-                    {/* ✅ Show user role info */}
+                    {/* ✅ Role info display */}
                     <div className="mt-2 pt-2 border-t border-[#3E4042]">
                       <p className="text-[#B0B3B8] text-sm">
                         Current Role: <span className="font-semibold text-[#E4E6EB] capitalize">{user.role || 'user'}</span>
@@ -763,10 +704,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) {
-            // ✅ ADDED: Image validation before upload
             validateAndUploadImage(file, onUpdateProfileImage);
           }
-          // Reset input to allow selecting same file again
           if (e.target) e.target.value = '';
         }}
       />
@@ -778,10 +717,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) {
-            // ✅ ADDED: Image validation before upload
             validateAndUploadImage(file, onUpdateCoverImage);
           }
-          // Reset input to allow selecting same file again
           if (e.target) e.target.value = '';
         }}
       />
@@ -802,7 +739,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
             {isCurrentUser && (
               <>
-                {/* ✅ UPDATED: Cover image upload button */}
                 <div
                   className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-md cursor-pointer hover:bg-white/20 font-semibold text-white text-[15px] flex items-center gap-2 transition-all active:scale-95 active:shadow-inner"
                   onClick={() => coverInputRef.current?.click()}
@@ -810,7 +746,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   <i className="fas fa-camera"></i> Edit cover photo
                 </div>
                 
-                {/* ✅ ADDED: Add cover photo button when no cover exists */}
                 {!safeCoverImage && (
                   <div
                     className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/50 active:scale-95 transition-transform"
@@ -851,7 +786,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       <i className="fas fa-camera text-white text-3xl"></i>
                     </div>
                     
-                    {/* ✅ ADDED: Add profile photo button when no photo exists */}
                     {!safeProfileImage && (
                       <div
                         className="absolute inset-0 flex items-center justify-center bg-black/60 cursor-pointer active:scale-95 transition-transform"
@@ -892,14 +826,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 md:mt-0 md:mb-6">
                 {isCurrentUser ? (
                   <>
-                    {/* ✅ UPDATED: "Add to story" button now calls onCreateStoryClick */}
                     <button
                       className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner"
                       onClick={() => {
                         if (onCreateStoryClick) {
-                          onCreateStoryClick(); // ✅ Opens story creation, not post area
+                          onCreateStoryClick();
                         } else {
-                          // Fallback: if handler not provided, show post modal
                           setShowCreatePostModal(true);
                         }
                       }}
@@ -917,7 +849,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   </>
                 ) : (
                   <>
-                    {/* ✅ FIXED: Follow button with immediate UI feedback */}
                     <button
                       onClick={handleFollowClick}
                       className={`${
@@ -979,8 +910,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       {showEditProfile && isCurrentUser && (
         <EditProfileModal user={user} onClose={() => setShowEditProfile(false)} onSave={onUpdateUserDetails} />
       )}
-
-      {showSuspendModal && <SuspendModal />}
     </div>
   );
 };
