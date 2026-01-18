@@ -206,6 +206,7 @@ interface UserProfileProps {
   onRestrictUser?: (id: number) => void;
   onDeleteUser?: (id: number) => void;
   onMakeModerator?: (id: number) => void;
+  onCreateStoryClick?: () => void; // ✅ ADDED: New prop for creating stories
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -237,6 +238,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   onRestrictUser,
   onDeleteUser,
   onMakeModerator,
+  onCreateStoryClick, // ✅ ADDED: Receive story creation handler
 }) => {
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
@@ -255,12 +257,19 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  // Defensive: posts from API may miss reactions/comments/shares/views -> guard everywhere
-  const userPosts = useMemo(
-    () => safeArray<PostType>(posts).filter((post: any) => Number(post?.user_id) === Number(user?.id)),
-    [posts, user?.id]
-  );
+  // ✅ UPDATED: Trust posts from App.tsx (already filtered for this user)
+  // Just sort latest-first like Facebook profile
+  const userPosts = useMemo(() => {
+    const arr = safeArray<PostType>(posts);
 
+    // ✅ posts already belong to this profile (provided by App.tsx)
+    // Just ensure latest-first like Facebook profile
+    const sorted = arr.slice().sort((a: any, b: any) => String(b?.created_at).localeCompare(String(a?.created_at)));
+
+    return sorted;
+  }, [posts]);
+
+  // ✅ UPDATED: User reels filtering (keep existing logic but use safe array)
   const userReels = useMemo(
     () => safeArray<Reel>(reels).filter((reel: any) => Number(reel?.user_id) === Number(user?.id)),
     [reels, user?.id]
@@ -610,12 +619,28 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             )}
 
             {isCurrentUser && (
-              <div
-                className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-md cursor-pointer hover:bg-white/20 font-semibold text-white text-[15px] flex items-center gap-2"
-                onClick={() => coverInputRef.current?.click()}
-              >
-                <i className="fas fa-camera"></i> Edit cover photo
-              </div>
+              <>
+                {/* ✅ UPDATED: Cover image upload button */}
+                <div
+                  className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-md cursor-pointer hover:bg-white/20 font-semibold text-white text-[15px] flex items-center gap-2"
+                  onClick={() => coverInputRef.current?.click()}
+                >
+                  <i className="fas fa-camera"></i> Edit cover photo
+                </div>
+                
+                {/* ✅ ADDED: Add cover photo button when no cover exists */}
+                {!safeCoverImage && (
+                  <div
+                    className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/50"
+                    onClick={() => coverInputRef.current?.click()}
+                  >
+                    <div className="text-center">
+                      <i className="fas fa-camera text-white text-3xl mb-2"></i>
+                      <p className="text-white font-semibold">Add Cover Photo</p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -636,12 +661,27 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 )}
 
                 {isCurrentUser && (
-                  <div
-                    className="absolute inset-0 bg-black/40 hidden group-hover:flex items-center justify-center"
-                    onClick={() => profileInputRef.current?.click()}
-                  >
-                    <i className="fas fa-camera text-white text-3xl"></i>
-                  </div>
+                  <>
+                    <div
+                      className="absolute inset-0 bg-black/40 hidden group-hover:flex items-center justify-center"
+                      onClick={() => profileInputRef.current?.click()}
+                    >
+                      <i className="fas fa-camera text-white text-3xl"></i>
+                    </div>
+                    
+                    {/* ✅ ADDED: Add profile photo button when no photo exists */}
+                    {!safeProfileImage && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center bg-black/60 cursor-pointer"
+                        onClick={() => profileInputRef.current?.click()}
+                      >
+                        <div className="text-center">
+                          <i className="fas fa-camera text-white text-3xl mb-2"></i>
+                          <p className="text-white font-semibold text-sm">Add Profile Photo</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -660,11 +700,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 md:mt-0 md:mb-6">
                 {isCurrentUser ? (
                   <>
+                    {/* ✅ UPDATED: "Add to story" button now calls onCreateStoryClick */}
                     <button
                       className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5]"
                       onClick={() => {
-                        // optional: connect later
-                        setShowCreatePostModal(true);
+                        if (onCreateStoryClick) {
+                          onCreateStoryClick(); // ✅ Opens story creation, not post area
+                        } else {
+                          // Fallback: if handler not provided, show post modal
+                          setShowCreatePostModal(true);
+                        }
                       }}
                     >
                       <i className="fas fa-plus"></i>
