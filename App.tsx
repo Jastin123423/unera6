@@ -375,13 +375,13 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 /**
  * Upload file to Cloudflare R2
  */
-const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => { // ✅ ADDED: folder parameter
+const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
   try {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('filename', file.name);
     formData.append('type', file.type);
-    formData.append('folder', folder); // ✅ CHANGED: Use folder parameter
+    formData.append('folder', folder);
     formData.append('timestamp', Date.now().toString());
 
     const response = await fetch('/api/upload', {
@@ -515,7 +515,7 @@ export default function App() {
   /** ---------- State ---------- */
   const [users, setUsers] = useState<User[]>([]);
   const [posts, setPosts] = useState<PostType[]>([]);
-  const [profilePosts, setProfilePosts] = useState<PostType[]>([]); // ✅ Added: Separate profile posts state
+  const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -926,7 +926,7 @@ export default function App() {
 
     setCurrentUser(null);
     setSelectedUserId(null);
-    setProfilePosts([]); // ✅ Clear profile posts on logout
+    setProfilePosts([]);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
   };
@@ -980,7 +980,7 @@ export default function App() {
 
       if (file) {
         try {
-          const uploadResult = await uploadToCloudflareR2(file); // ✅ Uses default 'posts' folder
+          const uploadResult = await uploadToCloudflareR2(file);
           media_url = uploadResult.url;
           media_type = uploadResult.type;
         } catch (error: any) {
@@ -1025,7 +1025,6 @@ export default function App() {
 
       /** ✅ Keep profile posts updated when you create a post ---------- */
       setProfilePosts((prev) => {
-        // If you are viewing your own profile OR profile user is you, include it
         if (!currentUser) return prev;
         const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
         if (!isMyProfile) return prev;
@@ -1039,7 +1038,7 @@ export default function App() {
       setShowCreatePostModal(false);
       scheduleSilentRefresh();
     },
-    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId] // ✅ Added selectedUserId to deps
+    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
   );
 
   const onReactPost = useCallback(
@@ -1159,7 +1158,7 @@ export default function App() {
       if (!requireAuth('Deleting posts')) return;
 
       const prev = posts;
-      const prevProfilePosts = profilePosts; // ✅ Store profile posts for rollback
+      const prevProfilePosts = profilePosts;
       
       setPosts((p) => {
         const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
@@ -1193,7 +1192,7 @@ export default function App() {
       if (!trimmed) return;
 
       const prev = posts;
-      const prevProfilePosts = profilePosts; // ✅ Store profile posts for rollback
+      const prevProfilePosts = profilePosts;
       
       setPosts((p) => {
         const next = safeArray(p).map((x: any) =>
@@ -1224,12 +1223,21 @@ export default function App() {
     [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
   );
 
+  /** ---------- Follow User with immediate UI update and error rollback ---------- */
   const followUser = useCallback(
     async (targetUserId: number) => {
       if (!requireAuth('Following')) return;
       if (!currentUser) return;
       if (Number(targetUserId) === Number(currentUser.id)) return;
 
+      // Get current state before making changes
+      const currentUserFollowers = new Set(safeArray<number>((currentUser as any)?.followers));
+      const targetUser = users.find(u => Number(u.id) === Number(targetUserId));
+      const targetUserFollowers = targetUser ? new Set(safeArray<number>((targetUser as any)?.followers)) : new Set<number>();
+
+      const isCurrentlyFollowing = currentUserFollowers.has(targetUserId) && targetUserFollowers.has(currentUser.id);
+
+      // ✅ IMMEDIATE UI UPDATE: Toggle mutual followers in local state
       setUsers((prev) => {
         const arr = safeArray(prev).map(normalizeUser);
         const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
@@ -1239,12 +1247,12 @@ export default function App() {
         const meFollowers = new Set<number>(safeArray<number>((me as any).followers));
         const targetFollowers = new Set<number>(safeArray<number>((target as any).followers));
 
-        const isFollowingNow = meFollowers.has(targetUserId) && targetFollowers.has(currentUser.id);
-
-        if (isFollowingNow) {
+        if (isCurrentlyFollowing) {
+          // Unfollow: remove mutual following
           meFollowers.delete(targetUserId);
           targetFollowers.delete(currentUser.id);
         } else {
+          // Follow: add mutual following
           meFollowers.add(targetUserId);
           targetFollowers.add(currentUser.id);
         }
@@ -1256,22 +1264,67 @@ export default function App() {
         });
       });
 
+      // ✅ ALSO UPDATE currentUser state immediately
+      if (isCurrentlyFollowing) {
+        // Unfollow
+        setCurrentUser(prev => prev ? normalizeUser({
+          ...prev,
+          followers: safeArray<number>((prev as any).followers).filter(id => id !== targetUserId)
+        }) : prev);
+      } else {
+        // Follow
+        setCurrentUser(prev => prev ? normalizeUser({
+          ...prev,
+          followers: [...safeArray<number>((prev as any).followers), targetUserId]
+        }) : prev);
+      }
+
+      // ✅ Call API in background
       try {
-        await apiFetch('/api/user-follows', {
-          method: 'POST',
-          body: JSON.stringify({ follower_id: currentUser.id, following_id: targetUserId }),
-        }).catch(async () => {
+        if (isCurrentlyFollowing) {
+          // Unfollow: remove mutual following
           await apiFetch(`/api/user-follows?follower_id=${currentUser.id}&following_id=${targetUserId}`, {
             method: 'DELETE',
           });
-        });
+        } else {
+          // Follow: add mutual following
+          await apiFetch('/api/user-follows', {
+            method: 'POST',
+            body: JSON.stringify({ follower_id: currentUser.id, following_id: targetUserId }),
+          });
+        }
+        
+        scheduleSilentRefresh();
+      } catch (error) {
+        console.error('Follow/Unfollow failed:', error);
+        // On error, revert the UI changes
+        scheduleSilentRefresh();
+        
+        // Revert the user state
+        setUsers((prev) => {
+          const arr = safeArray(prev).map(normalizeUser);
+          const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
+          const target = arr.find((u) => Number(u.id) === Number(targetUserId));
+          if (!me || !target) return arr;
 
-        scheduleSilentRefresh();
-      } catch {
-        scheduleSilentRefresh();
+          const meFollowers = new Set<number>(currentUserFollowers);
+          const targetFollowers = new Set<number>(targetUserFollowers);
+
+          return arr.map((u) => {
+            if (Number(u.id) === Number(me.id)) return normalizeUser({ ...u, followers: Array.from(meFollowers) });
+            if (Number(u.id) === Number(target.id)) return normalizeUser({ ...u, followers: Array.from(targetFollowers) });
+            return u;
+          });
+        });
+        
+        // Revert currentUser state
+        setCurrentUser(prev => prev ? normalizeUser({
+          ...prev,
+          followers: Array.from(currentUserFollowers)
+        }) : prev);
       }
     },
-    [requireAuth, currentUser, scheduleSilentRefresh]
+    [requireAuth, currentUser, scheduleSilentRefresh, users]
   );
 
   const updateUserDetails = useCallback(
@@ -1305,7 +1358,7 @@ export default function App() {
       }
 
       try {
-        const uploadResult = await uploadToCloudflareR2(file, 'profiles'); // ✅ CHANGED: Use 'profiles' folder
+        const uploadResult = await uploadToCloudflareR2(file, 'profiles');
         await updateUserDetails({ profile_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload profile image: ${error.message}`);
@@ -1326,7 +1379,7 @@ export default function App() {
       }
 
       try {
-        const uploadResult = await uploadToCloudflareR2(file, 'covers'); // ✅ CHANGED: Use 'covers' folder
+        const uploadResult = await uploadToCloudflareR2(file, 'covers');
         await updateUserDetails({ cover_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload cover image: ${error.message}`);
@@ -1604,12 +1657,11 @@ export default function App() {
           {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
 
           {view === 'profile' && profileUser && (
-            /** ✅ Updated to pass profilePosts instead of posts ---------- */
             <UserProfile
               user={profileUser}
               currentUser={currentUser}
               users={users}
-              posts={profilePosts} // ✅ Now uses latest-first profile posts
+              posts={profilePosts}
               reels={reels}
               onProfileClick={(id) => openProfile(id)}
               onFollow={(id: number) => followUser(id)}
@@ -1634,7 +1686,7 @@ export default function App() {
                 setView('reels');
               }}
               onPlayAudioTrack={setCurrentAudioTrack}
-              onCreateStoryClick={handleCreateStoryFromProfile} // ✅ ADDED: Story creation handler
+              onCreateStoryClick={handleCreateStoryFromProfile}
             />
           )}
 
