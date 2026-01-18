@@ -1363,89 +1363,82 @@ export default function App() {
     async (targetUserId: number) => {
       if (!requireAuth('Following')) return;
       if (!currentUser) return;
-      if (Number(targetUserId) === Number(currentUser.id)) {
-        // Prevent unfollowing self (user should always be their own follower)
-        console.log('User cannot unfollow themselves');
-        return;
-      }
 
-      // Get current state before making changes
-      const targetUser = users.find(u => Number(u.id) === Number(targetUserId));
-      if (!targetUser) {
-        console.error('Target user not found');
-        return;
-      }
+      const meId = Number(currentUser.id);
+      const targetId = Number(targetUserId);
 
-      // ✅ SIMPLIFIED: Determine follow state using ONLY "followers array contains"
-      const isCurrentlyFollowing = safeArray<number>(targetUser.followers).includes(currentUser.id);
+      // ✅ backend blocks self-follow
+      if (!targetId || targetId === meId) return;
 
-      // ✅ IMMEDIATE UI UPDATE: Toggle followers in local state
+      // ✅ TRUE follow state comes from my "following"
+      const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
+      const isFollowingNow = myFollowing.has(targetId);
+
+      // ---------- optimistic update ----------
       setUsers((prev) => {
         const arr = safeArray(prev).map(normalizeUser);
-        const target = arr.find((u) => Number(u.id) === Number(targetUserId));
-        if (!target) return arr;
-
-        const targetFollowers = new Set<number>(safeArray<number>((target as any).followers));
-
-        if (isCurrentlyFollowing) {
-          // Unfollow: remove from target's followers
-          targetFollowers.delete(currentUser.id);
-        } else {
-          // Follow: add to target's followers
-          targetFollowers.add(currentUser.id);
-        }
 
         return arr.map((u) => {
-          if (Number(u.id) === Number(target.id)) return normalizeUser({ ...u, followers: Array.from(targetFollowers) });
+          const uid = Number(u.id);
+
+          // update ME.following
+          if (uid === meId) {
+            const following = new Set<number>(safeArray<number>((u as any).following));
+            if (isFollowingNow) following.delete(targetId);
+            else following.add(targetId);
+            return normalizeUser({ ...u, following: Array.from(following) });
+          }
+
+          // update TARGET.followers
+          if (uid === targetId) {
+            const followers = new Set<number>(safeArray<number>((u as any).followers));
+            if (isFollowingNow) followers.delete(meId);
+            else followers.add(meId);
+            return normalizeUser({ ...u, followers: Array.from(followers) });
+          }
+
           return u;
         });
       });
 
-      // ✅ ALSO UPDATE currentUser's following state
-      if (isCurrentlyFollowing) {
-        // Unfollow: remove target from currentUser's following
-        setCurrentUser(prev => prev ? normalizeUser({
-          ...prev,
-          following: safeArray<number>((prev as any).following).filter(id => id !== targetUserId)
-        }) : prev);
-      } else {
-        // Follow: add target to currentUser's following
-        setCurrentUser(prev => prev ? normalizeUser({
-          ...prev,
-          following: [...safeArray<number>((prev as any).following), targetUserId]
-        }) : prev);
-      }
+      // keep currentUser in sync + persist
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        const following = new Set<number>(safeArray<number>((prev as any).following));
+        if (isFollowingNow) following.delete(targetId);
+        else following.add(targetId);
+        const next = normalizeUser({ ...prev, following: Array.from(following) });
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
+        return next;
+      });
 
-      // ✅ Call API in background
+      // ---------- API ----------
       try {
-        if (isCurrentlyFollowing) {
-          // Unfollow: remove following
-          await apiFetch(`/api/user-follows?follower_id=${currentUser.id}&following_id=${targetUserId}`, {
+        if (isFollowingNow) {
+          await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
             method: 'DELETE',
           });
         } else {
-          // Follow: add following
           await apiFetch('/api/user-follows', {
             method: 'POST',
-            body: JSON.stringify({ follower_id: currentUser.id, following_id: targetUserId }),
+            body: JSON.stringify({ follower_id: meId, following_id: targetId }),
           });
         }
-        
-        // Refresh follow data after successful API call
-        fetchUserFollowDataForUI(targetUserId).catch(() => {});
-        if (currentUser?.id) fetchUserFollowDataForUI(currentUser.id).catch(() => {});
-        
+
+        // ✅ optional: refresh follow lists (only if your list endpoint exists)
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
+
         scheduleSilentRefresh();
-      } catch (error) {
-        console.error('Follow/Unfollow failed:', error);
-        // On error, revert the UI changes by refreshing from server
-        fetchUserFollowDataForUI(targetUserId).catch(() => {});
-        if (currentUser?.id) fetchUserFollowDataForUI(currentUser.id).catch(() => {});
-        
-        scheduleSilentRefresh();
+      } catch (e) {
+        console.error('Follow toggle failed:', e);
+
+        // ✅ rollback using server truth
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
       }
     },
-    [requireAuth, currentUser, scheduleSilentRefresh, users, fetchUserFollowDataForUI]
+    [requireAuth, currentUser, scheduleSilentRefresh, fetchUserFollowDataForUI]
   );
 
   const updateUserDetails = useCallback(
