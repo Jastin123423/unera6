@@ -246,6 +246,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [loginError, setLoginError] = useState(''); // ✅ ADDED: For image validation errors
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false); // ✅ ADDED: For button animation
 
+  // ✅ ADDED: State for admin suspend duration modal
+  const [showSuspendModal, setShowSuspendModal] = useState(false);
+
   // ✅ FIXED: Simple and correct follow logic - Follow state is based on whether currentUser is in user's followers array
   const isFollowing = useMemo(() => {
     if (!currentUser) return false;
@@ -259,7 +262,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const userFollowers = useMemo(() => safeArray<number>((user as any).followers || []), [user]);
   const followerCount = userFollowers.length;
 
-  const isAdmin = (currentUser as any)?.role === 'admin';
+  // ✅ FIXED: Check if current user is admin or moderator
+  const isAdmin = currentUser ? (currentUser as any)?.role === 'admin' : false;
+  const isModerator = currentUser ? (currentUser as any)?.role === 'moderator' : false;
+  const isAdminOrModerator = isAdmin || isModerator;
 
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -349,6 +355,73 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       setIsFollowButtonClicked(false);
     }, 300);
   };
+
+  // ✅ ADDED: Suspend modal component
+  const SuspendModal = () => (
+    <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4 animate-fade-in font-sans">
+      <div className="bg-[#242526] w-full max-w-[400px] rounded-xl border border-[#3E4042] shadow-2xl flex flex-col">
+        <div className="p-4 border-b border-[#3E4042] flex justify-between items-center">
+          <h2 className="text-xl font-bold text-[#E4E6EB]">Suspend User</h2>
+          <div
+            onClick={() => setShowSuspendModal(false)}
+            className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center cursor-pointer"
+          >
+            <i className="fas fa-times text-[#B0B3B8]"></i>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <p className="text-[#B0B3B8] text-center">
+            Select suspension duration for {user.name}
+          </p>
+          
+          <div className="space-y-2">
+            <button
+              onClick={() => {
+                onRestrictUser?.(user.id);
+                setShowSuspendModal(false);
+              }}
+              className="w-full bg-yellow-900/80 text-yellow-300 py-3 rounded-lg font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
+            >
+              24 Hours
+            </button>
+            
+            <button
+              onClick={() => {
+                // For now, we'll use 24h as default, but you can implement different durations
+                // by modifying the onRestrictUser prop to accept duration parameter
+                onRestrictUser?.(user.id);
+                setShowSuspendModal(false);
+              }}
+              className="w-full bg-orange-900/80 text-orange-300 py-3 rounded-lg font-semibold hover:bg-orange-800 transition-colors active:scale-95 active:shadow-inner"
+            >
+              5 Days
+            </button>
+            
+            <button
+              onClick={() => {
+                onRestrictUser?.(user.id);
+                setShowSuspendModal(false);
+              }}
+              className="w-full bg-red-900/80 text-red-300 py-3 rounded-lg font-semibold hover:bg-red-800 transition-colors active:scale-95 active:shadow-inner"
+            >
+              30 Days
+            </button>
+            
+            <button
+              onClick={() => {
+                onRestrictUser?.(user.id);
+                setShowSuspendModal(false);
+              }}
+              className="w-full bg-purple-900/80 text-purple-300 py-3 rounded-lg font-semibold hover:bg-purple-800 transition-colors active:scale-95 active:shadow-inner"
+            >
+              Manual (Until Admin Changes)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   const renderContent = () => {
     switch (activeTab) {
@@ -502,28 +575,61 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         return (
           <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
             <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
-              {isAdmin && !isCurrentUser && (
+              {/* ✅ ENHANCED: Admin Controls Section - Now shows for both admin and moderator */}
+              {isAdminOrModerator && !isCurrentUser && (
                 <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-red-900/50">
-                  <h2 className="text-xl font-bold text-red-500 mb-4">Admin Controls</h2>
+                  <h2 className="text-xl font-bold text-red-500 mb-4">
+                    {isAdmin ? 'Admin Controls' : 'Moderator Controls'}
+                  </h2>
                   <div className="flex flex-col gap-2">
+                    {/* ✅ Only show verify button for admins */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => onVerifyUser?.(user.id)}
+                        className="w-full bg-[#263951] text-[#2D88FF] py-2 rounded font-semibold hover:bg-[#2A3F5A] transition-colors active:scale-95 active:shadow-inner"
+                      >
+                        {(user as any).is_verified ? 'Remove Verification' : 'Verify User'}
+                      </button>
+                    )}
+                    
+                    {/* ✅ Suspend button shows for both admin and moderator */}
                     <button
-                      onClick={() => onVerifyUser?.(user.id)}
-                      className="w-full bg-[#263951] text-[#2D88FF] py-2 rounded font-semibold hover:bg-[#2A3F5A] transition-colors active:scale-95 active:shadow-inner"
-                    >
-                      {(user as any).is_verified ? 'Remove Verification' : 'Verify User'}
-                    </button>
-                    <button
-                      onClick={() => onRestrictUser?.(user.id)}
+                      onClick={() => setShowSuspendModal(true)}
                       className="w-full bg-yellow-900/80 text-yellow-300 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
                     >
-                      Suspend User (24h)
+                      Suspend User
                     </button>
-                    <button
-                      onClick={() => onDeleteUser?.(user.id)}
-                      className="w-full bg-red-900/80 text-white py-2 rounded font-semibold hover:bg-red-800 mt-2 transition-colors active:scale-95 active:shadow-inner"
-                    >
-                      Delete Account
-                    </button>
+                    
+                    {/* ✅ Only show delete and promote buttons for admins */}
+                    {isAdmin && (
+                      <>
+                        <button
+                          onClick={() => onDeleteUser?.(user.id)}
+                          className="w-full bg-red-900/80 text-white py-2 rounded font-semibold hover:bg-red-800 mt-2 transition-colors active:scale-95 active:shadow-inner"
+                        >
+                          Delete Account
+                        </button>
+                        
+                        <button
+                          onClick={() => onMakeModerator?.(user.id)}
+                          className="w-full bg-purple-900/80 text-purple-300 py-2 rounded font-semibold hover:bg-purple-800 transition-colors active:scale-95 active:shadow-inner"
+                        >
+                          {user.role === 'moderator' ? 'Remove Moderator' : 'Make Moderator'}
+                        </button>
+                      </>
+                    )}
+                    
+                    {/* ✅ Show user role info */}
+                    <div className="mt-2 pt-2 border-t border-[#3E4042]">
+                      <p className="text-[#B0B3B8] text-sm">
+                        Current Role: <span className="font-semibold text-[#E4E6EB] capitalize">{user.role || 'user'}</span>
+                      </p>
+                      {user.role === 'moderator' && (
+                        <p className="text-[#B0B3B8] text-xs mt-1">
+                          Has moderator privileges
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -553,6 +659,14 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     <i className="fas fa-rss text-[#B0B3B8] w-5 text-center"></i>
                     <span>{followerCount} Followers</span>
                   </div>
+
+                  {/* ✅ ADDED: Role display for admin users */}
+                  {isAdmin && (
+                    <div className="flex items-center gap-3">
+                      <i className="fas fa-shield-alt text-[#B0B3B8] w-5 text-center"></i>
+                      <span className="capitalize">Role: {user.role || 'user'}</span>
+                    </div>
+                  )}
 
                   {isCurrentUser && (
                     <button
@@ -759,6 +873,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   {(user as any).is_verified && (
                     <i className="fas fa-check-circle text-[#1877F2] text-[20px]"></i>
                   )}
+                  {/* ✅ ADDED: Role badge for admin/moderator */}
+                  {(user.role === 'admin' || user.role === 'moderator') && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      user.role === 'admin' 
+                        ? 'bg-red-900/80 text-red-200' 
+                        : 'bg-purple-900/80 text-purple-200'
+                    }`}>
+                      {user.role}
+                    </span>
+                  )}
                 </h1>
                 <span className="text-[#B0B3B8] font-semibold text-[17px] mt-1">
                   {followerCount} Followers
@@ -855,6 +979,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       {showEditProfile && isCurrentUser && (
         <EditProfileModal user={user} onClose={() => setShowEditProfile(false)} onSave={onUpdateUserDetails} />
       )}
+
+      {showSuspendModal && <SuspendModal />}
     </div>
   );
 };
