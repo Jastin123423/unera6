@@ -31,26 +31,27 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       );
     }
 
-    // ✅ UNERA RULE:
-    // A follows B => store A->B and B->A
-    await env.DB.prepare(
-      `
-      INSERT OR IGNORE INTO user_follows (follower_id, following_id) VALUES (?, ?);
-      INSERT OR IGNORE INTO user_follows (follower_id, following_id) VALUES (?, ?);
-      `
-    )
-      .bind(follower_id, following_id, following_id, follower_id)
-      .run();
+    // ✅ UNERA RULE: create BOTH directions (A->B and B->A)
+    const stmt1 = env.DB.prepare(
+      `INSERT OR IGNORE INTO user_follows (follower_id, following_id) VALUES (?, ?)`
+    ).bind(follower_id, following_id);
+
+    const stmt2 = env.DB.prepare(
+      `INSERT OR IGNORE INTO user_follows (follower_id, following_id) VALUES (?, ?)`
+    ).bind(following_id, follower_id);
+
+    await env.DB.batch([stmt1, stmt2]);
 
     return Response.json({ success: true }, { status: 201, headers: cors });
   } catch (e: any) {
-    if (String(e?.message || "").includes("FOREIGN KEY")) {
+    const msg = String(e?.message || e || "");
+    if (msg.includes("FOREIGN KEY")) {
       return Response.json(
         { error: "Invalid follower_id or following_id" },
         { status: 400, headers: cors }
       );
     }
-    return Response.json({ error: e?.message || "Server error" }, { status: 500, headers: cors });
+    return Response.json({ error: msg || "Server error" }, { status: 500, headers: cors });
   }
 };
 
@@ -74,24 +75,27 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
       );
     }
 
-    // ✅ UNERA RULE:
-    // Unfollow removes BOTH directions
-    const result = await env.DB.prepare(
-      `
-      DELETE FROM user_follows
-      WHERE (follower_id = ? AND following_id = ?)
-         OR (follower_id = ? AND following_id = ?)
-      `
-    )
-      .bind(follower_id, following_id, following_id, follower_id)
-      .run();
+    // ✅ UNERA RULE: delete BOTH directions
+    const stmt1 = env.DB.prepare(
+      `DELETE FROM user_follows WHERE follower_id = ? AND following_id = ?`
+    ).bind(follower_id, following_id);
 
-    if ((result.meta?.changes ?? 0) === 0) {
+    const stmt2 = env.DB.prepare(
+      `DELETE FROM user_follows WHERE follower_id = ? AND following_id = ?`
+    ).bind(following_id, follower_id);
+
+    const results = await env.DB.batch([stmt1, stmt2]);
+    const changes = results.reduce((sum, r: any) => sum + (r?.meta?.changes ?? 0), 0);
+
+    if (changes === 0) {
       return Response.json({ error: "Not following" }, { status: 404, headers: cors });
     }
 
     return Response.json({ success: true }, { status: 200, headers: cors });
   } catch (e: any) {
-    return Response.json({ error: e?.message || "Server error" }, { status: 500, headers: cors });
+    return Response.json(
+      { error: String(e?.message || e || "Server error") },
+      { status: 500, headers: cors }
+    );
   }
 };
