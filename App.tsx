@@ -515,6 +515,7 @@ export default function App() {
   /** ---------- State ---------- */
   const [users, setUsers] = useState<User[]>([]);
   const [posts, setPosts] = useState<PostType[]>([]);
+  const [profilePosts, setProfilePosts] = useState<PostType[]>([]); // ✅ Added: Separate profile posts state
   const [stories, setStories] = useState<Story[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -695,6 +696,30 @@ export default function App() {
     [activeCommentsPostId, feedHydrated]
   );
 
+  /** ✅ Fetch profile posts (latest only) ---------- */
+  const fetchProfilePosts = useCallback(async (profileUserId: number) => {
+    try {
+      const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&limit=50`);
+      const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
+      const normalized = list.map(normalizePost);
+
+      // Always latest-first (already ordered by API, but keep safe)
+      normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+
+      setProfilePosts(normalized);
+    } catch {
+      setProfilePosts([]);
+    }
+  }, []);
+
+  /** ✅ Fetch profile posts when user opens profile ---------- */
+  useEffect(() => {
+    if (view !== 'profile') return;
+    if (!selectedUserId) return;
+
+    fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+  }, [view, selectedUserId, fetchProfilePosts]);
+
   /** ---------- Silent refresh helper ---------- */
   const scheduleSilentRefresh = useCallback(() => {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
@@ -830,6 +855,7 @@ export default function App() {
     return Array.isArray(feedToRank) ? feedToRank : [];
   }, [posts]);
 
+  /** ✅ Updated activePost resolver to include profilePosts ---------- */
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
 
@@ -837,8 +863,9 @@ export default function App() {
       return commentPostSnapshot;
     }
 
-    return posts.find((p: any) => Number(p.id) === Number(activeCommentsPostId)) || null;
-  }, [posts, activeCommentsPostId, commentPostSnapshot]);
+    const source = view === 'profile' ? profilePosts : posts;
+    return source.find((p: any) => Number(p.id) === Number(activeCommentsPostId)) || null;
+  }, [posts, profilePosts, view, activeCommentsPostId, commentPostSnapshot]);
 
   const profileUser = useMemo(() => {
     if (selectedUserId) {
@@ -899,6 +926,7 @@ export default function App() {
 
     setCurrentUser(null);
     setSelectedUserId(null);
+    setProfilePosts([]); // ✅ Clear profile posts on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
   };
@@ -995,12 +1023,23 @@ export default function App() {
         return next;
       });
 
+      /** ✅ Keep profile posts updated when you create a post ---------- */
+      setProfilePosts((prev) => {
+        // If you are viewing your own profile OR profile user is you, include it
+        if (!currentUser) return prev;
+        const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
+        if (!isMyProfile) return prev;
+
+        const next = [normalized, ...safeArray(prev)];
+        return next;
+      });
+
       pushSeenIds([Number((normalized as any).id)]);
 
       setShowCreatePostModal(false);
       scheduleSilentRefresh();
     },
-    [currentUser, requireAuth, scheduleSilentRefresh]
+    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId] // ✅ Added selectedUserId to deps
   );
 
   const onReactPost = useCallback(
@@ -1023,6 +1062,21 @@ export default function App() {
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
         return next;
+      });
+
+      /** ✅ Update profile posts when reacting ---------- */
+      setProfilePosts((prev) => {
+        return safeArray(prev).map((p: any) => {
+          if (Number(p.id) !== Number(postId)) return p;
+
+          const reactions = safeArray(p.reactions);
+          const mine = reactions.find((r: any) => Number(r.user_id) === Number(currentUser!.id));
+          let nextReactions = reactions.filter((r: any) => Number(r.user_id) !== Number(currentUser!.id));
+
+          if (!mine || mine.type !== type) nextReactions = [...nextReactions, { user_id: currentUser!.id, type }];
+
+          return normalizePost({ ...p, reactions: nextReactions });
+        });
       });
 
       try {
@@ -1061,6 +1115,15 @@ export default function App() {
           return next;
         });
 
+        /** ✅ Update profile posts when sharing ---------- */
+        setProfilePosts((prev) => {
+          return safeArray(prev).map((p: any) =>
+            Number(p.id) === Number(activeSharePost.id)
+              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+              : p
+          );
+        });
+
         try {
           await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
             method: 'POST',
@@ -1079,13 +1142,15 @@ export default function App() {
     [activeSharePost, scheduleSilentRefresh]
   );
 
+  /** ✅ Updated onOpenComments to search in correct list ---------- */
   const onOpenComments = (postId: number) => {
     if (!requireAuth('Commenting')) return;
 
     const pid = Number(postId);
     setActiveCommentsPostId(pid);
 
-    const found = posts.find((p: any) => Number(p.id) === pid) || null;
+    const source = view === 'profile' ? profilePosts : posts;
+    const found = source.find((p: any) => Number(p.id) === pid) || null;
     setCommentPostSnapshot(found);
   };
 
@@ -1094,6 +1159,8 @@ export default function App() {
       if (!requireAuth('Deleting posts')) return;
 
       const prev = posts;
+      const prevProfilePosts = profilePosts; // ✅ Store profile posts for rollback
+      
       setPosts((p) => {
         const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
         lastGoodPostsRef.current = next;
@@ -1101,24 +1168,33 @@ export default function App() {
         return next;
       });
 
+      /** ✅ Keep profile posts updated when you delete ---------- */
+      setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
+
       try {
         await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
       } catch {
         setPosts(prev);
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
+        
+        /** ✅ Rollback profile posts on error ---------- */
+        setProfilePosts(prevProfilePosts);
+        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
       }
     },
-    [requireAuth, posts]
+    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
   );
 
   const editPost = useCallback(
     async (postId: number, content: string) => {
-            if (!requireAuth('Editing posts')) return;
+      if (!requireAuth('Editing posts')) return;
       const trimmed = (content || '').trim();
       if (!trimmed) return;
 
       const prev = posts;
+      const prevProfilePosts = profilePosts; // ✅ Store profile posts for rollback
+      
       setPosts((p) => {
         const next = safeArray(p).map((x: any) =>
           Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
@@ -1128,15 +1204,24 @@ export default function App() {
         return next;
       });
 
+      /** ✅ Keep profile posts updated when you edit ---------- */
+      setProfilePosts((prev) =>
+        safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
+      );
+
       try {
         await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
       } catch {
         setPosts(prev);
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
+        
+        /** ✅ Rollback profile posts on error ---------- */
+        setProfilePosts(prevProfilePosts);
+        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
       }
     },
-    [requireAuth, posts]
+    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
   );
 
   const followUser = useCallback(
@@ -1421,7 +1506,8 @@ export default function App() {
                 if (!requireAuth('Commenting')) return;
                 const pid = Number(id);
                 setActiveCommentsPostId(pid);
-                const found = posts.find((p: any) => Number(p.id) === pid) || null;
+                const source = view === 'profile' ? profilePosts : posts;
+                const found = source.find((p: any) => Number(p.id) === pid) || null;
                 setCommentPostSnapshot(found);
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
@@ -1500,11 +1586,12 @@ export default function App() {
           {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
 
           {view === 'profile' && profileUser && (
+            /** ✅ Updated to pass profilePosts instead of posts ---------- */
             <UserProfile
               user={profileUser}
               currentUser={currentUser}
               users={users}
-              posts={posts}
+              posts={profilePosts} // ✅ Now uses latest-first profile posts
               reels={reels}
               onProfileClick={(id) => openProfile(id)}
               onFollow={(id: number) => followUser(id)}
