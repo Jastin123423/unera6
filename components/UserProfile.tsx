@@ -246,15 +246,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [loginError, setLoginError] = useState(''); // ✅ ADDED: For image validation errors
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false); // ✅ ADDED: For button animation
 
-  // ✅ FIXED: Simple and correct follow logic
-  // Check if currentUser follows this user (mutual following is handled by App.tsx)
+  // ✅ FIXED: Simple and correct follow logic - Follow state is based on whether currentUser is in user's followers array
   const isFollowing = useMemo(() => {
     if (!currentUser) return false;
-    return safeArray<number>((currentUser as any)?.followers).includes(user.id);
-  }, [currentUser, user?.id]);
+    
+    // Check if current user's ID is in this user's followers array
+    const userFollowers = safeArray<number>((user as any)?.followers || []);
+    return userFollowers.includes(currentUser.id);
+  }, [currentUser, user]);
 
   // Defensive: followers/following arrays may be missing with guest / raw user objects
-  const userFollowers = useMemo(() => safeArray<number>((user as any).followers), [user]);
+  const userFollowers = useMemo(() => safeArray<number>((user as any).followers || []), [user]);
   const followerCount = userFollowers.length;
 
   const isAdmin = (currentUser as any)?.role === 'admin';
