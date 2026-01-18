@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack } from '../types';
 import { CreatePost, Post, CreatePostModal } from './Feed';
 
@@ -245,86 +245,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [loginError, setLoginError] = useState(''); // ✅ ADDED: For image validation errors
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false); // ✅ ADDED: For button animation
-  const audioRef = useRef<HTMLAudioElement | null>(null); // ✅ ADDED: For click sound
 
-  // ✅ ADDED: Initialize audio for click sound
-  useEffect(() => {
-    // Create audio element for click sound
-    const audio = new Audio();
-    
-    // Try to load a click sound (can be replaced with actual sound file)
-    // Using a simple beep sound as fallback
-    audioRef.current = audio;
-    
-    // Cleanup on unmount
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
-  }, []);
-
-  // ✅ ADDED: Play click sound function
-  const playClickSound = () => {
-    try {
-      // You can replace this with an actual sound file URL
-      // For now, we'll create a simple beep using Web Audio API
-      if (typeof window !== 'undefined' && window.AudioContext) {
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        oscillator.frequency.value = 800;
-        oscillator.type = 'sine';
-        
-        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
-        
-        oscillator.start(audioContext.currentTime);
-        oscillator.stop(audioContext.currentTime + 0.1);
-      }
-    } catch (error) {
-      console.log('Audio playback not supported or error:', error);
-    }
-  };
-
-  // ✅ ADDED: Enhanced follow handler with animation and sound
-  const handleFollowClick = () => {
-    if (!currentUser) return;
-    
-    // Play click sound
-    playClickSound();
-    
-    // Trigger button animation
-    setIsFollowButtonClicked(true);
-    
-    // Call the original follow function
-    onFollow(user.id);
-    
-    // Reset animation after 300ms
-    setTimeout(() => {
-      setIsFollowButtonClicked(false);
-    }, 300);
-  };
+  // ✅ FIXED: Simple and correct follow logic
+  // Check if currentUser follows this user (mutual following is handled by App.tsx)
+  const isFollowing = useMemo(() => {
+    if (!currentUser) return false;
+    return safeArray<number>((currentUser as any)?.followers).includes(user.id);
+  }, [currentUser, user?.id]);
 
   // Defensive: followers/following arrays may be missing with guest / raw user objects
   const userFollowers = useMemo(() => safeArray<number>((user as any).followers), [user]);
-  
-  // ✅ FIXED: Use mutual followers logic to match App.tsx follow logic
-  const isFollowing = useMemo(() => {
-    if (!currentUser) return false;
-    
-    // Check mutual followers: currentUser follows user AND user follows currentUser
-    const currentUserFollowsUser = safeArray<number>((currentUser as any)?.followers).includes(user.id);
-    const userFollowsCurrentUser = userFollowers.includes(currentUser.id);
-    
-    return currentUserFollowsUser && userFollowsCurrentUser;
-  }, [currentUser, user, userFollowers]);
-
   const followerCount = userFollowers.length;
 
   const isAdmin = (currentUser as any)?.role === 'admin';
@@ -400,6 +330,22 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     
     // Call the upload callback
     uploadCallback(file);
+  };
+
+  // ✅ ADDED: Enhanced follow handler with animation
+  const handleFollowClick = () => {
+    if (!currentUser) return;
+    
+    // Trigger button animation
+    setIsFollowButtonClicked(true);
+    
+    // Call the original follow function
+    onFollow(user.id);
+    
+    // Reset animation after 300ms
+    setTimeout(() => {
+      setIsFollowButtonClicked(false);
+    }, 300);
   };
 
   const renderContent = () => {
@@ -824,9 +770,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     <button
                       className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner"
                       onClick={() => {
-                        // Play click sound
-                        playClickSound();
-                        
                         if (onCreateStoryClick) {
                           onCreateStoryClick(); // ✅ Opens story creation, not post area
                         } else {
@@ -840,10 +783,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     </button>
                     <button
                       className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
-                      onClick={() => {
-                        playClickSound();
-                        setShowEditProfile(true);
-                      }}
+                      onClick={() => setShowEditProfile(true)}
                     >
                       <i className="fas fa-pen"></i>
                       <span>Edit profile</span>
@@ -851,7 +791,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   </>
                 ) : (
                   <>
-                    {/* ✅ ENHANCED: Follow button with animation and sound */}
+                    {/* ✅ FIXED: Follow button with immediate UI feedback */}
                     <button
                       onClick={handleFollowClick}
                       className={`${
@@ -874,10 +814,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       )}
                     </button>
                     <button
-                      onClick={() => {
-                        playClickSound();
-                        onMessage(user.id);
-                      }}
+                      onClick={() => onMessage(user.id)}
                       className="bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
                     >
                       <span className="flex items-center gap-2">
@@ -896,10 +833,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               {(['Posts', 'About', 'Followers', 'Photos'] as const).map((tab) => (
                 <div
                   key={tab}
-                  onClick={() => {
-                    playClickSound();
-                    setActiveTab(tab);
-                  }}
+                  onClick={() => setActiveTab(tab)}
                   className={`px-4 py-3 cursor-pointer whitespace-nowrap text-[15px] font-semibold border-b-[3px] transition-colors active:scale-95 ${
                     activeTab === tab
                       ? 'text-[#1877F2] border-[#1877F2]'
