@@ -720,20 +720,13 @@ export default function App() {
     fetchProfilePosts(Number(selectedUserId)).catch(() => {});
   }, [view, selectedUserId, fetchProfilePosts]);
 
-  /** ✅ Fix 2: Updated scheduleSilentRefresh to refresh profile when profile is open ---------- */
+  /** ---------- Silent refresh helper ---------- */
   const scheduleSilentRefresh = useCallback(() => {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
-
     scheduleSilentRefreshRef.current = setTimeout(() => {
-      // refresh home
       fetchPostsForHome(currentUser).catch(() => {});
-
-      // refresh profile (only if on profile)
-      if (view === 'profile' && selectedUserId) {
-        fetchProfilePosts(Number(selectedUserId)).catch(() => {});
-      }
     }, 8000);
-  }, [currentUser, fetchPostsForHome, view, selectedUserId, fetchProfilePosts]);
+  }, [currentUser, fetchPostsForHome]);
 
   /** ---------- Fetch other data ---------- */
   const fetchOtherData = useCallback(async () => {
@@ -856,10 +849,10 @@ export default function App() {
     };
   }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
 
-  /** ✅ Fix 1: Updated rankedPosts to use actual posts state ---------- */
+  /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
-    // Home should always use current posts state (already diversified & merged)
-    return safeArray(posts);
+    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : posts;
+    return Array.isArray(feedToRank) ? feedToRank : [];
   }, [posts]);
 
   /** ✅ Updated activePost resolver to include profilePosts ---------- */
@@ -1030,14 +1023,15 @@ export default function App() {
         return next;
       });
 
-      /** ✅ Fix 3: Updated createPost profile logic (only add to profile when profile is open OR it's your profile) ---------- */
+      /** ✅ Keep profile posts updated when you create a post ---------- */
       setProfilePosts((prev) => {
+        // If you are viewing your own profile OR profile user is you, include it
         if (!currentUser) return prev;
+        const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
+        if (!isMyProfile) return prev;
 
-        const isMyProfileOpen = view === 'profile' && Number(selectedUserId) === Number(currentUser.id);
-        if (!isMyProfileOpen) return prev;
-
-        return [normalized, ...safeArray(prev)];
+        const next = [normalized, ...safeArray(prev)];
+        return next;
       });
 
       pushSeenIds([Number((normalized as any).id)]);
@@ -1045,7 +1039,7 @@ export default function App() {
       setShowCreatePostModal(false);
       scheduleSilentRefresh();
     },
-    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId, view] // ✅ Added view to deps
+    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId] // ✅ Added selectedUserId to deps
   );
 
   const onReactPost = useCallback(
@@ -1339,6 +1333,12 @@ export default function App() {
     [users]
   );
 
+  /** ---------- Handle create story from profile ---------- */
+  const handleCreateStoryFromProfile = useCallback(() => {
+    if (!requireAuth('Creating stories')) return;
+    setShowCreateStoryModal(true);
+  }, [requireAuth]);
+
   /** ---------- Render ---------- */
   const isLoading = false;
   if (isLoading) return <ProfessionalLoader />;
@@ -1497,11 +1497,10 @@ export default function App() {
           )}
 
           {view === 'brands' && (
-            /** ✅ Fix 4: BrandsPage updated to use safeArray ---------- */
             <BrandsPage
               currentUser={currentUser}
               brands={brands}
-              posts={safeArray(posts)} // ✅ Ensures it's at least safe, but still not perfect
+              posts={posts}
               users={users}
               onCreateBrand={() => requireAuth('Creating brands')}
               onFollowBrand={() => requireAuth('Following')}
@@ -1623,6 +1622,7 @@ export default function App() {
                 setView('reels');
               }}
               onPlayAudioTrack={setCurrentAudioTrack}
+              onCreateStoryClick={handleCreateStoryFromProfile} // ✅ ADDED: Story creation handler
             />
           )}
 
