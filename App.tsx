@@ -397,6 +397,22 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 };
 
 /**
+ * Fetch user's followers/following data
+ */
+const fetchUserFollowData = async (userId: number): Promise<{ followers: number[], following: number[] }> => {
+  try {
+    const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
+    return {
+      followers: safeArray<number>(data?.followers),
+      following: safeArray<number>(data?.following)
+    };
+  } catch (error) {
+    console.error('Failed to fetch follow data:', error);
+    return { followers: [], following: [] };
+  }
+};
+
+/**
  * Upload file to Cloudflare R2
  */
 const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
@@ -744,6 +760,54 @@ export default function App() {
 
     fetchProfilePosts(Number(selectedUserId)).catch(() => {});
   }, [view, selectedUserId, fetchProfilePosts]);
+
+  /** ---------- Fetch follow data for a user ---------- */
+  const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
+    try {
+      const followData = await fetchUserFollowData(userId);
+      
+      setUsers((prev) => {
+        return prev.map((user) => {
+          if (Number(user.id) === Number(userId)) {
+            return normalizeUser({
+              ...user,
+              followers: followData.followers,
+              following: followData.following
+            });
+          }
+          return user;
+        });
+      });
+
+      // Also update currentUser if it's the logged in user
+      if (currentUser && Number(currentUser.id) === Number(userId)) {
+        setCurrentUser(prev => prev ? normalizeUser({
+          ...prev,
+          followers: followData.followers,
+          following: followData.following
+        }) : prev);
+      }
+
+      return followData;
+    } catch (error) {
+      console.error('Failed to fetch follow data for UI:', error);
+      return { followers: [], following: [] };
+    }
+  }, [currentUser]);
+
+  /** ---------- Load follow data when viewing a profile ---------- */
+  useEffect(() => {
+    if (view !== 'profile' || !selectedUserId) return;
+    
+    fetchUserFollowDataForUI(Number(selectedUserId)).catch(() => {});
+  }, [view, selectedUserId, fetchUserFollowDataForUI]);
+
+  /** ---------- Load follow data for current user on login ---------- */
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    
+    fetchUserFollowDataForUI(Number(currentUser.id)).catch(() => {});
+  }, [currentUser?.id, fetchUserFollowDataForUI]);
 
   /** ---------- Silent refresh helper ---------- */
   const scheduleSilentRefresh = useCallback(() => {
@@ -1306,100 +1370,82 @@ export default function App() {
       }
 
       // Get current state before making changes
-      const currentUserFollowers = new Set(safeArray<number>((currentUser as any)?.followers));
       const targetUser = users.find(u => Number(u.id) === Number(targetUserId));
-      const targetUserFollowers = targetUser ? new Set(safeArray<number>((targetUser as any)?.followers)) : new Set<number>();
+      if (!targetUser) {
+        console.error('Target user not found');
+        return;
+      }
 
-      const isCurrentlyFollowing = currentUserFollowers.has(targetUserId) && targetUserFollowers.has(currentUser.id);
+      // ✅ SIMPLIFIED: Determine follow state using ONLY "followers array contains"
+      const isCurrentlyFollowing = safeArray<number>(targetUser.followers).includes(currentUser.id);
 
-      // ✅ IMMEDIATE UI UPDATE: Toggle mutual followers in local state
+      // ✅ IMMEDIATE UI UPDATE: Toggle followers in local state
       setUsers((prev) => {
         const arr = safeArray(prev).map(normalizeUser);
-        const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
         const target = arr.find((u) => Number(u.id) === Number(targetUserId));
-        if (!me || !target) return arr;
+        if (!target) return arr;
 
-        const meFollowers = new Set<number>(safeArray<number>((me as any).followers));
         const targetFollowers = new Set<number>(safeArray<number>((target as any).followers));
 
         if (isCurrentlyFollowing) {
-          // Unfollow: remove mutual following
-          meFollowers.delete(targetUserId);
+          // Unfollow: remove from target's followers
           targetFollowers.delete(currentUser.id);
         } else {
-          // Follow: add mutual following
-          meFollowers.add(targetUserId);
+          // Follow: add to target's followers
           targetFollowers.add(currentUser.id);
         }
 
         return arr.map((u) => {
-          if (Number(u.id) === Number(me.id)) return normalizeUser({ ...u, followers: Array.from(meFollowers) });
           if (Number(u.id) === Number(target.id)) return normalizeUser({ ...u, followers: Array.from(targetFollowers) });
           return u;
         });
       });
 
-      // ✅ ALSO UPDATE currentUser state immediately
+      // ✅ ALSO UPDATE currentUser's following state
       if (isCurrentlyFollowing) {
-        // Unfollow
+        // Unfollow: remove target from currentUser's following
         setCurrentUser(prev => prev ? normalizeUser({
           ...prev,
-          followers: safeArray<number>((prev as any).followers).filter(id => id !== targetUserId)
+          following: safeArray<number>((prev as any).following).filter(id => id !== targetUserId)
         }) : prev);
       } else {
-        // Follow
+        // Follow: add target to currentUser's following
         setCurrentUser(prev => prev ? normalizeUser({
           ...prev,
-          followers: [...safeArray<number>((prev as any).followers), targetUserId]
+          following: [...safeArray<number>((prev as any).following), targetUserId]
         }) : prev);
       }
 
       // ✅ Call API in background
       try {
         if (isCurrentlyFollowing) {
-          // Unfollow: remove mutual following
+          // Unfollow: remove following
           await apiFetch(`/api/user-follows?follower_id=${currentUser.id}&following_id=${targetUserId}`, {
             method: 'DELETE',
           });
         } else {
-          // Follow: add mutual following
+          // Follow: add following
           await apiFetch('/api/user-follows', {
             method: 'POST',
             body: JSON.stringify({ follower_id: currentUser.id, following_id: targetUserId }),
           });
         }
         
+        // Refresh follow data after successful API call
+        fetchUserFollowDataForUI(targetUserId).catch(() => {});
+        if (currentUser?.id) fetchUserFollowDataForUI(currentUser.id).catch(() => {});
+        
         scheduleSilentRefresh();
       } catch (error) {
         console.error('Follow/Unfollow failed:', error);
-        // On error, revert the UI changes
+        // On error, revert the UI changes by refreshing from server
+        fetchUserFollowDataForUI(targetUserId).catch(() => {});
+        if (currentUser?.id) fetchUserFollowDataForUI(currentUser.id).catch(() => {});
+        
         scheduleSilentRefresh();
-        
-        // Revert the user state
-        setUsers((prev) => {
-          const arr = safeArray(prev).map(normalizeUser);
-          const me = arr.find((u) => Number(u.id) === Number(currentUser.id));
-          const target = arr.find((u) => Number(u.id) === Number(targetUserId));
-          if (!me || !target) return arr;
-
-          const meFollowers = new Set<number>(currentUserFollowers);
-          const targetFollowers = new Set<number>(targetUserFollowers);
-
-          return arr.map((u) => {
-            if (Number(u.id) === Number(me.id)) return normalizeUser({ ...u, followers: Array.from(meFollowers) });
-            if (Number(u.id) === Number(target.id)) return normalizeUser({ ...u, followers: Array.from(targetFollowers) });
-            return u;
-          });
-        });
-        
-        // Revert currentUser state
-        setCurrentUser(prev => prev ? normalizeUser({
-          ...prev,
-          followers: Array.from(currentUserFollowers)
-        }) : prev);
       }
     },
-    [requireAuth, currentUser, scheduleSilentRefresh, users]
+    [requireAuth, currentUser, scheduleSilentRefresh, users, fetchUserFollowDataForUI]
   );
 
   const updateUserDetails = useCallback(
