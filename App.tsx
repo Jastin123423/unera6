@@ -375,13 +375,13 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 /**
  * Upload file to Cloudflare R2
  */
-const uploadToCloudflareR2 = async (file: File): Promise<{ url: string; type: string; filename: string }> => {
+const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => { // ✅ ADDED: folder parameter
   try {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('filename', file.name);
     formData.append('type', file.type);
-    formData.append('folder', 'posts');
+    formData.append('folder', folder); // ✅ CHANGED: Use folder parameter
     formData.append('timestamp', Date.now().toString());
 
     const response = await fetch('/api/upload', {
@@ -980,7 +980,7 @@ export default function App() {
 
       if (file) {
         try {
-          const uploadResult = await uploadToCloudflareR2(file);
+          const uploadResult = await uploadToCloudflareR2(file); // ✅ Uses default 'posts' folder
           media_url = uploadResult.url;
           media_type = uploadResult.type;
         } catch (error: any) {
@@ -1298,8 +1298,14 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
+      // ✅ ADDED: Validate file is an image
+      if (!file.type || !file.type.startsWith('image/')) {
+        setLoginError('Only image files are allowed.');
+        return;
+      }
+
       try {
-        const uploadResult = await uploadToCloudflareR2(file);
+        const uploadResult = await uploadToCloudflareR2(file, 'profiles'); // ✅ CHANGED: Use 'profiles' folder
         await updateUserDetails({ profile_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload profile image: ${error.message}`);
@@ -1313,8 +1319,14 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
+      // ✅ ADDED: Validate file is an image
+      if (!file.type || !file.type.startsWith('image/')) {
+        setLoginError('Only image files are allowed.');
+        return;
+      }
+
       try {
-        const uploadResult = await uploadToCloudflareR2(file);
+        const uploadResult = await uploadToCloudflareR2(file, 'covers'); // ✅ CHANGED: Use 'covers' folder
         await updateUserDetails({ cover_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload cover image: ${error.message}`);
