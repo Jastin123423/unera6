@@ -198,6 +198,24 @@ const diversifyFeed = (posts: PostType[], seed: number) => {
   return out;
 };
 
+/** ---------- Safe User Merge Helper ---------- */
+const isHttpUrl = (v: any) =>
+  typeof v === 'string' && (v.startsWith('https://') || v.startsWith('http://'));
+
+const mergeUserSafe = (oldU: any, newU: any) => {
+  const next = { ...oldU, ...newU };
+
+  // ✅ keep old profile/cover if incoming is missing/empty
+  if (!isHttpUrl(newU?.profile_image_url) && isHttpUrl(oldU?.profile_image_url)) {
+    next.profile_image_url = oldU.profile_image_url;
+  }
+  if (!isHttpUrl(newU?.cover_image_url) && isHttpUrl(oldU?.cover_image_url)) {
+    next.cover_image_url = oldU.cover_image_url;
+  }
+
+  return next;
+};
+
 /** ---------- UNERA Professional Profile Picture Generator ---------- */
 const COLORS = [
   '#1877F2',
@@ -290,6 +308,7 @@ const normalizePost = (p: any): PostType => {
 
 /**
  * Normalize user data with UNERA-style profile pictures
+ * ✅ FIXED: cover_image_url can be undefined, not empty string
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
@@ -313,6 +332,11 @@ const normalizeUser = (u: any): User => {
     profileImageUrl = generateProfilePictureUrl(userName, colorIdentifier);
   }
 
+  // ✅ FIXED: Don't default cover to empty string, keep undefined if missing
+  const cover = typeof (u?.cover_image_url ?? u?.coverImage) === 'string'
+    ? String(u?.cover_image_url ?? u?.coverImage).trim()
+    : undefined;
+
   return {
     ...u,
     id: resolvedId,
@@ -321,7 +345,7 @@ const normalizeUser = (u: any): User => {
     followers: safeArray<number>(u?.followers),
     following: safeArray<number>(u?.following),
     profile_image_url: profileImageUrl,
-    cover_image_url: u?.cover_image_url ?? u?.coverImage ?? '',
+    cover_image_url: cover, // ✅ Can be undefined, not empty string
     is_verified: Boolean(u?.is_verified ?? u?.isVerified),
     role: u?.role ?? 'user',
     created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
@@ -605,7 +629,7 @@ export default function App() {
             return;
           }
 
-          // Merge authors into users list
+          // Merge authors into users list - ✅ FIXED: Use mergeUserSafe to preserve cover images
           setUsers((prev) => {
             const map = new Map<number, User>();
             safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
@@ -616,7 +640,8 @@ export default function App() {
               if (!map.has(author.id)) map.set(author.id, author);
               else {
                 const existing = map.get(author.id)!;
-                map.set(author.id, normalizeUser({ ...existing, ...author }));
+                // ✅ FIXED: Use mergeUserSafe to preserve existing cover/profile images
+                map.set(author.id, normalizeUser(mergeUserSafe(existing, author)));
               }
             });
 
@@ -892,55 +917,27 @@ export default function App() {
       const normalized = normalizeUser(data.user);
       if (!normalized?.id) throw new Error('Registration failed: invalid user id');
 
-      // ✅ AUTO-FOLLOW: User becomes their own first follower
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+
+      // ✅ REMOVED: Auto-follow self logic (backend blocks it)
+      setCurrentUser(normalized);
+      setSelectedUserId(Number(normalized.id));
+
+      // Add user to users list
+      setUsers((prev) => {
+        const arr = safeArray(prev);
+        const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
+        if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+        return [normalized, ...arr];
+      });
+
+      // New session seed
       try {
-        // Update user with self-follow in the database
-        await apiFetch('/api/user-follows', {
-          method: 'POST',
-          body: JSON.stringify({ 
-            follower_id: normalized.id, 
-            following_id: normalized.id 
-          }),
-        });
+        sessionStorage.removeItem(FEED_SESSION_KEY);
+      } catch {}
 
-        // Update the normalized user with self-follow locally
-        const userWithSelfFollow = {
-          ...normalized,
-          followers: [normalized.id],
-          following: [normalized.id]
-        };
-
-        localStorage.setItem(LS_USER_KEY, JSON.stringify(userWithSelfFollow));
-
-        // Set the user with self-follow
-        setCurrentUser(userWithSelfFollow);
-        setSelectedUserId(Number(userWithSelfFollow.id));
-
-        // Add user to users list with self-follow
-        setUsers((prev) => {
-          const arr = safeArray(prev);
-          const exists = arr.some((x) => Number(x.id) === Number(userWithSelfFollow.id));
-          if (exists) return arr.map((x) => (Number(x.id) === Number(userWithSelfFollow.id) ? userWithSelfFollow : x));
-          return [userWithSelfFollow, ...arr];
-        });
-
-        // New session seed
-        try {
-          sessionStorage.removeItem(FEED_SESSION_KEY);
-        } catch {}
-
-        setView('home');
-        await fetchPostsForHome(userWithSelfFollow);
-        
-      } catch (followError) {
-        console.error('Auto-follow setup failed:', followError);
-        // Even if auto-follow fails, proceed with registration
-        localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
-        setCurrentUser(normalized);
-        setSelectedUserId(Number(normalized.id));
-        setView('home');
-        await fetchPostsForHome(normalized);
-      }
+      setView('home');
+      await fetchPostsForHome(normalized);
 
     } catch (error: any) {
       setLoginError(error?.message || 'Registration failed');
@@ -965,26 +962,7 @@ export default function App() {
       const normalized = normalizeUser(data.user);
       if (!normalized?.id) throw new Error('Login failed: invalid user id');
 
-      // ✅ Ensure user follows themselves (for existing users who might not have self-follow)
-      if (!safeArray<number>(normalized.followers).includes(normalized.id)) {
-        try {
-          // Add self-follow if missing
-          await apiFetch('/api/user-follows', {
-            method: 'POST',
-            body: JSON.stringify({ 
-              follower_id: normalized.id, 
-              following_id: normalized.id 
-            }),
-          });
-
-          // Update local user data with self-follow
-          normalized.followers = [normalized.id, ...safeArray<number>(normalized.followers)];
-          normalized.following = [normalized.id, ...safeArray<number>(normalized.following)];
-        } catch (followError) {
-          console.error('Auto-follow setup failed during login:', followError);
-        }
-      }
-
+      // ✅ REMOVED: Auto-follow self check (backend blocks it)
       localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
 
       // new session seed
