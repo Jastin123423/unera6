@@ -874,6 +874,79 @@ export default function App() {
     return currentUser || null;
   }, [selectedUserId, users, currentUser]);
 
+  /** ---------- Handle user registration ---------- */
+  const handleRegister = useCallback(async (userData: any) => {
+    try {
+      setLoginError('');
+
+      const res = await fetch('/api/users/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Registration failed');
+      if (!data?.user) throw new Error('Registration failed: user missing');
+
+      const normalized = normalizeUser(data.user);
+      if (!normalized?.id) throw new Error('Registration failed: invalid user id');
+
+      // ✅ AUTO-FOLLOW: User becomes their own first follower
+      try {
+        // Update user with self-follow in the database
+        await apiFetch('/api/user-follows', {
+          method: 'POST',
+          body: JSON.stringify({ 
+            follower_id: normalized.id, 
+            following_id: normalized.id 
+          }),
+        });
+
+        // Update the normalized user with self-follow locally
+        const userWithSelfFollow = {
+          ...normalized,
+          followers: [normalized.id],
+          following: [normalized.id]
+        };
+
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(userWithSelfFollow));
+
+        // Set the user with self-follow
+        setCurrentUser(userWithSelfFollow);
+        setSelectedUserId(Number(userWithSelfFollow.id));
+
+        // Add user to users list with self-follow
+        setUsers((prev) => {
+          const arr = safeArray(prev);
+          const exists = arr.some((x) => Number(x.id) === Number(userWithSelfFollow.id));
+          if (exists) return arr.map((x) => (Number(x.id) === Number(userWithSelfFollow.id) ? userWithSelfFollow : x));
+          return [userWithSelfFollow, ...arr];
+        });
+
+        // New session seed
+        try {
+          sessionStorage.removeItem(FEED_SESSION_KEY);
+        } catch {}
+
+        setView('home');
+        await fetchPostsForHome(userWithSelfFollow);
+        
+      } catch (followError) {
+        console.error('Auto-follow setup failed:', followError);
+        // Even if auto-follow fails, proceed with registration
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+        setCurrentUser(normalized);
+        setSelectedUserId(Number(normalized.id));
+        setView('home');
+        await fetchPostsForHome(normalized);
+      }
+
+    } catch (error: any) {
+      setLoginError(error?.message || 'Registration failed');
+    }
+  }, [fetchPostsForHome]);
+
   /** ---------- Login ---------- */
   const handleLogin = async (email: string, password: string) => {
     try {
@@ -891,6 +964,26 @@ export default function App() {
 
       const normalized = normalizeUser(data.user);
       if (!normalized?.id) throw new Error('Login failed: invalid user id');
+
+      // ✅ Ensure user follows themselves (for existing users who might not have self-follow)
+      if (!safeArray<number>(normalized.followers).includes(normalized.id)) {
+        try {
+          // Add self-follow if missing
+          await apiFetch('/api/user-follows', {
+            method: 'POST',
+            body: JSON.stringify({ 
+              follower_id: normalized.id, 
+              following_id: normalized.id 
+            }),
+          });
+
+          // Update local user data with self-follow
+          normalized.followers = [normalized.id, ...safeArray<number>(normalized.followers)];
+          normalized.following = [normalized.id, ...safeArray<number>(normalized.following)];
+        } catch (followError) {
+          console.error('Auto-follow setup failed during login:', followError);
+        }
+      }
 
       localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
 
@@ -1228,7 +1321,11 @@ export default function App() {
     async (targetUserId: number) => {
       if (!requireAuth('Following')) return;
       if (!currentUser) return;
-      if (Number(targetUserId) === Number(currentUser.id)) return;
+      if (Number(targetUserId) === Number(currentUser.id)) {
+        // Prevent unfollowing self (user should always be their own follower)
+        console.log('User cannot unfollow themselves');
+        return;
+      }
 
       // Get current state before making changes
       const currentUserFollowers = new Set(safeArray<number>((currentUser as any)?.followers));
@@ -1700,7 +1797,13 @@ export default function App() {
             />
           )}
 
-          {view === 'register' && <Register onRegister={() => {}} onBackToLogin={() => setView('login')} />}
+          {view === 'register' && (
+            <Register 
+              onRegister={handleRegister} 
+              onBackToLogin={() => setView('login')} 
+              error={loginError}
+            />
+          )}
         </div>
 
         {currentUser && (
