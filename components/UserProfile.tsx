@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack } from '../types';
 import { CreatePost, Post, CreatePostModal } from './Feed';
 
@@ -162,7 +162,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ user, onClose, onSa
         <div className="p-4 border-t border-[#3E4042] bg-[#242526] rounded-b-xl">
           <button
             onClick={handleSave}
-            className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-lg font-bold shadow-md transition-colors"
+            className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-lg font-bold shadow-md transition-colors active:scale-95 active:shadow-inner"
           >
             Save Details
           </button>
@@ -244,6 +244,72 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [loginError, setLoginError] = useState(''); // ✅ ADDED: For image validation errors
+  const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false); // ✅ ADDED: For button animation
+  const audioRef = useRef<HTMLAudioElement | null>(null); // ✅ ADDED: For click sound
+
+  // ✅ ADDED: Initialize audio for click sound
+  useEffect(() => {
+    // Create audio element for click sound
+    const audio = new Audio();
+    
+    // Try to load a click sound (can be replaced with actual sound file)
+    // Using a simple beep sound as fallback
+    audioRef.current = audio;
+    
+    // Cleanup on unmount
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // ✅ ADDED: Play click sound function
+  const playClickSound = () => {
+    try {
+      // You can replace this with an actual sound file URL
+      // For now, we'll create a simple beep using Web Audio API
+      if (typeof window !== 'undefined' && window.AudioContext) {
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+      }
+    } catch (error) {
+      console.log('Audio playback not supported or error:', error);
+    }
+  };
+
+  // ✅ ADDED: Enhanced follow handler with animation and sound
+  const handleFollowClick = () => {
+    if (!currentUser) return;
+    
+    // Play click sound
+    playClickSound();
+    
+    // Trigger button animation
+    setIsFollowButtonClicked(true);
+    
+    // Call the original follow function
+    onFollow(user.id);
+    
+    // Reset animation after 300ms
+    setTimeout(() => {
+      setIsFollowButtonClicked(false);
+    }, 300);
+  };
 
   // Defensive: followers/following arrays may be missing with guest / raw user objects
   const userFollowers = useMemo(() => safeArray<number>((user as any).followers), [user]);
@@ -422,7 +488,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 .map((follower) => (
                   <div
                     key={follower.id}
-                    className="flex items-start gap-3 p-3 border border-[#3E4042] rounded-lg hover:bg-[#3A3B3C] cursor-pointer"
+                    className="flex items-start gap-3 p-3 border border-[#3E4042] rounded-lg hover:bg-[#3A3B3C] cursor-pointer transition-all duration-200 active:scale-95"
                     onClick={() => onProfileClick(follower.id)}
                   >
                     <img
@@ -494,19 +560,19 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   <div className="flex flex-col gap-2">
                     <button
                       onClick={() => onVerifyUser?.(user.id)}
-                      className="w-full bg-[#263951] text-[#2D88FF] py-2 rounded font-semibold hover:bg-[#2A3F5A]"
+                      className="w-full bg-[#263951] text-[#2D88FF] py-2 rounded font-semibold hover:bg-[#2A3F5A] transition-colors active:scale-95 active:shadow-inner"
                     >
                       {(user as any).is_verified ? 'Remove Verification' : 'Verify User'}
                     </button>
                     <button
                       onClick={() => onRestrictUser?.(user.id)}
-                      className="w-full bg-yellow-900/80 text-yellow-300 py-2 rounded font-semibold hover:bg-yellow-800"
+                      className="w-full bg-yellow-900/80 text-yellow-300 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
                     >
                       Suspend User (24h)
                     </button>
                     <button
                       onClick={() => onDeleteUser?.(user.id)}
-                      className="w-full bg-red-900/80 text-white py-2 rounded font-semibold hover:bg-red-800 mt-2"
+                      className="w-full bg-red-900/80 text-white py-2 rounded font-semibold hover:bg-red-800 mt-2 transition-colors active:scale-95 active:shadow-inner"
                     >
                       Delete Account
                     </button>
@@ -542,7 +608,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
                   {isCurrentUser && (
                     <button
-                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 rounded-md transition-colors text-[15px] mt-2"
+                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 rounded-md transition-colors text-[15px] mt-2 active:scale-95 active:shadow-inner"
                       onClick={() => setShowEditProfile(true)}
                     >
                       Edit Details
@@ -676,7 +742,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               <>
                 {/* ✅ UPDATED: Cover image upload button */}
                 <div
-                  className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-md cursor-pointer hover:bg-white/20 font-semibold text-white text-[15px] flex items-center gap-2"
+                  className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-md cursor-pointer hover:bg-white/20 font-semibold text-white text-[15px] flex items-center gap-2 transition-all active:scale-95 active:shadow-inner"
                   onClick={() => coverInputRef.current?.click()}
                 >
                   <i className="fas fa-camera"></i> Edit cover photo
@@ -685,7 +751,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 {/* ✅ ADDED: Add cover photo button when no cover exists */}
                 {!safeCoverImage && (
                   <div
-                    className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/50"
+                    className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/50 active:scale-95 transition-transform"
                     onClick={() => coverInputRef.current?.click()}
                   >
                     <div className="text-center">
@@ -717,7 +783,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 {isCurrentUser && (
                   <>
                     <div
-                      className="absolute inset-0 bg-black/40 hidden group-hover:flex items-center justify-center"
+                      className="absolute inset-0 bg-black/40 hidden group-hover:flex items-center justify-center transition-all active:scale-95"
                       onClick={() => profileInputRef.current?.click()}
                     >
                       <i className="fas fa-camera text-white text-3xl"></i>
@@ -726,7 +792,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     {/* ✅ ADDED: Add profile photo button when no photo exists */}
                     {!safeProfileImage && (
                       <div
-                        className="absolute inset-0 flex items-center justify-center bg-black/60 cursor-pointer"
+                        className="absolute inset-0 flex items-center justify-center bg-black/60 cursor-pointer active:scale-95 transition-transform"
                         onClick={() => profileInputRef.current?.click()}
                       >
                         <div className="text-center">
@@ -756,8 +822,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   <>
                     {/* ✅ UPDATED: "Add to story" button now calls onCreateStoryClick */}
                     <button
-                      className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5]"
+                      className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner"
                       onClick={() => {
+                        // Play click sound
+                        playClickSound();
+                        
                         if (onCreateStoryClick) {
                           onCreateStoryClick(); // ✅ Opens story creation, not post area
                         } else {
@@ -770,8 +839,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       <span>Add to story</span>
                     </button>
                     <button
-                      className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#4E4F50]"
-                      onClick={() => setShowEditProfile(true)}
+                      className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
+                      onClick={() => {
+                        playClickSound();
+                        setShowEditProfile(true);
+                      }}
                     >
                       <i className="fas fa-pen"></i>
                       <span>Edit profile</span>
@@ -779,20 +851,39 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   </>
                 ) : (
                   <>
-                    {/* ✅ FIXED: Follow button now shows correct state based on mutual followers */}
+                    {/* ✅ ENHANCED: Follow button with animation and sound */}
                     <button
-                      onClick={() => onFollow(user.id)}
+                      onClick={handleFollowClick}
                       className={`${
                         isFollowing ? 'bg-[#3A3B3C] text-[#E4E6EB]' : 'bg-[#1877F2] text-white'
-                      } px-6 py-2 rounded-md font-semibold transition-colors`}
+                      } px-6 py-2 rounded-md font-semibold transition-all duration-200 ${
+                        isFollowButtonClicked ? 'scale-95 shadow-inner' : 'hover:scale-105'
+                      } ${isFollowing ? 'hover:bg-[#4E4F50]' : 'hover:bg-[#166FE5]'}`}
+                      disabled={isFollowButtonClicked}
                     >
-                      {isFollowing ? 'Following' : 'Follow'}
+                      {isFollowing ? (
+                        <span className="flex items-center gap-2">
+                          <i className="fas fa-check"></i>
+                          Following
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <i className="fas fa-user-plus"></i>
+                          Follow
+                        </span>
+                      )}
                     </button>
                     <button
-                      onClick={() => onMessage(user.id)}
-                      className="bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50]"
+                      onClick={() => {
+                        playClickSound();
+                        onMessage(user.id);
+                      }}
+                      className="bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
                     >
-                      Message
+                      <span className="flex items-center gap-2">
+                        <i className="fas fa-comment"></i>
+                        Message
+                      </span>
                     </button>
                   </>
                 )}
@@ -805,8 +896,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               {(['Posts', 'About', 'Followers', 'Photos'] as const).map((tab) => (
                 <div
                   key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-3 cursor-pointer whitespace-nowrap text-[15px] font-semibold border-b-[3px] transition-colors ${
+                  onClick={() => {
+                    playClickSound();
+                    setActiveTab(tab);
+                  }}
+                  className={`px-4 py-3 cursor-pointer whitespace-nowrap text-[15px] font-semibold border-b-[3px] transition-colors active:scale-95 ${
                     activeTab === tab
                       ? 'text-[#1877F2] border-[#1877F2]'
                       : 'text-[#B0B3B8] border-transparent hover:bg-[#3A3B3C] rounded-t-md'
