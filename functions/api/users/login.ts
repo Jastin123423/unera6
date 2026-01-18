@@ -29,6 +29,19 @@ export async function onRequestPost(context: any) {
     );
   }
 
+  // Check if account is suspended
+  const until = user?.suspended_until ? Date.parse(user.suspended_until) : 0;
+  if (until && Number.isFinite(until) && until > Date.now()) {
+    return Response.json(
+      {
+        error: "Account suspended",
+        suspended_until: user.suspended_until,
+        suspended_reason: user.suspended_reason || null,
+      },
+      { status: 403 }
+    );
+  }
+
   const enc = new TextEncoder();
   const buf = await crypto.subtle.digest("SHA-256", enc.encode(password));
   const incomingHash = Array.from(new Uint8Array(buf))
