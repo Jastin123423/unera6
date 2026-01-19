@@ -356,29 +356,32 @@ const normalizeUser = (u: any): User => {
 
 /** ---------- Optimistic reaction helper ---------- */
 const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meId: number) => {
-  if (Number(p.id) !== Number(postId)) return p;
+  if (Number(p?.id) !== Number(postId)) return p;
 
-  const prevMy = (p as any).my_reaction ?? null;
+  const prevMy = p?.my_reaction ?? p?.myReaction ?? null;
   const nextMy = prevMy === type ? null : type;
 
-  // keep reactions[] clean (only one row for me)
-  const prevArr = safeArray<any>((p as any).reactions);
-  const withoutMe = prevArr.filter((r: any) => Number(r.user_id) !== Number(meId));
+  const prevArr = safeArray<any>(p?.reactions);
+  const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== Number(meId));
   const nextArr = nextMy ? [...withoutMe, { user_id: meId, type: nextMy }] : withoutMe;
 
-  // count: prefer reactions_count if exists, otherwise derive from array length
-  const prevCount = safeNumber((p as any).reactions_count, prevArr.length);
+  const prevCount =
+    safeNumber(p?.reactions_count, safeNumber(p?.reactionsCount, safeNumber(p?.likesCount, prevArr.length)));
+
   const nextCount =
     prevMy
-      ? (nextMy ? prevCount : Math.max(0, prevCount - 1)) // had reaction before
-      : (nextMy ? prevCount + 1 : prevCount);            // no reaction before
+      ? (nextMy ? prevCount : Math.max(0, prevCount - 1))
+      : (nextMy ? prevCount + 1 : prevCount);
 
-  return normalizePost({
+  return {
     ...p,
     reactions: nextArr,
-    my_reaction: nextMy,          // ✅ THE IMPORTANT PART
-    reactions_count: nextCount,   // ✅ keeps number consistent
-  });
+    my_reaction: nextMy,
+    myReaction: nextMy,
+    reactions_count: nextCount,
+    reactionsCount: nextCount,
+    likesCount: nextCount,
+  };
 };
 
 /** ---------- API helper ---------- */
@@ -1342,19 +1345,30 @@ export default function App() {
           body: JSON.stringify({ type, user_id: meId }),
         });
 
-        // ✅ Server truth (important for perfect sync)
         if (data?.success) {
-          setPosts(prev => safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(postId)
-              ? normalizePost({ ...p, my_reaction: data.my_reaction ?? null, reactions_count: safeNumber(data.reactions_count, (p as any).reactions_count) })
-              : p
-          ));
+          const serverMy = data.my_reaction ?? null;
+          const serverCount = safeNumber(data.reactions_count, 0);
 
-          setProfilePosts(prev => safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(postId)
-              ? normalizePost({ ...p, my_reaction: data.my_reaction ?? null, reactions_count: safeNumber(data.reactions_count, (p as any).reactions_count) })
-              : p
-          ));
+          const applyServerTruth = (p: any) => {
+            if (Number(p?.id) !== Number(postId)) return p;
+
+            const prevArr = safeArray<any>(p?.reactions);
+            const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== Number(meId));
+            const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
+
+            return {
+              ...p,
+              reactions: nextArr,
+              my_reaction: serverMy,
+              myReaction: serverMy,
+              reactions_count: serverCount,
+              reactionsCount: serverCount,
+              likesCount: serverCount,
+            };
+          };
+
+          setPosts(prev => safeArray(prev).map(applyServerTruth));
+          setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
         }
       } catch {
         scheduleSilentRefresh();
