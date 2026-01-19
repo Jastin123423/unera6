@@ -1329,7 +1329,17 @@ export default function App() {
       });
 
       try {
-        await apiFetch(`/api/posts/${postId}/react`, { method: 'POST', body: JSON.stringify({ type }) });
+        // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+        // ✅ CRITICAL FIX: Send user_id in the request body for backend to record reaction
+        // ✅ Without this, backend won't know who reacted and my_reaction will always be null
+        // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+        await apiFetch(`/api/posts/${postId}/react`, { 
+          method: 'POST', 
+          body: JSON.stringify({ 
+            type,
+            user_id: currentUser!.id  // ✅ MUST INCLUDE user_id
+          }) 
+        });
       } catch {
         scheduleSilentRefresh();
       }
