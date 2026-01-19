@@ -299,6 +299,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     return () => { cancelled = true; };
   }, [user?.id, currentUser?.id]);
 
+  // ✅ FIXED: Moved userReels declaration BEFORE it's used in calculations
+  const userReels = useMemo(
+    () => safeArray<Reel>(reels).filter((reel: any) => Number(reel?.user_id) === Number(user?.id)),
+    [reels, user?.id]
+  );
+
+  // ✅ Now these calculations can safely use userReels
   const totalViews = useMemo(
     () => profilePosts.reduce((acc, curr: any) => acc + safeNumber(curr?.views, 0), 0),
     [profilePosts]
@@ -331,11 +338,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   }, [profilePosts, userReels]);
 
   const totalEngagement = totalLikes + totalComments + totalShares;
-
-  const userReels = useMemo(
-    () => safeArray<Reel>(reels).filter((reel: any) => Number(reel?.user_id) === Number(user?.id)),
-    [reels, user?.id]
-  );
 
   const safeProfileImage = safeString((user as any)?.profile_image_url, '');
   const safeCoverImage = safeString((user as any)?.cover_image_url, '');
@@ -472,12 +474,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           ? (nextMy ? currentCount : Math.max(0, currentCount - 1)) // had reaction already
           : (nextMy ? currentCount + 1 : currentCount);            // no reaction before
 
+        // ✅ FIXED: Safe reaction array update without duplicates
+        const prevArr = safeArray<any>((p as any).reactions);
+        const withoutMe = prevArr.filter((r: any) => Number(r.user_id) !== Number(currentUser.id));
+        const nextArr = nextMy ? [...withoutMe, { user_id: currentUser.id, type: nextMy }] : withoutMe;
+
         return { 
           ...p, 
           my_reaction: nextMy, 
           reactions_count: nextCount,
-          reactions: nextMy ? [...safeArray(p.reactions), { user_id: currentUser.id, type: nextMy }] 
-                  : safeArray(p.reactions).filter((r: any) => Number(r.user_id) !== currentUser.id)
+          reactions: nextArr
         };
       })
     );
