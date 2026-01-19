@@ -26,22 +26,43 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
     `SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`
   ).bind(post_id, user_id).first();
 
+  let action: "removed" | "updated" | "added" = "added";
+
   // same reaction → unlike
   if (existing && String((existing as any).type) === type) {
     await env.DB.prepare(
       `DELETE FROM post_reactions WHERE post_id = ? AND user_id = ?`
     ).bind(post_id, user_id).run();
 
-    return Response.json({ success: true, action: "removed" }, { status: 200, headers: cors });
+    action = "removed";
+  } else {
+    // insert or update
+    await env.DB.prepare(
+      `INSERT INTO post_reactions (post_id, user_id, type)
+       VALUES (?, ?, ?)
+       ON CONFLICT(post_id, user_id) DO UPDATE SET
+         type = excluded.type`
+    ).bind(post_id, user_id, type).run();
+
+    action = existing ? "updated" : "added";
   }
 
-  // insert or update
-  await env.DB.prepare(
-    `INSERT INTO post_reactions (post_id, user_id, type)
-     VALUES (?, ?, ?)
-     ON CONFLICT(post_id, user_id) DO UPDATE SET
-       type = excluded.type`
-  ).bind(post_id, user_id, type).run();
+  // return server truth for UI
+  const countRow = await env.DB
+    .prepare(`SELECT COUNT(*) as c FROM post_reactions WHERE post_id = ?`)
+    .bind(post_id)
+    .first();
 
-  return Response.json({ success: true, action: existing ? "updated" : "added" }, { status: 200, headers: cors });
+  const myRow = await env.DB
+    .prepare(`SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`)
+    .bind(post_id, user_id)
+    .first();
+
+  const reactions_count = Number((countRow as any)?.c ?? 0);
+  const my_reaction = (myRow as any)?.type ?? null;
+
+  return Response.json(
+    { success: true, action, post_id, user_id, reactions_count, my_reaction },
+    { status: 200, headers: cors }
+  );
 };
