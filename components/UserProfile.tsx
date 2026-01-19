@@ -246,6 +246,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [loginError, setLoginError] = useState('');
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false);
 
+  // ✅ FIXED: Move isCurrentUser and isSelf to the top
+  const isCurrentUser = Boolean(currentUser && Number(user?.id) === Number(currentUser?.id));
+  const isSelf = isCurrentUser; // keep one source of truth
+
   // ✅ FIXED: Simple and correct follow logic
   const isFollowing = useMemo(() => {
     if (!currentUser) return false;
@@ -261,9 +265,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const isAdmin = currentUser ? String((currentUser as any)?.role || "").toLowerCase() === "admin" : false;
   const isModerator = currentUser ? String((currentUser as any)?.role || "").toLowerCase() === "moderator" : false;
   const isAdminOrModerator = isAdmin || isModerator;
-
-  // ✅ ADDED: Check if viewing self profile (important for admin controls)
-  const isSelf = Boolean(currentUser && Number(currentUser.id) === Number(user.id));
 
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -490,8 +491,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         return (
           <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
             <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
-              {/* ✅ FIXED: Admin Controls Section - Removed !isCurrentUser gate */}
-              {isAdminOrModerator && (
+              {/* ✅ FIXED: Admin Controls Section - OUTSIDE renderContent, shows on all tabs */}
+              {isAdminOrModerator && !isSelf && (
                 <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-red-900/50">
                   <h2 className="text-xl font-bold text-red-500 mb-4">
                     {isAdmin ? 'Admin Controls' : 'Moderator Controls'}
@@ -507,112 +508,70 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       </button>
                     )}
                     
-                    {/* ✅ Suspend buttons grid (Admin and Moderator) - Disabled for self */}
+                    {/* ✅ Suspend buttons grid (Admin and Moderator) */}
                     <div className="grid grid-cols-2 gap-2">
                       <button
-                        disabled={isSelf}
-                        onClick={() => !isSelf && onRestrictUser?.(user.id, "24h")}
-                        className={`w-full py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
-                          isSelf
-                            ? "bg-yellow-900/30 text-yellow-200/40 cursor-not-allowed"
-                            : "bg-yellow-900/80 text-yellow-200 hover:bg-yellow-800"
-                        }`}
+                        onClick={() => onRestrictUser?.(user.id, "24h")}
+                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
                       >
-                        Suspend 24h {isSelf && "(Self)"}
+                        Suspend 24h
                       </button>
                       <button
-                        disabled={isSelf}
-                        onClick={() => !isSelf && onRestrictUser?.(user.id, "5d")}
-                        className={`w-full py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
-                          isSelf
-                            ? "bg-yellow-900/30 text-yellow-200/40 cursor-not-allowed"
-                            : "bg-yellow-900/80 text-yellow-200 hover:bg-yellow-800"
-                        }`}
+                        onClick={() => onRestrictUser?.(user.id, "5d")}
+                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
                       >
-                        Suspend 5d {isSelf && "(Self)"}
+                        Suspend 5d
                       </button>
                       <button
-                        disabled={isSelf}
-                        onClick={() => !isSelf && onRestrictUser?.(user.id, "30d")}
-                        className={`w-full py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
-                          isSelf
-                            ? "bg-yellow-900/30 text-yellow-200/40 cursor-not-allowed"
-                            : "bg-yellow-900/80 text-yellow-200 hover:bg-yellow-800"
-                        }`}
+                        onClick={() => onRestrictUser?.(user.id, "30d")}
+                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
                       >
-                        Suspend 30d {isSelf && "(Self)"}
+                        Suspend 30d
                       </button>
                       <button
-                        disabled={isSelf}
-                        onClick={() => !isSelf && onRestrictUser?.(user.id, "manual")}
-                        className={`w-full py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
-                          isSelf
-                            ? "bg-yellow-900/30 text-yellow-200/40 cursor-not-allowed"
-                            : "bg-yellow-900/80 text-yellow-200 hover:bg-yellow-800"
-                        }`}
+                        onClick={() => onRestrictUser?.(user.id, "manual")}
+                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
                       >
-                        Suspend Manual {isSelf && "(Self)"}
+                        Suspend Manual
                       </button>
                     </div>
 
-                    {/* ✅ Moderator role buttons (Admin only) - Disabled for self */}
+                    {/* ✅ Moderator role buttons (Admin only) */}
                     {isAdmin && (
                       <div className="grid grid-cols-2 gap-2 mt-2">
                         <button
-                          disabled={isSelf}
-                          onClick={() => !isSelf && onMakeModerator?.(user.id, true)}
-                          className={`w-full py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
-                            isSelf
-                              ? "bg-[#3A3B3C]/30 text-[#E4E6EB]/40 cursor-not-allowed"
-                              : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
-                          }`}
+                          onClick={() => onMakeModerator?.(user.id, true)}
+                          className="w-full bg-[#3A3B3C] text-[#E4E6EB] py-2 rounded font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
                         >
-                          Make Moderator {isSelf && "(Self)"}
+                          Make Moderator
                         </button>
                         <button
-                          disabled={isSelf}
-                          onClick={() => !isSelf && onMakeModerator?.(user.id, false)}
-                          className={`w-full py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
-                            isSelf
-                              ? "bg-[#3A3B3C]/30 text-[#E4E6EB]/40 cursor-not-allowed"
-                              : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
-                          }`}
+                          onClick={() => onMakeModerator?.(user.id, false)}
+                          className="w-full bg-[#3A3B3C] text-[#E4E6EB] py-2 rounded font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
                         >
-                          Remove Moderator {isSelf && "(Self)"}
+                          Remove Moderator
                         </button>
                       </div>
                     )}
 
-                    {/* ✅ Delete button (Admin only) - Disabled for self */}
+                    {/* ✅ Delete button (Admin only) */}
                     {isAdmin && (
                       <button
-                        disabled={isSelf}
-                        onClick={() => !isSelf && onDeleteUser?.(user.id)}
-                        className={`w-full py-2 rounded font-semibold mt-2 transition-colors active:scale-95 active:shadow-inner ${
-                          isSelf
-                            ? "bg-red-900/30 text-white/40 cursor-not-allowed"
-                            : "bg-red-900/80 text-white hover:bg-red-800"
-                        }`}
+                        onClick={() => onDeleteUser?.(user.id)}
+                        className="w-full bg-red-900/80 text-white py-2 rounded font-semibold hover:bg-red-800 mt-2 transition-colors active:scale-95 active:shadow-inner"
                       >
-                        Delete Account {isSelf && "(Cannot delete self)"}
+                        Delete Account
                       </button>
                     )}
                     
                     {/* ✅ Role info display */}
                     <div className="mt-2 pt-2 border-t border-[#3E4042]">
-                      <p className="text-[#B0B3B8] text-sm">
-                        Current Role: <span className="font-semibold text-[#E4E6EB] capitalize">{user.role || 'user'}</span>
+                      <p className="text-[#B0B3B8] text-xs">
+                        Viewing as: <span className="font-semibold text-[#E4E6EB]">{isAdmin ? "Admin" : "Moderator"}</span>
                       </p>
-                      {user.role === 'moderator' && (
-                        <p className="text-[#B0B3B8] text-xs mt-1">
-                          Has moderator privileges
-                        </p>
-                      )}
-                      {isSelf && (
-                        <p className="text-yellow-500 text-xs mt-1">
-                          ⚠️ Some actions disabled on your own profile
-                        </p>
-                      )}
+                      <p className="text-[#B0B3B8] text-xs mt-1">
+                        Profile Role: <span className="font-semibold text-[#E4E6EB] capitalize">{user.role || 'user'}</span>
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -735,8 +694,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   };
 
-  const isCurrentUser = Boolean(currentUser && user?.id === currentUser.id);
-
   return (
     <div className="w-full bg-[#18191A] min-h-screen">
       <input
@@ -850,7 +807,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   {(user as any).is_verified && (
                     <i className="fas fa-check-circle text-[#1877F2] text-[20px]"></i>
                   )}
-                  {/* ✅ FIXED: Show role badge based on the profile user's role, not current user */}
+                  {/* ✅ FIXED: Show role badge based on the profile user's role */}
                   {(user.role === 'admin' || user.role === 'moderator') && (
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
                       user.role === 'admin' 
