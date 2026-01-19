@@ -1,4 +1,7 @@
-
+Her App.tsx
+// App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
+// (Unique Profile Colors & Proper Sizing)
+// ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -323,7 +326,7 @@ const normalizeUser = (u: any): User => {
     !profileImageUrl ||
     profileImageUrl.trim() === '' ||
     profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
-    profilncludes('ui-avatars.com/api/?name=UNERA') ||
+    profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
     profileImageUrl.includes('ui-avatars.com/api/?background=1877F2&color=fff') ||
     (profileImageUrl.includes('ui-avatars.com/api/?name=') && !profileImageUrl.includes('font-size=0.5'));
 
