@@ -1014,7 +1014,36 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
-  const reactions = Array.isArray(p.reactions) ? p.reactions : [];
+  // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+  // ✅ UPDATED: REACTION LOGIC TO SUPPORT BOTH LEGACY ARRAY AND NEW BACKEND FIELDS
+  // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+  
+  // Legacy array fallback
+  const reactionsArr = Array.isArray(p.reactions) ? p.reactions : [];
+  
+  // ✅ Determine my reaction: prefer backend computed field, fallback to array
+  const myReaction: ReactionType | undefined = (() => {
+    // preferred: backend already computed for viewer (p.my_reaction)
+    const fromField = String(p.my_reaction ?? '').trim();
+    if (fromField) return fromField as ReactionType;
+
+    // fallback: derive from reactions array if present
+    if (!currentUser) return undefined;
+    const hit = reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser));
+    return (hit?.type as ReactionType) || undefined;
+  })();
+
+  // ✅ Determine reaction count: prefer backend count, fallback to array length
+  const reactionCount = (() => {
+    // preferred: backend count (check multiple possible field names)
+    const c = safeNumber(p.reactions_count ?? p.reaction_count ?? p.reactionsCount, NaN);
+    if (Number.isFinite(c)) return c;
+
+    // fallback: array length
+    return reactionsArr.length;
+  })();
+  
+  // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
   
   // ✅ INSTANT COMMENT COUNT UPDATES
   const [commentCount, setCommentCount] = useState(() => {
@@ -1029,11 +1058,6 @@ export const Post: React.FC<{
   });
 
   const [showShareSheet, setShowShareSheet] = useState(false);
-
-  const myReaction = currentUser
-    ? reactions.find((r: any) => Number(r.user_id) === safeUserId(currentUser))
-        ?.type
-    : undefined;
 
   const createdAtLabel = formatRelativeTime(p.created_at);
   const postId = safePostId(p);
@@ -1253,8 +1277,9 @@ export const Post: React.FC<{
 
         <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
           <div className="flex items-center gap-1.5">
-            {reactions.length > 0 && (
-              <span className="hover:underline">{formatCount(reactions.length)} Reactions</span>
+            {/* ✅ UPDATED: Use reactionCount instead of reactions.length */}
+            {reactionCount > 0 && (
+              <span className="hover:underline">{formatCount(reactionCount)} Reactions</span>
             )}
           </div>
           <div className="flex gap-4">
@@ -1274,9 +1299,10 @@ export const Post: React.FC<{
         </div>
 
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
+          {/* ✅ UPDATED: Pass reactionCount instead of reactions.length */}
           <ReactionButton
             currentUserReactions={myReaction}
-            reactionCount={reactions.length}
+            reactionCount={reactionCount}
             onReact={(type) => onReact(postId, type)}
             isGuest={!currentUser}
           />
