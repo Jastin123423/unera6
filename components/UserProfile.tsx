@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack } from '../types';
 import { CreatePost, Post, CreatePostModal } from './Feed';
 
@@ -274,42 +274,68 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ MODIFIED: Use the provided fetchProfilePosts function or fallback to default
-  const userPosts = useMemo(() => {
-    const arr = safeArray<PostType>(posts);
-    const sorted = arr.slice().sort((a: any, b: any) => String(b?.created_at).localeCompare(String(a?.created_at)));
-    return sorted;
+  // ✅ ADDED: Helper for safe post ID extraction
+  const safePostId = (p: any) => {
+    const n = Number(p?.id ?? p?.post_id ?? p?.postId ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // ✅ ADDED: Local state for profile posts with proper reaction handling
+  const [profilePosts, setProfilePosts] = useState<PostType[]>(() => safeArray(posts));
+
+  // ✅ ADDED: Keep in sync when parent provides new posts
+  useEffect(() => {
+    setProfilePosts(safeArray(posts));
   }, [posts]);
+
+  // ✅ ADDED: Fetch latest profile posts on profile change
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.id) return;
+      const list = await fetchProfilePostsWithViewer(Number(user.id));
+      if (!cancelled && list.length) setProfilePosts(list);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, currentUser?.id]);
+
+  const totalViews = useMemo(
+    () => profilePosts.reduce((acc, curr: any) => acc + safeNumber(curr?.views, 0), 0),
+    [profilePosts]
+  );
+
+  const totalLikes = useMemo(() => {
+    const postLikes = profilePosts.reduce((acc, curr: any) => {
+      const reactionsCount = safeNumber((curr as any)?.reactions_count, 0);
+      const reactionsArray = safeArray(curr?.reactions);
+      return acc + (reactionsCount > 0 ? reactionsCount : reactionsArray.length);
+    }, 0);
+    const reelLikes = userReels.reduce((acc, curr: any) => acc + safeArray(curr?.reactions).length, 0);
+    return postLikes + reelLikes;
+  }, [profilePosts, userReels]);
+
+  const totalShares = useMemo(() => {
+    const postShares = profilePosts.reduce((acc, curr: any) => acc + safeNumber(curr?.shares, 0), 0);
+    const reelShares = userReels.reduce((acc, curr: any) => acc + safeNumber((curr as any)?.shares, 0), 0);
+    return postShares + reelShares;
+  }, [profilePosts, userReels]);
+
+  const totalComments = useMemo(() => {
+    const postComments = profilePosts.reduce((acc, curr: any) => {
+      const commentsCount = safeNumber((curr as any)?.comments_count, 0);
+      const commentsArray = safeArray(curr?.comments);
+      return acc + (commentsCount > 0 ? commentsCount : commentsArray.length);
+    }, 0);
+    const reelComments = userReels.reduce((acc, curr: any) => acc + safeArray((curr as any)?.comments).length, 0);
+    return postComments + reelComments;
+  }, [profilePosts, userReels]);
+
+  const totalEngagement = totalLikes + totalComments + totalShares;
 
   const userReels = useMemo(
     () => safeArray<Reel>(reels).filter((reel: any) => Number(reel?.user_id) === Number(user?.id)),
     [reels, user?.id]
   );
-
-  const totalViews = useMemo(
-    () => userPosts.reduce((acc, curr: any) => acc + safeNumber(curr?.views, 0), 0),
-    [userPosts]
-  );
-
-  const totalLikes = useMemo(() => {
-    const postLikes = userPosts.reduce((acc, curr: any) => acc + safeArray(curr?.reactions).length, 0);
-    const reelLikes = userReels.reduce((acc, curr: any) => acc + safeArray(curr?.reactions).length, 0);
-    return postLikes + reelLikes;
-  }, [userPosts, userReels]);
-
-  const totalShares = useMemo(() => {
-    const postShares = userPosts.reduce((acc, curr: any) => acc + safeNumber(curr?.shares, 0), 0);
-    const reelShares = userReels.reduce((acc, curr: any) => acc + safeNumber((curr as any)?.shares, 0), 0);
-    return postShares + reelShares;
-  }, [userPosts, userReels]);
-
-  const totalComments = useMemo(() => {
-    const postComments = userPosts.reduce((acc, curr: any) => acc + safeArray(curr?.comments).length, 0);
-    const reelComments = userReels.reduce((acc, curr: any) => acc + safeArray((curr as any)?.comments).length, 0);
-    return postComments + reelComments;
-  }, [userPosts, userReels]);
-
-  const totalEngagement = totalLikes + totalComments + totalShares;
 
   const safeProfileImage = safeString((user as any)?.profile_image_url, '');
   const safeCoverImage = safeString((user as any)?.cover_image_url, '');
@@ -413,6 +439,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         comments: safeArray(post?.comments),
         shares: safeNumber(post?.shares),
         views: safeNumber(post?.views),
+        my_reaction: post?.my_reaction ?? null,
+        reactions_count: safeNumber(post?.reactions_count, 0),
+        comments_count: safeNumber(post?.comments_count, 0),
         created_at: post?.created_at ?? new Date().toISOString(),
       }));
 
@@ -424,6 +453,64 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       console.error('Failed to fetch profile posts with viewer context:', error);
       return [];
     }
+  };
+
+  // ✅ ADDED: Profile-specific react handler with optimistic updates
+  const handleProfileReact = async (postId: number, type: ReactionType) => {
+    if (!currentUser) return;
+
+    // ✅ Optimistic update: set immediately
+    setProfilePosts(prev =>
+      prev.map((p: any) => {
+        if (safePostId(p) !== postId) return p;
+
+        const current = (p as any).my_reaction ?? null;
+        const nextMy = current === type ? null : type;
+
+        const currentCount = Number((p as any).reactions_count ?? (p as any).reaction_count ?? 0) || 0;
+        const nextCount = current
+          ? (nextMy ? currentCount : Math.max(0, currentCount - 1)) // had reaction already
+          : (nextMy ? currentCount + 1 : currentCount);            // no reaction before
+
+        return { 
+          ...p, 
+          my_reaction: nextMy, 
+          reactions_count: nextCount,
+          reactions: nextMy ? [...safeArray(p.reactions), { user_id: currentUser.id, type: nextMy }] 
+                  : safeArray(p.reactions).filter((r: any) => Number(r.user_id) !== currentUser.id)
+        };
+      })
+    );
+
+    // ✅ Sync with backend (authoritative)
+    try {
+      const res = await apiFetch(`/api/posts/${postId}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id, type }),
+      });
+
+      if (res?.success) {
+        setProfilePosts(prev =>
+          prev.map((p: any) =>
+            safePostId(p) === postId
+              ? {
+                  ...p,
+                  my_reaction: res.my_reaction ?? null,
+                  reactions_count: Number(res.reactions_count ?? 0),
+                  reactions: res.reactions ? safeArray(res.reactions) : p.reactions
+                }
+              : p
+          )
+        );
+      }
+    } catch (e) {
+      // Revert by refetching just to be safe
+      const list = await fetchProfilePostsWithViewer(Number(user.id));
+      if (list.length) setProfilePosts(list);
+    }
+
+    // ✅ Still call global handler to keep homepage feed in sync too
+    onReact(postId, type);
   };
 
   const renderContent = () => {
@@ -535,7 +622,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
             <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Photos</h2>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1">
-              {userPosts
+              {profilePosts
                 .filter((p: any) => {
                   const mediaInfo = getMediaTypeInfo(p);
                   return mediaInfo.isImage && mediaInfo.mediaUrl && mediaInfo.mediaUrl.trim() !== '';
@@ -561,7 +648,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   );
                 })}
             </div>
-            {userPosts.filter((p: any) => {
+            {profilePosts.filter((p: any) => {
               const mediaInfo = getMediaTypeInfo(p);
               return mediaInfo.isImage && mediaInfo.mediaUrl && mediaInfo.mediaUrl.trim() !== '';
             }).length === 0 && (
@@ -673,14 +760,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 </>
               )}
 
-              {userPosts.map((post: any) => (
+              {/* ✅ MODIFIED: Use profilePosts with proper reaction handler */}
+              {profilePosts.map((post: any) => (
                 <Post
                   key={post.id}
                   post={post}
                   author={user}
                   currentUser={currentUser}
                   onProfileClick={onProfileClick}
-                  onReact={onReact}
+                  onReact={handleProfileReact} // ✅ Important: Use local handler
                   onShare={onShare}
                   onDelete={onDeletePost}
                   onEdit={onEditPost}
