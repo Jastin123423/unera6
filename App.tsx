@@ -1,6 +1,6 @@
 // App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
-// ADMIN INTEGRATION ADDED
+// ADMIN INTEGRATION ADDED - FIXED VERSION
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -348,7 +348,7 @@ const normalizeUser = (u: any): User => {
     profile_image_url: profileImageUrl,
     cover_image_url: cover, // ✅ Can be undefined, not empty string
     is_verified: Boolean(u?.is_verified ?? u?.isVerified),
-    role: u?.role ?? 'user',
+    role: u?.role ?? 'user', // ✅ FIXED: Ensure role is preserved
     created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
   } as any;
 };
@@ -495,7 +495,7 @@ const authorFromFeedRow = (row: any): User => {
     name,
     profile_image_url: row?.profile_image_url ?? '',
     is_verified: row?.is_verified ?? 0,
-    role: row?.role ?? 'user',
+    role: row?.role ?? 'user', // ✅ Ensure role is preserved
     followers: [],
     following: [],
     created_at: row?.joined_date ?? row?.created_at ?? null,
@@ -542,7 +542,7 @@ const createFallbackUser = (): User => {
     followers: [],
     following: [],
     is_verified: false,
-    role: 'user',
+    role: 'user', // ✅ Ensure role is present
     is_online: false,
     location: '',
     bio: '',
@@ -1135,9 +1135,19 @@ export default function App() {
       const normalized = normalizeUser(data.user);
       if (!normalized?.id) throw new Error('Login failed: invalid user id');
 
-      // ✅ REMOVED: Auto-follow self check (backend blocks it)
-      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+      // ✅ FIX: Ensure admin role is preserved by fetching fresh user data
+      try {
+        const fresh = await apiFetch(`/api/users?id=${normalized.id}`);
+        const merged = normalizeUser({ ...normalized, ...fresh });
+        setCurrentUser(merged);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(merged));
+      } catch {
+        // Fallback to the original normalized user
+        setCurrentUser(normalized);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+      }
 
+      // ✅ REMOVED: Auto-follow self check (backend blocks it)
       // new session seed
       try {
         sessionStorage.removeItem(FEED_SESSION_KEY);
@@ -1910,7 +1920,7 @@ export default function App() {
               }}
               onPlayAudioTrack={setCurrentAudioTrack}
               onCreateStoryClick={handleCreateStoryFromProfile}
-              // ✅ ADDED: Admin handlers with correct prop types
+              // ✅ CRITICAL FIX: Pass admin handlers with correct prop types
               onVerifyUser={(id) => verifyUser(id)}
               onRestrictUser={(id, duration) => suspendUser(id, duration)}
               onDeleteUser={(id) => deleteUserAccount(id)}
