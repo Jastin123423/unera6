@@ -31,14 +31,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     if (!user_id) return json({ success: false, error: "user_id is required" }, 400);
     if (!type) return json({ success: false, error: "type is required" }, 400);
 
-    // Existing reaction?
+    // 1) Existing reaction?
     const existing = await env.DB.prepare(
       `SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`
     ).bind(post_id, user_id).first();
 
     let action: "added" | "updated" | "removed" = "added";
 
-    // Same reaction => toggle off (remove)
+    // 2) Toggle logic
     if (existing && String((existing as any).type) === type) {
       await env.DB.prepare(
         `DELETE FROM post_reactions WHERE post_id = ? AND user_id = ?`
@@ -57,20 +57,24 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       action = existing ? "updated" : "added";
     }
 
-    // ✅ Return authoritative values for UI sync (homepage + profile)
-    const row = await env.DB.prepare(
-      `SELECT
-         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = ?) AS reactions_count,
-         (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = ? AND pr.user_id = ? LIMIT 1) AS my_reaction`
-    ).bind(post_id, post_id, user_id).first();
+    // 3) Authoritative values (use separate queries = safest in D1)
+    const countRow = await env.DB
+      .prepare(`SELECT COUNT(*) AS c FROM post_reactions WHERE post_id = ?`)
+      .bind(post_id)
+      .first();
+
+    const myRow = await env.DB
+      .prepare(`SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`)
+      .bind(post_id, user_id)
+      .first();
 
     return json({
       success: true,
       action,
       post_id,
       user_id,
-      reactions_count: Number((row as any)?.reactions_count ?? 0),
-      my_reaction: (row as any)?.my_reaction ?? null,
+      reactions_count: Number((countRow as any)?.c ?? 0),
+      my_reaction: (myRow as any)?.type ?? null,
     });
   } catch (e: any) {
     return json({ success: false, error: e?.message || String(e) }, 500);
