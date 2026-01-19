@@ -207,6 +207,9 @@ interface UserProfileProps {
   onDeleteUser?: (id: number) => void;
   onMakeModerator?: (id: number, make: boolean) => void;
   onCreateStoryClick?: () => void;
+  
+  // ✅ ADDED: New prop for fetching profile posts with viewer context
+  fetchProfilePosts?: (profileUserId: number, viewerId: number | null) => Promise<PostType[]>;
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -239,6 +242,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   onDeleteUser,
   onMakeModerator,
   onCreateStoryClick,
+  fetchProfilePosts, // ✅ NEW: Optional custom fetch function
 }) => {
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
@@ -270,6 +274,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
+  // ✅ MODIFIED: Use the provided fetchProfilePosts function or fallback to default
   const userPosts = useMemo(() => {
     const arr = safeArray<PostType>(posts);
     const sorted = arr.slice().sort((a: any, b: any) => String(b?.created_at).localeCompare(String(a?.created_at)));
@@ -338,6 +343,87 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     setTimeout(() => {
       setIsFollowButtonClicked(false);
     }, 300);
+  };
+
+  // ✅ ADDED: Custom API fetch helper for profile posts with viewerId
+  const apiFetch = async (url: string, options: RequestInit = {}) => {
+    const headers: HeadersInit = {
+      Accept: 'application/json',
+      ...(options.headers || {}),
+    };
+
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+    if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    try {
+      const res = await fetch(url, { ...options, headers, signal: controller.signal });
+
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = null;
+
+      try {
+        if (contentType.includes('application/json')) data = await res.json();
+        else {
+          const text = await res.text();
+          try {
+            data = JSON.parse(text);
+          } catch {
+            data = { error: text };
+          }
+        }
+      } catch (e: any) {
+        data = { error: e?.message || 'Failed to parse response' };
+      }
+
+      if (!res.ok) {
+        const msg = data?.error || data?.message || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      return data;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  // ✅ MODIFIED: Fetch profile posts with viewerId context
+  const fetchProfilePostsWithViewer = async (profileUserId: number): Promise<PostType[]> => {
+    try {
+      const viewerId = currentUser?.id ?? 0;
+      
+      // Use the provided custom fetch function if available
+      if (fetchProfilePosts) {
+        return await fetchProfilePosts(profileUserId, viewerId);
+      }
+      
+      // Fallback to default implementation with viewerId parameter
+      const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=30`);
+      const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
+      const normalized = list.map((post: any) => ({
+        ...post,
+        id: safeNumber(post?.id ?? post?.post_id),
+        user_id: safeNumber(post?.user_id),
+        content: safeString(post?.content),
+        media_url: post?.media_url ?? null,
+        media_type: post?.media_type ?? null,
+        reactions: safeArray(post?.reactions),
+        comments: safeArray(post?.comments),
+        shares: safeNumber(post?.shares),
+        views: safeNumber(post?.views),
+        created_at: post?.created_at ?? new Date().toISOString(),
+      }));
+
+      // Always latest-first
+      normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+
+      return normalized;
+    } catch (error) {
+      console.error('Failed to fetch profile posts with viewer context:', error);
+      return [];
+    }
   };
 
   const renderContent = () => {
