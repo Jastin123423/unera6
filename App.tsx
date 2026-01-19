@@ -2,7 +2,7 @@
 // (Unique Profile Colors & Proper Sizing)
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
 // ✅ FIXED: Immediate reaction updates with my_reaction field
-// ✅ UPDATED: Complete reaction state management with all professional modifications
+// ✅ UPDATED: Added viewerId to profile posts fetch and preserved reaction data
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -276,7 +276,8 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 };
 
 /**
- * ✅ 1) NORMALIZE REACTION FIELDS EVERYWHERE (VERY IMPORTANT)
+ * Normalize raw D1 rows to UI-safe PostType shape.
+ * ✅ UPDATED: Preserve my_reaction and reactions_count fields
  */
 const normalizePost = (p: any): PostType => {
   const mediaType = p?.media_type ?? p?.mediaType ?? null;
@@ -307,7 +308,7 @@ const normalizePost = (p: any): PostType => {
       })(),
     created_at: p?.created_at ?? new Date().toISOString(),
     
-    // ✅ CRITICAL: Normalize reaction fields with comprehensive fallbacks
+    // ✅ ADD THESE (very important) - Preserve reaction data
     my_reaction: p?.my_reaction ?? p?.myReaction ?? null,
     myReaction: p?.myReaction ?? p?.my_reaction ?? null,
     reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
@@ -555,14 +556,6 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
         reactions: (existing as any).reactions,
         shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
         comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
-        
-        // ✅ 9) KEEP HOME FEED MERGE FROM LOSING MY_REACTION
-        my_reaction: (p as any).my_reaction ?? (existing as any).my_reaction ?? (existing as any).myReaction ?? null,
-        myReaction: (p as any).myReaction ?? (p as any).my_reaction ?? (existing as any).myReaction ?? (existing as any).my_reaction ?? null,
-        reactions_count: Math.max(
-          safeNumber((existing as any).reactions_count),
-          safeNumber((p as any).reactions_count)
-        ),
       } as any);
     } else {
       map.set(Number(p.id), p);
@@ -809,10 +802,10 @@ export default function App() {
     [activeCommentsPostId, feedHydrated]
   );
 
-  /** ✅ 2) PROFILE POSTS FETCH MUST INCLUDE VIEWERID ---------- */
+  /** ✅ Fetch profile posts with viewerId (latest only) ---------- */
   const fetchProfilePosts = useCallback(async (profileUserId: number) => {
     try {
-      // ✅ ALWAYS send viewerId when fetching profile posts
+      // ✅ ADDED: Always send viewerId when fetching profile posts
       const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
       const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`);
       
@@ -822,7 +815,7 @@ export default function App() {
       // Always latest-first (already ordered by API, but keep safe)
       normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
 
-      // ✅ 3) STOP PROFILE REFETCH FROM WIPING YOUR LOCAL "LIKE TRUTH"
+      // ✅ UPDATED: Don't let a profile refetch overwrite local reaction truth
       setProfilePosts(prev => {
         // Merge with any local truth we already have
         const localTruth = [...safeArray(posts), ...safeArray(prev)];
@@ -847,21 +840,15 @@ export default function App() {
     } catch {
       setProfilePosts([]);
     }
-  }, [currentUser, posts]); // ✅ Added posts dependency
+  }, [currentUser, posts]); // ✅ ADDED: Added posts dependency
 
-  /** ✅ 8) WHEN YOU OPEN PROFILE, FETCH PROFILE POSTS SHOULD RUN AFTER SELECTEDUSERID SET ---------- */
+  /** ✅ Fetch profile posts when user opens profile ---------- */
   useEffect(() => {
     if (view !== 'profile') return;
     if (!selectedUserId) return;
 
     fetchProfilePosts(Number(selectedUserId)).catch(() => {});
   }, [view, selectedUserId, fetchProfilePosts]);
-
-  /** ✅ 7) FIX: PROFILE SHOULD "REFRESH MY_REACTION" WHEN CURRENTUSER CHANGES ---------- */
-  useEffect(() => {
-    if (view !== "profile" || !selectedUserId) return;
-    fetchProfilePosts(Number(selectedUserId)).catch(() => {});
-  }, [currentUser?.id, view, selectedUserId, fetchProfilePosts]);
 
   /** ---------- Fetch follow data for a user ---------- */
   const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
@@ -1330,7 +1317,7 @@ export default function App() {
         return next;
       });
 
-      /** ✅ 10) ENSURE PROFILE POSTS ARE UPDATED WHEN YOU CREATE/DELETE/EDIT/SHARE ---------- */
+      /** ✅ Keep profile posts updated when you create a post ---------- */
       setProfilePosts((prev) => {
         if (!currentUser) return prev;
         const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
@@ -1348,13 +1335,13 @@ export default function App() {
     [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
   );
 
-  /** ✅ COMPREHENSIVE REACTION HANDLING WITH ALL PROFESSIONAL FIXES ---------- */
+  /** ✅ FIXED: onReactPost with immediate my_reaction updates and commentPostSnapshot sync ---------- */
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
       const meId = Number(currentUser!.id);
 
-      // ✅ 4) UPDATE BOTH HOME FEED + PROFILE FEED ON REACTION
+      // ✅ Optimistic update (homepage)
       setPosts(prev => {
         const next = safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId));
         lastGoodPostsRef.current = next;
@@ -1362,10 +1349,10 @@ export default function App() {
         return next;
       });
 
-      // ✅ 4) UPDATE BOTH HOME FEED + PROFILE FEED ON REACTION
+      // ✅ Optimistic update (profile list in App state)
       setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
 
-      // ✅ 5) KEEP COMMENTSSHEET STABLE (SNAPSHOT MUST ALSO UPDATE)
+      // ✅ Update commentPostSnapshot if it's the same post
       setCommentPostSnapshot(prev =>
         prev && Number(prev.id) === Number(postId)
           ? applyOptimisticReaction(prev, postId, type, meId)
@@ -1378,7 +1365,6 @@ export default function App() {
           body: JSON.stringify({ type, user_id: meId }),
         });
 
-        // ✅ 6) ONLY APPLY "SERVER TRUTH" IF SERVER ACTUALLY RETURNS IT
         if (data?.success && ("reactions_count" in data || "my_reaction" in data)) {
           const serverMy = data.my_reaction ?? null;
           const serverCount = safeNumber(data.reactions_count, 0);
@@ -1440,7 +1426,7 @@ export default function App() {
           return next;
         });
 
-        /** ✅ 10) ENSURE PROFILE POSTS ARE UPDATED WHEN YOU CREATE/DELETE/EDIT/SHARE ---------- */
+        /** ✅ Update profile posts when sharing ---------- */
         setProfilePosts((prev) => {
           return safeArray(prev).map((p: any) =>
             Number(p.id) === Number(activeSharePost.id)
@@ -1493,7 +1479,7 @@ export default function App() {
         return next;
       });
 
-      /** ✅ 10) ENSURE PROFILE POSTS ARE UPDATED WHEN YOU CREATE/DELETE/EDIT/SHARE ---------- */
+      /** ✅ Keep profile posts updated when you delete ---------- */
       setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
 
       try {
@@ -1529,7 +1515,7 @@ export default function App() {
         return next;
       });
 
-      /** ✅ 10) ENSURE PROFILE POSTS ARE UPDATED WHEN YOU CREATE/DELETE/EDIT/SHARE ---------- */
+      /** ✅ Keep profile posts updated when you edit ---------- */
       setProfilePosts((prev) =>
         safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
       );
