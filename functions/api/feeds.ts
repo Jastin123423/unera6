@@ -74,9 +74,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const where: string[] = [];
     const binds: any[] = [];
 
-    // ✅ Visibility: do NOT accidentally hide posts
-    // Keep public + null; also allow legacy/unknown visibility values by NOT filtering them out
-    // If you want strict public-only later, keep only (visibility is null or 'public').
+    // visibility
     where.push(`(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`);
 
     if (cursor && typeof cursor === 'string' && cursor.trim().length > 0) {
@@ -91,7 +89,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // ✅ CRITICAL FIX: LEFT JOIN so posts still show even if user row is missing
+    // ✅ baseSelect now includes reactions_count + my_reaction
+    // IMPORTANT: my_reaction uses "?" so we MUST bind userId first in every query.
     const baseSelect = `
       SELECT
         p.id,
@@ -114,6 +113,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         p.created_at,
         p.views,
         p.shares,
+
+        -- ✅ reactions
+        (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
+
+        (SELECT pr.type
+          FROM post_reactions pr
+          WHERE pr.post_id = p.id
+            AND pr.user_id = ?
+          LIMIT 1
+        ) AS my_reaction,
 
         -- Safe user fields
         COALESCE(u.username, 'user') AS username,
@@ -139,7 +148,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    const freshRes = await env.DB.prepare(qFresh).bind(...binds, freshCount).all();
+    // ✅ Bind order:
+    //  - first: userId (for my_reaction "?")
+    //  - then: binds (cursor/seen)
+    //  - last: limit
+    const freshRes = await env.DB.prepare(qFresh).bind(userId, ...binds, freshCount).all();
     const fresh = Array.isArray(freshRes?.results) ? freshRes.results : [];
 
     // 2) Explore pool
@@ -151,7 +164,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         ORDER BY RANDOM()
         LIMIT ?
       `;
-      const exploreRes = await env.DB.prepare(qExplore).bind(...binds, exploreCount).all();
+      const exploreRes = await env.DB.prepare(qExplore).bind(userId, ...binds, exploreCount).all();
       explore = Array.isArray(exploreRes?.results) ? exploreRes.results : [];
     }
 
@@ -196,14 +209,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       hasMore = !!more;
     }
 
-    // ✅ Debug info to quickly diagnose empty feed
+    // Debug info
     if (debug) {
       const totalPosts = await env.DB.prepare(`SELECT COUNT(*) as c FROM posts`).first();
       const joinableUsers = await env.DB
         .prepare(`SELECT COUNT(*) as c FROM posts p JOIN users u ON u.id = p.user_id`)
         .first();
       const publicOrNull = await env.DB
-        .prepare(`SELECT COUNT(*) as c FROM posts p WHERE (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`)
+        .prepare(
+          `SELECT COUNT(*) as c FROM posts p WHERE (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
+        )
         .first();
 
       return json({
