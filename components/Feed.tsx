@@ -87,12 +87,10 @@ const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
 const toDateSafe = (input: any): Date | null => {
   if (!input) return null;
 
-  // If already Date
   if (input instanceof Date && Number.isFinite(input.getTime())) return input;
 
-  // If numeric (seconds or ms)
   if (typeof input === 'number') {
-    const ms = input < 1e12 ? input * 1000 : input; // seconds -> ms
+    const ms = input < 1e12 ? input * 1000 : input;
     const d = new Date(ms);
     return Number.isFinite(d.getTime()) ? d : null;
   }
@@ -100,14 +98,12 @@ const toDateSafe = (input: any): Date | null => {
   if (typeof input === 'string') {
     const s = input.trim();
 
-    // "YYYY-MM-DD HH:MM:SS" -> treat as UTC
     if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
       const iso = s.replace(' ', 'T') + 'Z';
       const d = new Date(iso);
       return Number.isFinite(d.getTime()) ? d : null;
     }
 
-    // "YYYY-MM-DDTHH:MM:SS" (no timezone) -> treat as UTC by appending Z
     if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
       const d = new Date(s + 'Z');
       return Number.isFinite(d.getTime()) ? d : null;
@@ -127,7 +123,6 @@ export const formatRelativeTime = (dateInput: any): string => {
   const now = Date.now();
   let diffMs = now - d.getTime();
 
-  // If server time slightly ahead (clock drift), clamp
   if (diffMs < 0) diffMs = 0;
 
   const sec = Math.floor(diffMs / 1000);
@@ -235,7 +230,7 @@ const QUICK_EMOJIS = ['😀', '😂', '😍', '🔥', '😢', '😡', '👍', '�
 
 /**
  * =========================
- * ✅ FACEBOOK-STYLE REACTION DOCK ANIMATIONS
+ * ✅ ENHANCED FACEBOOK-STYLE REACTION DOCK WITH 10+ EMOJIS
  * =========================
  */
 // Add these styles to your global CSS or create a style tag
@@ -252,11 +247,20 @@ const reactionStyles = `
     75% { transform: rotate(2deg); }
   }
   
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+  }
+  
   .react-pop { animation: popFloat 220ms ease-out; }
   .react-hover { transition: transform 120ms ease; }
   .react-hover:hover { 
     transform: translateY(-10px) scale(1.25); 
     animation: wiggle 300ms ease-in-out; 
+  }
+  
+  .reaction-preview {
+    animation: bounce 0.5s infinite alternate;
   }
 `;
 
@@ -335,7 +339,7 @@ export const RichText = ({
 
 /**
  * =========================
- * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON WITH BACKEND SYNC
+ * ✅ ENHANCED: FACEBOOK-STYLE REACTION BUTTON WITH 10+ EMOJIS & LONG-PRESS
  * =========================
  */
 export const ReactionButton: React.FC<{
@@ -346,7 +350,10 @@ export const ReactionButton: React.FC<{
 }> = ({ currentUserReactions, reactionCount, onReact, isGuest }) => {
   const [showDock, setShowDock] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
   const timerRef = useRef<any>(null);
+  const longPressTimerRef = useRef<any>(null);
   const dockRef = useRef<HTMLDivElement>(null);
 
   // Add styles on mount
@@ -360,6 +367,22 @@ export const ReactionButton: React.FC<{
     };
   }, []);
 
+  // Enhanced reaction config with 10+ emojis
+  const reactionConfig = [
+    { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
+    { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
+    { type: 'haha', icon: '😂', color: '#F7B928', label: 'Haha' },
+    { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
+    { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
+    { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
+    { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
+    { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
+    { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
+    { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
+    { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
+    { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
+  ] as const;
+
   const handleMouseEnter = () => {
     if (isGuest) return;
     timerRef.current = setTimeout(() => setShowDock(true), 500);
@@ -368,10 +391,30 @@ export const ReactionButton: React.FC<{
   const handleMouseLeave = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setTimeout(() => setShowDock(false), 250);
+    setShowPreview(false);
+  };
+
+  // Handle long press on mobile
+  const handleTouchStart = () => {
+    if (isGuest) return;
+    longPressTimerRef.current = setTimeout(() => {
+      setShowDock(true);
+      setShowPreview(true);
+      setPreviewEmoji('👍');
+    }, 600);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    setTimeout(() => setShowPreview(false), 300);
   };
 
   const handleClick = () => {
     if (isGuest) return alert('Please login to react.');
+    if (showDock) return; // Don't trigger if dock is open
+    
     setIsAnimating(true);
     onReact('like');
     setTimeout(() => setIsAnimating(false), 300);
@@ -381,17 +424,15 @@ export const ReactionButton: React.FC<{
     setIsAnimating(true);
     onReact(type);
     setShowDock(false);
+    setShowPreview(false);
     setTimeout(() => setIsAnimating(false), 300);
   };
 
-  const reactionConfig = [
-    { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
-    { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
-    { type: 'haha', icon: '😆', color: '#F7B928', label: 'Haha' },
-    { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
-    { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
-    { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
-  ] as const;
+  const handleEmojiHover = (emoji: string) => {
+    if (showPreview) {
+      setPreviewEmoji(emoji);
+    }
+  };
 
   const activeReaction = currentUserReactions
     ? reactionConfig.find((r) => r.type === currentUserReactions)
@@ -402,30 +443,48 @@ export const ReactionButton: React.FC<{
       className="flex-1 relative group"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
     >
+      {/* Preview emoji on long press */}
+      {showPreview && (
+        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
+          <div className="text-3xl">
+            {previewEmoji}
+          </div>
+        </div>
+      )}
+
+      {/* Enhanced reaction dock with 10+ emojis */}
       {showDock && (
         <div 
           ref={dockRef}
-          className="absolute -top-12 left-0 bg-[#242526] rounded-full shadow-2xl p-2 flex gap-2 border border-[#3E4042] z-50 react-pop"
+          className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
         >
-          {reactionConfig.map((r) => (
-            <div
-              key={r.type}
-              className="text-2xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDockReact(r.type as ReactionType);
-              }}
-              title={r.label}
-            >
-              {r.icon}
-            </div>
-          ))}
+          <div className="flex gap-1 overflow-x-auto max-w-[280px] scrollbar-hide px-1 py-1">
+            {reactionConfig.map((r) => (
+              <div
+                key={r.type}
+                className="text-2xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDockReact(r.type as ReactionType);
+                }}
+                onMouseEnter={() => handleEmojiHover(r.icon)}
+                title={r.label}
+              >
+                {r.icon}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       <button
         onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
         className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
           isAnimating ? 'scale-110' : ''
         }`}
@@ -973,7 +1032,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH INSTANT UPDATES AND PROFILE BACKEND SUPPORT
+ * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS & API FORMAT SUPPORT
  * =========================
  */
 export const Post: React.FC<{
@@ -1014,30 +1073,31 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
-  // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
-  // ✅ UPDATED: REACTION LOGIC TO SUPPORT PROFILE BACKEND SHAPE
-  // ✅ Profile endpoint returns `my_reaction` and `reactions_count` directly
-  // ✅ Fallback to reactions array for backward compatibility
-  // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
-  
-  // Keep legacy array for fallback
+  // ✅ ENHANCED REACTION LOGIC WITH DUAL API SUPPORT
+  // Support both myReaction/my_reaction and likesCount/reactionsCount
+  const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
+  const likesCount = Number(
+    (p as any).likesCount ?? 
+    (p as any).reactionsCount ?? 
+    (p as any).reactions_count ?? 
+    0
+  );
+
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
   
-  // ✅ Prefer explicit fields from backend (profile endpoint)
-  const myReaction: ReactionType | undefined =
-    (p.my_reaction as ReactionType) ||
+  // Final calculation with priority: explicit fields > reactions array
+  const finalMyReaction: ReactionType | undefined =
+    myReaction ||
     (currentUser && reactionsArr
       ? (reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type as ReactionType)
       : undefined);
 
-  const reactionCount =
-    typeof p.reactions_count === 'number'
-      ? p.reactions_count
+  const finalReactionCount =
+    likesCount > 0
+      ? likesCount
       : reactionsArr
         ? reactionsArr.length
         : 0;
-  
-  // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
   
   // ✅ INSTANT COMMENT COUNT UPDATES
   const [commentCount, setCommentCount] = useState(() => {
@@ -1271,9 +1331,9 @@ export const Post: React.FC<{
 
         <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
           <div className="flex items-center gap-1.5">
-            {/* ✅ UPDATED: Use reactionCount instead of reactions.length */}
-            {reactionCount > 0 && (
-              <span className="hover:underline">{formatCount(reactionCount)} Reactions</span>
+            {/* ✅ UPDATED: Use finalReactionCount with dual API support */}
+            {finalReactionCount > 0 && (
+              <span className="hover:underline">{formatCount(finalReactionCount)} Reactions</span>
             )}
           </div>
           <div className="flex gap-4">
@@ -1293,10 +1353,10 @@ export const Post: React.FC<{
         </div>
 
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          {/* ✅ UPDATED: Pass correct reactionCount and myReaction */}
+          {/* ✅ UPDATED: Enhanced ReactionButton with 10+ emojis & long-press */}
           <ReactionButton
-            currentUserReactions={myReaction}
-            reactionCount={reactionCount}
+            currentUserReactions={finalMyReaction}
+            reactionCount={finalReactionCount}
             onReact={(type) => onReact(postId, type)}
             isGuest={!currentUser}
           />
