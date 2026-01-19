@@ -261,9 +261,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const userFollowers = useMemo(() => safeArray<number>((user as any).followers || []), [user]);
   const followerCount = userFollowers.length;
 
-  // ✅ CRITICAL FIX: Check if current user is admin or moderator
-  const isAdmin = currentUser ? String(currentUser?.role || "").toLowerCase() === "admin" : false;
-  const isModerator = currentUser ? String(currentUser?.role || "").toLowerCase() === "moderator" : false;
+  // ✅ PROFESSIONALLY FIXED: Check if current user is admin or moderator (with trim)
+  const roleOf = (u: any) => String(u?.role || "").trim().toLowerCase();
+  const isAdmin = currentUser ? roleOf(currentUser) === "admin" : false;
+  const isModerator = currentUser ? roleOf(currentUser) === "moderator" : false;
   const isAdminOrModerator = isAdmin || isModerator;
 
   const profileInputRef = useRef<HTMLInputElement>(null);
@@ -816,97 +817,142 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 </div>
               ))}
             </div>
-
-            {/* ✅ CRITICAL FIX: ADMIN CONTROLS - MOVED HERE TO SHOW ON ALL TABS */}
-            {isAdminOrModerator && !isSelf && (
-              <div className="max-w-[1095px] mx-auto mt-6 px-4 md:px-0">
-                <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-red-900/50">
-                  <h2 className="text-xl font-bold text-red-500 mb-4">
-                    {isAdmin ? 'Admin Controls' : 'Moderator Controls'}
-                  </h2>
-                  <div className="flex flex-col gap-2">
-                    {/* ✅ Verify button (Admin only) */}
-                    {isAdmin && (
-                      <button
-                        onClick={() => onVerifyUser?.(user.id)}
-                        className="w-full bg-[#263951] text-[#2D88FF] py-2 rounded font-semibold hover:bg-[#2A3F5A] transition-colors active:scale-95 active:shadow-inner"
-                      >
-                        {(user as any).is_verified ? 'Remove Verification' : 'Verify User'}
-                      </button>
-                    )}
-                    
-                    {/* ✅ Suspend buttons grid (Admin and Moderator) */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => onRestrictUser?.(user.id, "24h")}
-                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
-                      >
-                        Suspend 24h
-                      </button>
-                      <button
-                        onClick={() => onRestrictUser?.(user.id, "5d")}
-                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
-                      >
-                        Suspend 5d
-                      </button>
-                      <button
-                        onClick={() => onRestrictUser?.(user.id, "30d")}
-                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
-                      >
-                        Suspend 30d
-                      </button>
-                      <button
-                        onClick={() => onRestrictUser?.(user.id, "manual")}
-                        className="w-full bg-yellow-900/80 text-yellow-200 py-2 rounded font-semibold hover:bg-yellow-800 transition-colors active:scale-95 active:shadow-inner"
-                      >
-                        Suspend Manual
-                      </button>
-                    </div>
-
-                    {/* ✅ Moderator role buttons (Admin only) */}
-                    {isAdmin && (
-                      <div className="grid grid-cols-2 gap-2 mt-2">
-                        <button
-                          onClick={() => onMakeModerator?.(user.id, true)}
-                          className="w-full bg-[#3A3B3C] text-[#E4E6EB] py-2 rounded font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
-                        >
-                          Make Moderator
-                        </button>
-                        <button
-                          onClick={() => onMakeModerator?.(user.id, false)}
-                          className="w-full bg-[#3A3B3C] text-[#E4E6EB] py-2 rounded font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
-                        >
-                          Remove Moderator
-                        </button>
-                      </div>
-                    )}
-
-                    {/* ✅ Delete button (Admin only) */}
-                    {isAdmin && (
-                      <button
-                        onClick={() => onDeleteUser?.(user.id)}
-                        className="w-full bg-red-900/80 text-white py-2 rounded font-semibold hover:bg-red-800 mt-2 transition-colors active:scale-95 active:shadow-inner"
-                      >
-                        Delete Account
-                      </button>
-                    )}
-                    
-                    {/* ✅ Role info display */}
-                    <div className="mt-2 pt-2 border-t border-[#3E4042]">
-                      <p className="text-[#B0B3B8] text-xs">
-                        Viewing as: <span className="font-semibold text-[#E4E6EB]">{isAdmin ? "Admin" : "Moderator"}</span>
-                      </p>
-                      <p className="text-[#B0B3B8] text-xs mt-1">
-                        Profile Role: <span className="font-semibold text-[#E4E6EB] capitalize">{user.role || 'user'}</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
+
+      {/* ✅ PROFESSIONALLY FIXED: ADMIN CONTROLS - Shows on all tabs, properly positioned */}
+      {isAdminOrModerator && (
+        <div className="max-w-[1095px] mx-auto mt-6 px-4">
+          <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-red-900/50">
+            <h2 className="text-xl font-bold text-red-500 mb-4">
+              {isAdmin ? 'Admin Controls' : 'Moderator Controls'}
+            </h2>
+            <div className="flex flex-col gap-2">
+              {/* ✅ Verify button (Admin only) */}
+              {isAdmin && (
+                <button
+                  disabled={isSelf}
+                  onClick={() => !isSelf && onVerifyUser?.(user.id)}
+                  className={`w-full py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
+                    isSelf
+                      ? "bg-[#263951]/40 text-[#2D88FF]/40 cursor-not-allowed"
+                      : "bg-[#263951] text-[#2D88FF] hover:bg-[#2A3F5A]"
+                  }`}
+                >
+                  {(user as any).is_verified ? 'Remove Verification' : 'Verify User'} {isSelf ? "(Self)" : ""}
+                </button>
+              )}
+              
+              {/* ✅ Suspend buttons grid (Admin and Moderator) */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  disabled={isSelf}
+                  onClick={() => !isSelf && onRestrictUser?.(user.id, "24h")}
+                  className={`py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
+                    isSelf
+                      ? "bg-yellow-900/40 text-yellow-200/40 cursor-not-allowed"
+                      : "bg-yellow-900/80 text-yellow-200 hover:bg-yellow-800"
+                  }`}
+                >
+                  Suspend 24h {isSelf ? "(Self)" : ""}
+                </button>
+                <button
+                  disabled={isSelf}
+                  onClick={() => !isSelf && onRestrictUser?.(user.id, "5d")}
+                  className={`py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
+                    isSelf
+                      ? "bg-yellow-900/40 text-yellow-200/40 cursor-not-allowed"
+                      : "bg-yellow-900/80 text-yellow-200 hover:bg-yellow-800"
+                  }`}
+                >
+                  Suspend 5d {isSelf ? "(Self)" : ""}
+                </button>
+                <button
+                  disabled={isSelf}
+                  onClick={() => !isSelf && onRestrictUser?.(user.id, "30d")}
+                  className={`py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
+                    isSelf
+                      ? "bg-yellow-900/40 text-yellow-200/40 cursor-not-allowed"
+                      : "bg-yellow-900/80 text-yellow-200 hover:bg-yellow-800"
+                  }`}
+                >
+                  Suspend 30d {isSelf ? "(Self)" : ""}
+                </button>
+                <button
+                  disabled={isSelf}
+                  onClick={() => !isSelf && onRestrictUser?.(user.id, "manual")}
+                  className={`py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
+                    isSelf
+                      ? "bg-yellow-900/40 text-yellow-200/40 cursor-not-allowed"
+                      : "bg-yellow-900/80 text-yellow-200 hover:bg-yellow-800"
+                  }`}
+                >
+                  Suspend Manual {isSelf ? "(Self)" : ""}
+                </button>
+              </div>
+
+              {/* ✅ Moderator role buttons (Admin only) */}
+              {isAdmin && (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button
+                    disabled={isSelf}
+                    onClick={() => !isSelf && onMakeModerator?.(user.id, true)}
+                    className={`py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
+                      isSelf
+                        ? "bg-[#3A3B3C]/40 text-[#E4E6EB]/40 cursor-not-allowed"
+                        : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+                    }`}
+                  >
+                    Make Moderator {isSelf ? "(Self)" : ""}
+                  </button>
+                  <button
+                    disabled={isSelf}
+                    onClick={() => !isSelf && onMakeModerator?.(user.id, false)}
+                    className={`py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
+                      isSelf
+                        ? "bg-[#3A3B3C]/40 text-[#E4E6EB]/40 cursor-not-allowed"
+                        : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+                    }`}
+                  >
+                    Remove Moderator {isSelf ? "(Self)" : ""}
+                  </button>
+                </div>
+              )}
+
+              {/* ✅ Delete button (Admin only) */}
+              {isAdmin && (
+                <button
+                  disabled={isSelf}
+                  onClick={() => !isSelf && onDeleteUser?.(user.id)}
+                  className={`w-full py-2 rounded font-semibold mt-2 transition-colors active:scale-95 active:shadow-inner ${
+                    isSelf
+                      ? "bg-red-900/40 text-white/40 cursor-not-allowed"
+                      : "bg-red-900/80 text-white hover:bg-red-800"
+                  }`}
+                >
+                  Delete Account {isSelf ? "(Cannot delete self)" : ""}
+                </button>
+              )}
+              
+              {/* ✅ Role info display */}
+              <div className="mt-2 pt-2 border-t border-[#3E4042]">
+                <p className="text-[#B0B3B8] text-xs">
+                  Viewing as: <span className="font-semibold text-[#E4E6EB]">{isAdmin ? "Admin" : "Moderator"}</span>
+                </p>
+                <p className="text-[#B0B3B8] text-xs mt-1">
+                  Profile Role: <span className="font-semibold text-[#E4E6EB] capitalize">{user.role || 'user'}</span>
+                </p>
+                {isSelf && (
+                  <p className="text-yellow-300 text-xs mt-1">
+                    ⚠️ Some actions disabled for your own account
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {renderContent()}
 
