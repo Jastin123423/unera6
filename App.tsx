@@ -1,7 +1,4 @@
-// App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
-// (Unique Profile Colors & Proper Sizing)
-// ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
-// ✅ FIXED: Immediate reaction updates with my_reaction field
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -326,7 +323,7 @@ const normalizeUser = (u: any): User => {
     !profileImageUrl ||
     profileImageUrl.trim() === '' ||
     profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
-    profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
+    profilncludes('ui-avatars.com/api/?name=UNERA') ||
     profileImageUrl.includes('ui-avatars.com/api/?background=1877F2&color=fff') ||
     (profileImageUrl.includes('ui-avatars.com/api/?name=') && !profileImageUrl.includes('font-size=0.5'));
 
@@ -352,33 +349,6 @@ const normalizeUser = (u: any): User => {
     role: u?.role ?? 'user',
     created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
   } as any;
-};
-
-/** ---------- Optimistic reaction helper ---------- */
-const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meId: number) => {
-  if (Number(p.id) !== Number(postId)) return p;
-
-  const prevMy = (p as any).my_reaction ?? null;
-  const nextMy = prevMy === type ? null : type;
-
-  // keep reactions[] clean (only one row for me)
-  const prevArr = safeArray<any>((p as any).reactions);
-  const withoutMe = prevArr.filter((r: any) => Number(r.user_id) !== Number(meId));
-  const nextArr = nextMy ? [...withoutMe, { user_id: meId, type: nextMy }] : withoutMe;
-
-  // count: prefer reactions_count if exists, otherwise derive from array length
-  const prevCount = safeNumber((p as any).reactions_count, prevArr.length);
-  const nextCount =
-    prevMy
-      ? (nextMy ? prevCount : Math.max(0, prevCount - 1)) // had reaction before
-      : (nextMy ? prevCount + 1 : prevCount);            // no reaction before
-
-  return normalizePost({
-    ...p,
-    reactions: nextArr,
-    my_reaction: nextMy,          // ✅ THE IMPORTANT PART
-    reactions_count: nextCount,   // ✅ keeps number consistent
-  });
 };
 
 /** ---------- API helper ---------- */
@@ -1319,43 +1289,55 @@ export default function App() {
     [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
   );
 
-  /** ✅ FIXED: onReactPost with immediate my_reaction updates ---------- */
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
-      const meId = Number(currentUser!.id);
 
-      // ✅ Optimistic update (homepage)
-      setPosts(prev => {
-        const next = safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId));
+      setPosts((prev) => {
+        const next = safeArray(prev).map((p: any) => {
+          if (Number(p.id) !== Number(postId)) return p;
+
+          const reactions = safeArray(p.reactions);
+          const mine = reactions.find((r: any) => Number(r.user_id) === Number(currentUser!.id));
+          let nextReactions = reactions.filter((r: any) => Number(r.user_id) !== Number(currentUser!.id));
+
+          if (!mine || mine.type !== type) nextReactions = [...nextReactions, { user_id: currentUser!.id, type }];
+
+          return normalizePost({ ...p, reactions: nextReactions });
+        });
+
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
         return next;
       });
 
-      // ✅ Optimistic update (profile list in App state)
-      setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
+      /** ✅ Update profile posts when reacting ---------- */
+      setProfilePosts((prev) => {
+        return safeArray(prev).map((p: any) => {
+          if (Number(p.id) !== Number(postId)) return p;
+
+          const reactions = safeArray(p.reactions);
+          const mine = reactions.find((r: any) => Number(r.user_id) === Number(currentUser!.id));
+          let nextReactions = reactions.filter((r: any) => Number(r.user_id) !== Number(currentUser!.id));
+
+          if (!mine || mine.type !== type) nextReactions = [...nextReactions, { user_id: currentUser!.id, type }];
+
+          return normalizePost({ ...p, reactions: nextReactions });
+        });
+      });
 
       try {
-        const data = await apiFetch(`/api/posts/${postId}/react`, {
-          method: 'POST',
-          body: JSON.stringify({ type, user_id: meId }),
+        // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+        // ✅ CRITICAL FIX: Send user_id in the request body for backend to record reaction
+        // ✅ Without this, backend won't know who reacted and my_reaction will always be null
+        // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+        await apiFetch(`/api/posts/${postId}/react`, { 
+          method: 'POST', 
+          body: JSON.stringify({ 
+            type,
+            user_id: currentUser!.id  // ✅ MUST INCLUDE user_id
+          }) 
         });
-
-        // ✅ Server truth (important for perfect sync)
-        if (data?.success) {
-          setPosts(prev => safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(postId)
-              ? normalizePost({ ...p, my_reaction: data.my_reaction ?? null, reactions_count: safeNumber(data.reactions_count, (p as any).reactions_count) })
-              : p
-          ));
-
-          setProfilePosts(prev => safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(postId)
-              ? normalizePost({ ...p, my_reaction: data.my_reaction ?? null, reactions_count: safeNumber(data.reactions_count, (p as any).reactions_count) })
-              : p
-          ));
-        }
       } catch {
         scheduleSilentRefresh();
       }
