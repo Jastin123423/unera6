@@ -973,7 +973,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH INSTANT UPDATES
+ * ✅ UPDATED: POST CARD WITH INSTANT UPDATES AND PROFILE BACKEND SUPPORT
  * =========================
  */
 export const Post: React.FC<{
@@ -1015,33 +1015,27 @@ export const Post: React.FC<{
   const a: any = author as any;
 
   // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
-  // ✅ UPDATED: REACTION LOGIC TO SUPPORT BOTH LEGACY ARRAY AND NEW BACKEND FIELDS
+  // ✅ UPDATED: REACTION LOGIC TO SUPPORT PROFILE BACKEND SHAPE
+  // ✅ Profile endpoint returns `my_reaction` and `reactions_count` directly
+  // ✅ Fallback to reactions array for backward compatibility
   // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
   
-  // Legacy array fallback
-  const reactionsArr = Array.isArray(p.reactions) ? p.reactions : [];
+  // Keep legacy array for fallback
+  const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
   
-  // ✅ Determine my reaction: prefer backend computed field, fallback to array
-  const myReaction: ReactionType | undefined = (() => {
-    // preferred: backend already computed for viewer (p.my_reaction)
-    const fromField = String(p.my_reaction ?? '').trim();
-    if (fromField) return fromField as ReactionType;
+  // ✅ Prefer explicit fields from backend (profile endpoint)
+  const myReaction: ReactionType | undefined =
+    (p.my_reaction as ReactionType) ||
+    (currentUser && reactionsArr
+      ? (reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type as ReactionType)
+      : undefined);
 
-    // fallback: derive from reactions array if present
-    if (!currentUser) return undefined;
-    const hit = reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser));
-    return (hit?.type as ReactionType) || undefined;
-  })();
-
-  // ✅ Determine reaction count: prefer backend count, fallback to array length
-  const reactionCount = (() => {
-    // preferred: backend count (check multiple possible field names)
-    const c = safeNumber(p.reactions_count ?? p.reaction_count ?? p.reactionsCount, NaN);
-    if (Number.isFinite(c)) return c;
-
-    // fallback: array length
-    return reactionsArr.length;
-  })();
+  const reactionCount =
+    typeof p.reactions_count === 'number'
+      ? p.reactions_count
+      : reactionsArr
+        ? reactionsArr.length
+        : 0;
   
   // ✅ ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
   
@@ -1299,7 +1293,7 @@ export const Post: React.FC<{
         </div>
 
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          {/* ✅ UPDATED: Pass reactionCount instead of reactions.length */}
+          {/* ✅ UPDATED: Pass correct reactionCount and myReaction */}
           <ReactionButton
             currentUserReactions={myReaction}
             reactionCount={reactionCount}
