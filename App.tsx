@@ -1,8 +1,9 @@
+
+
 // App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
 // ✅ FIXED: Immediate reaction updates with my_reaction field
-// ✅ UPDATED: Added viewerId to profile posts fetch and preserved reaction data
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -277,7 +278,6 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 
 /**
  * Normalize raw D1 rows to UI-safe PostType shape.
- * ✅ UPDATED: Preserve my_reaction and reactions_count fields
  */
 const normalizePost = (p: any): PostType => {
   const mediaType = p?.media_type ?? p?.mediaType ?? null;
@@ -307,13 +307,6 @@ const normalizePost = (p: any): PostType => {
         return 'post';
       })(),
     created_at: p?.created_at ?? new Date().toISOString(),
-    
-    // ✅ ADD THESE (very important) - Preserve reaction data
-    my_reaction: p?.my_reaction ?? p?.myReaction ?? null,
-    myReaction: p?.myReaction ?? p?.my_reaction ?? null,
-    reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
-    reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
-    likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
   } as any;
 };
 
@@ -802,45 +795,21 @@ export default function App() {
     [activeCommentsPostId, feedHydrated]
   );
 
-  /** ✅ Fetch profile posts with viewerId (latest only) ---------- */
+  /** ✅ Fetch profile posts (latest only) ---------- */
   const fetchProfilePosts = useCallback(async (profileUserId: number) => {
     try {
-      // ✅ ADDED: Always send viewerId when fetching profile posts
-      const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
-      const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`);
-      
+      const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&limit=50`);
       const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
       const normalized = list.map(normalizePost);
 
       // Always latest-first (already ordered by API, but keep safe)
       normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
 
-      // ✅ UPDATED: Don't let a profile refetch overwrite local reaction truth
-      setProfilePosts(prev => {
-        // Merge with any local truth we already have
-        const localTruth = [...safeArray(posts), ...safeArray(prev)];
-        const map = new Map<number, any>();
-        localTruth.forEach((p: any) => map.set(Number(p.id), p));
-
-        return normalized.map((p: any) => {
-          const local = map.get(Number(p.id));
-          if (!local) return p;
-
-          return {
-            ...p,
-            my_reaction: p.my_reaction ?? local.my_reaction ?? local.myReaction ?? null,
-            myReaction: p.myReaction ?? p.my_reaction ?? local.myReaction ?? local.my_reaction ?? null,
-            reactions: Array.isArray(p.reactions) && p.reactions.length ? p.reactions : safeArray(local.reactions),
-            reactions_count: safeNumber(p.reactions_count, safeNumber(local.reactions_count, safeNumber(local.likesCount, 0))),
-            reactionsCount: safeNumber(p.reactionsCount, safeNumber(local.reactionsCount, safeNumber(local.likesCount, 0))),
-            likesCount: safeNumber(p.likesCount, safeNumber(local.likesCount, safeNumber(local.reactions_count, 0))),
-          };
-        });
-      });
+      setProfilePosts(normalized);
     } catch {
       setProfilePosts([]);
     }
-  }, [currentUser, posts]); // ✅ ADDED: Added posts dependency
+  }, []);
 
   /** ✅ Fetch profile posts when user opens profile ---------- */
   useEffect(() => {
@@ -853,16 +822,36 @@ export default function App() {
   /** ---------- Fetch follow data for a user ---------- */
   const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
     try {
-      const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
-      return {
-        followers: safeArray<number>(data?.followers),
-        following: safeArray<number>(data?.following)
-      };
+      const followData = await fetchUserFollowData(userId);
+      
+      setUsers((prev) => {
+        return prev.map((user) => {
+          if (Number(user.id) === Number(userId)) {
+            return normalizeUser({
+              ...user,
+              followers: followData.followers,
+              following: followData.following
+            });
+          }
+          return user;
+        });
+      });
+
+      // Also update currentUser if it's the logged in user
+      if (currentUser && Number(currentUser.id) === Number(userId)) {
+        setCurrentUser(prev => prev ? normalizeUser({
+          ...prev,
+          followers: followData.followers,
+          following: followData.following
+        }) : prev);
+      }
+
+      return followData;
     } catch (error) {
-      console.error('Failed to fetch follow data:', error);
+      console.error('Failed to fetch follow data for UI:', error);
       return { followers: [], following: [] };
     }
-  }, []);
+  }, [currentUser]);
 
   /** ---------- Load follow data when viewing a profile ---------- */
   useEffect(() => {
@@ -1335,7 +1324,7 @@ export default function App() {
     [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
   );
 
-  /** ✅ FIXED: onReactPost with immediate my_reaction updates and commentPostSnapshot sync ---------- */
+  /** ✅ FIXED: onReactPost with immediate my_reaction updates ---------- */
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
@@ -1352,20 +1341,13 @@ export default function App() {
       // ✅ Optimistic update (profile list in App state)
       setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
 
-      // ✅ Update commentPostSnapshot if it's the same post
-      setCommentPostSnapshot(prev =>
-        prev && Number(prev.id) === Number(postId)
-          ? applyOptimisticReaction(prev, postId, type, meId)
-          : prev
-      );
-
       try {
         const data = await apiFetch(`/api/posts/${postId}/react`, {
           method: 'POST',
           body: JSON.stringify({ type, user_id: meId }),
         });
 
-        if (data?.success && ("reactions_count" in data || "my_reaction" in data)) {
+        if (data?.success) {
           const serverMy = data.my_reaction ?? null;
           const serverCount = safeNumber(data.reactions_count, 0);
 
@@ -1389,8 +1371,6 @@ export default function App() {
 
           setPosts(prev => safeArray(prev).map(applyServerTruth));
           setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
-          // ✅ Update commentPostSnapshot with server truth
-          setCommentPostSnapshot(prev => (prev ? applyServerTruth(prev) : prev));
         }
       } catch {
         scheduleSilentRefresh();
