@@ -457,19 +457,21 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   };
 
-  // ✅ ADDED: Profile-specific react handler with optimistic updates
-  const handleProfileReact = async (postId: number, type: ReactionType) => {
+  // ✅ PROFESSIONALLY MODIFIED: Profile-specific react handler with ONLY optimistic update
+  const handleProfileReact = (postId: number, type: ReactionType) => {
     if (!currentUser) return;
+
+    const pid = Number(postId);
 
     // ✅ Optimistic update: set immediately
     setProfilePosts(prev =>
       prev.map((p: any) => {
-        if (safePostId(p) !== postId) return p;
+        if (safePostId(p) !== pid) return p;
 
         const current = (p as any).my_reaction ?? null;
         const nextMy = current === type ? null : type;
 
-        const currentCount = Number((p as any).reactions_count ?? (p as any).reaction_count ?? 0) || 0;
+        const currentCount = Number((p as any).reactions_count ?? 0) || 0;
         const nextCount = current
           ? (nextMy ? currentCount : Math.max(0, currentCount - 1)) // had reaction already
           : (nextMy ? currentCount + 1 : currentCount);            // no reaction before
@@ -488,35 +490,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       })
     );
 
-    // ✅ Sync with backend (authoritative)
-    try {
-      const res = await apiFetch(`/api/posts/${postId}/react`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id, type }),
-      });
-
-      if (res?.success) {
-        setProfilePosts(prev =>
-          prev.map((p: any) =>
-            safePostId(p) === postId
-              ? {
-                  ...p,
-                  my_reaction: res.my_reaction ?? null,
-                  reactions_count: Number(res.reactions_count ?? 0),
-                  reactions: res.reactions ? safeArray(res.reactions) : p.reactions
-                }
-              : p
-          )
-        );
-      }
-    } catch (e) {
-      // Revert by refetching just to be safe
-      const list = await fetchProfilePostsWithViewer(Number(user.id));
-      if (list.length) setProfilePosts(list);
-    }
-
-    // ✅ Still call global handler to keep homepage feed in sync too
-    onReact(postId, type);
+    // ✅ ONE backend call only (App.tsx)
+    onReact(pid, type);
   };
 
   const renderContent = () => {
