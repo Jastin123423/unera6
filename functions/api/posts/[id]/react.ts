@@ -1,4 +1,3 @@
-Here [id]/react.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
 const cors = {
