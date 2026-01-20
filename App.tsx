@@ -3,7 +3,7 @@
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
 // ✅ FIXED: Immediate reaction updates with my_reaction field
 // ✅ UPDATED: Added viewerId to profile posts fetch and preserved reaction data
-// ✅ ENHANCED: Professional follow logic with comprehensive error handling
+// ✅ FIXED: Follow buttons reading and sending real data from API backend
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -641,7 +641,7 @@ export default function App() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
 
-  // Add state for follow loading status to prevent double clicks
+  // Add state for follow loading to prevent double clicks
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
   /** ---------- Auth gate ---------- */
@@ -857,16 +857,39 @@ export default function App() {
   /** ---------- Fetch follow data for a user ---------- */
   const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
     try {
-      const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
-      return {
-        followers: safeArray<number>(data?.followers),
-        following: safeArray<number>(data?.following)
-      };
+      const followData = await fetchUserFollowData(userId);
+      
+      // Update the specific user in the users list
+      setUsers(prev => {
+        return prev.map(user => {
+          if (Number(user.id) === Number(userId)) {
+            return normalizeUser({
+              ...user,
+              followers: followData.followers,
+              following: followData.following
+            });
+          }
+          return user;
+        });
+      });
+
+      // Also update currentUser if it's the logged in user
+      if (currentUser && Number(currentUser.id) === Number(userId)) {
+        const updatedCurrentUser = normalizeUser({
+          ...currentUser,
+          followers: followData.followers,
+          following: followData.following
+        });
+        setCurrentUser(updatedCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
+      }
+
+      return followData;
     } catch (error) {
-      console.error('Failed to fetch follow data:', error);
+      console.error('Failed to fetch follow data for UI:', error);
       return { followers: [], following: [] };
     }
-  }, []);
+  }, [currentUser]);
 
   /** ---------- Load follow data when viewing a profile ---------- */
   useEffect(() => {
@@ -1539,7 +1562,7 @@ export default function App() {
     [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
   );
 
-  /** ✅ ENHANCED: Professional Follow User with comprehensive error handling ---------- */
+  /** ✅ FIXED: Follow User with EXACT same API structure as original working code ---------- */
   const followUser = useCallback(
     async (targetUserId: number) => {
       if (!requireAuth('Following')) return;
@@ -1548,156 +1571,107 @@ export default function App() {
       const meId = Number(currentUser.id);
       const targetId = Number(targetUserId);
 
-      // Prevent self-follow and invalid IDs
+      // ✅ backend blocks self-follow
       if (!targetId || targetId === meId) return;
 
-      // Prevent double-clicks
-      if (followLoading[targetId]) return;
-      setFollowLoading(prev => ({ ...prev, [targetId]: true }));
-
-      // Determine current follow state
+      // ✅ TRUE follow state comes from my "following"
       const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
       const isFollowingNow = myFollowing.has(targetId);
 
-      // Save original state for rollback
+      // Set loading state to prevent double clicks
+      setFollowLoading(prev => ({ ...prev, [targetId]: true }));
+
+      // Save original state for potential rollback
       const originalUsers = [...users];
-      const originalCurrentUser = currentUser;
+      const originalCurrentUser = { ...currentUser };
 
+      // ---------- optimistic update ----------
+      setUsers((prev) => {
+        const arr = safeArray(prev).map(normalizeUser);
+
+        return arr.map((u) => {
+          const uid = Number(u.id);
+
+          // update ME.following
+          if (uid === meId) {
+            const following = new Set<number>(safeArray<number>((u as any).following));
+            if (isFollowingNow) following.delete(targetId);
+            else following.add(targetId);
+            return normalizeUser({ ...u, following: Array.from(following) });
+          }
+
+          // update TARGET.followers
+          if (uid === targetId) {
+            const followers = new Set<number>(safeArray<number>((u as any).followers));
+            if (isFollowingNow) followers.delete(meId);
+            else followers.add(meId);
+            return normalizeUser({ ...u, followers: Array.from(followers) });
+          }
+
+          return u;
+        });
+      });
+
+      // keep currentUser in sync + persist
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        const following = new Set<number>(safeArray<number>((prev as any).following));
+        if (isFollowingNow) following.delete(targetId);
+        else following.add(targetId);
+        const next = normalizeUser({ ...prev, following: Array.from(following) });
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
+        return next;
+      });
+
+      // ---------- API ----------
       try {
-        // ---------- OPTIMISTIC UPDATE ----------
-        // 1. Update users list
-        setUsers(prev => {
-          const arr = safeArray(prev).map(normalizeUser);
-          return arr.map((u) => {
-            const uid = Number(u.id);
-
-            // Update current user's following list
-            if (uid === meId) {
-              const following = new Set<number>(safeArray<number>((u as any).following));
-              if (isFollowingNow) following.delete(targetId);
-              else following.add(targetId);
-              return normalizeUser({ ...u, following: Array.from(following) });
-            }
-
-            // Update target user's followers list
-            if (uid === targetId) {
-              const followers = new Set<number>(safeArray<number>((u as any).followers));
-              if (isFollowingNow) followers.delete(meId);
-              else followers.add(meId);
-              return normalizeUser({ ...u, followers: Array.from(followers) });
-            }
-
-            return u;
-          });
-        });
-
-        // 2. Update current user state
-        setCurrentUser(prev => {
-          if (!prev) return prev;
-          const following = new Set<number>(safeArray<number>((prev as any).following));
-          if (isFollowingNow) following.delete(targetId);
-          else following.add(targetId);
-          const updatedUser = normalizeUser({ ...prev, following: Array.from(following) });
-          localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedUser));
-          return updatedUser;
-        });
-
-        // ---------- API CALL ----------
         if (isFollowingNow) {
-          // Unfollow
-          await apiFetch(`/api/user-follows/${targetId}`, {
+          // ✅ EXACTLY as in original code: Unfollow
+          await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
             method: 'DELETE',
-            body: JSON.stringify({ follower_id: meId }),
           });
         } else {
-          // Follow
+          // ✅ EXACTLY as in original code: Follow
           await apiFetch('/api/user-follows', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              follower_id: meId, 
-              following_id: targetId 
-            }),
+            body: JSON.stringify({ follower_id: meId, following_id: targetId }),
           });
         }
 
-        // ---------- POST-SUCCESS SYNC ----------
-        // Refresh follow data from server for consistency
-        try {
-          const followData = await fetchUserFollowData(meId);
-          if (followData) {
-            const updatedCurrentUser = normalizeUser({
-              ...currentUser,
-              following: followData.following
-            });
-            setCurrentUser(updatedCurrentUser);
-            localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
-            
-            // Update users list with server data
-            setUsers(prev => prev.map(u => 
-              Number(u.id) === meId ? updatedCurrentUser : u
-            ));
-          }
-
-          // Also update target user's follower count if needed
-          const targetFollowData = await fetchUserFollowData(targetId);
-          if (targetFollowData) {
-            setUsers(prev => prev.map(u => 
-              Number(u.id) === targetId 
-                ? normalizeUser({ ...u, followers: targetFollowData.followers })
-                : u
-            ));
-          }
-        } catch (syncError) {
-          console.warn('Failed to sync follow data, but operation was successful:', syncError);
-        }
-
-        // Trigger silent refresh to update feed if needed
-        scheduleSilentRefresh();
-
-      } catch (error: any) {
-        console.error('Follow toggle failed:', error);
-        
-        // ---------- ROLLBACK ON ERROR ----------
-        // 1. Revert users list
-        setUsers(originalUsers);
-        
-        // 2. Revert current user
-        setCurrentUser(originalCurrentUser);
-        if (originalCurrentUser) {
-          localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
-        }
-        
-        // 3. Show error message
-        setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${error.message || 'Unknown error'}`);
-        
-        // 4. Re-fetch server truth
-        fetchUserFollowDataForUI(meId).catch(() => {});
+        // ✅ Refresh follow data from server for consistency
         fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
+
+        scheduleSilentRefresh();
+      } catch (e: any) {
+        console.error('Follow toggle failed:', e);
+
+        // ✅ rollback using original state
+        setUsers(originalUsers);
+        setCurrentUser(originalCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
+        
+        // ✅ rollback using server truth
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
+        
+        // Show error message
+        setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
       } finally {
         // Clear loading state
         setFollowLoading(prev => ({ ...prev, [targetId]: false }));
       }
     },
-    [requireAuth, currentUser, users, followLoading, scheduleSilentRefresh, fetchUserFollowDataForUI]
+    [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
   );
 
-  /** ✅ ADDED: Check follow status utility ---------- */
+  /** ✅ SIMPLIFIED & RELIABLE: Check if current user is following a specific user ---------- */
   const checkIsFollowing = useCallback((targetUserId: number): boolean => {
     if (!currentUser || !targetUserId) return false;
-    const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
-    return myFollowing.has(Number(targetUserId));
-  }, [currentUser]);
-
-  /** ✅ ADDED: Bulk follow status check ---------- */
-  const checkMultipleFollowing = useCallback((userIds: number[]): { [key: number]: boolean } => {
-    if (!currentUser) return {};
-    const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
-    const result: { [key: number]: boolean } = {};
-    userIds.forEach(id => {
-      result[id] = myFollowing.has(Number(id));
-    });
-    return result;
+    
+    // Direct check of current user's following array
+    const myFollowing = safeArray<number>((currentUser as any).following);
+    return myFollowing.includes(Number(targetUserId));
   }, [currentUser]);
 
   const updateUserDetails = useCallback(
@@ -1848,31 +1822,37 @@ export default function App() {
               )}
 
               {rankedPosts.length > 0 ? (
-                rankedPosts.map((post) => (
-                  <Post
-                    key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
-                    post={post}
-                    author={getPostAuthor(post)}
-                    currentUser={currentUser}
-                    users={users}
-                    onProfileClick={(id) => openProfile(id)}
-                    onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                    onShare={() => handleOpenShareSheet(post)}
-                    onViewImage={setFullScreenImage}
-                    onOpenComments={(postId: number) => onOpenComments(postId)}
-                    onVideoClick={(p: any) => {
-                      setActiveReelId(p.id);
-                      setView('reels');
-                    }}
-                    onPlayAudioTrack={setCurrentAudioTrack}
-                    groups={groups}
-                    brands={brands}
-                    chats={chats}
-                    isFollowing={checkIsFollowing(Number((post as any).user_id))}
-                    onFollow={followUser}
-                    followLoading={followLoading[Number((post as any).user_id)] || false}
-                  />
-                ))
+                rankedPosts.map((post) => {
+                  const postAuthorId = Number((post as any).user_id);
+                  const isFollowing = checkIsFollowing(postAuthorId);
+                  
+                  return (
+                    <Post
+                      key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
+                      post={post}
+                      author={getPostAuthor(post)}
+                      currentUser={currentUser}
+                      users={users}
+                      onProfileClick={(id) => openProfile(id)}
+                      onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                      onShare={() => handleOpenShareSheet(post)}
+                      onViewImage={setFullScreenImage}
+                      onOpenComments={(postId: number) => onOpenComments(postId)}
+                      onVideoClick={(p: any) => {
+                        setActiveReelId(p.id);
+                        setView('reels');
+                      }}
+                      onPlayAudioTrack={setCurrentAudioTrack}
+                      groups={groups}
+                      brands={brands}
+                      chats={chats}
+                      // ✅ CORRECT: Pass follow status and handler
+                      isFollowing={isFollowing}
+                      onFollow={() => followUser(postAuthorId)}
+                      followLoading={followLoading[postAuthorId] || false}
+                    />
+                  );
+                })
               ) : !feedHydrated ? (
                 <div className="text-center py-20 text-[#B0B3B8]"></div>
               ) : (
@@ -2084,8 +2064,8 @@ export default function App() {
               onRestrictUser={(id, duration) => suspendUser(id, duration)}
               onDeleteUser={(id) => deleteUserAccount(id)}
               onMakeModerator={(id, make) => setModeratorRole(id, make ? "moderator" : "user")}
-              // ✅ ADDED: Pass follow utilities
-              checkIsFollowing={checkIsFollowing}
+              // ✅ ADDED: Pass follow status to UserProfile
+              isFollowing={checkIsFollowing(Number(profileUser.id))}
               followLoading={followLoading[Number(profileUser.id)] || false}
             />
           )}
