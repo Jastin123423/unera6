@@ -1,9 +1,9 @@
-
-
 // App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
 // ✅ FIXED: Immediate reaction updates with my_reaction field
+// ✅ UPDATED: Added viewerId to profile posts fetch and preserved reaction data
+// ✅ ENHANCED: Professional follow logic with comprehensive error handling
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -278,6 +278,7 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 
 /**
  * Normalize raw D1 rows to UI-safe PostType shape.
+ * ✅ UPDATED: Preserve my_reaction and reactions_count fields
  */
 const normalizePost = (p: any): PostType => {
   const mediaType = p?.media_type ?? p?.mediaType ?? null;
@@ -307,6 +308,13 @@ const normalizePost = (p: any): PostType => {
         return 'post';
       })(),
     created_at: p?.created_at ?? new Date().toISOString(),
+    
+    // ✅ ADD THESE (very important) - Preserve reaction data
+    my_reaction: p?.my_reaction ?? p?.myReaction ?? null,
+    myReaction: p?.myReaction ?? p?.my_reaction ?? null,
+    reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
+    reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
+    likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
   } as any;
 };
 
@@ -633,6 +641,9 @@ export default function App() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
 
+  // Add state for follow loading status to prevent double clicks
+  const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
+
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -795,21 +806,45 @@ export default function App() {
     [activeCommentsPostId, feedHydrated]
   );
 
-  /** ✅ Fetch profile posts (latest only) ---------- */
+  /** ✅ Fetch profile posts with viewerId (latest only) ---------- */
   const fetchProfilePosts = useCallback(async (profileUserId: number) => {
     try {
-      const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&limit=50`);
+      // ✅ ADDED: Always send viewerId when fetching profile posts
+      const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+      const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`);
+      
       const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
       const normalized = list.map(normalizePost);
 
       // Always latest-first (already ordered by API, but keep safe)
       normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
 
-      setProfilePosts(normalized);
+      // ✅ UPDATED: Don't let a profile refetch overwrite local reaction truth
+      setProfilePosts(prev => {
+        // Merge with any local truth we already have
+        const localTruth = [...safeArray(posts), ...safeArray(prev)];
+        const map = new Map<number, any>();
+        localTruth.forEach((p: any) => map.set(Number(p.id), p));
+
+        return normalized.map((p: any) => {
+          const local = map.get(Number(p.id));
+          if (!local) return p;
+
+          return {
+            ...p,
+            my_reaction: p.my_reaction ?? local.my_reaction ?? local.myReaction ?? null,
+            myReaction: p.myReaction ?? p.my_reaction ?? local.myReaction ?? local.my_reaction ?? null,
+            reactions: Array.isArray(p.reactions) && p.reactions.length ? p.reactions : safeArray(local.reactions),
+            reactions_count: safeNumber(p.reactions_count, safeNumber(local.reactions_count, safeNumber(local.likesCount, 0))),
+            reactionsCount: safeNumber(p.reactionsCount, safeNumber(local.reactionsCount, safeNumber(local.likesCount, 0))),
+            likesCount: safeNumber(p.likesCount, safeNumber(local.likesCount, safeNumber(local.reactions_count, 0))),
+          };
+        });
+      });
     } catch {
       setProfilePosts([]);
     }
-  }, []);
+  }, [currentUser, posts]); // ✅ ADDED: Added posts dependency
 
   /** ✅ Fetch profile posts when user opens profile ---------- */
   useEffect(() => {
@@ -822,36 +857,16 @@ export default function App() {
   /** ---------- Fetch follow data for a user ---------- */
   const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
     try {
-      const followData = await fetchUserFollowData(userId);
-      
-      setUsers((prev) => {
-        return prev.map((user) => {
-          if (Number(user.id) === Number(userId)) {
-            return normalizeUser({
-              ...user,
-              followers: followData.followers,
-              following: followData.following
-            });
-          }
-          return user;
-        });
-      });
-
-      // Also update currentUser if it's the logged in user
-      if (currentUser && Number(currentUser.id) === Number(userId)) {
-        setCurrentUser(prev => prev ? normalizeUser({
-          ...prev,
-          followers: followData.followers,
-          following: followData.following
-        }) : prev);
-      }
-
-      return followData;
+      const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
+      return {
+        followers: safeArray<number>(data?.followers),
+        following: safeArray<number>(data?.following)
+      };
     } catch (error) {
-      console.error('Failed to fetch follow data for UI:', error);
+      console.error('Failed to fetch follow data:', error);
       return { followers: [], following: [] };
     }
-  }, [currentUser]);
+  }, []);
 
   /** ---------- Load follow data when viewing a profile ---------- */
   useEffect(() => {
@@ -1324,7 +1339,7 @@ export default function App() {
     [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
   );
 
-  /** ✅ FIXED: onReactPost with immediate my_reaction updates ---------- */
+  /** ✅ FIXED: onReactPost with immediate my_reaction updates and commentPostSnapshot sync ---------- */
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
@@ -1341,13 +1356,20 @@ export default function App() {
       // ✅ Optimistic update (profile list in App state)
       setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
 
+      // ✅ Update commentPostSnapshot if it's the same post
+      setCommentPostSnapshot(prev =>
+        prev && Number(prev.id) === Number(postId)
+          ? applyOptimisticReaction(prev, postId, type, meId)
+          : prev
+      );
+
       try {
         const data = await apiFetch(`/api/posts/${postId}/react`, {
           method: 'POST',
           body: JSON.stringify({ type, user_id: meId }),
         });
 
-        if (data?.success) {
+        if (data?.success && ("reactions_count" in data || "my_reaction" in data)) {
           const serverMy = data.my_reaction ?? null;
           const serverCount = safeNumber(data.reactions_count, 0);
 
@@ -1371,6 +1393,8 @@ export default function App() {
 
           setPosts(prev => safeArray(prev).map(applyServerTruth));
           setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
+          // ✅ Update commentPostSnapshot with server truth
+          setCommentPostSnapshot(prev => (prev ? applyServerTruth(prev) : prev));
         }
       } catch {
         scheduleSilentRefresh();
@@ -1515,7 +1539,7 @@ export default function App() {
     [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
   );
 
-  /** ---------- Follow User with immediate UI update and error rollback ---------- */
+  /** ✅ ENHANCED: Professional Follow User with comprehensive error handling ---------- */
   const followUser = useCallback(
     async (targetUserId: number) => {
       if (!requireAuth('Following')) return;
@@ -1524,79 +1548,157 @@ export default function App() {
       const meId = Number(currentUser.id);
       const targetId = Number(targetUserId);
 
-      // ✅ backend blocks self-follow
+      // Prevent self-follow and invalid IDs
       if (!targetId || targetId === meId) return;
 
-      // ✅ TRUE follow state comes from my "following"
+      // Prevent double-clicks
+      if (followLoading[targetId]) return;
+      setFollowLoading(prev => ({ ...prev, [targetId]: true }));
+
+      // Determine current follow state
       const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
       const isFollowingNow = myFollowing.has(targetId);
 
-      // ---------- optimistic update ----------
-      setUsers((prev) => {
-        const arr = safeArray(prev).map(normalizeUser);
+      // Save original state for rollback
+      const originalUsers = [...users];
+      const originalCurrentUser = currentUser;
 
-        return arr.map((u) => {
-          const uid = Number(u.id);
-
-          // update ME.following
-          if (uid === meId) {
-            const following = new Set<number>(safeArray<number>((u as any).following));
-            if (isFollowingNow) following.delete(targetId);
-            else following.add(targetId);
-            return normalizeUser({ ...u, following: Array.from(following) });
-          }
-
-          // update TARGET.followers
-          if (uid === targetId) {
-            const followers = new Set<number>(safeArray<number>((u as any).followers));
-            if (isFollowingNow) followers.delete(meId);
-            else followers.add(meId);
-            return normalizeUser({ ...u, followers: Array.from(followers) });
-          }
-
-          return u;
-        });
-      });
-
-      // keep currentUser in sync + persist
-      setCurrentUser((prev) => {
-        if (!prev) return prev;
-        const following = new Set<number>(safeArray<number>((prev as any).following));
-        if (isFollowingNow) following.delete(targetId);
-        else following.add(targetId);
-        const next = normalizeUser({ ...prev, following: Array.from(following) });
-        localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
-        return next;
-      });
-
-      // ---------- API ----------
       try {
+        // ---------- OPTIMISTIC UPDATE ----------
+        // 1. Update users list
+        setUsers(prev => {
+          const arr = safeArray(prev).map(normalizeUser);
+          return arr.map((u) => {
+            const uid = Number(u.id);
+
+            // Update current user's following list
+            if (uid === meId) {
+              const following = new Set<number>(safeArray<number>((u as any).following));
+              if (isFollowingNow) following.delete(targetId);
+              else following.add(targetId);
+              return normalizeUser({ ...u, following: Array.from(following) });
+            }
+
+            // Update target user's followers list
+            if (uid === targetId) {
+              const followers = new Set<number>(safeArray<number>((u as any).followers));
+              if (isFollowingNow) followers.delete(meId);
+              else followers.add(meId);
+              return normalizeUser({ ...u, followers: Array.from(followers) });
+            }
+
+            return u;
+          });
+        });
+
+        // 2. Update current user state
+        setCurrentUser(prev => {
+          if (!prev) return prev;
+          const following = new Set<number>(safeArray<number>((prev as any).following));
+          if (isFollowingNow) following.delete(targetId);
+          else following.add(targetId);
+          const updatedUser = normalizeUser({ ...prev, following: Array.from(following) });
+          localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedUser));
+          return updatedUser;
+        });
+
+        // ---------- API CALL ----------
         if (isFollowingNow) {
-          await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
+          // Unfollow
+          await apiFetch(`/api/user-follows/${targetId}`, {
             method: 'DELETE',
+            body: JSON.stringify({ follower_id: meId }),
           });
         } else {
+          // Follow
           await apiFetch('/api/user-follows', {
             method: 'POST',
-            body: JSON.stringify({ follower_id: meId, following_id: targetId }),
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              follower_id: meId, 
+              following_id: targetId 
+            }),
           });
         }
 
-        // ✅ optional: refresh follow lists (only if your list endpoint exists)
-        fetchUserFollowDataForUI(targetId).catch(() => {});
-        fetchUserFollowDataForUI(meId).catch(() => {});
+        // ---------- POST-SUCCESS SYNC ----------
+        // Refresh follow data from server for consistency
+        try {
+          const followData = await fetchUserFollowData(meId);
+          if (followData) {
+            const updatedCurrentUser = normalizeUser({
+              ...currentUser,
+              following: followData.following
+            });
+            setCurrentUser(updatedCurrentUser);
+            localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
+            
+            // Update users list with server data
+            setUsers(prev => prev.map(u => 
+              Number(u.id) === meId ? updatedCurrentUser : u
+            ));
+          }
 
+          // Also update target user's follower count if needed
+          const targetFollowData = await fetchUserFollowData(targetId);
+          if (targetFollowData) {
+            setUsers(prev => prev.map(u => 
+              Number(u.id) === targetId 
+                ? normalizeUser({ ...u, followers: targetFollowData.followers })
+                : u
+            ));
+          }
+        } catch (syncError) {
+          console.warn('Failed to sync follow data, but operation was successful:', syncError);
+        }
+
+        // Trigger silent refresh to update feed if needed
         scheduleSilentRefresh();
-      } catch (e) {
-        console.error('Follow toggle failed:', e);
 
-        // ✅ rollback using server truth
-        fetchUserFollowDataForUI(targetId).catch(() => {});
+      } catch (error: any) {
+        console.error('Follow toggle failed:', error);
+        
+        // ---------- ROLLBACK ON ERROR ----------
+        // 1. Revert users list
+        setUsers(originalUsers);
+        
+        // 2. Revert current user
+        setCurrentUser(originalCurrentUser);
+        if (originalCurrentUser) {
+          localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
+        }
+        
+        // 3. Show error message
+        setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${error.message || 'Unknown error'}`);
+        
+        // 4. Re-fetch server truth
         fetchUserFollowDataForUI(meId).catch(() => {});
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+      } finally {
+        // Clear loading state
+        setFollowLoading(prev => ({ ...prev, [targetId]: false }));
       }
     },
-    [requireAuth, currentUser, scheduleSilentRefresh, fetchUserFollowDataForUI]
+    [requireAuth, currentUser, users, followLoading, scheduleSilentRefresh, fetchUserFollowDataForUI]
   );
+
+  /** ✅ ADDED: Check follow status utility ---------- */
+  const checkIsFollowing = useCallback((targetUserId: number): boolean => {
+    if (!currentUser || !targetUserId) return false;
+    const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
+    return myFollowing.has(Number(targetUserId));
+  }, [currentUser]);
+
+  /** ✅ ADDED: Bulk follow status check ---------- */
+  const checkMultipleFollowing = useCallback((userIds: number[]): { [key: number]: boolean } => {
+    if (!currentUser) return {};
+    const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
+    const result: { [key: number]: boolean } = {};
+    userIds.forEach(id => {
+      result[id] = myFollowing.has(Number(id));
+    });
+    return result;
+  }, [currentUser]);
 
   const updateUserDetails = useCallback(
     async (data: Partial<User>) => {
@@ -1766,6 +1868,9 @@ export default function App() {
                     groups={groups}
                     brands={brands}
                     chats={chats}
+                    isFollowing={checkIsFollowing(Number((post as any).user_id))}
+                    onFollow={followUser}
+                    followLoading={followLoading[Number((post as any).user_id)] || false}
                   />
                 ))
               ) : !feedHydrated ? (
@@ -1795,6 +1900,8 @@ export default function App() {
               onFollow={(id: number) => followUser(id)}
               getCommentAuthor={(id) => users.find((u) => u.id === id)}
               initialReelId={activeReelId}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
             />
           )}
 
@@ -1829,6 +1936,8 @@ export default function App() {
               onRemoveMember={() => requireAuth('Removing members')}
               onUpdateGroupSettings={() => requireAuth('Updating settings')}
               onPlayAudioTrack={setCurrentAudioTrack}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
             />
           )}
 
@@ -1839,7 +1948,7 @@ export default function App() {
               posts={posts}
               users={users}
               onCreateBrand={() => requireAuth('Creating brands')}
-              onFollowBrand={() => requireAuth('Following')}
+              onFollowBrand={(id: number) => followUser(id)}
               onProfileClick={(id) => openProfile(id)}
               onPostAsBrand={() => requireAuth('Posting')}
               onReact={() => requireAuth('Reacting')}
@@ -1854,6 +1963,8 @@ export default function App() {
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
               onPlayAudioTrack={setCurrentAudioTrack}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
             />
           )}
 
@@ -1865,6 +1976,8 @@ export default function App() {
               likedTracks={[]}
               onToggleLike={() => requireAuth('Liking')}
               playHistory={[]}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
             />
           )}
 
@@ -1876,6 +1989,8 @@ export default function App() {
               users={users}
               onFollow={(id: number) => followUser(id)}
               onProfileClick={(id) => openProfile(id)}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
             />
           )}
 
@@ -1889,6 +2004,8 @@ export default function App() {
                 setShowCreateEventModal(true);
               }}
               onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
             />
           )}
 
@@ -1901,6 +2018,8 @@ export default function App() {
                 setActiveChatUser(users.find((u) => u.id === id) || null);
               }}
               onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
             />
           )}
 
@@ -1916,6 +2035,8 @@ export default function App() {
               onOpenComments={(id) => onOpenComments(id)}
               onVideoClick={() => {}}
               onPlayAudioTrack={setCurrentAudioTrack}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
             />
           )}
 
@@ -1963,6 +2084,9 @@ export default function App() {
               onRestrictUser={(id, duration) => suspendUser(id, duration)}
               onDeleteUser={(id) => deleteUserAccount(id)}
               onMakeModerator={(id, make) => setModeratorRole(id, make ? "moderator" : "user")}
+              // ✅ ADDED: Pass follow utilities
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading[Number(profileUser.id)] || false}
             />
           )}
 
@@ -1990,6 +2114,9 @@ export default function App() {
             <RightSidebar
               contacts={users.filter((u) => u.id !== currentUser.id)}
               onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
             />
           </div>
         )}
@@ -2006,6 +2133,8 @@ export default function App() {
             setActiveChatUser(users.find((u) => u.id === id) || null);
             setView('home');
           }}
+          onFollow={followUser}
+          checkIsFollowing={checkIsFollowing}
         />
       )}
 
@@ -2039,6 +2168,8 @@ export default function App() {
           onLikeComment={() => {}}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
+          onFollow={followUser}
+          checkIsFollowing={checkIsFollowing}
         />
       )}
 
@@ -2056,6 +2187,8 @@ export default function App() {
           brands={brands}
           chats={chats}
           onShareComplete={handleShareComplete}
+          onFollow={followUser}
+          checkIsFollowing={checkIsFollowing}
         />
       )}
 
