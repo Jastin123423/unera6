@@ -311,6 +311,55 @@ const reactionStyles = `
 
 /**
  * =========================
+ * ✅ ADDED: ExpandableRichText Component for Show More/Show Less
+ * =========================
+ */
+const ExpandableRichText: React.FC<{
+  text: string;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+  maxWords?: number;
+  fontSizePx?: number;
+}> = ({ text, users, onProfileClick, onHashtagClick, maxWords = 25, fontSizePx = 21 }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const words = (text || '').trim().split(/\s+/).filter(Boolean);
+  const isLong = words.length > maxWords;
+
+  const shownText = !isLong
+    ? text
+    : expanded
+      ? text
+      : words.slice(0, maxWords).join(' ') + '…';
+
+  return (
+    <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed">
+      <RichText
+        text={shownText}
+        users={users}
+        onProfileClick={onProfileClick}
+        onHashtagClick={onHashtagClick}
+      />
+
+      {isLong && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          className="ml-2 font-bold text-[#1877F2] hover:underline"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+};
+
+/**
+ * =========================
  * RICH TEXT (hashtags + mentions)
  * =========================
  */
@@ -384,7 +433,7 @@ export const RichText = ({
 
 /**
  * =========================
- * ✅ ENHANCED: FACEBOOK-STYLE REACTION BUTTON WITH 25+ EMOJIS & LONG-PRESS
+ * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON - CLICK SHOWS EMOJIS WITHOUT AUTO-ADDING FIRST
  * =========================
  */
 export const ReactionButton: React.FC<{
@@ -469,13 +518,18 @@ export const ReactionButton: React.FC<{
     setTimeout(() => setShowPreview(false), 300);
   };
 
+  // ✅ UPDATED: Click only shows emojis, doesn't auto-add first one
   const handleClick = () => {
     if (isGuest) return alert('Please login to react.');
-    if (showDock) return; // Don't trigger if dock is open
-    
-    setIsAnimating(true);
-    onReact('like');
-    setTimeout(() => setIsAnimating(false), 300);
+    if (currentUserReactions) {
+      // If already reacted, clicking removes reaction
+      setIsAnimating(true);
+      onReact(currentUserReactions); // This will toggle off the current reaction
+      setTimeout(() => setIsAnimating(false), 300);
+    } else {
+      // If not reacted, show emoji dock
+      setShowDock(!showDock);
+    }
   };
 
   const handleDockReact = (type: ReactionType) => {
@@ -1276,13 +1330,16 @@ export const Post: React.FC<{
             )}
         </div>
 
+        {/* ✅ UPDATED: Use ExpandableRichText for post description */}
         {p.content && (
-          <div className="px-3 md:px-4 pb-2 text-[#E4E6EB] text-[17px]">
-            <RichText
-              text={p.content}
+          <div className="px-3 md:px-4 pb-2">
+            <ExpandableRichText
+              text={String(p.content)}
               users={users}
               onProfileClick={onProfileClick}
               onHashtagClick={onHashtagClick}
+              maxWords={25}
+              fontSizePx={21}
             />
           </div>
         )}
@@ -1991,7 +2048,7 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ UPDATED: COMMENTS SHEET WITH INSTANT UPDATES & REPLY SYSTEM
+ * ✅ FIXED: COMMENTS SHEET WITH PROPER REPLY ALIGNMENT AND FACEBOOK-LIKE BEHAVIOR
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -2040,11 +2097,20 @@ export const CommentsSheet: React.FC<{
     return { uid, name, image };
   };
 
-  // ✅ ADDED: Helper to get clean reply name
+  // ✅ FIXED: Helper to get clean reply name with proper username fallback
   const getReplyLabel = (comment: any) => {
     const a = resolveAuthor(comment);
-    // Prefer @username when available; fallback to name
-    const username = String(comment?.author_username ?? comment?.username ?? '').trim();
+    const uid = a.uid;
+    
+    // ✅ FIXED: Find user in users list to get username
+    const user = users.find((x: any) => Number(x?.id) === uid);
+    const username = String(
+      comment?.author_username ?? 
+      user?.username ?? 
+      comment?.username ?? 
+      ''
+    ).trim();
+    
     const display = username ? `@${username}` : a.name; // e.g. "@JohnBeda" or "John Beda"
     return { ...a, username, display };
   };
@@ -2168,26 +2234,35 @@ export const CommentsSheet: React.FC<{
     };
   }, [postId, p.comments]);
 
-  // Sort comments with replies
-  const sortComments = (comments: any[]) => {
-    const root = comments.filter(c => !c.parent_comment_id);
-    const repliesByParent = new Map<number, any[]>();
-    
-    comments.forEach(c => {
-      const pid = Number(c.parent_comment_id || 0);
-      if (pid) {
-        if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
-        repliesByParent.get(pid)!.push(c);
-      }
-    });
+  // ✅ FIXED: CORRECT sortComments function that handles string IDs properly
+  const idKey = (v: any) => String(v ?? '').trim();
 
+  const sortComments = (list: any[]) => {
+    const root = list.filter((c) => !c.parent_comment_id);
+    
+    const repliesByParent = new Map<string, any[]>();
+    
+    list.forEach((c) => {
+      const pid = idKey(c.parent_comment_id);
+      if (!pid) return;
+      
+      if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
+      repliesByParent.get(pid)!.push(c);
+    });
+    
+    // optional: keep oldest-first (Facebook)
+    repliesByParent.forEach((arr) => {
+      arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    });
+    
     const sorted: any[] = [];
-    root.forEach(comment => {
+    root.forEach((comment) => {
+      const cid = idKey(comment.id);
       sorted.push(comment);
-      const replies = repliesByParent.get(comment.id) || [];
+      const replies = repliesByParent.get(cid) || [];
       sorted.push(...replies);
     });
-
+    
     return sorted;
   };
 
