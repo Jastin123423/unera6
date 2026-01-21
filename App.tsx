@@ -5,6 +5,7 @@
 // ✅ UPDATED: Added viewerId to profile posts fetch and preserved reaction data
 // ✅ FIXED: Follow buttons reading and sending real data from API backend
 // ✅ ADDED: onLikeComment handler for comment likes
+// ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -645,6 +646,9 @@ export default function App() {
   // Add state for follow loading to prevent double clicks
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
+  // ✅ ADDED: Hashtag filtering state for Facebook-like feed filtering
+  const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
+
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -1121,11 +1125,35 @@ export default function App() {
     [requireAdmin, fetchUsersList]
   );
 
+  /** ---------- ✅ ADDED: Hashtag filtering logic ---------- */
+  const handleHashtagClick = useCallback((tag: string) => {
+    const cleanedTag = tag.startsWith('#') ? tag.toLowerCase() : `#${tag.toLowerCase()}`;
+    setActiveHashtag(cleanedTag);
+    setView('home');
+    window.scrollTo(0, 0);
+  }, []);
+
+  const clearHashtag = useCallback(() => {
+    setActiveHashtag(null);
+  }, []);
+
+  // ✅ Filter posts based on active hashtag
+  const filteredPosts = useMemo(() => {
+    if (!activeHashtag) return posts;
+    
+    const tagWithoutHash = activeHashtag.replace('#', '').toLowerCase();
+    return posts.filter((p: any) => {
+      const content = String(p.content || '').toLowerCase();
+      return content.includes(`#${tagWithoutHash}`) || content.includes(` ${tagWithoutHash} `);
+    });
+  }, [posts, activeHashtag]);
+
   /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
-    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : posts;
+    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
+                     activeHashtag ? filteredPosts : posts;
     return Array.isArray(feedToRank) ? feedToRank : [];
-  }, [posts]);
+  }, [posts, filteredPosts, activeHashtag]);
 
   /** ✅ Updated activePost resolver to include profilePosts ---------- */
   const activePost = useMemo(() => {
@@ -1261,6 +1289,7 @@ export default function App() {
     setCurrentUser(null);
     setSelectedUserId(null);
     setProfilePosts([]);
+    setActiveHashtag(null); // ✅ Clear hashtag filter on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
   };
@@ -1802,6 +1831,24 @@ export default function App() {
         <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
           {view === 'home' && (
             <div className="w-full pt-4 md:px-8 pb-10">
+              {/* ✅ ADDED: Hashtag filter chip */}
+              {activeHashtag && (
+                <div className="mb-3 px-4">
+                  <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
+                    <span className="text-[#1877F2] font-semibold">{activeHashtag}</span>
+                    <button 
+                      onClick={clearHashtag} 
+                      className="text-[#B0B3B8] hover:text-white ml-1"
+                    >
+                      <i className="fas fa-times" />
+                    </button>
+                  </div>
+                  <p className="text-[#B0B3B8] text-xs mt-1">
+                    Showing posts with {activeHashtag}
+                  </p>
+                </div>
+              )}
+
               <StoryReel
                 stories={stories}
                 onProfileClick={(id) => openProfile(id)}
@@ -1859,6 +1906,8 @@ export default function App() {
                       groups={groups}
                       brands={brands}
                       chats={chats}
+                      // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
+                      onHashtagClick={handleHashtagClick}
                       // ✅ CORRECT: Pass follow status and handler
                       isFollowing={isFollowing}
                       onFollow={() => followUser(postAuthorId)}
@@ -1868,6 +1917,16 @@ export default function App() {
                 })
               ) : !feedHydrated ? (
                 <div className="text-center py-20 text-[#B0B3B8]"></div>
+              ) : activeHashtag ? (
+                <div className="text-center py-20 text-[#B0B3B8]">
+                  <p>No posts found with {activeHashtag}.</p>
+                  <button 
+                    onClick={clearHashtag}
+                    className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
+                  >
+                    Clear filter
+                  </button>
+                </div>
               ) : (
                 <div className="text-center py-20 text-[#B0B3B8]">
                   <p>No posts available.</p>
@@ -2162,6 +2221,8 @@ export default function App() {
           onLikeComment={handleLikeComment}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
+          // ✅ ADDED: Pass onHashtagClick handler for comments
+          onHashtagClick={handleHashtagClick}
           onFollow={followUser}
           checkIsFollowing={checkIsFollowing}
         />
