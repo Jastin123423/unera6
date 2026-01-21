@@ -4,6 +4,7 @@
 // ✅ FIXED: Immediate reaction updates with my_reaction field
 // ✅ UPDATED: Added viewerId to profile posts fetch and preserved reaction data
 // ✅ FIXED: Follow buttons reading and sending real data from API backend
+// ✅ ADDED: onLikeComment handler for comment likes
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -1238,6 +1239,18 @@ export default function App() {
     }
   };
 
+  /** ✅ ADDED: Handle comment likes ---------- */
+  const handleLikeComment = async (commentId: number) => {
+    if (!currentUser) return;
+
+    // This endpoint MUST exist: functions/api/comments/[id]/like.ts
+    await fetch(`/api/comments/${commentId}/like`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
+  };
+
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
 
@@ -2145,7 +2158,8 @@ export default function App() {
             setCommentPostSnapshot(null);
           }}
           onComment={() => {}}
-          onLikeComment={() => {}}
+          // ✅ ADDED: Pass onLikeComment handler
+          onLikeComment={handleLikeComment}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
           onFollow={followUser}
