@@ -2013,9 +2013,10 @@ export const CommentsSheet: React.FC<{
     }
 
     try {
+      // ✅ UPDATED: Use apiFetch instead of direct fetch
       await apiFetch(`/api/comments/${comment.id}/like`, {
         method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id }),
+        body: JSON.stringify({ user_id: safeUserId(currentUser) }),
       });
     } catch (error) {
       console.error('Failed to like comment:', error);
@@ -2029,6 +2030,37 @@ export const CommentsSheet: React.FC<{
             } 
           : c
       ));
+    }
+  };
+
+  // Silent background fetch for comments
+  const fetchCommentsSilently = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    
+    try {
+      // ✅ UPDATED: Send viewerId when fetching comments
+      const viewerId = safeUserId(currentUser);
+      const data = await apiFetch(`/api/posts/${postId}/comments?viewerId=${viewerId}`);
+      const arr = Array.isArray(data) ? data : data?.comments || [];
+      const sorted = sortComments(arr);
+      
+      if (arr.length > 0) {
+        setComments(sorted);
+        commentsCache.set(postId, { 
+          data: arr, 
+          timestamp: Date.now(),
+          postId 
+        });
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        return;
+      }
+      console.debug('Silent comment fetch failed:', error);
     }
   };
 
@@ -2088,35 +2120,6 @@ export const CommentsSheet: React.FC<{
     });
 
     return sorted;
-  };
-
-  // Silent background fetch
-  const fetchCommentsSilently = async () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    abortControllerRef.current = new AbortController();
-    
-    try {
-      const data = await apiFetch(`/api/posts/${postId}/comments`);
-      const arr = Array.isArray(data) ? data : data?.comments || [];
-      const sorted = sortComments(arr);
-      
-      if (arr.length > 0) {
-        setComments(sorted);
-        commentsCache.set(postId, { 
-          data: arr, 
-          timestamp: Date.now(),
-          postId 
-        });
-      }
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        return;
-      }
-      console.debug('Silent comment fetch failed:', error);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -2250,8 +2253,13 @@ export const CommentsSheet: React.FC<{
               return (
                 <div 
                   key={String(c.id)} 
-                  className={`flex gap-2 animate-fade-in ${isReply ? 'ml-8' : ''}`}
+                  className={`flex gap-2 animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
                 >
+                  {/* ✅ ADDED: Thread line for replies */}
+                  {isReply && (
+                    <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
+                  )}
+                  
                   <img
                     src={a.image}
                     className="w-8 h-8 rounded-full object-cover cursor-pointer flex-shrink-0"
@@ -2259,7 +2267,7 @@ export const CommentsSheet: React.FC<{
                     onClick={() => a.uid && onProfileClick(a.uid)}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="bg-[#3A3B3C] px-4 py-2 rounded-2xl">
+                    <div className={`bg-[#3A3B3C] px-4 py-2 rounded-2xl ${isReply ? 'max-w-[92%]' : ''}`}>
                       <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
                         <span
                           className="cursor-pointer hover:underline truncate max-w-[150px]"
