@@ -29,52 +29,39 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const body = await request.json().catch(() => ({} as any));
 
     const user_id = toInt(body.user_id, 0);
-    const type = toStr(body.type, "image"); // "text" | "image"
+    const type = toStr(body.type, "");
     const media_url = body.media_url ? toStr(body.media_url) : null;
     const text_content = body.text_content ? toStr(body.text_content) : null;
     const background_style = body.background_style ? toStr(body.background_style) : null;
     const music_url = body.music_url ? toStr(body.music_url) : null;
     const music_title = body.music_title ? toStr(body.music_title) : null;
 
-    // ✅ default expires_at to +24h
-    const expires_at =
-      typeof body.expires_at === "string" && body.expires_at.trim()
-        ? body.expires_at.trim()
-        : null;
+    // client can send, but we also safely default
+    const expires_at_raw = typeof body.expires_at === "string" ? body.expires_at.trim() : "";
 
     if (!user_id) return json({ error: "user_id is required" }, 400);
+    if (type !== "text" && type !== "image") return json({ error: "type must be text or image" }, 400);
 
-    // ✅ basic validation
-    if (type === "text") {
-      if (!text_content) return json({ error: "text_content is required for text stories" }, 400);
-    } else {
-      if (!media_url) return json({ error: "media_url is required for image stories" }, 400);
-    }
+    if (type === "text" && !text_content) return json({ error: "text_content is required" }, 400);
+    if (type === "image" && !media_url) return json({ error: "media_url is required" }, 400);
 
-    const insert = await env.DB.prepare(
-      `
+    // ✅ Default expires_at = now + 24h if missing
+    const expiresExpr = expires_at_raw ? "?" : "datetime('now','+24 hours')";
+
+    const stmt = `
       INSERT INTO stories
       (user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at)
-      VALUES
-      (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now','+24 hours')))
-    `
-    )
-      .bind(
-        user_id,
-        type,
-        media_url,
-        text_content,
-        background_style,
-        music_url,
-        music_title,
-        expires_at
-      )
-      .run();
+      VALUES (?, ?, ?, ?, ?, ?, ?, ${expiresExpr})
+    `;
 
-    const story_id = Number(insert.meta?.last_row_id);
-    if (!story_id) return json({ error: "Failed to create story" }, 500);
+    const bindArgs = expires_at_raw
+      ? [user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at_raw]
+      : [user_id, type, media_url, text_content, background_style, music_url, music_title];
 
-    // ✅ return full story + author fields for instant UI
+    const result = await env.DB.prepare(stmt).bind(...bindArgs).run();
+    const story_id = Number(result.meta?.last_row_id);
+
+    // ✅ return full story with author fields
     const story = await env.DB.prepare(
       `
       SELECT
@@ -90,7 +77,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .bind(story_id)
       .first();
 
-    return json({ success: true, story: story ?? null }, 201);
+    return json({ success: true, story }, 201);
   } catch (err: any) {
     return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
   }
@@ -101,8 +88,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const url = new URL(request.url);
     const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
-    // ✅ show only active stories (not expired)
-    // ✅ order by newest first (like your reel UI expects)
     const q = `
       SELECT
         s.*,
