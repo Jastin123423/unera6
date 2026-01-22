@@ -6,6 +6,7 @@
 // ✅ FIXED: Follow buttons reading and sending real data from API backend
 // ✅ ADDED: onLikeComment handler for comment likes
 // ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
+// ✅ UPDATED: Story backend integration with liked_by_me support
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -17,7 +18,7 @@ import {
   SuggestedProductsWidget,
   ShareBottomSheet,
 } from './components/Feed';
-import { StoryReel, CreateStoryModal } from './components/Story';
+import { StoryReel, CreateStoryModal, StoryViewer } from './components/Story'; // ✅ 4) Ensure StoryViewer is imported
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
@@ -593,6 +594,87 @@ const createFallbackUser = (): User => {
   };
 };
 
+/** ✅ 2) Add likeStory and replyToStory handlers ---------- */
+const useStoryHandlers = (currentUser: User | null, setStories: React.Dispatch<React.SetStateAction<Story[]>>, fetchOtherData: () => Promise<void>) => {
+  const likeStory = useCallback(async (storyId: number) => {
+    if (!currentUser) return;
+
+    // optimistic toggle
+    setStories(prev =>
+      safeArray(prev).map((s: any) => {
+        if (Number(s.id) !== Number(storyId)) return s;
+        const liked = Boolean(s.liked_by_me);
+        const count = safeNumber(s.likes_count, 0);
+        return {
+          ...s,
+          liked_by_me: liked ? 0 : 1,
+          likes_count: liked ? Math.max(0, count - 1) : count + 1
+        };
+      })
+    );
+
+    try {
+      const data = await apiFetch(`/api/stories/${storyId}/react`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+      // server truth
+      setStories(prev =>
+        safeArray(prev).map((s: any) =>
+          Number(s.id) === Number(storyId)
+            ? {
+                ...s,
+                liked_by_me: data?.liked ? 1 : 0,
+                likes_count: safeNumber(data?.likes_count, s.likes_count),
+              }
+            : s
+        )
+      );
+    } catch {
+      // rollback by refetch
+      fetchOtherData().catch(() => {});
+    }
+  }, [currentUser, fetchOtherData]);
+
+  const replyToStory = useCallback(async (storyId: number, text: string) => {
+    if (!currentUser) return;
+
+    await apiFetch(`/api/stories/${storyId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: currentUser.id, text }),
+    });
+  }, [currentUser]);
+
+  return { likeStory, replyToStory };
+};
+
+/** ✅ 5) Add createStory handler ---------- */
+const useCreateStoryHandler = (currentUser: User | null, setStories: React.Dispatch<React.SetStateAction<Story[]>>) => {
+  const createStory = useCallback(async (story: Partial<Story>) => {
+    if (!currentUser) return;
+
+    const payload = {
+      user_id: currentUser.id,
+      type: story.type,
+      media_url: story.media_url ?? null,
+      text_content: story.text_content ?? null,
+      background_style: story.background_style ?? null,
+      music_url: story.music_url ?? null,
+      music_title: story.music_title ?? null,
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    const res = await apiFetch("/api/stories", { method: "POST", body: JSON.stringify(payload) });
+
+    // add new story into state immediately
+    const newStory = res?.story ? res.story : { ...payload, id: Date.now(), created_at: new Date().toISOString() };
+    setStories(prev => [newStory as any, ...safeArray(prev)]);
+  }, [currentUser]);
+
+  return createStory;
+};
+
 export default function App() {
   useLanguage();
 
@@ -648,6 +730,10 @@ export default function App() {
 
   // ✅ ADDED: Hashtag filtering state for Facebook-like feed filtering
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
+
+  /** ✅ Get story handlers ---------- */
+  const { likeStory, replyToStory } = useStoryHandlers(currentUser, setStories, fetchOtherData);
+  const createStory = useCreateStoryHandler(currentUser, setStories);
 
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
@@ -920,8 +1006,10 @@ export default function App() {
 
   /** ---------- Fetch other data ---------- */
   const fetchOtherData = useCallback(async () => {
+    // ✅ 1) Fetch stories with viewerId (so liked_by_me works)
+    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
     const [s, r, pr, g, b, e, c] = await Promise.all([
-      apiFetch('/api/stories').catch(() => []),
+      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []), // ✅ Updated with viewerId
       apiFetch('/api/reels').catch(() => []),
       apiFetch('/api/products').catch(() => []),
       apiFetch('/api/groups').catch(() => []),
@@ -937,7 +1025,7 @@ export default function App() {
     setBrands(safeArray(b));
     setEvents(safeArray(e));
     setChats(safeArray(c));
-  }, []);
+  }, [currentUser]); // ✅ Added currentUser dependency
 
   /** ---------- One fetch pipeline ---------- */
   const fetchData = useCallback(
@@ -2263,8 +2351,50 @@ export default function App() {
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
+      {/* ✅ 3) Render StoryViewer overlay and pass these new props */}
+      {activeStory && (
+        <StoryViewer
+          story={activeStory}
+          user={
+            (activeStory as any).user ||
+            ({
+              id: (activeStory as any).user_id,
+              name: (activeStory as any).author_name || "User",
+              username: (activeStory as any).author_name || "user",
+              profile_image_url: (activeStory as any).author_image || "",
+            } as any)
+          }
+          currentUser={currentUser}
+          onClose={() => setActiveStory(null)}
+          onNext={() => {
+            const list = safeArray(stories).filter((s: any) => Number(s.user_id) === Number((activeStory as any).user_id));
+            const idx = list.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
+            const next = list[idx + 1];
+            if (next) setActiveStory(next);
+            else setActiveStory(null);
+          }}
+          onPrev={() => {
+            const list = safeArray(stories).filter((s: any) => Number(s.user_id) === Number((activeStory as any).user_id));
+            const idx = list.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
+            const prev = list[idx - 1];
+            if (prev) setActiveStory(prev);
+          }}
+          onLike={(id) => likeStory(id)}
+          onReply={(id, text) => replyToStory(id, text)}
+          allStories={stories}
+        />
+      )}
+
       {showCreateStoryModal && currentUser && (
-        <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
+        <CreateStoryModal 
+          currentUser={currentUser} 
+          songs={[]}  // pass your songs list if you have it
+          onClose={() => setShowCreateStoryModal(false)}
+          onCreate={(s) => {
+            createStory(s as any);
+            setShowCreateStoryModal(false);
+          }}
+        />
       )}
 
       {showCreateReelModal && currentUser && (
