@@ -14,6 +14,19 @@ const formatStoryTime = (created_at?: string) => {
   return `${Math.floor(diff / 86_400_000)}days`;
 };
 
+// ✅ A1) Add helpers for stable name handling
+const isPlaceholderName = (v: any) => {
+  const s = String(v ?? "").trim().toLowerCase();
+  return !s || s === "user" || s === "unknown" || s === "un";
+};
+
+const pickBestName = (...vals: any[]) => {
+  for (const v of vals) {
+    if (!isPlaceholderName(v)) return String(v);
+  }
+  return "User";
+};
+
 // ✅ 5) Update StoryViewer props
 interface StoryViewerProps {
     story: Story;
@@ -39,33 +52,60 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const inputRef = useRef<HTMLInputElement>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
-    const userStories = allStories.filter(s => Number(s.user_id) === Number(story.user_id));
-    const currentIndex = userStories.findIndex(s => Number(s.id) === Number(story.id));
+    // ✅ A2) Add refs for stable story list and navigation
+    const frozenUserStoriesRef = useRef<Story[]>([]);
+    const didAdvanceRef = useRef(false);
+
+    // ✅ A2) Freeze the user's stories when viewer opens
+    useEffect(() => {
+        // Freeze the user's stories when viewer opens or story changes
+        const list = allStories
+            .filter((s) => Number(s.user_id) === Number(story.user_id))
+            // Facebook-like: oldest -> newest within a user's deck
+            .slice()
+            .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+
+        frozenUserStoriesRef.current = list;
+        didAdvanceRef.current = false;
+        setProgress(0);
+        // IMPORTANT: do NOT depend on allStories (it changes while viewing)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [story.id, story.user_id]);
+
+    const userStories = frozenUserStoriesRef.current;
+    const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
     
     // ✅ 3) Use liked_by_me with proper ID comparison
     const currentStoryState = allStories.find(s => Number(s.id) === Number(story.id)) || story;
     const hasLiked = Boolean(currentUser && (currentStoryState as any)?.liked_by_me);
 
+    // ✅ A3) Replace progress timer with stable navigation
     useEffect(() => {
-        let duration = 5000; 
+        let duration = 5000;
         setProgress(0);
+        didAdvanceRef.current = false;
 
         const timer = setInterval(() => {
-            if (!isPaused) {
-                setProgress((prev) => {
-                    if (prev >= 100) {
-                        clearInterval(timer);
-                        if (onNext) onNext();
-                        return 100;
-                    }
-                    const increment = 100 / (duration / 50); 
-                    return Math.min(100, prev + increment);
-                });
-            }
-        }, 50); 
+            if (isPaused) return;
+
+            setProgress((prev) => {
+                if (prev >= 100) return 100;
+
+                const increment = 100 / (duration / 50);
+                const next = Math.min(100, prev + increment);
+
+                if (next >= 100 && !didAdvanceRef.current) {
+                    didAdvanceRef.current = true;
+                    clearInterval(timer);
+                    onNext?.();
+                }
+
+                return next;
+            });
+        }, 50);
 
         return () => clearInterval(timer);
-    }, [story.id, onNext, isPaused]);
+    }, [story.id, isPaused, onNext]);
 
     useEffect(() => {
         if (story.music_url && !story.music_url.startsWith('blob:')) {
@@ -151,8 +191,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                     </div>
                 )}
 
-                <div className="absolute inset-y-0 left-0 w-1/4 z-10" onClick={onPrev}></div>
-                <div className="absolute inset-y-0 right-0 w-1/4 z-10" onClick={onNext}></div>
+                {/* ✅ A4) Fix tap zones with safe click handlers */}
+                <div
+                    className="absolute inset-y-0 left-0 w-1/4 z-10"
+                    onClick={(e) => { e.stopPropagation(); onPrev?.(); }}
+                />
+                <div
+                    className="absolute inset-y-0 right-0 w-1/4 z-10"
+                    onClick={(e) => { e.stopPropagation(); onNext?.(); }}
+                />
                 
                 <div className="flex-1 flex items-center justify-center bg-[#111] relative" onDoubleClick={handleLike}>
                     {story.type === 'text' ? (
@@ -220,16 +267,29 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
             </div>
 
             {uniqueUserStories.map((story) => {
-                // ✅ 2) Use backend author fields first, with proper fallbacks
-                const authorName = (story as any).author_name || "User";
-                const authorImage = (story as any).author_image || getDefaultProfilePicture(authorName, story.user_id);
+                // ✅ A5) Fix name flicker with pickBestName helper
+                const bestName = pickBestName(
+                    story.user?.name,
+                    (story as any).author_name,
+                    (story as any).author_username,
+                    (story as any).username
+                );
+
+                const bestUsername = pickBestName(
+                    story.user?.username,
+                    (story as any).author_username,
+                    (story as any).username,
+                    bestName.toLowerCase().replace(/\s+/g, "_")
+                );
+
+                const authorImage = (story as any).author_image || getDefaultProfilePicture(bestName, story.user_id);
                 
                 const author =
                     story.user ||
                     ({
                         id: story.user_id,
-                        name: authorName,
-                        username: authorName.toLowerCase().replace(/\s+/g, '') || "user",
+                        name: bestName,
+                        username: bestUsername,
                         profile_image_url: authorImage,
                     } as any);
                 
