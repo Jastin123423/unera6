@@ -197,68 +197,80 @@ export const GIF_CATEGORIES = {
 
 export const MOCK_GIFS = Object.values(GIF_CATEGORIES).flat();
 
-// REMOVED: Fake "UNERA Official" account
-export const INITIAL_USERS: User[] = [
-    // REMOVED: Fake official platform account
-    {
-        : 2,
-        username: 'johndoe',
-        name: 'John Doe',
-        email: 'john@example.com',
-        profile_image_url: '',
-        followers: [],
-        following: [],
-        is_online: true,
-        location: 'Nairobi, Kenya',
-        bio: 'Tech enthusiast and traveler.'
-    },
-    {
-        : 3,
-        username: 'sarahj',
-        name: 'Sarah Johnson',
-        email: 'sarah@example.com',
-        profile_image_url: '',
-        followers: [],
-        following: [],
-        is_online: false,
-        location: 'Kampala, Uganda',
-        bio: 'Digital Artist & Creative Soul.'
-    }
-];
+// ============================================================================
+// SAFE SYSTEM FALLBACK USER - NO FAKE USERS
+// ============================================================================
 
-// REMOVED: Fake "UNERA Developers" group
+/**
+ * System fallback user to prevent UI breakage when no real users exist
+ * This is a neutral placeholder that doesn't represent any real person
+ */
+export const SYSTEM_FALLBACK_USER: User = {
+    id: 0,
+    username: "user",
+    name: "User",
+    email: "",
+    profile_image_url: "https://ui-avatars.com/api/?name=UN&background=1877F2&color=FFFFFF&size=128&rounded=true&bold=true&length=2",
+    followers: [],
+    following: [],
+    is_online: false,
+    location: "",
+    bio: ""
+};
+
+/**
+ * INITIAL_USERS is kept for backward compatibility
+ * Contains only the system fallback user - no fake individuals
+ */
+export const INITIAL_USERS: User[] = [SYSTEM_FALLBACK_USER];
+
+// ============================================================================
+// GROUPS - EMPTY (LET REAL USERS CREATE THEIR OWN)
+// ============================================================================
+
 export const INITIAL_GROUPS: Group[] = [
-    // No fake groups - let real users create their own
+    // No pre-seeded groups - users create their own
 ];
 
-// REMOVED: Fake "Unera Music" brand
+// ============================================================================
+// BRANDS - EMPTY (LET REAL USERS/BUSINESSES CREATE THEIR OWN)
+// ============================================================================
+
 export const INITIAL_BRANDS: Brand[] = [
-    // No fake brands - let real users create their own
+    // No pre-seeded brands - real businesses create their own
 ];
+
+// ============================================================================
+// EVENTS - EMPTY (LET REAL USERS CREATE THEIR OWN)
+// ============================================================================
 
 export const INITIAL_EVENTS: Event[] = [
-    // Events should be created by real users, not seeded as fake
+    // No pre-seeded events - users create their own
 ];
+
+// ============================================================================
+// CONTENT DATA - LINKED TO SYSTEM FALLBACK USER FOR SAFETY
+// ============================================================================
 
 export const MOCK_SONGS: Song[] = [
     {
         id: 1,
-        uploader_id: 2, // Changed from fake admin to real user (John Doe)
-        title: 'Sunrise Over Arusha',
-        artist_name: 'Bongo Flava King',
+        uploader_id: 0, // Linked to SYSTEM_FALLBACK_USER for safety
+        title: 'Sample Track',
+        artist_name: 'Artist',
         cover_image_url: 'https://images.unsplash.com/photo-1514525253440-b393452e8d26?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
         audio_url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
         duration_seconds: 245,
-        genre: 'Bongo Flava',
+        genre: 'Music',
         created_at: new Date().toISOString(),
-        stats: { plays: 1250, downloads: 450, shares: 120, likes: 800, reels_use: 45 }
+        stats: { plays: 0, downloads: 0, shares: 0, likes: 0, reels_use: 0 }
     }
 ];
 
 export const MOCK_ALBUMS: Album[] = [
     {
         id: 'a1',
-        title: 'African Rhythm',
+        title: 'Sample Album',
         artist: 'Various Artists',
         cover: 'https://images.unsplash.com/photo-1459749411177-042180ce673c?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
         year: '2025',
@@ -269,13 +281,13 @@ export const MOCK_ALBUMS: Album[] = [
 export const MOCK_PODCASTS: any[] = [
     {
         id: 1,
-        creator_id: 2, // Changed from fake admin to real user
-        title: 'The Tech Savanna',
-        host: 'Tech Guru',
+        creator_id: 0, // Linked to SYSTEM_FALLBACK_USER for safety
+        title: 'Sample Podcast',
+        host: 'Host',
         cover_url: 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
-        description: 'Discussing the future of tech in Africa.',
-        category: 'Technology',
-        followers: 450,
+        description: 'A sample podcast for demonstration.',
+        category: 'General',
+        followers: 0,
         created_at: new Date().toISOString()
     }
 ];
@@ -284,16 +296,20 @@ export const MOCK_EPISODES: Episode[] = [
     {
         id: 1,
         podcast_id: 1,
-        uploader_id: 2, // Changed from fake admin to real user
-        title: 'Episode 1: The Rise of AI in Lagos',
-        description: 'We dive deep into the silicon savanna of Nigeria.',
+        uploader_id: 0, // Linked to SYSTEM_FALLBACK_USER for safety
+        title: 'Sample Episode',
+        description: 'A sample episode for demonstration.',
         created_at: new Date().toISOString(),
         duration_seconds: 1800,
         audio_url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
         cover_image_url: 'https://images.unsplash.com/photo-1478737270239-2fccd27ee086?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
-        stats: { plays: 320, downloads: 85, shares: 12, likes: 90, reels_use: 0 }
+        stats: { plays: 0, downloads: 0, shares: 0, likes: 0, reels_use: 0 }
     }
 ];
+
+// ============================================================================
+// TRANSLATIONS
+// ============================================================================
 
 export const TRANSLATIONS: Record<string, any> = {
     en: {
@@ -350,4 +366,31 @@ export const TRANSLATIONS: Record<string, any> = {
         have_account: "Tayari unayo akaunti?",
         create_reel: "Tengeneza Reel"
     }
+};
+
+// ============================================================================
+// HELPER UTILITIES FOR MIGRATION
+// ============================================================================
+
+/**
+ * Helper to check if a user ID belongs to the system fallback
+ */
+export const isSystemFallbackUser = (userId: number): boolean => {
+    return userId === SYSTEM_FALLBACK_USER.id;
+};
+
+/**
+ * Get safe user data - returns fallback if user not found
+ */
+export const getSafeUser = (userId: number, users: User[] = INITIAL_USERS): User => {
+    const user = users.find(u => u.id === userId);
+    return user || SYSTEM_FALLBACK_USER;
+};
+
+/**
+ * Get safe user display name
+ */
+export const getSafeUserName = (userId: number, users: User[] = INITIAL_USERS): string => {
+    const user = users.find(u => u.id === userId);
+    return user ? user.name : SYSTEM_FALLBACK_USER.name;
 };
