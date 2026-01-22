@@ -1,8 +1,21 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Story, User, Song } from '../types';
 import { INITIAL_USERS } from '../constants';
 
+// ✅ 1) Add time formatter helper
+const formatStoryTime = (created_at?: string) => {
+  if (!created_at) return "Just now";
+  const t = new Date(created_at).getTime();
+  if (!Number.isFinite(t)) return "Just now";
+
+  const diff = Date.now() - t;
+  if (diff < 60_000) return "Just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}min`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}hrs`;
+  return `${Math.floor(diff / 86_400_000)}days`;
+};
+
+// ✅ 5) Update StoryViewer props
 interface StoryViewerProps {
     story: Story;
     user: User;
@@ -10,8 +23,8 @@ interface StoryViewerProps {
     onClose: () => void;
     onNext?: () => void;
     onPrev?: () => void;
-    onReply?: (text: string) => void;
-    onLike?: () => void;
+    onReply?: (storyId: number, text: string) => void;  // ✅ Updated
+    onLike?: (storyId: number) => void;  // ✅ Updated
     onFollow?: (id: number) => void;
     isFollowing?: boolean;
     allStories?: Story[];
@@ -31,7 +44,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const currentIndex = userStories.findIndex(s => s.id === story.id);
     
     const currentStoryState = allStories.find(s => s.id === story.id) || story;
-    const hasLiked = currentUser && currentStoryState.reactions?.some(r => r.user_id === currentUser.id);
+    // ✅ 3) Use liked_by_me instead of reactions[]
+    const hasLiked = Boolean(currentUser && (currentStoryState as any)?.liked_by_me);
 
     useEffect(() => {
         let duration = 5000; 
@@ -68,9 +82,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         };
     }, [story.id]);
 
+    // ✅ 6) Update handleSendReply to pass story.id
     const handleSendReply = () => {
         if (replyText.trim() && onReply) {
-            onReply(replyText);
+            onReply(story.id, replyText.trim());  // ✅ Updated
             setReplyText('');
             setIsPaused(false);
             const toast = document.createElement('div');
@@ -81,9 +96,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         }
     };
 
+    // ✅ 6) Update handleLike to pass story.id
     const handleLike = () => {
         if (onLike) {
-            onLike();
+            onLike(story.id);  // ✅ Updated
             if (!hasLiked) {
                 setShowHeartAnim(true);
                 setTimeout(() => setShowHeartAnim(false), 800);
@@ -121,7 +137,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                                     <button onClick={(e) => { e.stopPropagation(); onFollow(user.id); }} className="bg-[#1877F2] text-white text-[14px] font-black px-6 py-2 rounded-full hover:bg-[#166FE5] shadow-lg transition-all active:scale-95 border-none">Follow</button>
                                 )}
                             </div>
-                            <span className="text-white/70 text-[12px] drop-shadow-md">Just now</span>
+                            {/* ✅ 4) Show correct time using created_at */}
+                            <span className="text-white/70 text-[12px] drop-shadow-md">
+                                {formatStoryTime((story as any).created_at)}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -183,7 +202,17 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
             </div>
 
             {uniqueUserStories.map((story) => {
-                const author = story.user || INITIAL_USERS.find(u => u.id === story.user_id);
+                // ✅ 2) Use backend author fields first
+                const author =
+                    story.user ||
+                    ({
+                        id: story.user_id,
+                        name: (story as any).author_name || "User",
+                        username: (story as any).author_name || "user",
+                        profile_image_url:
+                            (story as any).author_image || INITIAL_USERS[0].profile_image_url,
+                    } as any);
+                
                 return (
                     <div key={story.id} className="min-w-[110px] sm:min-w-[140px] h-[210px] sm:h-[250px] relative rounded-2xl overflow-hidden cursor-pointer flex-shrink-0 group shadow-lg border border-white/10" onClick={() => onViewStory(story)}>
                         {story.type === 'text' ? (
