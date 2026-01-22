@@ -8,6 +8,7 @@
 // ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
 // ✅ UPDATED: Story backend integration with liked_by_me support
 // ✅ FIXED: Blank screen issue by fixing initialization order
+// ✅ UPDATED: StoryViewer with stable user data, follow support, and Facebook-like navigation
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -19,7 +20,7 @@ import {
   SuggestedProductsWidget,
   ShareBottomSheet,
 } from './components/Feed';
-import { StoryReel, CreateStoryModal, StoryViewer } from './components/Story'; // ✅ 4) Ensure StoryViewer is imported
+import { StoryReel, CreateStoryModal, StoryViewer } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
@@ -752,7 +753,7 @@ export default function App() {
     setBrands(safeArray(b));
     setEvents(safeArray(e));
     setChats(safeArray(c));
-  }, [currentUser]); // ✅ Added currentUser dependency
+  }, [currentUser]);
 
   /** ---------- Fetch posts (Facebook-like freshness) ---------- */
   const fetchPostsForHome = useCallback(
@@ -903,7 +904,7 @@ export default function App() {
     } catch {
       setProfilePosts([]);
     }
-  }, [currentUser, posts]); // ✅ ADDED: Added posts dependency
+  }, [currentUser, posts]);
 
   /** ✅ Fetch profile posts when user opens profile ---------- */
   useEffect(() => {
@@ -1426,7 +1427,7 @@ export default function App() {
     setCurrentUser(null);
     setSelectedUserId(null);
     setProfilePosts([]);
-    setActiveHashtag(null); // ✅ Clear hashtag filter on logout
+    setActiveHashtag(null);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
   };
@@ -2400,33 +2401,89 @@ export default function App() {
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
-      {/* ✅ 3) Render StoryViewer overlay and pass these new props */}
+      {/* ✅ ✅ ✅ UPDATED: StoryViewer with all fixes (no flickering, stable navigation, follow support) */}
       {activeStory && (
         <StoryViewer
           story={activeStory}
-          user={
-            (activeStory as any).user ||
-            ({
-              id: (activeStory as any).user_id,
-              name: (activeStory as any).author_name || "User",
-              username: (activeStory as any).author_name || "user",
-              profile_image_url: (activeStory as any).author_image || "",
-            } as any)
-          }
+          user={(() => {
+            const uid = Number((activeStory as any)?.user_id);
+            const fromUsers = users.find((u) => Number(u.id) === uid);
+
+            if (fromUsers) return fromUsers;
+
+            const name =
+              String((activeStory as any)?.author_name || "").trim() ||
+              String((activeStory as any)?.username || "").trim() ||
+              "User";
+
+            return {
+              id: uid,
+              name,
+              username: String((activeStory as any)?.author_username || name).toLowerCase().replace(/\s+/g, "_"),
+              profile_image_url: String((activeStory as any)?.author_image || ""),
+            } as any;
+          })()}
           currentUser={currentUser}
           onClose={() => setActiveStory(null)}
+          onFollow={(id) => followUser(id)}
+          isFollowing={checkIsFollowing(Number((activeStory as any)?.user_id))}
           onNext={() => {
-            const list = safeArray(stories).filter((s: any) => Number(s.user_id) === Number((activeStory as any).user_id));
-            const idx = list.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
-            const next = list[idx + 1];
-            if (next) setActiveStory(next);
-            else setActiveStory(null);
+            const uid = Number((activeStory as any).user_id);
+
+            const decks = Array.from(
+              new Set(safeArray(stories).map((s: any) => Number(s.user_id)))
+            );
+
+            const userDeck = safeArray(stories)
+              .filter((s: any) => Number(s.user_id) === uid)
+              .slice()
+              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
+
+            const idx = userDeck.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
+            const nextInUser = userDeck[idx + 1];
+
+            if (nextInUser) return setActiveStory(nextInUser);
+
+            // move to next user's first story
+            const deckIndex = decks.findIndex((x) => x === uid);
+            const nextUserId = decks[deckIndex + 1];
+            if (!nextUserId) return setActiveStory(null);
+
+            const nextUserDeck = safeArray(stories)
+              .filter((s: any) => Number(s.user_id) === Number(nextUserId))
+              .slice()
+              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
+
+            setActiveStory(nextUserDeck[0] || null);
           }}
           onPrev={() => {
-            const list = safeArray(stories).filter((s: any) => Number(s.user_id) === Number((activeStory as any).user_id));
-            const idx = list.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
-            const prev = list[idx - 1];
-            if (prev) setActiveStory(prev);
+            const uid = Number((activeStory as any).user_id);
+
+            const decks = Array.from(
+              new Set(safeArray(stories).map((s: any) => Number(s.user_id)))
+            );
+
+            const userDeck = safeArray(stories)
+              .filter((s: any) => Number(s.user_id) === uid)
+              .slice()
+              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
+
+            const idx = userDeck.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
+            const prevInUser = userDeck[idx - 1];
+
+            if (prevInUser) return setActiveStory(prevInUser);
+
+            // move to previous user's last story
+            const deckIndex = decks.findIndex((x) => x === uid);
+            const prevUserId = decks[deckIndex - 1];
+            if (!prevUserId) return;
+
+            const prevUserDeck = safeArray(stories)
+              .filter((s: any) => Number(s.user_id) === Number(prevUserId))
+              .slice()
+              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
+
+            setActiveStory(prevUserDeck[prevUserDeck.length - 1] || null);
           }}
           onLike={(id) => likeStory(id)}
           onReply={(id, text) => replyToStory(id, text)}
@@ -2437,7 +2494,7 @@ export default function App() {
       {showCreateStoryModal && currentUser && (
         <CreateStoryModal 
           currentUser={currentUser} 
-          songs={[]}  // pass your songs list if you have it
+          songs={[]}
           onClose={() => setShowCreateStoryModal(false)}
           onCreate={(s) => {
             createStory(s as any);
