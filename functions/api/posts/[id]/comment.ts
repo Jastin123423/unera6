@@ -1,4 +1,7 @@
 // functions/api/posts/[id]/comment.ts
+import type { PagesFunction } from "@cloudflare/workers-types";
+type Env = { DB: D1Database };
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST,OPTIONS",
@@ -8,14 +11,27 @@ const cors = {
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-export const onRequestPost: PagesFunction = async ({ request, env, params }) => {
-  try {
-    // ✅ safer post id validation
-    const postIdRaw = (params as any)?.id;
-    const postId = Number(postIdRaw);
+const json = (data: any, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
 
+const toIntOrNull = (v: any) => {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  // block temp ids like "tmp-123"
+  if (s.startsWith("tmp-")) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
+  try {
+    const postId = Number((params as any)?.id);
     if (!Number.isFinite(postId) || postId <= 0) {
-      return Response.json({ error: "Invalid post id" }, { status: 400, headers: cors });
+      return json({ error: "Invalid post id" }, 400);
     }
 
     const body = await request.json().catch(() => ({} as any));
@@ -23,31 +39,40 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
     const text = String(body.text ?? "").trim();
     const userId = Number(body.user_id);
 
-    if (!text) {
-      return Response.json({ error: "text is required" }, { status: 400, headers: cors });
+    // ✅ NEW: parent id support (reply)
+    const parentCommentId = toIntOrNull(body.parent_comment_id);
+
+    if (!text) return json({ error: "text is required" }, 400);
+    if (!Number.isFinite(userId) || userId <= 0) return json({ error: "user_id is required" }, 400);
+
+    // ✅ Optional safety: if a parent is provided, ensure it belongs to same post
+    if (parentCommentId) {
+      const parent = await env.DB.prepare(
+        `SELECT id, post_id FROM post_comments WHERE id = ? LIMIT 1`
+      ).bind(parentCommentId).first();
+
+      if (!parent) return json({ error: "Parent comment not found" }, 400);
+      if (Number((parent as any).post_id) !== postId) {
+        return json({ error: "Parent comment does not belong to this post" }, 400);
+      }
     }
 
-    // ✅ require login for comments (prevents Anonymous)
-    if (!Number.isFinite(userId) || userId <= 0) {
-      return Response.json({ error: "user_id is required" }, { status: 400, headers: cors });
-    }
-
-    // ✅ insert
+    // ✅ insert WITH parent_comment_id
     const insert = await env.DB.prepare(
-      `INSERT INTO post_comments (post_id, user_id, text) VALUES (?, ?, ?)`
+      `INSERT INTO post_comments (post_id, user_id, text, parent_comment_id)
+       VALUES (?, ?, ?, ?)`
     )
-      .bind(postId, userId, text)
+      .bind(postId, userId, text, parentCommentId)
       .run();
 
     const insertedId = Number(insert.meta?.last_row_id);
-
     if (!Number.isFinite(insertedId) || insertedId <= 0) {
-      return Response.json({ error: "Failed to create comment" }, { status: 500, headers: cors });
+      return json({ error: "Failed to create comment" }, 500);
     }
 
-    // ✅ return full comment with author fields (no waiting / no "Anonymous")
+    // ✅ return full comment including parent_comment_id
     const comment = await env.DB.prepare(
-      `SELECT pc.id, pc.post_id, pc.user_id, pc.text, pc.created_at,
+      `SELECT pc.id, pc.post_id, pc.user_id, pc.text, pc.created_at, pc.parent_comment_id,
               u.username as author_name, u.profile_image_url as author_image
        FROM post_comments pc
        LEFT JOIN users u ON u.id = pc.user_id
@@ -56,15 +81,8 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
       .bind(insertedId)
       .first();
 
-    return Response.json(
-      { success: true, comment: comment ?? null },
-      { status: 201, headers: cors }
-    );
+    return json({ success: true, comment: comment ?? null }, 201);
   } catch (err: any) {
-    return Response.json(
-      { error: "Backend crash", message: String(err?.message ?? err) },
-      { status: 500, headers: cors }
-    );
+    return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
   }
 };
-
