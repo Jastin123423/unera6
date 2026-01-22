@@ -1,6 +1,3 @@
-What could be causing blank screen 
-
-App.tsx 
 // in App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
@@ -10,6 +7,7 @@ App.tsx
 // ✅ ADDED: onLikeComment handler for comment likes
 // ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
 // ✅ UPDATED: Story backend integration with liked_by_me support
+// ✅ FIXED: Blank screen issue by fixing initialization order
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -597,85 +595,28 @@ const createFallbackUser = (): User => {
   };
 };
 
-/** ✅ 2) Add likeStory and replyToStory handlers ---------- */
-const useStoryHandlers = (currentUser: User | null, setStories: React.Dispatch<React.SetStateAction<Story[]>>, fetchOtherData: () => Promise<void>) => {
-  const likeStory = useCallback(async (storyId: number) => {
-    if (!currentUser) return;
-
-    // optimistic toggle
-    setStories(prev =>
-      safeArray(prev).map((s: any) => {
-        if (Number(s.id) !== Number(storyId)) return s;
-        const liked = Boolean(s.liked_by_me);
-        const count = safeNumber(s.likes_count, 0);
-        return {
-          ...s,
-          liked_by_me: liked ? 0 : 1,
-          likes_count: liked ? Math.max(0, count - 1) : count + 1
-        };
-      })
-    );
-
-    try {
-      const data = await apiFetch(`/api/stories/${storyId}/react`, {
-        method: "POST",
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      // server truth
-      setStories(prev =>
-        safeArray(prev).map((s: any) =>
-          Number(s.id) === Number(storyId)
-            ? {
-                ...s,
-                liked_by_me: data?.liked ? 1 : 0,
-                likes_count: safeNumber(data?.likes_count, s.likes_count),
-              }
-            : s
-        )
-      );
-    } catch {
-      // rollback by refetch
-      fetchOtherData().catch(() => {});
-    }
-  }, [currentUser, fetchOtherData]);
-
-  const replyToStory = useCallback(async (storyId: number, text: string) => {
-    if (!currentUser) return;
-
-    await apiFetch(`/api/stories/${storyId}/reply`, {
-      method: "POST",
-      body: JSON.stringify({ user_id: currentUser.id, text }),
-    });
-  }, [currentUser]);
-
-  return { likeStory, replyToStory };
-};
-
-/** ✅ 5) Add createStory handler ---------- */
-const useCreateStoryHandler = (currentUser: User | null, setStories: React.Dispatch<React.SetStateAction<Story[]>>) => {
-  const createStory = useCallback(async (story: Partial<Story>) => {
-    if (!currentUser) return;
-
-    const payload = {
-      user_id: currentUser.id,
-      type: story.type,
-      media_url: story.media_url ?? null,
-      text_content: story.text_content ?? null,
-      background_style: story.background_style ?? null,
-      music_url: story.music_url ?? null,
-      music_title: story.music_title ?? null,
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    };
-
-    const res = await apiFetch("/api/stories", { method: "POST", body: JSON.stringify(payload) });
-
-    // add new story into state immediately
-    const newStory = res?.story ? res.story : { ...payload, id: Date.now(), created_at: new Date().toISOString() };
-    setStories(prev => [newStory as any, ...safeArray(prev)]);
-  }, [currentUser]);
-
-  return createStory;
+/** ✅ Normalize story data ---------- */
+const normalizeStory = (s: any): Story => {
+  return {
+    ...s,
+    id: safeNumber(s?.id),
+    user_id: safeNumber(s?.user_id),
+    type: s?.type || 'text',
+    text_content: s?.text_content || '',
+    media_url: s?.media_url || null,
+    background_style: s?.background_style || null,
+    music_url: s?.music_url || null,
+    music_title: s?.music_title || null,
+    created_at: s?.created_at || new Date().toISOString(),
+    expires_at: s?.expires_at || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    likes_count: safeNumber(s?.likes_count, 0),
+    replies_count: safeNumber(s?.replies_count, 0),
+    views: safeNumber(s?.views, 0),
+    liked_by_me: Boolean(s?.liked_by_me) ? 1 : 0,
+    // Ensure backend fields are preserved
+    author_name: s?.author_name || '',
+    author_image: s?.author_image || '',
+  } as any;
 };
 
 export default function App() {
@@ -734,10 +675,6 @@ export default function App() {
   // ✅ ADDED: Hashtag filtering state for Facebook-like feed filtering
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
 
-  /** ✅ Get story handlers ---------- */
-  const { likeStory, replyToStory } = useStoryHandlers(currentUser, setStories, fetchOtherData);
-  const createStory = useCreateStoryHandler(currentUser, setStories);
-
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -788,6 +725,34 @@ export default function App() {
       setUsers([]);
     }
   }, []);
+
+  /** ---------- Fetch other data ---------- */
+  const fetchOtherData = useCallback(async () => {
+    // ✅ 1) Fetch stories with viewerId (so liked_by_me works)
+    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+    const [s, r, pr, g, b, e, c] = await Promise.all([
+      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []), // ✅ Updated with viewerId
+      apiFetch('/api/reels').catch(() => []),
+      apiFetch('/api/products').catch(() => []),
+      apiFetch('/api/groups').catch(() => []),
+      apiFetch('/api/brands').catch(() => []),
+      apiFetch('/api/events').catch(() => []),
+      apiFetch('/api/chats').catch(() => []),
+    ]);
+
+    // ✅ Normalize stories to ensure consistent data types
+    const normalizedStories = safeArray(s).map(normalizeStory).sort((a: any, b: any) => 
+      String(b.created_at).localeCompare(String(a.created_at))
+    );
+    
+    setStories(normalizedStories);
+    setReels(safeArray(r));
+    setProducts(safeArray(pr));
+    setGroups(safeArray(g));
+    setBrands(safeArray(b));
+    setEvents(safeArray(e));
+    setChats(safeArray(c));
+  }, [currentUser]); // ✅ Added currentUser dependency
 
   /** ---------- Fetch posts (Facebook-like freshness) ---------- */
   const fetchPostsForHome = useCallback(
@@ -1007,28 +972,109 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome]);
 
-  /** ---------- Fetch other data ---------- */
-  const fetchOtherData = useCallback(async () => {
-    // ✅ 1) Fetch stories with viewerId (so liked_by_me works)
-    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
-    const [s, r, pr, g, b, e, c] = await Promise.all([
-      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []), // ✅ Updated with viewerId
-      apiFetch('/api/reels').catch(() => []),
-      apiFetch('/api/products').catch(() => []),
-      apiFetch('/api/groups').catch(() => []),
-      apiFetch('/api/brands').catch(() => []),
-      apiFetch('/api/events').catch(() => []),
-      apiFetch('/api/chats').catch(() => []),
-    ]);
+  /** ✅ 2) Add likeStory and replyToStory handlers ---------- */
+  const likeStory = useCallback(async (storyId: number) => {
+    if (!currentUser) return;
 
-    setStories(safeArray(s));
-    setReels(safeArray(r));
-    setProducts(safeArray(pr));
-    setGroups(safeArray(g));
-    setBrands(safeArray(b));
-    setEvents(safeArray(e));
-    setChats(safeArray(c));
-  }, [currentUser]); // ✅ Added currentUser dependency
+    // optimistic toggle
+    setStories(prev =>
+      safeArray(prev).map((s: any) => {
+        if (Number(s.id) !== Number(storyId)) return s;
+        const liked = Boolean(s.liked_by_me);
+        const count = safeNumber(s.likes_count, 0);
+        return {
+          ...s,
+          liked_by_me: liked ? 0 : 1,
+          likes_count: liked ? Math.max(0, count - 1) : count + 1
+        };
+      })
+    );
+
+    try {
+      const data = await apiFetch(`/api/stories/${storyId}/react`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+      // server truth
+      setStories(prev =>
+        safeArray(prev).map((s: any) =>
+          Number(s.id) === Number(storyId)
+            ? {
+                ...s,
+                liked_by_me: data?.liked ? 1 : 0,
+                likes_count: safeNumber(data?.likes_count, s.likes_count),
+              }
+            : s
+        )
+      );
+    } catch {
+      // rollback by refetch
+      fetchOtherData().catch(() => {});
+    }
+  }, [currentUser, fetchOtherData]);
+
+  const replyToStory = useCallback(async (storyId: number, text: string) => {
+    if (!currentUser) return;
+
+    await apiFetch(`/api/stories/${storyId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: currentUser.id, text }),
+    });
+  }, [currentUser]);
+
+  /** ✅ 5) Add createStory handler ---------- */
+  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
+    if (!currentUser) return;
+
+    let media_url: string | null = null;
+    let music_url: string | null = null;
+
+    try {
+      // Upload media file if provided
+      if (storyData.media_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
+        media_url = uploadResult.url;
+      }
+
+      // Upload audio file if provided
+      if (storyData.audio_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'stories/music');
+        music_url = uploadResult.url;
+      }
+
+      const payload = {
+        user_id: currentUser.id,
+        type: storyData.type,
+        media_url: media_url || storyData.media_url || null,
+        text_content: storyData.text_content ?? null,
+        background_style: storyData.background_style ?? null,
+        music_url: music_url || storyData.music_url || null,
+        music_title: storyData.music_title ?? null,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      };
+
+      const res = await apiFetch("/api/stories", { method: "POST", body: JSON.stringify(payload) });
+
+      // add new story into state immediately
+      const newStory = res?.story ? normalizeStory(res.story) : { 
+        ...payload, 
+        id: Date.now(), 
+        created_at: new Date().toISOString(),
+        likes_count: 0,
+        replies_count: 0,
+        views: 0,
+        liked_by_me: 0
+      };
+      
+      setStories(prev => [newStory as any, ...safeArray(prev)]);
+      return true;
+    } catch (error: any) {
+      console.error('Failed to create story:', error);
+      setLoginError(`Failed to create story: ${error.message}`);
+      return false;
+    }
+  }, [currentUser]);
 
   /** ---------- One fetch pipeline ---------- */
   const fetchData = useCallback(
