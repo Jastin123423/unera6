@@ -201,7 +201,7 @@ export const MOCK_GIFS = Object.values(GIF_CATEGORIES).flat();
 export const INITIAL_USERS: User[] = [
     // REMOVED: Fake official platform account
     {
-        id: 2,
+        : 2,
         username: 'johndoe',
         name: 'John Doe',
         email: 'john@example.com',
@@ -213,7 +213,7 @@ export const INITIAL_USERS: User[] = [
         bio: 'Tech enthusiast and traveler.'
     },
     {
-        id: 3,
+        : 3,
         username: 'sarahj',
         name: 'Sarah Johnson',
         email: 'sarah@example.com',
