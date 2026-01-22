@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Story, User, Song } from '../types';
-import { INITIAL_USERS } from '../constants';
 
 // ✅ 1) Add time formatter helper
 const formatStoryTime = (created_at?: string) => {
