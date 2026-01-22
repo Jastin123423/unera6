@@ -40,11 +40,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const inputRef = useRef<HTMLInputElement>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
-    const userStories = allStories.filter(s => Number(s.user_id) === Number(story.user_id));
-    const currentIndex = userStories.findIndex(s => Number(s.id) === Number(story.id));
+    const userStories = allStories.filter(s => s.user_id === story.user_id);
+    const currentIndex = userStories.findIndex(s => s.id === story.id);
     
-    // ✅ 3) Use liked_by_me with proper ID comparison
-    const currentStoryState = allStories.find(s => Number(s.id) === Number(story.id)) || story;
+    const currentStoryState = allStories.find(s => s.id === story.id) || story;
+    // ✅ 3) Use liked_by_me instead of reactions[]
     const hasLiked = Boolean(currentUser && (currentStoryState as any)?.liked_by_me);
 
     useEffect(() => {
@@ -69,7 +69,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }, [story.id, onNext, isPaused]);
 
     useEffect(() => {
-        if (story.music_url && !story.music_url.startsWith('blob:')) {
+        if (story.music_url) {
             audioRef.current = new Audio(story.music_url);
             audioRef.current.volume = 0.5;
             audioRef.current.play().catch(() => {});
@@ -160,12 +160,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                         <div className="w-full h-full flex items-center justify-center p-10 text-center" style={{ background: story.background_style }}>
                             <span className="text-white font-bold text-4xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] whitespace-pre-wrap">{story.text_content}</span>
                         </div>
-                    ) : story.media_url && !story.media_url.startsWith('blob:') ? (
-                        <img src={story.media_url} alt="Story" className="w-full h-full object-cover" />
                     ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500">
-                            <span className="text-white font-bold text-2xl">Story Content</span>
-                        </div>
+                        <img src={story.media_url} alt="Story" className="w-full h-full object-cover" />
                     )}
                     {showHeartAnim && (
                         <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
@@ -191,14 +187,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 };
 
 export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number) => void, onCreateStory?: () => void, onViewStory: (story: Story) => void, currentUser: User | null, onRequestLogin: () => void }> = ({ stories, onProfileClick, onCreateStory, onViewStory, currentUser, onRequestLogin }) => {
-    // ✅ 4) Sort stories by created_at to ensure latest stories are shown
-    const sortedStories = [...stories].sort((a, b) => 
-        String(b.created_at).localeCompare(String(a.created_at))
-    );
-    
-    const uniqueUserStories: Story[] = Array.from(
-        new Map<number, Story>(sortedStories.map(s => [s.user_id, s])).values()
-    );
+    const uniqueUserStories: Story[] = Array.from(new Map<number, Story>(stories.map(s => [s.user_id, s])).values());
 
     return (
         <div className="w-full flex gap-2.5 mb-6 overflow-x-auto pb-2 scrollbar-hide">
@@ -230,12 +219,8 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
                             <div className="absolute w-full h-full flex items-center justify-center p-3 text-center" style={{ background: story.background_style }}>
                                 <span className="text-white font-bold text-[10px] line-clamp-4 leading-tight">{story.text_content}</span>
                             </div>
-                        ) : story.media_url && !story.media_url.startsWith('blob:') ? (
-                            <img src={story.media_url} alt="Story" className="absolute w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                         ) : (
-                            <div className="absolute w-full h-full bg-gradient-to-br from-purple-600 to-blue-500 flex items-center justify-center">
-                                <span className="text-white font-bold text-sm">Story</span>
-                            </div>
+                            <img src={story.media_url} alt="Story" className="absolute w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                         )}
                         <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors"></div>
                         <div className="absolute top-3 left-3 w-9 h-9 rounded-full border-4 border-[#1877F2] overflow-hidden z-10 shadow-md" onClick={(e) => { e.stopPropagation(); onProfileClick(story.user_id); }}>
@@ -264,22 +249,12 @@ const STORY_COLORS = [
     'linear-gradient(45deg, #000000, #434343)',
 ];
 
-// ✅ Update CreateStoryModal props to accept files
-interface CreateStoryModalProps {
-    currentUser: User;
-    songs: Song[];
-    onClose: () => void;
-    onCreate: (story: Partial<Story> & { media_file?: File; audio_file?: File }) => void;
-}
-
-export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser, songs, onClose, onCreate }) => {
+export const CreateStoryModal: React.FC<{ currentUser: User, songs: Song[], onClose: () => void, onCreate: (story: Partial<Story>) => void }> = ({ currentUser, songs, onClose, onCreate }) => {
     const [mode, setMode] = useState<'text' | 'image'>('image');
     const [text, setText] = useState('');
     const [background, setBackground] = useState(STORY_COLORS[0]);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
-    const [imageFile, setImageFile] = useState<File | null>(null); // ✅ Store the actual file
     const [selectedMusic, setSelectedMusic] = useState<{url: string, title: string, artist: string, cover?: string} | null>(null);
-    const [audioFile, setAudioFile] = useState<File | null>(null); // ✅ Store the actual audio file
     const [showMusicPicker, setShowMusicPicker] = useState(false);
     
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -291,11 +266,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
             type: mode,
             text_content: mode === 'text' ? text : undefined,
             background_style: mode === 'text' ? background : undefined,
-            media_file: mode === 'image' ? imageFile : undefined, // ✅ Send file instead of blob URL
-            media_url: imageFile ? undefined : (mode === 'image' && imagePreview ? imagePreview : undefined),
+            media_url: mode === 'image' && imagePreview ? imagePreview : undefined,
             music_url: selectedMusic?.url,
             music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-            audio_file: audioFile || undefined, // ✅ Send audio file
             created_at: new Date().toISOString(),
             user: currentUser
         });
@@ -303,37 +276,22 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setImageFile(file); // ✅ Store the actual file
-            setImagePreview(URL.createObjectURL(file)); // ✅ Keep preview for UI
+        if (e.target.files?.[0]) {
+            setImagePreview(URL.createObjectURL(e.target.files[0]));
         }
     };
 
     const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setAudioFile(file); // ✅ Store the actual audio file
+        if (e.target.files?.[0]) {
+            const file = e.target.files[0];
             setSelectedMusic({
-                url: URL.createObjectURL(file), // ✅ Keep preview for UI
+                url: URL.createObjectURL(file),
                 title: file.name.split('.')[0],
                 artist: 'Local Upload'
             });
             setShowMusicPicker(false);
         }
     };
-
-    // Cleanup blob URLs when component unmounts
-    useEffect(() => {
-        return () => {
-            if (imagePreview && imagePreview.startsWith('blob:')) {
-                URL.revokeObjectURL(imagePreview);
-            }
-            if (selectedMusic?.url && selectedMusic.url.startsWith('blob:')) {
-                URL.revokeObjectURL(selectedMusic.url);
-            }
-        };
-    }, [imagePreview, selectedMusic?.url]);
 
     return (
         <div className="fixed inset-0 z-[200] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
@@ -357,14 +315,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
                         {imagePreview ? (
                             <div className="relative w-full h-full">
                                 <img src={imagePreview} className="w-full h-full object-contain" alt="" />
-                                <button onClick={(e) => { 
-                                    e.stopPropagation(); 
-                                    if (imagePreview.startsWith('blob:')) {
-                                        URL.revokeObjectURL(imagePreview);
-                                    }
-                                    setImagePreview(null);
-                                    setImageFile(null);
-                                }} className="absolute top-4 left-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white"><i className="fas fa-trash-alt"></i></button>
+                                <button onClick={(e) => { e.stopPropagation(); setImagePreview(null); }} className="absolute top-4 left-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white"><i className="fas fa-trash-alt"></i></button>
                             </div>
                         ) : (
                             <div className="text-center cursor-pointer group">
@@ -388,13 +339,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
                             <p className="text-xs font-black text-white leading-tight">{selectedMusic.title}</p>
                             <p className="text-[10px] text-white/70">{selectedMusic.artist}</p>
                         </div>
-                        <i className="fas fa-times-circle text-white/50 cursor-pointer hover:text-white" onClick={() => {
-                            if (selectedMusic.url.startsWith('blob:')) {
-                                URL.revokeObjectURL(selectedMusic.url);
-                            }
-                            setSelectedMusic(null);
-                            setAudioFile(null);
-                        }}></i>
+                        <i className="fas fa-times-circle text-white/50 cursor-pointer hover:text-white" onClick={() => setSelectedMusic(null)}></i>
                     </div>
                 )}
             </div>
@@ -459,7 +404,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
                                     key={song.id} 
                                     onClick={() => {
                                         setSelectedMusic({ url: song.audio_url, title: song.title, artist: song.artist_name, cover: song.cover_image_url });
-                                        setAudioFile(null); // Clear any uploaded audio file when selecting a song
                                         setShowMusicPicker(false);
                                     }}
                                     className="p-3 bg-[#242526] hover:bg-[#3A3B3C] rounded-xl flex items-center gap-4 cursor-pointer transition-all border border-transparent hover:border-[#1877F2]/30"
