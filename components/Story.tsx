@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Story, User, Song } from '../types';
-import { INITIAL_USERS } from './constants'; 
- 
+
 // ✅ 1) Add time formatter helper
 const formatStoryTime = (created_at?: string) => {
   if (!created_at) return "Just now";
@@ -200,10 +199,18 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
         new Map<number, Story>(sortedStories.map(s => [s.user_id, s])).values()
     );
 
+    // Helper function to generate a default profile picture
+    const getDefaultProfilePicture = (name: string, userId: number): string => {
+        const colors = ['#1877F2', '#45BD62', '#F3425F', '#F7B928', '#9360F7'];
+        const color = colors[userId % colors.length];
+        const initials = name ? name.charAt(0).toUpperCase() : 'U';
+        return `https://ui-avatars.com/api/?name=${initials}&background=${color.replace('#', '')}&color=fff&size=128&font-size=0.5&bold=true&rounded=true`;
+    };
+
     return (
         <div className="w-full flex gap-2.5 mb-6 overflow-x-auto pb-2 scrollbar-hide">
             <div className="min-w-[110px] sm:min-w-[140px] h-[210px] sm:h-[250px] bg-[#242526] rounded-2xl shadow-md overflow-hidden cursor-pointer relative group flex-shrink-0 border border-[#3E4042]" onClick={() => currentUser ? (onCreateStory && onCreateStory()) : onRequestLogin()}>
-                <img src={currentUser?.profile_image_url || INITIAL_USERS[0].profile_image_url} alt="Create" className="h-[75%] w-full object-cover group-hover:scale-110 transition-transform duration-500 opacity-80" />
+                <img src={currentUser?.profile_image_url || getDefaultProfilePicture(currentUser?.name || 'User', currentUser?.id || 0)} alt="Create" className="h-[75%] w-full object-cover group-hover:scale-110 transition-transform duration-500 opacity-80" />
                 <div className="absolute bottom-0 w-full h-[25%] bg-[#242526] flex flex-col items-center justify-end pb-3">
                     <div className="absolute -top-5 w-10 h-10 bg-[#1877F2] rounded-full flex items-center justify-center border-4 border-[#242526] text-white shadow-lg">
                         <i className="fas fa-plus text-lg"></i>
@@ -213,15 +220,17 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
             </div>
 
             {uniqueUserStories.map((story) => {
-                // ✅ 2) Use backend author fields first
+                // ✅ 2) Use backend author fields first, with proper fallbacks
+                const authorName = (story as any).author_name || "User";
+                const authorImage = (story as any).author_image || getDefaultProfilePicture(authorName, story.user_id);
+                
                 const author =
                     story.user ||
                     ({
                         id: story.user_id,
-                        name: (story as any).author_name || "User",
-                        username: (story as any).author_name || "user",
-                        profile_image_url:
-                            (story as any).author_image || INITIAL_USERS[0].profile_image_url,
+                        name: authorName,
+                        username: authorName.toLowerCase().replace(/\s+/g, '') || "user",
+                        profile_image_url: authorImage,
                     } as any);
                 
                 return (
@@ -239,9 +248,9 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
                         )}
                         <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors"></div>
                         <div className="absolute top-3 left-3 w-9 h-9 rounded-full border-4 border-[#1877F2] overflow-hidden z-10 shadow-md" onClick={(e) => { e.stopPropagation(); onProfileClick(story.user_id); }}>
-                            <img src={author?.profile_image_url} alt="" className="w-full h-full object-cover" />
+                            <img src={author.profile_image_url} alt="" className="w-full h-full object-cover" />
                         </div>
-                        <p className="absolute bottom-3 left-3 text-white font-bold text-xs drop-shadow-md truncate w-[85%]">{author?.name}</p>
+                        <p className="absolute bottom-3 left-3 text-white font-bold text-xs drop-shadow-md truncate w-[85%]">{author.name}</p>
                     </div>
                 );
             })}
