@@ -9,6 +9,10 @@
 // ✅ UPDATED: Story backend integration with liked_by_me support
 // ✅ FIXED: Blank screen issue by fixing initialization order
 // ✅ UPDATED: StoryViewer with stable user data, follow support, and Facebook-like navigation
+// ✅ FIXED: authorFromFeedRow name assignment bug
+// ✅ FIXED: normalizeStory author info preservation
+// ✅ FIXED: Merge story authors into users list
+// ✅ FIXED: StoryViewer fallback avatar generation
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -531,15 +535,22 @@ const normalizeFeedRowToPost = (row: any): PostType => {
   });
 };
 
+// ✅ 1) FIXED: authorFromFeedRow() sets name wrong
 const authorFromFeedRow = (row: any): User => {
-  const username = row?.username ?? 'user';
-  const name = row?.username ?? 'User';
+  const username = row?.username ?? row?.user_username ?? 'user';
+  const name =
+    row?.name ??
+    row?.full_name ??
+    row?.display_name ??
+    row?.user_name ??
+    row?.username ??
+    'User';
 
   return normalizeUser({
     id: row?.user_id,
     username,
     name,
-    profile_image_url: row?.profile_image_url ?? '',
+    profile_image_url: row?.profile_image_url ?? row?.avatar_url ?? '',
     is_verified: row?.is_verified ?? 0,
     role: row?.role ?? 'user',
     followers: [],
@@ -596,27 +607,67 @@ const createFallbackUser = (): User => {
   };
 };
 
-/** ✅ Normalize story data ---------- */
+/** ✅ 2) FIXED: normalizeStory() author info preservation ---------- */
 const normalizeStory = (s: any): Story => {
+  const userId = safeNumber(s?.user_id ?? s?.author_id ?? s?.user?.id);
+
+  const authorName =
+    String(
+      s?.author_name ??
+      s?.name ??
+      s?.display_name ??
+      s?.username ??
+      s?.user?.name ??
+      s?.user?.username ??
+      ''
+    ).trim();
+
+  const authorUsername =
+    String(
+      s?.author_username ??
+      s?.username ??
+      s?.user?.username ??
+      (authorName ? authorName.toLowerCase().replace(/\s+/g, '_') : '')
+    ).trim();
+
+  const authorImage =
+    String(
+      s?.author_image ??
+      s?.profile_image_url ??
+      s?.user?.profile_image_url ??
+      s?.user?.avatar_url ??
+      ''
+    ).trim();
+
   return {
     ...s,
     id: safeNumber(s?.id),
-    user_id: safeNumber(s?.user_id),
+    user_id: userId,
+
     type: s?.type || 'text',
     text_content: s?.text_content || '',
     media_url: s?.media_url || null,
     background_style: s?.background_style || null,
     music_url: s?.music_url || null,
     music_title: s?.music_title || null,
+
     created_at: s?.created_at || new Date().toISOString(),
-    expires_at: s?.expires_at || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    expires_at:
+      s?.expires_at ||
+      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+
     likes_count: safeNumber(s?.likes_count, 0),
     replies_count: safeNumber(s?.replies_count, 0),
     views: safeNumber(s?.views, 0),
-    liked_by_me: Boolean(s?.liked_by_me) ? 1 : 0,
-    // Ensure backend fields are preserved
-    author_name: s?.author_name || '',
-    author_image: s?.author_image || '',
+    liked_by_me: safeNumber(s?.liked_by_me, 0) ? 1 : 0,
+
+    // ✅ Keep author fields ALWAYS filled if backend provides anything
+    author_name: authorName,
+    author_username: authorUsername,
+    author_image: authorImage,
+
+    // ✅ Keep user object if backend provides it (super useful)
+    user: s?.user ? normalizeUser(s.user) : undefined,
   } as any;
 };
 
@@ -742,11 +793,38 @@ export default function App() {
     ]);
 
     // ✅ Normalize stories to ensure consistent data types
-    const normalizedStories = safeArray(s).map(normalizeStory).sort((a: any, b: any) => 
-      String(b.created_at).localeCompare(String(a.created_at))
-    );
-    
+    const normalizedStories = safeArray(s)
+      .map(normalizeStory)
+      .sort((a: any, b: any) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime());
+
     setStories(normalizedStories);
+
+    // ✅ 3) ADDED: Merge story authors into users[]
+    setUsers(prev => {
+      const map = new Map<number, User>();
+      safeArray(prev).forEach(u => map.set(Number(u.id), normalizeUser(u)));
+
+      normalizedStories.forEach((st: any) => {
+        const uid = Number(st.user_id);
+        if (!uid) return;
+
+        // build best possible user from story
+        const u = normalizeUser({
+          id: uid,
+          name: st.author_name || st.user?.name || 'User',
+          username: st.author_username || st.user?.username || 'user',
+          profile_image_url: st.author_image || st.user?.profile_image_url || '',
+          is_verified: st.user?.is_verified ?? 0,
+          role: st.user?.role ?? 'user',
+        });
+
+        if (!map.has(uid)) map.set(uid, u);
+        else map.set(uid, normalizeUser(mergeUserSafe(map.get(uid)!, u)));
+      });
+
+      return Array.from(map.values());
+    });
+
     setReels(safeArray(r));
     setProducts(safeArray(pr));
     setGroups(safeArray(g));
@@ -2420,7 +2498,10 @@ export default function App() {
               id: uid,
               name,
               username: String((activeStory as any)?.author_username || name).toLowerCase().replace(/\s+/g, "_"),
-              profile_image_url: String((activeStory as any)?.author_image || ""),
+              // ✅ 4) FIXED: Generate avatar if author_image empty
+              profile_image_url:
+                String((activeStory as any)?.author_image || "").trim() ||
+                generateProfilePictureUrl(name, uid),
             } as any;
           })()}
           currentUser={currentUser}
