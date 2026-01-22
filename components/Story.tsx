@@ -27,6 +27,24 @@ const pickBestName = (...vals: any[]) => {
   return "User";
 };
 
+// ✅ A) Add new helper functions
+const safeText = (v: any) => String(v ?? "").trim();
+
+const pickBestImage = (...vals: any[]) => {
+  for (const v of vals) {
+    const s = safeText(v);
+    if (s && s !== "null" && s !== "undefined") return s;
+  }
+  return "";
+};
+
+const getDefaultProfilePicture = (name: string, userId: number): string => {
+  const colors = ['1877F2', '45BD62', 'F3425F', 'F7B928', '9360F7'];
+  const color = colors[Math.abs(userId) % colors.length];
+  const initials = safeText(name).slice(0, 1).toUpperCase() || "U";
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${color}&color=fff&size=128&font-size=0.5&bold=true&rounded=true`;
+};
+
 // ✅ 5) Update StoryViewer props
 interface StoryViewerProps {
     story: Story;
@@ -35,8 +53,8 @@ interface StoryViewerProps {
     onClose: () => void;
     onNext?: () => void;
     onPrev?: () => void;
-    onReply?: (storyId: number, text: string) => void;  // ✅ Updated
-    onLike?: (storyId: number) => void;  // ✅ Updated
+    onReply?: (storyId: number, text: string) => void;
+    onLike?: (storyId: number) => void;
     onFollow?: (id: number) => void;
     isFollowing?: boolean;
     allStories?: Story[];
@@ -55,6 +73,37 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     // ✅ A2) Add refs for stable story list and navigation
     const frozenUserStoriesRef = useRef<Story[]>([]);
     const didAdvanceRef = useRef(false);
+
+    // ✅ A5) Freeze author identity for the whole viewing session (prevents flicker)
+    const frozenAuthorRef = useRef<{ name: string; image: string; id: number }>({
+      name: "User",
+      image: "",
+      id: Number(story.user_id) || 0,
+    });
+
+    useEffect(() => {
+      const bestName = pickBestName(
+        (story as any)?.user?.name,
+        (story as any)?.author_name,
+        (story as any)?.author_username,
+        (user as any)?.name,
+      );
+
+      const bestImage = pickBestImage(
+        (story as any)?.user?.profile_image_url,
+        (story as any)?.author_image,
+        (user as any)?.profile_image_url,
+      );
+
+      const id = Number((story as any)?.user?.id ?? story.user_id ?? (user as any)?.id ?? 0);
+
+      frozenAuthorRef.current = {
+        id,
+        name: bestName,
+        image: bestImage || getDefaultProfilePicture(bestName, id),
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [story.id]);
 
     // ✅ A2) Freeze the user's stories when viewer opens
     useEffect(() => {
@@ -124,7 +173,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     // ✅ 6) Update handleSendReply to pass story.id
     const handleSendReply = () => {
         if (replyText.trim() && onReply) {
-            onReply(story.id, replyText.trim());  // ✅ Updated
+            onReply(story.id, replyText.trim());
             setReplyText('');
             setIsPaused(false);
             const toast = document.createElement('div');
@@ -138,13 +187,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     // ✅ 6) Update handleLike to pass story.id
     const handleLike = () => {
         if (onLike) {
-            onLike(story.id);  // ✅ Updated
+            onLike(story.id);
             if (!hasLiked) {
                 setShowHeartAnim(true);
                 setTimeout(() => setShowHeartAnim(false), 800);
             }
         }
     };
+
+    const frozenAuthor = frozenAuthorRef.current;
 
     return (
         <div className="fixed inset-0 z-[250] bg-black flex items-center justify-center animate-fade-in">
@@ -168,12 +219,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
                 <div className="absolute top-4 left-0 right-0 p-4 z-30 flex items-center justify-between mt-2">
                     <div className="flex items-center gap-3">
-                        <img src={user.profile_image_url} alt={user.name} className="w-12 h-12 rounded-full border-2 border-[#1877F2] object-cover shadow-lg" />
+                        <img src={frozenAuthor.image} alt={frozenAuthor.name} className="w-12 h-12 rounded-full border-2 border-[#1877F2] object-cover shadow-lg" />
                         <div className="flex flex-col">
                             <div className="flex items-center gap-3">
-                                <span className="text-white font-bold text-[17px] drop-shadow-md">{user.name}</span>
-                                {!isFollowing && currentUser?.id !== user.id && onFollow && (
-                                    <button onClick={(e) => { e.stopPropagation(); onFollow(user.id); }} className="bg-[#1877F2] text-white text-[14px] font-black px-6 py-2 rounded-full hover:bg-[#166FE5] shadow-lg transition-all active:scale-95 border-none">Follow</button>
+                                <span className="text-white font-bold text-[17px] drop-shadow-md">{frozenAuthor.name}</span>
+                                {!isFollowing && currentUser?.id !== frozenAuthor.id && onFollow && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); onFollow(frozenAuthor.id); }}
+                                        className="bg-[#1877F2] text-white text-[14px] font-black px-6 py-2 rounded-full hover:bg-[#166FE5] shadow-lg transition-all active:scale-95 border-none"
+                                    >
+                                        Follow
+                                    </button>
                                 )}
                             </div>
                             {/* ✅ 4) Show correct time using created_at */}
@@ -237,22 +293,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 };
 
 export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number) => void, onCreateStory?: () => void, onViewStory: (story: Story) => void, currentUser: User | null, onRequestLogin: () => void }> = ({ stories, onProfileClick, onCreateStory, onViewStory, currentUser, onRequestLogin }) => {
-    // ✅ 4) Sort stories by created_at to ensure latest stories are shown
-    const sortedStories = [...stories].sort((a, b) => 
-        String(b.created_at).localeCompare(String(a.created_at))
-    );
+    // ✅ C) Sort by real date, not string compare
+    const toTime = (d: any) => {
+        const t = new Date(String(d ?? "")).getTime();
+        return Number.isFinite(t) ? t : 0;
+    };
+
+    const sortedStories = [...stories].sort((a, b) => toTime(b.created_at) - toTime(a.created_at));
     
     const uniqueUserStories: Story[] = Array.from(
         new Map<number, Story>(sortedStories.map(s => [s.user_id, s])).values()
     );
-
-    // Helper function to generate a default profile picture
-    const getDefaultProfilePicture = (name: string, userId: number): string => {
-        const colors = ['#1877F2', '#45BD62', '#F3425F', '#F7B928', '#9360F7'];
-        const color = colors[userId % colors.length];
-        const initials = name ? name.charAt(0).toUpperCase() : 'U';
-        return `https://ui-avatars.com/api/?name=${initials}&background=${color.replace('#', '')}&color=fff&size=128&font-size=0.5&bold=true&rounded=true`;
-    };
 
     return (
         <div className="w-full flex gap-2.5 mb-6 overflow-x-auto pb-2 scrollbar-hide">
@@ -282,7 +333,11 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
                     bestName.toLowerCase().replace(/\s+/g, "_")
                 );
 
-                const authorImage = (story as any).author_image || getDefaultProfilePicture(bestName, story.user_id);
+                // ✅ B) Fix authorImage fallback to include story.user.profile_image_url
+                const authorImage = pickBestImage(
+                    story.user?.profile_image_url,
+                    (story as any).author_image
+                ) || getDefaultProfilePicture(bestName, story.user_id);
                 
                 const author =
                     story.user ||
@@ -346,9 +401,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
     const [text, setText] = useState('');
     const [background, setBackground] = useState(STORY_COLORS[0]);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
-    const [imageFile, setImageFile] = useState<File | null>(null); // ✅ Store the actual file
+    const [imageFile, setImageFile] = useState<File | null>(null);
     const [selectedMusic, setSelectedMusic] = useState<{url: string, title: string, artist: string, cover?: string} | null>(null);
-    const [audioFile, setAudioFile] = useState<File | null>(null); // ✅ Store the actual audio file
+    const [audioFile, setAudioFile] = useState<File | null>(null);
     const [showMusicPicker, setShowMusicPicker] = useState(false);
     
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -360,11 +415,11 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
             type: mode,
             text_content: mode === 'text' ? text : undefined,
             background_style: mode === 'text' ? background : undefined,
-            media_file: mode === 'image' ? imageFile : undefined, // ✅ Send file instead of blob URL
+            media_file: mode === 'image' ? imageFile : undefined,
             media_url: imageFile ? undefined : (mode === 'image' && imagePreview ? imagePreview : undefined),
             music_url: selectedMusic?.url,
             music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-            audio_file: audioFile || undefined, // ✅ Send audio file
+            audio_file: audioFile || undefined,
             created_at: new Date().toISOString(),
             user: currentUser
         });
@@ -374,17 +429,17 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            setImageFile(file); // ✅ Store the actual file
-            setImagePreview(URL.createObjectURL(file)); // ✅ Keep preview for UI
+            setImageFile(file);
+            setImagePreview(URL.createObjectURL(file));
         }
     };
 
     const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            setAudioFile(file); // ✅ Store the actual audio file
+            setAudioFile(file);
             setSelectedMusic({
-                url: URL.createObjectURL(file), // ✅ Keep preview for UI
+                url: URL.createObjectURL(file),
                 title: file.name.split('.')[0],
                 artist: 'Local Upload'
             });
@@ -528,7 +583,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
                                     key={song.id} 
                                     onClick={() => {
                                         setSelectedMusic({ url: song.audio_url, title: song.title, artist: song.artist_name, cover: song.cover_image_url });
-                                        setAudioFile(null); // Clear any uploaded audio file when selecting a song
+                                        setAudioFile(null);
                                         setShowMusicPicker(false);
                                     }}
                                     className="p-3 bg-[#242526] hover:bg-[#3A3B3C] rounded-xl flex items-center gap-4 cursor-pointer transition-all border border-transparent hover:border-[#1877F2]/30"
