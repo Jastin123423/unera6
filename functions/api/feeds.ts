@@ -89,7 +89,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // ✅ baseSelect now includes reactions_count + my_reaction
+    // ✅ baseSelect includes reactions_count + my_reaction + name
     // IMPORTANT: my_reaction uses "?" so we MUST bind userId first in every query.
     const baseSelect = `
       SELECT
@@ -124,7 +124,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           LIMIT 1
         ) AS my_reaction,
 
-        -- Safe user fields
+        -- ✅ Safe user fields (NOW includes name)
+        COALESCE(NULLIF(TRIM(u.name), ''), NULLIF(TRIM(u.username), ''), 'User') AS name,
         COALESCE(u.username, 'user') AS username,
 
         CASE
@@ -177,10 +178,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     const merged = Array.from(map.values());
-    const ordered = seededShuffle(merged, seed);
 
-    const last = ordered.length ? ordered[ordered.length - 1] : null;
-    const nextCursor = last?.created_at ?? null;
+    // ✅ FIX: nextCursor must be based on OLDEST item, not shuffled order
+    const oldest = merged.reduce((acc: any, cur: any) => {
+      if (!acc) return cur;
+      return String(cur.created_at) < String(acc.created_at) ? cur : acc;
+    }, null as any);
+
+    const nextCursor = oldest?.created_at ?? null;
+
+    // Shuffle AFTER deciding cursor
+    const ordered = seededShuffle(merged, seed);
 
     // hasMore
     let hasMore = false;
@@ -209,7 +217,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       hasMore = !!more;
     }
 
-    // Debug info
     if (debug) {
       const totalPosts = await env.DB.prepare(`SELECT COUNT(*) as c FROM posts`).first();
       const joinableUsers = await env.DB
