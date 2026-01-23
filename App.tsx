@@ -6,8 +6,9 @@
 // ✅ FIXED: Follow buttons reading and sending real data from API backend
 // ✅ ADDED: onLikeComment handler for comment likes
 // ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
-// ✅ ADDED: Story viewer modal for fullscreen story viewing
-// ✅ ADDED: Create story functionality with optimistic updates
+// ✅ ADDED: Story backend integration with liked_by_me support
+// ✅ ADDED: StoryViewerModal for fullscreen story viewing
+// ✅ ADDED: Working create story functionality with API integration
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -368,6 +369,70 @@ const normalizeUser = (u: any): User => {
   } as any;
 };
 
+/** ✅ ADDED: normalizeStory() author info preservation ---------- */
+const normalizeStory = (s: any): Story => {
+  const userId = safeNumber(s?.user_id ?? s?.author_id ?? s?.user?.id);
+
+  const authorName =
+    String(
+      s?.author_name ??
+      s?.name ??
+      s?.display_name ??
+      s?.username ??
+      s?.user?.name ??
+      s?.user?.username ??
+      ''
+    ).trim();
+
+  const authorUsername =
+    String(
+      s?.author_username ??
+      s?.username ??
+      s?.user?.username ??
+      (authorName ? authorName.toLowerCase().replace(/\s+/g, '_') : '')
+    ).trim();
+
+  const authorImage =
+    String(
+      s?.author_image ??
+      s?.profile_image_url ??
+      s?.user?.profile_image_url ??
+      s?.user?.avatar_url ??
+      ''
+    ).trim();
+
+  return {
+    ...s,
+    id: safeNumber(s?.id),
+    user_id: userId,
+
+    type: s?.type || 'text',
+    text_content: s?.text_content || '',
+    media_url: s?.media_url || null,
+    background_style: s?.background_style || null,
+    music_url: s?.music_url || null,
+    music_title: s?.music_title || null,
+
+    created_at: s?.created_at || new Date().toISOString(),
+    expires_at:
+      s?.expires_at ||
+      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+
+    likes_count: safeNumber(s?.likes_count, 0),
+    replies_count: safeNumber(s?.replies_count, 0),
+    views: safeNumber(s?.views, 0),
+    liked_by_me: safeNumber(s?.liked_by_me, 0) ? 1 : 0,
+
+    // ✅ Keep author fields ALWAYS filled if backend provides anything
+    author_name: authorName,
+    author_username: authorUsername,
+    author_image: authorImage,
+
+    // ✅ Keep user object if backend provides it (super useful)
+    user: s?.user ? normalizeUser(s.user) : undefined,
+  } as any;
+};
+
 /** ---------- Optimistic reaction helper ---------- */
 const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meId: number) => {
   if (Number(p?.id) !== Number(postId)) return p;
@@ -702,6 +767,35 @@ export default function App() {
     }
   }, []);
 
+  /** ✅ UPDATED: fetchOtherData with viewerId for stories ---------- */
+  const fetchOtherData = useCallback(async () => {
+    // Always compute viewerId fresh from currentUser
+    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+
+    const [s, r, pr, g, b, e, c] = await Promise.all([
+      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []), // ✅ Added viewerId
+      apiFetch('/api/reels').catch(() => []),
+      apiFetch('/api/products').catch(() => []),
+      apiFetch('/api/groups').catch(() => []),
+      apiFetch('/api/brands').catch(() => []),
+      apiFetch('/api/events').catch(() => []),
+      apiFetch('/api/chats').catch(() => []),
+    ]);
+
+    // Normalize stories with proper API response
+    const normalizedStories = safeArray(s)
+      .map(normalizeStory)
+      .sort((a: any, b: any) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime());
+
+    setStories(normalizedStories);
+    setReels(safeArray(r));
+    setProducts(safeArray(pr));
+    setGroups(safeArray(g));
+    setBrands(safeArray(b));
+    setEvents(safeArray(e));
+    setChats(safeArray(c));
+  }, [currentUser]);
+
   /** ---------- Fetch posts (Facebook-like freshness) ---------- */
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
@@ -920,26 +1014,117 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome]);
 
-  /** ---------- Fetch other data ---------- */
-  const fetchOtherData = useCallback(async () => {
-    const [s, r, pr, g, b, e, c] = await Promise.all([
-      apiFetch('/api/stories').catch(() => []),
-      apiFetch('/api/reels').catch(() => []),
-      apiFetch('/api/products').catch(() => []),
-      apiFetch('/api/groups').catch(() => []),
-      apiFetch('/api/brands').catch(() => []),
-      apiFetch('/api/events').catch(() => []),
-      apiFetch('/api/chats').catch(() => []),
-    ]);
+  /** ✅ ADDED: Create Story Function with API integration ---------- */
+  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
+    if (!currentUser) return false;
 
-    setStories(safeArray(s));
-    setReels(safeArray(r));
-    setProducts(safeArray(pr));
-    setGroups(safeArray(g));
-    setBrands(safeArray(b));
-    setEvents(safeArray(e));
-    setChats(safeArray(c));
-  }, []);
+    let media_url: string | null = null;
+    let music_url: string | null = null;
+
+    try {
+      // Upload media file if provided
+      if (storyData.media_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
+        media_url = uploadResult.url;
+      }
+
+      // Upload audio file if provided
+      if (storyData.audio_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'stories/music');
+        music_url = uploadResult.url;
+      }
+
+      const payload = {
+        user_id: currentUser.id,
+        type: storyData.type,
+        media_url: media_url || storyData.media_url || null,
+        text_content: storyData.text_content ?? null,
+        background_style: storyData.background_style ?? null,
+        music_url: music_url || storyData.music_url || null,
+        music_title: storyData.music_title ?? null,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      };
+
+      const res = await apiFetch("/api/stories", { method: "POST", body: JSON.stringify(payload) });
+
+      // Add new story into state immediately
+      const newStory = res?.story ? normalizeStory(res.story) : { 
+        ...payload, 
+        id: Date.now(), 
+        created_at: new Date().toISOString(),
+        likes_count: 0,
+        replies_count: 0,
+        views: 0,
+        liked_by_me: 0,
+        author_name: currentUser.name,
+        author_username: currentUser.username,
+        author_image: currentUser.profile_image_url,
+      };
+      
+      setStories(prev => [newStory as any, ...safeArray(prev)]);
+      return true;
+    } catch (error: any) {
+      console.error('Failed to create story:', error);
+      setLoginError(`Failed to create story: ${error.message}`);
+      return false;
+    }
+  }, [currentUser]);
+
+  /** ✅ ADDED: Like Story Function ---------- */
+  const likeStory = useCallback(async (storyId: number) => {
+    if (!currentUser) return;
+
+    // Optimistic update
+    setStories(prev =>
+      safeArray(prev).map((s: any) => {
+        if (Number(s.id) !== Number(storyId)) return s;
+        const liked = Boolean(s.liked_by_me);
+        const count = safeNumber(s.likes_count, 0);
+        return {
+          ...s,
+          liked_by_me: liked ? 0 : 1,
+          likes_count: liked ? Math.max(0, count - 1) : count + 1
+        };
+      })
+    );
+
+    try {
+      const data = await apiFetch(`/api/stories/${storyId}/react`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+      // Update with server truth
+      setStories(prev =>
+        safeArray(prev).map((s: any) =>
+          Number(s.id) === Number(storyId)
+            ? {
+                ...s,
+                liked_by_me: data?.liked ? 1 : 0,
+                likes_count: safeNumber(data?.likes_count, s.likes_count),
+              }
+            : s
+        )
+      );
+    } catch {
+      // Rollback by refetch
+      fetchOtherData().catch(() => {});
+    }
+  }, [currentUser, fetchOtherData]);
+
+  /** ✅ ADDED: Reply to Story Function ---------- */
+  const replyToStory = useCallback(async (storyId: number, text: string) => {
+    if (!currentUser) return;
+
+    try {
+      await apiFetch(`/api/stories/${storyId}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: currentUser.id, text }),
+      });
+    } catch (error) {
+      console.error('Failed to reply to story:', error);
+    }
+  }, [currentUser]);
 
   /** ---------- One fetch pipeline ---------- */
   const fetchData = useCallback(
@@ -1150,86 +1335,6 @@ export default function App() {
     });
   }, [posts, activeHashtag]);
 
-  /** ---------- ✅ ADDED: Create Story Function ---------- */
-  const createStory = useCallback(async ({ text, file }: { text?: string; file?: File | null }) => {
-    if (!currentUser) return;
-    
-    // Optimistic update - create a temporary story
-    const tempStory: Story = {
-      id: Date.now(), // Temporary ID
-      user_id: currentUser.id,
-      username: currentUser.username,
-      name: currentUser.name,
-      profile_image_url: currentUser.profile_image_url,
-      text: (text || "").trim(),
-      media_url: "",
-      media_type: "",
-      created_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      views: [],
-      is_verified: currentUser.is_verified,
-    };
-    
-    // Add optimistic story
-    setStories((prev) => [tempStory, ...safeArray(prev)]);
-    
-    let media_url: string | null = null;
-    let media_type: string | null = null;
-    
-    if (file) {
-      try {
-        const uploadResult = await uploadToCloudflareR2(file, "stories");
-        media_url = uploadResult.url;
-        media_type = uploadResult.type;
-      } catch (error: any) {
-        console.error("Failed to upload story media:", error);
-        // Remove optimistic story on error
-        setStories((prev) => prev.filter(s => s.id !== tempStory.id));
-        setLoginError(`Failed to upload story: ${error.message}`);
-        return;
-      }
-    }
-    
-    const payload = {
-      user_id: currentUser.id,
-      text: (text || "").trim(),
-      media_url,
-      media_type,
-    };
-    
-    try {
-      const data = await apiFetch("/api/stories", { 
-        method: "POST", 
-        body: JSON.stringify(payload) 
-      });
-      
-      // Replace optimistic story with server response
-      const created = data?.story ?? { 
-        ...payload, 
-        id: data?.id ?? Date.now(), 
-        created_at: new Date().toISOString(),
-        username: currentUser.username,
-        name: currentUser.name,
-        profile_image_url: currentUser.profile_image_url,
-        is_verified: currentUser.is_verified,
-        views: [],
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      };
-      
-      setStories((prev) => {
-        const updated = prev.map(s => s.id === tempStory.id ? created : s);
-        return [created, ...updated.filter(s => s.id !== tempStory.id)];
-      });
-      
-      setShowCreateStoryModal(false);
-    } catch (error: any) {
-      console.error("Failed to create story:", error);
-      // Remove optimistic story on error
-      setStories((prev) => prev.filter(s => s.id !== tempStory.id));
-      setLoginError(`Failed to create story: ${error.message}`);
-    }
-  }, [currentUser]);
-
   /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
     const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
@@ -1344,6 +1449,10 @@ export default function App() {
       setView('home');
 
       await fetchPostsForHome(finalUser);
+
+      // ✅ IMPORTANT: Re-fetch stories with correct viewerId after login
+      fetchOtherData().catch(() => {});
+
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -1374,6 +1483,8 @@ export default function App() {
     setActiveHashtag(null); // ✅ Clear hashtag filter on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
+    // Also re-fetch stories as guest
+    fetchOtherData().catch(() => {});
   };
 
   /** ---------- Navigation ---------- */
@@ -2293,7 +2404,10 @@ export default function App() {
         <CreateStoryModal
           currentUser={currentUser}
           onClose={() => setShowCreateStoryModal(false)}
-          onCreate={createStory}
+          onCreate={(storyData) => {
+            createStory(storyData);
+            setShowCreateStoryModal(false);
+          }}
         />
       )}
 
