@@ -31,6 +31,7 @@ const parseSeenIds = (raw: string | null, max = 250) => {
   return Array.from(new Set(ids)).slice(0, max);
 };
 
+// Deterministic seeded RNG + shuffle
 const mulberry32 = (seed: number) => {
   return function () {
     let t = (seed += 0x6d2b79f5);
@@ -62,7 +63,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     if (!userId) return json({ success: false, error: 'Missing userId' }, 400);
 
     const limit = clamp(toInt(url.searchParams.get('limit'), 20), 1, 50);
-    const cursor = url.searchParams.get('cursor'); // ISO timestamp older-than
+    const cursor = url.searchParams.get('cursor'); // older-than created_at
     const seed = toInt(url.searchParams.get('seed'), 1);
     const seen = parseSeenIds(url.searchParams.get('seen'), 250);
     const debug = url.searchParams.get('debug') === '1';
@@ -75,7 +76,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     where.push(`(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`);
 
-    if (cursor && typeof cursor === 'string' && cursor.trim().length > 0) {
+    if (cursor && cursor.trim().length > 0) {
       where.push(`p.created_at < ?`);
       binds.push(cursor.trim());
     }
@@ -87,6 +88,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
+    // ✅ IMPORTANT: NO u.name / u.full_name / u.display_name used here at all.
+    // We return "name" as username (safe everywhere).
     const baseSelect = `
       SELECT
         p.id,
@@ -119,9 +122,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           LIMIT 1
         ) AS my_reaction,
 
-        -- ✅ users table DOES NOT have u.name, so use u.full_name safely:
-        COALESCE(NULLIF(TRIM(u.full_name), ''), NULLIF(TRIM(u.username), ''), 'User') AS name,
         COALESCE(u.username, 'user') AS username,
+        COALESCE(u.username, 'User') AS name,
 
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
@@ -136,16 +138,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LEFT JOIN users u ON u.id = p.user_id
     `;
 
+    // 1) Fresh pool
     const qFresh = `
       ${baseSelect}
       ${whereSql}
       ORDER BY p.created_at DESC
       LIMIT ?
     `;
-
     const freshRes = await env.DB.prepare(qFresh).bind(userId, ...binds, freshCount).all();
     const fresh = Array.isArray(freshRes?.results) ? freshRes.results : [];
 
+    // 2) Explore pool
     let explore: any[] = [];
     if (exploreCount > 0) {
       const qExplore = `
@@ -158,6 +161,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       explore = Array.isArray(exploreRes?.results) ? exploreRes.results : [];
     }
 
+    // Merge + dedup
     const map = new Map<number, any>();
     for (const row of [...fresh, ...explore]) {
       const id = Number((row as any)?.id);
@@ -167,15 +171,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const merged = Array.from(map.values());
 
-    // ✅ correct nextCursor (oldest), not shuffled last
+    // ✅ nextCursor should be the OLDEST returned row (pagination correctness)
     const oldest = merged.reduce((acc: any, cur: any) => {
       if (!acc) return cur;
       return String(cur.created_at) < String(acc.created_at) ? cur : acc;
     }, null as any);
 
     const nextCursor = oldest?.created_at ?? null;
+
     const ordered = seededShuffle(merged, seed);
 
+    // hasMore check
     let hasMore = false;
     if (nextCursor) {
       const whereMore: string[] = [];
@@ -202,19 +208,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       hasMore = !!more;
     }
 
-    if (debug) {
-      return json({
-        success: true,
-        userId,
-        limit,
-        cursor: cursor ?? null,
-        nextCursor,
-        hasMore,
-        feed: ordered,
-      });
-    }
-
-    return json({
+    const payload = {
       success: true,
       userId,
       limit,
@@ -222,7 +216,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       nextCursor,
       hasMore,
       feed: ordered,
-    });
+    };
+
+    if (debug) return json({ ...payload, debug: { seenCount: seen.length, returned: ordered.length } });
+    return json(payload);
   } catch (e: any) {
     return json({ success: false, error: e?.message || String(e) }, 500);
   }
