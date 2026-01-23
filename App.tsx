@@ -1,4 +1,4 @@
-Here App.tsx 
+
 
 // in App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
@@ -318,7 +318,7 @@ const normalizePost = (p: any): PostType => {
     myReaction: p?.myReaction ?? p?.my_reaction ?? null,
     reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
     reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
-    likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
+    esCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
   } as any;
 };
 
