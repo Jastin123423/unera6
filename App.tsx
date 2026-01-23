@@ -1,4 +1,4 @@
-//  App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
+// in App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
 // ✅ FIXED: Immediate reaction updates with my_reaction field
