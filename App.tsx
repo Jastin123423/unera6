@@ -9,6 +9,7 @@
 // ✅ ADDED: Story backend integration with liked_by_me support
 // ✅ ADDED: StoryViewerModal for fullscreen story viewing
 // ✅ ADDED: Working create story functionality with API integration
+// ✅ FIXED: CreateStoryModal missing songs prop causing blank screen
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -53,6 +54,7 @@ import {
   ReactionType,
   Group,
   Brand,
+  Song,
 } from './types';
 
 /** ---------- Safety helpers ---------- */
@@ -433,6 +435,25 @@ const normalizeStory = (s: any): Story => {
   } as any;
 };
 
+/** ✅ ADDED: Normalize song data ---------- */
+const normalizeSong = (s: any): Song => {
+  return {
+    ...s,
+    id: safeNumber(s?.id),
+    title: safeString(s?.title, 'Untitled'),
+    artist_name: safeString(s?.artist_name, 'Unknown Artist'),
+    audio_url: safeString(s?.audio_url),
+    cover_image_url: safeString(s?.cover_image_url),
+    duration: safeNumber(s?.duration, 0),
+    plays: safeNumber(s?.plays, 0),
+    likes: safeNumber(s?.likes, 0),
+    liked_by_me: Boolean(s?.liked_by_me),
+    genre: safeString(s?.genre),
+    release_date: s?.release_date,
+    created_at: s?.created_at || new Date().toISOString(),
+  } as any;
+};
+
 /** ---------- Optimistic reaction helper ---------- */
 const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meId: number) => {
   if (Number(p?.id) !== Number(postId)) return p;
@@ -674,6 +695,7 @@ export default function App() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
+  const [songs, setSongs] = useState<Song[]>([]); // ✅ ADDED: Songs state for CreateStoryModal
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
@@ -757,6 +779,16 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
+  /** ✅ ADDED: Fetch songs for CreateStoryModal ---------- */
+  const fetchSongs = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/songs').catch(() => []);
+      setSongs(safeArray(data).map(normalizeSong));
+    } catch {
+      setSongs([]);
+    }
+  }, []);
+
   /** ---------- Fetch users list ---------- */
   const fetchUsersList = useCallback(async () => {
     try {
@@ -767,7 +799,7 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ UPDATED: fetchOtherData with viewerId for stories ---------- */
+  /** ✅ UPDATED: fetchOtherData with viewerId for stories and songs ---------- */
   const fetchOtherData = useCallback(async () => {
     // Always compute viewerId fresh from currentUser
     const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
@@ -1006,6 +1038,13 @@ export default function App() {
     fetchUserFollowDataForUI(Number(currentUser.id)).catch(() => {});
   }, [currentUser?.id, fetchUserFollowDataForUI]);
 
+  /** ---------- Fetch songs when currentUser changes ---------- */
+  useEffect(() => {
+    if (currentUser) {
+      fetchSongs().catch(() => {});
+    }
+  }, [currentUser, fetchSongs]);
+
   /** ---------- Silent refresh helper ---------- */
   const scheduleSilentRefresh = useCallback(() => {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
@@ -1162,6 +1201,10 @@ export default function App() {
       }
 
       await fetchData(viewer);
+      // Also fetch songs if we have a user
+      if (viewer) {
+        fetchSongs().catch(() => {});
+      }
     };
 
     init();
@@ -1399,11 +1442,13 @@ export default function App() {
 
       setView('home');
       await fetchPostsForHome(normalized);
+      // Also fetch songs after registration
+      fetchSongs().catch(() => {});
 
     } catch (error: any) {
       setLoginError(error?.message || 'Registration failed');
     }
-  }, [fetchPostsForHome]);
+  }, [fetchPostsForHome, fetchSongs]);
 
   /** ---------- Login (PROFESSIONALLY FIXED) ---------- */
   const handleLogin = async (email: string, password: string) => {
@@ -1452,6 +1497,8 @@ export default function App() {
 
       // ✅ IMPORTANT: Re-fetch stories with correct viewerId after login
       fetchOtherData().catch(() => {});
+      // ✅ Fetch songs after login
+      fetchSongs().catch(() => {});
 
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
@@ -1481,6 +1528,7 @@ export default function App() {
     setSelectedUserId(null);
     setProfilePosts([]);
     setActiveHashtag(null); // ✅ Clear hashtag filter on logout
+    setSongs([]); // ✅ Clear songs on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     // Also re-fetch stories as guest
@@ -2403,6 +2451,7 @@ export default function App() {
       {showCreateStoryModal && currentUser && (
         <CreateStoryModal
           currentUser={currentUser}
+          songs={songs} // ✅ FIXED: Now passing the songs array
           onClose={() => setShowCreateStoryModal(false)}
           onCreate={(storyData) => {
             createStory(storyData);
