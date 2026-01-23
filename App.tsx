@@ -14,6 +14,7 @@
 // ✅ FIXED: Merge story authors into users list
 // ✅ FIXED: StoryViewer fallback avatar generation
 // ✅ FIXED: Real names changing to "User" then back issue (mergeUserSafe protections)
+// ✅ FIXED: viewerId bug - computed fresh inside fetchOtherData and re-fetched after login
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -812,12 +813,13 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- Fetch other data ---------- */
+  /** ✅ FIXED: fetchOtherData with fresh viewerId computed inside ---------- */
   const fetchOtherData = useCallback(async () => {
-    // ✅ 1) Fetch stories with viewerId (so liked_by_me works)
+    // ✅ 1) ALWAYS compute viewerId fresh from currentUser
     const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+
     const [s, r, pr, g, b, e, c] = await Promise.all([
-      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []), // ✅ Updated with viewerId
+      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []), // ✅ Always fresh viewerId
       apiFetch('/api/reels').catch(() => []),
       apiFetch('/api/products').catch(() => []),
       apiFetch('/api/groups').catch(() => []),
@@ -1468,7 +1470,7 @@ export default function App() {
     }
   }, [fetchPostsForHome]);
 
-  /** ---------- Login (PROFESSIONALLY FIXED) ---------- */
+  /** ✅ FIXED: Login with immediate story re-fetch ---------- */
   const handleLogin = async (email: string, password: string) => {
     try {
       setLoginError('');
@@ -1512,6 +1514,20 @@ export default function App() {
       setView('home');
 
       await fetchPostsForHome(finalUser);
+
+      // ✅ CRITICAL FIX: Immediately re-fetch stories with correct viewerId after login
+      try {
+        const storiesData = await apiFetch(`/api/stories?viewerId=${Number(finalUser.id)}`);
+        const normalizedStories = safeArray(storiesData)
+          .map(normalizeStory)
+          .sort((a: any, b: any) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime());
+        
+        setStories(normalizedStories);
+      } catch (error) {
+        console.error('Failed to fetch stories after login:', error);
+        // Still continue even if stories fail
+      }
+
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -1542,6 +1558,9 @@ export default function App() {
     setActiveHashtag(null);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
+    
+    // ✅ Also re-fetch stories as guest (viewerId = 0)
+    fetchOtherData().catch(() => {});
   };
 
   /** ---------- Navigation ---------- */
