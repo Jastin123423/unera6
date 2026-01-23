@@ -6,15 +6,8 @@
 // ✅ FIXED: Follow buttons reading and sending real data from API backend
 // ✅ ADDED: onLikeComment handler for comment likes
 // ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
-// ✅ UPDATED: Story backend integration with liked_by_me support
-// ✅ FIXED: Blank screen issue by fixing initialization order
-// ✅ FIXED: Story integration causing names to change to "User" - PROFESSIONALLY FIXED
-// ✅ FIXED: StoryViewer with stable user data, follow support, and Facebook-like navigation
-// ✅ FIXED: authorFromFeedRow name assignment bug
-// ✅ FIXED: normalizeStory author info preservation
-// ✅ FIXED: Merge story authors into users list WITHOUT overwriting existing data
-// ✅ FIXED: StoryViewer fallback avatar generation
-// ✅ FIXED: Real names changing to "User" then back issue (mergeUserSafe protections)
+// ✅ ADDED: Story viewer modal for fullscreen story viewing
+// ✅ ADDED: Create story functionality with optimistic updates
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -26,7 +19,7 @@ import {
   SuggestedProductsWidget,
   ShareBottomSheet,
 } from './components/Feed';
-import { StoryReel, CreateStoryModal, StoryViewer } from './components/Story';
+import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
@@ -213,17 +206,6 @@ const diversifyFeed = (posts: PostType[], seed: number) => {
   return out;
 };
 
-/** ---------- Placeholder Detection ---------- */
-const isPlaceholderName = (v: any) => {
-  const s = String(v ?? "").trim().toLowerCase();
-  return !s || s === "user" || s === "un" || s === "unera";
-};
-
-const isPlaceholderUsername = (v: any) => {
-  const s = String(v ?? "").trim().toLowerCase();
-  return !s || s === "user";
-};
-
 /** ---------- Safe User Merge Helper ---------- */
 const isHttpUrl = (v: any) =>
   typeof v === 'string' && (v.startsWith('https://') || v.startsWith('http://'));
@@ -231,20 +213,12 @@ const isHttpUrl = (v: any) =>
 const mergeUserSafe = (oldU: any, newU: any) => {
   const next = { ...oldU, ...newU };
 
-  // ✅ protect profile/cover images (your existing logic)
+  // ✅ keep old profile/cover if incoming is missing/empty
   if (!isHttpUrl(newU?.profile_image_url) && isHttpUrl(oldU?.profile_image_url)) {
     next.profile_image_url = oldU.profile_image_url;
   }
   if (!isHttpUrl(newU?.cover_image_url) && isHttpUrl(oldU?.cover_image_url)) {
     next.cover_image_url = oldU.cover_image_url;
-  }
-
-  // ✅ NEW: protect name + username from being overwritten by placeholders
-  if (isPlaceholderName(newU?.name) && !isPlaceholderName(oldU?.name)) {
-    next.name = oldU.name;
-  }
-  if (isPlaceholderUsername(newU?.username) && !isPlaceholderUsername(oldU?.username)) {
-    next.username = oldU.username;
   }
 
   return next;
@@ -351,19 +325,11 @@ const normalizePost = (p: any): PostType => {
 /**
  * Normalize user data with UNERA-style profile pictures
  * ✅ FIXED: cover_image_url can be undefined, not empty string
- * ✅ FIXED: Don't create placeholder names if we have real data
- * ✅ FIXED: Safer username/name handling to prevent "User" overwrites
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
-  
-  // Get raw values WITHOUT defaulting to placeholders immediately
-  const rawUsername = typeof u?.username === "string" ? u.username.trim() : "";
-  const rawName = typeof u?.name === "string" ? u.name.trim() : "";
-  
-  // Only use placeholders if we have NO data at all
-  const userUsername = rawUsername || (rawName ? rawName.toLowerCase().replace(/\s+/g, '_') : "user");
-  const userName = rawName || (rawUsername ? rawUsername.charAt(0).toUpperCase() + rawUsername.slice(1) : "User");
+  const userName = safeString(u?.name, safeString(u?.username, 'User'));
+  const userUsername = safeString(u?.username, safeString(u?.name, 'user'));
 
   const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
 
@@ -564,31 +530,17 @@ const normalizeFeedRowToPost = (row: any): PostType => {
   });
 };
 
-// ✅ FIXED: Make authorFromFeedRow() NOT invent "User" while merging
 const authorFromFeedRow = (row: any): User => {
-  const rawName =
-    row?.name ??
-    row?.full_name ??
-    row?.display_name ??
-    row?.user_name ??
-    row?.author_name ??
-    row?.post_author_name;
-
-  const rawUsername =
-    row?.username ??
-    row?.user_username ??
-    row?.author_username ??
-    row?.post_author_username;
+  const username = row?.username ?? 'user';
+  const name = row?.username ?? 'User';
 
   return normalizeUser({
     id: row?.user_id,
-    // ✅ do NOT default to "user"/"User" here:
-    name: typeof rawName === "string" ? rawName.trim() : undefined,
-    username: typeof rawUsername === "string" ? rawUsername.trim() : undefined,
-
-    profile_image_url: row?.profile_image_url ?? row?.avatar_url ?? "",
+    username,
+    name,
+    profile_image_url: row?.profile_image_url ?? '',
     is_verified: row?.is_verified ?? 0,
-    role: row?.role ?? "user",
+    role: row?.role ?? 'user',
     followers: [],
     following: [],
     created_at: row?.joined_date ?? row?.created_at ?? null,
@@ -641,70 +593,6 @@ const createFallbackUser = (): User => {
     bio: '',
     created_at: null,
   };
-};
-
-/** ✅ FIXED: normalizeStory() author info preservation ---------- */
-const normalizeStory = (s: any): Story => {
-  const userId = safeNumber(s?.user_id ?? s?.author_id ?? s?.user?.id);
-
-  const authorName =
-    String(
-      s?.author_name ??
-      s?.name ??
-      s?.display_name ??
-      s?.username ??
-      s?.user?.name ??
-      s?.user?.username ??
-      ''
-    ).trim();
-
-  const authorUsername =
-    String(
-      s?.author_username ??
-      s?.username ??
-      s?.user?.username ??
-      (authorName ? authorName.toLowerCase().replace(/\s+/g, '_') : '')
-    ).trim();
-
-  const authorImage =
-    String(
-      s?.author_image ??
-      s?.profile_image_url ??
-      s?.user?.profile_image_url ??
-      s?.user?.avatar_url ??
-      ''
-    ).trim();
-
-  return {
-    ...s,
-    id: safeNumber(s?.id),
-    user_id: userId,
-
-    type: s?.type || 'text',
-    text_content: s?.text_content || '',
-    media_url: s?.media_url || null,
-    background_style: s?.background_style || null,
-    music_url: s?.music_url || null,
-    music_title: s?.music_title || null,
-
-    created_at: s?.created_at || new Date().toISOString(),
-    expires_at:
-      s?.expires_at ||
-      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-
-    likes_count: safeNumber(s?.likes_count, 0),
-    replies_count: safeNumber(s?.replies_count, 0),
-    views: safeNumber(s?.views, 0),
-    liked_by_me: safeNumber(s?.liked_by_me, 0) ? 1 : 0,
-
-    // ✅ Keep author fields ALWAYS filled if backend provides anything
-    author_name: authorName,
-    author_username: authorUsername,
-    author_image: authorImage,
-
-    // ✅ Keep user object if backend provides it (super useful)
-    user: s?.user ? normalizeUser(s.user) : undefined,
-  } as any;
 };
 
 export default function App() {
@@ -833,7 +721,7 @@ export default function App() {
             return;
           }
 
-          // Merge authors into users list - ✅ FIXED: Use mergeUserSafe to preserve cover/images AND names
+          // Merge authors into users list - ✅ FIXED: Use mergeUserSafe to preserve cover images
           setUsers((prev) => {
             const map = new Map<number, User>();
             safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
@@ -844,7 +732,7 @@ export default function App() {
               if (!map.has(author.id)) map.set(author.id, author);
               else {
                 const existing = map.get(author.id)!;
-                // ✅ FIXED: Use mergeUserSafe to preserve existing data (including real names)
+                // ✅ FIXED: Use mergeUserSafe to preserve existing cover/profile images
                 map.set(author.id, normalizeUser(mergeUserSafe(existing, author)));
               }
             });
@@ -963,7 +851,7 @@ export default function App() {
     } catch {
       setProfilePosts([]);
     }
-  }, [currentUser, posts]);
+  }, [currentUser, posts]); // ✅ ADDED: Added posts dependency
 
   /** ✅ Fetch profile posts when user opens profile ---------- */
   useEffect(() => {
@@ -1034,10 +922,8 @@ export default function App() {
 
   /** ---------- Fetch other data ---------- */
   const fetchOtherData = useCallback(async () => {
-    // ✅ 1) Fetch stories with viewerId (so liked_by_me works)
-    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
     const [s, r, pr, g, b, e, c] = await Promise.all([
-      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []),
+      apiFetch('/api/stories').catch(() => []),
       apiFetch('/api/reels').catch(() => []),
       apiFetch('/api/products').catch(() => []),
       apiFetch('/api/groups').catch(() => []),
@@ -1046,173 +932,14 @@ export default function App() {
       apiFetch('/api/chats').catch(() => []),
     ]);
 
-    // ✅ Normalize stories to ensure consistent data types
-    const normalizedStories = safeArray(s)
-      .map(normalizeStory)
-      .sort((a: any, b: any) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime());
-
-    setStories(normalizedStories);
-
-    // ✅ FIXED: Merge story authors into users[] WITHOUT overwriting existing good data
-    setUsers(prev => {
-      const map = new Map<number, User>();
-      safeArray(prev).forEach(u => map.set(Number(u.id), normalizeUser(u)));
-
-      normalizedStories.forEach((st: any) => {
-        const uid = Number(st.user_id);
-        if (!uid) return;
-
-        // Only create user from story if we don't already have them
-        if (!map.has(uid)) {
-          const authorName = st.author_name || st.user?.name;
-          const authorUsername = st.author_username || st.user?.username;
-          
-          // Only create if we have actual name data, not placeholders
-          if (authorName && authorName.trim() && authorName.toLowerCase() !== 'user') {
-            const u = normalizeUser({
-              id: uid,
-              name: authorName,
-              username: authorUsername || authorName.toLowerCase().replace(/\s+/g, '_'),
-              profile_image_url: st.author_image || st.user?.profile_image_url || '',
-              is_verified: st.user?.is_verified ?? 0,
-              role: st.user?.role ?? 'user',
-            });
-            map.set(uid, u);
-          }
-        }
-        // If user exists, ONLY update profile_image_url if story has a better one
-        else {
-          const existing = map.get(uid)!;
-          const storyImage = st.author_image || st.user?.profile_image_url;
-          
-          // Only update if story has image and existing doesn't or has placeholder
-          if (storyImage && storyImage.trim() && 
-              (!existing.profile_image_url || 
-               existing.profile_image_url.includes('ui-avatars.com/api/?name=User') ||
-               existing.profile_image_url.includes('ui-avatars.com/api/?name=UNERA'))) {
-            
-            // Use mergeUserSafe to preserve existing name/username
-            map.set(uid, normalizeUser(mergeUserSafe(existing, {
-              profile_image_url: storyImage
-            })));
-          }
-        }
-      });
-
-      return Array.from(map.values());
-    });
-
+    setStories(safeArray(s));
     setReels(safeArray(r));
     setProducts(safeArray(pr));
     setGroups(safeArray(g));
     setBrands(safeArray(b));
     setEvents(safeArray(e));
     setChats(safeArray(c));
-  }, [currentUser]);
-
-  /** ✅ Add likeStory and replyToStory handlers ---------- */
-  const likeStory = useCallback(async (storyId: number) => {
-    if (!currentUser) return;
-
-    // optimistic toggle
-    setStories(prev =>
-      safeArray(prev).map((s: any) => {
-        if (Number(s.id) !== Number(storyId)) return s;
-        const liked = Boolean(s.liked_by_me);
-        const count = safeNumber(s.likes_count, 0);
-        return {
-          ...s,
-          liked_by_me: liked ? 0 : 1,
-          likes_count: liked ? Math.max(0, count - 1) : count + 1
-        };
-      })
-    );
-
-    try {
-      const data = await apiFetch(`/api/stories/${storyId}/react`, {
-        method: "POST",
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      // server truth
-      setStories(prev =>
-        safeArray(prev).map((s: any) =>
-          Number(s.id) === Number(storyId)
-            ? {
-                ...s,
-                liked_by_me: data?.liked ? 1 : 0,
-                likes_count: safeNumber(data?.likes_count, s.likes_count),
-              }
-            : s
-        )
-      );
-    } catch {
-      // rollback by refetch
-      fetchOtherData().catch(() => {});
-    }
-  }, [currentUser, fetchOtherData]);
-
-  const replyToStory = useCallback(async (storyId: number, text: string) => {
-    if (!currentUser) return;
-
-    await apiFetch(`/api/stories/${storyId}/reply`, {
-      method: "POST",
-      body: JSON.stringify({ user_id: currentUser.id, text }),
-    });
-  }, [currentUser]);
-
-  /** ✅ Add createStory handler ---------- */
-  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
-    if (!currentUser) return;
-
-    let media_url: string | null = null;
-    let music_url: string | null = null;
-
-    try {
-      // Upload media file if provided
-      if (storyData.media_file) {
-        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
-        media_url = uploadResult.url;
-      }
-
-      // Upload audio file if provided
-      if (storyData.audio_file) {
-        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'stories/music');
-        music_url = uploadResult.url;
-      }
-
-      const payload = {
-        user_id: currentUser.id,
-        type: storyData.type,
-        media_url: media_url || storyData.media_url || null,
-        text_content: storyData.text_content ?? null,
-        background_style: storyData.background_style ?? null,
-        music_url: music_url || storyData.music_url || null,
-        music_title: storyData.music_title ?? null,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      };
-
-      const res = await apiFetch("/api/stories", { method: "POST", body: JSON.stringify(payload) });
-
-      // add new story into state immediately
-      const newStory = res?.story ? normalizeStory(res.story) : { 
-        ...payload, 
-        id: Date.now(), 
-        created_at: new Date().toISOString(),
-        likes_count: 0,
-        replies_count: 0,
-        views: 0,
-        liked_by_me: 0
-      };
-      
-      setStories(prev => [newStory as any, ...safeArray(prev)]);
-      return true;
-    } catch (error: any) {
-      console.error('Failed to create story:', error);
-      setLoginError(`Failed to create story: ${error.message}`);
-      return false;
-    }
-  }, [currentUser]);
+  }, []);
 
   /** ---------- One fetch pipeline ---------- */
   const fetchData = useCallback(
@@ -1423,6 +1150,86 @@ export default function App() {
     });
   }, [posts, activeHashtag]);
 
+  /** ---------- ✅ ADDED: Create Story Function ---------- */
+  const createStory = useCallback(async ({ text, file }: { text?: string; file?: File | null }) => {
+    if (!currentUser) return;
+    
+    // Optimistic update - create a temporary story
+    const tempStory: Story = {
+      id: Date.now(), // Temporary ID
+      user_id: currentUser.id,
+      username: currentUser.username,
+      name: currentUser.name,
+      profile_image_url: currentUser.profile_image_url,
+      text: (text || "").trim(),
+      media_url: "",
+      media_type: "",
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      views: [],
+      is_verified: currentUser.is_verified,
+    };
+    
+    // Add optimistic story
+    setStories((prev) => [tempStory, ...safeArray(prev)]);
+    
+    let media_url: string | null = null;
+    let media_type: string | null = null;
+    
+    if (file) {
+      try {
+        const uploadResult = await uploadToCloudflareR2(file, "stories");
+        media_url = uploadResult.url;
+        media_type = uploadResult.type;
+      } catch (error: any) {
+        console.error("Failed to upload story media:", error);
+        // Remove optimistic story on error
+        setStories((prev) => prev.filter(s => s.id !== tempStory.id));
+        setLoginError(`Failed to upload story: ${error.message}`);
+        return;
+      }
+    }
+    
+    const payload = {
+      user_id: currentUser.id,
+      text: (text || "").trim(),
+      media_url,
+      media_type,
+    };
+    
+    try {
+      const data = await apiFetch("/api/stories", { 
+        method: "POST", 
+        body: JSON.stringify(payload) 
+      });
+      
+      // Replace optimistic story with server response
+      const created = data?.story ?? { 
+        ...payload, 
+        id: data?.id ?? Date.now(), 
+        created_at: new Date().toISOString(),
+        username: currentUser.username,
+        name: currentUser.name,
+        profile_image_url: currentUser.profile_image_url,
+        is_verified: currentUser.is_verified,
+        views: [],
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      };
+      
+      setStories((prev) => {
+        const updated = prev.map(s => s.id === tempStory.id ? created : s);
+        return [created, ...updated.filter(s => s.id !== tempStory.id)];
+      });
+      
+      setShowCreateStoryModal(false);
+    } catch (error: any) {
+      console.error("Failed to create story:", error);
+      // Remove optimistic story on error
+      setStories((prev) => prev.filter(s => s.id !== tempStory.id));
+      setLoginError(`Failed to create story: ${error.message}`);
+    }
+  }, [currentUser]);
+
   /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
     const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
@@ -1564,7 +1371,7 @@ export default function App() {
     setCurrentUser(null);
     setSelectedUserId(null);
     setProfilePosts([]);
-    setActiveHashtag(null);
+    setActiveHashtag(null); // ✅ Clear hashtag filter on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
   };
@@ -2482,6 +2289,22 @@ export default function App() {
         />
       )}
 
+      {showCreateStoryModal && currentUser && (
+        <CreateStoryModal
+          currentUser={currentUser}
+          onClose={() => setShowCreateStoryModal(false)}
+          onCreate={createStory}
+        />
+      )}
+
+      {activeStory && (
+        <StoryViewerModal
+          story={activeStory}
+          onClose={() => setActiveStory(null)}
+          onProfileClick={(id) => openProfile(id)}
+        />
+      )}
+
       {activePost && currentUser && (
         <CommentsSheet
           post={activePost}
@@ -2537,111 +2360,6 @@ export default function App() {
       )}
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
-
-      {/* ✅ ✅ ✅ FIXED: StoryViewer with all fixes - no name overwriting issues */}
-      {activeStory && (
-        <StoryViewer
-          story={activeStory}
-          user={(() => {
-            const uid = Number((activeStory as any)?.user_id);
-            const fromUsers = users.find((u) => Number(u.id) === uid);
-
-            if (fromUsers) return fromUsers;
-
-            const name =
-              String((activeStory as any)?.author_name || "").trim() ||
-              String((activeStory as any)?.username || "").trim() ||
-              "User";
-
-            return {
-              id: uid,
-              name,
-              username: String((activeStory as any)?.author_username || name).toLowerCase().replace(/\s+/g, "_"),
-              // ✅ FIXED: Generate avatar if author_image empty
-              profile_image_url:
-                String((activeStory as any)?.author_image || "").trim() ||
-                generateProfilePictureUrl(name, uid),
-            } as any;
-          })()}
-          currentUser={currentUser}
-          onClose={() => setActiveStory(null)}
-          onFollow={(id) => followUser(id)}
-          isFollowing={checkIsFollowing(Number((activeStory as any)?.user_id))}
-          onNext={() => {
-            const uid = Number((activeStory as any).user_id);
-
-            const decks = Array.from(
-              new Set(safeArray(stories).map((s: any) => Number(s.user_id)))
-            );
-
-            const userDeck = safeArray(stories)
-              .filter((s: any) => Number(s.user_id) === uid)
-              .slice()
-              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
-
-            const idx = userDeck.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
-            const nextInUser = userDeck[idx + 1];
-
-            if (nextInUser) return setActiveStory(nextInUser);
-
-            // move to next user's first story
-            const deckIndex = decks.findIndex((x) => x === uid);
-            const nextUserId = decks[deckIndex + 1];
-            if (!nextUserId) return setActiveStory(null);
-
-            const nextUserDeck = safeArray(stories)
-              .filter((s: any) => Number(s.user_id) === Number(nextUserId))
-              .slice()
-              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
-
-            setActiveStory(nextUserDeck[0] || null);
-          }}
-          onPrev={() => {
-            const uid = Number((activeStory as any).user_id);
-
-            const decks = Array.from(
-              new Set(safeArray(stories).map((s: any) => Number(s.user_id)))
-            );
-
-            const userDeck = safeArray(stories)
-              .filter((s: any) => Number(s.user_id) === uid)
-              .slice()
-              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
-
-            const idx = userDeck.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
-            const prevInUser = userDeck[idx - 1];
-
-            if (prevInUser) return setActiveStory(prevInUser);
-
-            // move to previous user's last story
-            const deckIndex = decks.findIndex((x) => x === uid);
-            const prevUserId = decks[deckIndex - 1];
-            if (!prevUserId) return;
-
-            const prevUserDeck = safeArray(stories)
-              .filter((s: any) => Number(s.user_id) === Number(prevUserId))
-              .slice()
-              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
-
-            setActiveStory(prevUserDeck[prevUserDeck.length - 1] || null);
-          }}
-          onLike={(id) => likeStory(id)}
-          onReply={(id, text) => replyToStory(id, text)}
-          allStories={stories}
-        />
-      )}
-
-      {showCreateStoryModal && currentUser && (
-        <CreateStoryModal 
-          currentUser={currentUser} 
-          songs={[]}
-          onClose={() => setShowCreateStoryModal(false)}
-          onCreate={(s) => {
-            createStory(s as any);
-            setShowCreateStoryModal(false);
-          }}
-        />
-      )}
 
       {showCreateReelModal && currentUser && (
         <CreateReelModal currentUser={currentUser} onClose={() => setShowCreateReelModal(false)} onCreate={() => {}} />
