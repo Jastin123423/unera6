@@ -8,10 +8,11 @@
 // ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
 // ✅ UPDATED: Story backend integration with liked_by_me support
 // ✅ FIXED: Blank screen issue by fixing initialization order
-// ✅ UPDATED: StoryViewer with stable user data, follow support, and Facebook-like navigation
+// ✅ FIXED: Story integration causing names to change to "User" - PROFESSIONALLY FIXED
+// ✅ FIXED: StoryViewer with stable user data, follow support, and Facebook-like navigation
 // ✅ FIXED: authorFromFeedRow name assignment bug
 // ✅ FIXED: normalizeStory author info preservation
-// ✅ FIXED: Merge story authors into users list
+// ✅ FIXED: Merge story authors into users list WITHOUT overwriting existing data
 // ✅ FIXED: StoryViewer fallback avatar generation
 // ✅ FIXED: Real names changing to "User" then back issue (mergeUserSafe protections)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -350,18 +351,19 @@ const normalizePost = (p: any): PostType => {
 /**
  * Normalize user data with UNERA-style profile pictures
  * ✅ FIXED: cover_image_url can be undefined, not empty string
- * ✅ FIXED: Don't "manufacture" username from name in destructive way
- * ✅ FIXED IMMEDIATELY: Safer username/name handling with proper trim and fallbacks
+ * ✅ FIXED: Don't create placeholder names if we have real data
+ * ✅ FIXED: Safer username/name handling to prevent "User" overwrites
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
   
-  // ✅ FIXED IMMEDIATELY: Replace the problematic lines with safer version
+  // Get raw values WITHOUT defaulting to placeholders immediately
   const rawUsername = typeof u?.username === "string" ? u.username.trim() : "";
   const rawName = typeof u?.name === "string" ? u.name.trim() : "";
-
-  const userUsername = rawUsername || "user";
-  const userName = rawName || rawUsername || "User";
+  
+  // Only use placeholders if we have NO data at all
+  const userUsername = rawUsername || (rawName ? rawName.toLowerCase().replace(/\s+/g, '_') : "user");
+  const userName = rawName || (rawUsername ? rawUsername.charAt(0).toUpperCase() + rawUsername.slice(1) : "User");
 
   const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
 
@@ -562,7 +564,7 @@ const normalizeFeedRowToPost = (row: any): PostType => {
   });
 };
 
-// ✅ FIX 2 — Make authorFromFeedRow() NOT invent "User" while merging
+// ✅ FIXED: Make authorFromFeedRow() NOT invent "User" while merging
 const authorFromFeedRow = (row: any): User => {
   const rawName =
     row?.name ??
@@ -961,7 +963,7 @@ export default function App() {
     } catch {
       setProfilePosts([]);
     }
-  }, [currentUser, posts]); // ✅ ADDED: Added posts dependency
+  }, [currentUser, posts]);
 
   /** ✅ Fetch profile posts when user opens profile ---------- */
   useEffect(() => {
@@ -1035,7 +1037,7 @@ export default function App() {
     // ✅ 1) Fetch stories with viewerId (so liked_by_me works)
     const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
     const [s, r, pr, g, b, e, c] = await Promise.all([
-      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []), // ✅ Updated with viewerId
+      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []),
       apiFetch('/api/reels').catch(() => []),
       apiFetch('/api/products').catch(() => []),
       apiFetch('/api/groups').catch(() => []),
@@ -1051,7 +1053,7 @@ export default function App() {
 
     setStories(normalizedStories);
 
-    // ✅ 3) ADDED: Merge story authors into users[]
+    // ✅ FIXED: Merge story authors into users[] WITHOUT overwriting existing good data
     setUsers(prev => {
       const map = new Map<number, User>();
       safeArray(prev).forEach(u => map.set(Number(u.id), normalizeUser(u)));
@@ -1060,18 +1062,41 @@ export default function App() {
         const uid = Number(st.user_id);
         if (!uid) return;
 
-        // build best possible user from story
-        const u = normalizeUser({
-          id: uid,
-          name: st.author_name || st.user?.name || 'User',
-          username: st.author_username || st.user?.username || 'user',
-          profile_image_url: st.author_image || st.user?.profile_image_url || '',
-          is_verified: st.user?.is_verified ?? 0,
-          role: st.user?.role ?? 'user',
-        });
-
-        if (!map.has(uid)) map.set(uid, u);
-        else map.set(uid, normalizeUser(mergeUserSafe(map.get(uid)!, u)));
+        // Only create user from story if we don't already have them
+        if (!map.has(uid)) {
+          const authorName = st.author_name || st.user?.name;
+          const authorUsername = st.author_username || st.user?.username;
+          
+          // Only create if we have actual name data, not placeholders
+          if (authorName && authorName.trim() && authorName.toLowerCase() !== 'user') {
+            const u = normalizeUser({
+              id: uid,
+              name: authorName,
+              username: authorUsername || authorName.toLowerCase().replace(/\s+/g, '_'),
+              profile_image_url: st.author_image || st.user?.profile_image_url || '',
+              is_verified: st.user?.is_verified ?? 0,
+              role: st.user?.role ?? 'user',
+            });
+            map.set(uid, u);
+          }
+        }
+        // If user exists, ONLY update profile_image_url if story has a better one
+        else {
+          const existing = map.get(uid)!;
+          const storyImage = st.author_image || st.user?.profile_image_url;
+          
+          // Only update if story has image and existing doesn't or has placeholder
+          if (storyImage && storyImage.trim() && 
+              (!existing.profile_image_url || 
+               existing.profile_image_url.includes('ui-avatars.com/api/?name=User') ||
+               existing.profile_image_url.includes('ui-avatars.com/api/?name=UNERA'))) {
+            
+            // Use mergeUserSafe to preserve existing name/username
+            map.set(uid, normalizeUser(mergeUserSafe(existing, {
+              profile_image_url: storyImage
+            })));
+          }
+        }
       });
 
       return Array.from(map.values());
@@ -1085,7 +1110,7 @@ export default function App() {
     setChats(safeArray(c));
   }, [currentUser]);
 
-  /** ✅ 2) Add likeStory and replyToStory handlers ---------- */
+  /** ✅ Add likeStory and replyToStory handlers ---------- */
   const likeStory = useCallback(async (storyId: number) => {
     if (!currentUser) return;
 
@@ -1136,7 +1161,7 @@ export default function App() {
     });
   }, [currentUser]);
 
-  /** ✅ 5) Add createStory handler ---------- */
+  /** ✅ Add createStory handler ---------- */
   const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
     if (!currentUser) return;
 
@@ -1539,7 +1564,7 @@ export default function App() {
     setCurrentUser(null);
     setSelectedUserId(null);
     setProfilePosts([]);
-    setActiveHashtag(null); // ✅ Clear hashtag filter on logout
+    setActiveHashtag(null);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
   };
@@ -2513,7 +2538,7 @@ export default function App() {
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
-      {/* ✅ ✅ ✅ UPDATED: StoryViewer with all fixes (no flickering, stable navigation, follow support) */}
+      {/* ✅ ✅ ✅ FIXED: StoryViewer with all fixes - no name overwriting issues */}
       {activeStory && (
         <StoryViewer
           story={activeStory}
