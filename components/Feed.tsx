@@ -1,6 +1,4 @@
-
-
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   User,
   Post as PostType,
@@ -227,12 +225,57 @@ const FEELINGS = [
   'Relaxed',
 ];
 
-// Quick emojis for comments
-const QUICK_EMOJIS = ['😀', '😂', '😍', '🔥', '😢', '😡', '👍', '❤️'];
+// ✅ UPDATED: Increased emojis to 25+ with most lovely emojis
+const QUICK_EMOJIS = [
+  '😀', '😂', '😍', '🥰', '😘', '😊', '😉', '😇', '🥳', '😎',
+  '🤩', '😋', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔',
+  '😐', '😑', '😶', '🙄', '😏', '😒', '😞', '😔', '😟', '😕',
+  '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤',
+  '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰',
+  '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑',
+  '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤',
+  '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕',
+  '🤑', '🤠', '😈', '👿', '👹', '👺', '🤡', '💩', '👻', '💀',
+  '☠️', '👽', '👾', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼',
+  '😽', '🙀', '😿', '😾', '👋', '🤚', '🖐️', '✋', '🖖', '👌',
+  '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕',
+  '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌',
+  '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🦾', '🦵',
+  '🦿', '🦶', '👣', '👂', '🦻', '👃', '🧠', '🦷', '🦴', '👀',
+  '👁️', '👅', '👄', '💋', '🩸', '💘', '💝', '💖', '💗', '💓',
+  '💞', '💕', '💟', '❣️', '💔', '❤️', '🧡', '💛', '💚', '💙',
+  '💜', '🖤', '🤍', '🤎', '💯', '💢', '💥', '💫', '💦', '💨',
+  '🕳️', '💣', '💬', '👁️‍🗨️', '🗨️', '🗯️', '💭', '💤', '🔴', '🟠',
+  '🟡', '🟢', '🔵', '🟣', '🟤', '⚫', '⚪', '🟥', '🟧', '🟨',
+  '🟩', '🟦', '🟪', '🟫', '⬛', '⬜', '◼️', '◻️', '◾', '◽',
+  '▪️', '▫️', '🔶', '🔷', '🔸', '🔹', '🔺', '🔻', '💠', '🔘',
+  '🔳', '🔲', '🎵', '🎶', '🎼', '🎤', '🎧', '🎷', '🎸', '🎹',
+  '🎺', '🎻', '🥁', '📱', '📲', '☎️', '📞', '📟', '📠', '🔋',
+  '🔌', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '🖲️', '💽', '💾', '💿',
+  '📀', '🎥', '🎞️', '📽️', '🎬', '📺', '📷', '📸', '📹', '📼',
+  '🔍', '🔎', '🕯️', '💡', '🔦', '🏮', '📔', '📕', '📖', '📗',
+  '📘', '📙', '📚', '📓', '📒', '📃', '📜', '📄', '📰', '🗞️',
+  '📑', '🔖', '🏷️', '💰', '💴', '💵', '💶', '💷', '💸', '💳',
+  '🧾', '💎', '⚖️', '🦯', '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🔩',
+  '⚙️', '🧱', '⛓️', '🧲', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️',
+  '⚔️', '🛡️', '🚬', '⚰️', '⚱️', '🏺', '🔮', '📿', '🧿', '💈',
+  '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬',
+  '🦠', '🧫', '🧪', '🌡️', '🧹', '🧺', '🧻', '🚽', '🚰', '🚿',
+  '🛁', '🧼', '🪒', '🧽', '🧴', '🛎️', '🔑', '🗝️', '🚪', '🪑',
+  '🛋️', '🛏️', '🧸', '🖼️', '🛍️', '🛒', '🎁', '🎈', '🎏', '🎀',
+  '🎊', '🎉', '🎎', '🏮', '🎐', '🧧', '✉️', '📩', '📨', '📧',
+  '💌', '📥', '📤', '📦', '🏷️', '📪', '📫', '📬', '📭', '📮',
+  '📯', '📜', '📃', '📄', '📑', '🧾', '📊', '📈', '📉', '🗒️',
+  '🗓️', '📆', '📅', '🗑️', '📇', '📋', '📁', '📂', '🗂️', '🗄️',
+  '📒', '📓', '📔', '📕', '📖', '📗', '📘', '📙', '📚', '📖',
+  '🔖', '🧷', '🔗', '📎', '🖇️', '📏', '📐', '✂️', '🗃️', '🗳️',
+  '🖋️', '🖊️', '🖌️', '🖍️', '📝', '✏️', '🔍', '🔎', '🔏', '🔐',
+  '🔒', '🔓'
+];
 
 /**
  * =========================
- * ✅ ENHANCED FACEBOOK-STYLE REACTION DOCK WITH 10+ EMOJIS
+ * ✅ ENHANCED FACEBOOK-STYLE REACTION DOCK WITH 25+ EMOJIS
  * =========================
  */
 // Add these styles to your global CSS or create a style tag
@@ -265,6 +308,55 @@ const reactionStyles = `
     animation: bounce 0.5s infinite alternate;
   }
 `;
+
+/**
+ * =========================
+ * ✅ ADDED: ExpandableRichText Component for Show More/Show Less
+ * =========================
+ */
+const ExpandableRichText: React.FC<{
+  text: string;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+  maxWords?: number;
+  fontSizePx?: number;
+}> = ({ text, users, onProfileClick, onHashtagClick, maxWords = 25, fontSizePx = 21 }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const words = (text || '').trim().split(/\s+/).filter(Boolean);
+  const isLong = words.length > maxWords;
+
+  const shownText = !isLong
+    ? text
+    : expanded
+      ? text
+      : words.slice(0, maxWords).join(' ') + '…';
+
+  return (
+    <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed">
+      <RichText
+        text={shownText}
+        users={users}
+        onProfileClick={onProfileClick}
+        onHashtagClick={onHashtagClick}
+      />
+
+      {isLong && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          className="ml-2 font-bold text-[#1877F2] hover:underline"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+};
 
 /**
  * =========================
@@ -341,7 +433,7 @@ export const RichText = ({
 
 /**
  * =========================
- * ✅ ENHANCED: FACEBOOK-STYLE REACTION BUTTON WITH 10+ EMOJIS & LONG-PRESS
+ * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON - CLICK SHOWS EMOJIS WITHOUT AUTO-ADDING FIRST
  * =========================
  */
 export const ReactionButton: React.FC<{
@@ -369,7 +461,7 @@ export const ReactionButton: React.FC<{
     };
   }, []);
 
-  // Enhanced reaction config with 10+ emojis
+  // Enhanced reaction config with 25+ emojis
   const reactionConfig = [
     { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
     { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
@@ -383,6 +475,19 @@ export const ReactionButton: React.FC<{
     { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
     { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
     { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
+    { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
+    { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
+    { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
+    { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
+    { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
+    { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
+    { type: 'unicorn', icon: '🦄', color: '#E040FB', label: 'Unicorn' },
+    { type: 'rainbow', icon: '🌈', color: '#00E676', label: 'Rainbow' },
+    { type: 'money', icon: '💰', color: '#4CAF50', label: 'Money' },
+    { type: 'muscle', icon: '💪', color: '#FF5722', label: 'Muscle' },
+    { type: 'brain', icon: '🧠', color: '#9C27B0', label: 'Brain' },
+    { type: 'lightning', icon: '⚡', color: '#FFEB3B', label: 'Lightning' },
+    { type: 'gem', icon: '💎', color: '#00BCD4', label: 'Gem' },
   ] as const;
 
   const handleMouseEnter = () => {
@@ -413,13 +518,18 @@ export const ReactionButton: React.FC<{
     setTimeout(() => setShowPreview(false), 300);
   };
 
+  // ✅ UPDATED: Click only shows emojis, doesn't auto-add first one
   const handleClick = () => {
     if (isGuest) return alert('Please login to react.');
-    if (showDock) return; // Don't trigger if dock is open
-    
-    setIsAnimating(true);
-    onReact('like');
-    setTimeout(() => setIsAnimating(false), 300);
+    if (currentUserReactions) {
+      // If already reacted, clicking removes reaction
+      setIsAnimating(true);
+      onReact(currentUserReactions); // This will toggle off the current reaction
+      setTimeout(() => setIsAnimating(false), 300);
+    } else {
+      // If not reacted, show emoji dock
+      setShowDock(!showDock);
+    }
   };
 
   const handleDockReact = (type: ReactionType) => {
@@ -458,13 +568,13 @@ export const ReactionButton: React.FC<{
         </div>
       )}
 
-      {/* Enhanced reaction dock with 10+ emojis */}
+      {/* Enhanced reaction dock with 25+ emojis */}
       {showDock && (
         <div 
           ref={dockRef}
           className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
         >
-          <div className="flex gap-1 overflow-x-auto max-w-[280px] scrollbar-hide px-1 py-1">
+          <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
             {reactionConfig.map((r) => (
               <div
                 key={r.type}
@@ -1220,13 +1330,16 @@ export const Post: React.FC<{
             )}
         </div>
 
+        {/* ✅ UPDATED: Use ExpandableRichText for post description */}
         {p.content && (
-          <div className="px-3 md:px-4 pb-2 text-[#E4E6EB] text-[17px]">
-            <RichText
-              text={p.content}
+          <div className="px-3 md:px-4 pb-2">
+            <ExpandableRichText
+              text={String(p.content)}
               users={users}
               onProfileClick={onProfileClick}
               onHashtagClick={onHashtagClick}
+              maxWords={25}
+              fontSizePx={21}
             />
           </div>
         )}
@@ -1355,7 +1468,7 @@ export const Post: React.FC<{
         </div>
 
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          {/* ✅ UPDATED: Enhanced ReactionButton with 10+ emojis & long-press */}
+          {/* ✅ UPDATED: Enhanced ReactionButton with 25+ emojis & long-press */}
           <ReactionButton
             currentUserReactions={finalMyReaction}
             reactionCount={finalReactionCount}
@@ -1935,7 +2048,7 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ UPDATED: COMMENTS SHEET WITH INSTANT UPDATES & REPLY SYSTEM
+ * ✅ FIXED: COMMENTS SHEET WITH PROPER REPLY ALIGNMENT AND FACEBOOK-LIKE BEHAVIOR
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -1947,7 +2060,9 @@ export const CommentsSheet: React.FC<{
   onLikeComment?: (commentId: number) => void;
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
-}> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick }) => {
+  // ✅ ADDED: onHashtagClick prop for B)
+  onHashtagClick?: (tag: string) => void;
+}> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick, onHashtagClick }) => {
   const p: any = post as any;
   const postId = safePostId(p);
   
@@ -1980,6 +2095,24 @@ export const CommentsSheet: React.FC<{
       'https://ui-avatars.com/api/?name=User';
 
     return { uid, name, image };
+  };
+
+  // ✅ FIXED: Helper to get clean reply name with proper username fallback
+  const getReplyLabel = (comment: any) => {
+    const a = resolveAuthor(comment);
+    const uid = a.uid;
+    
+    // ✅ FIXED: Find user in users list to get username
+    const user = users.find((x: any) => Number(x?.id) === uid);
+    const username = String(
+      comment?.author_username ?? 
+      user?.username ?? 
+      comment?.username ?? 
+      ''
+    ).trim();
+    
+    const display = username ? `@${username}` : a.name; // e.g. "@JohnBeda" or "John Beda"
+    return { ...a, username, display };
   };
 
   const formatCount = (count: number): string => {
@@ -2101,26 +2234,35 @@ export const CommentsSheet: React.FC<{
     };
   }, [postId, p.comments]);
 
-  // Sort comments with replies
-  const sortComments = (comments: any[]) => {
-    const root = comments.filter(c => !c.parent_comment_id);
-    const repliesByParent = new Map<number, any[]>();
-    
-    comments.forEach(c => {
-      const pid = Number(c.parent_comment_id || 0);
-      if (pid) {
-        if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
-        repliesByParent.get(pid)!.push(c);
-      }
-    });
+  // ✅ FIXED: CORRECT sortComments function that handles string IDs properly
+  const idKey = (v: any) => String(v ?? '').trim();
 
+  const sortComments = (list: any[]) => {
+    const root = list.filter((c) => !c.parent_comment_id);
+    
+    const repliesByParent = new Map<string, any[]>();
+    
+    list.forEach((c) => {
+      const pid = idKey(c.parent_comment_id);
+      if (!pid) return;
+      
+      if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
+      repliesByParent.get(pid)!.push(c);
+    });
+    
+    // optional: keep oldest-first (Facebook)
+    repliesByParent.forEach((arr) => {
+      arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    });
+    
     const sorted: any[] = [];
-    root.forEach(comment => {
+    root.forEach((comment) => {
+      const cid = idKey(comment.id);
       sorted.push(comment);
-      const replies = repliesByParent.get(comment.id) || [];
+      const replies = repliesByParent.get(cid) || [];
       sorted.push(...replies);
     });
-
+    
     return sorted;
   };
 
@@ -2129,11 +2271,16 @@ export const CommentsSheet: React.FC<{
     const t = text.trim();
     if (!t) return;
 
+    // ✅ ADDED: Auto-prefix the reply text like Facebook: `@JohnBeda: ...`
+    const replyDisplay = replyTo?._reply_author?.display; // e.g. "@JohnBeda"
+    const prefix = replyDisplay ? `${replyDisplay}: ` : '';
+    const finalText = replyTo && !t.startsWith(prefix) ? prefix + t : t;
+
     const optimisticComment = {
       id: `tmp-${Date.now()}`,
       post_id: postId,
       user_id: safeUserId(currentUser),
-      text: t,
+      text: finalText, // ✅ Use finalText instead of t
       parent_comment_id: replyTo?.id || null,
       created_at: new Date().toISOString(),
       replies_count: 0,
@@ -2143,6 +2290,7 @@ export const CommentsSheet: React.FC<{
 
     setText('');
     setReplyTo(null);
+    setShowEmojiPicker(false); // ✅ Close emoji picker when submitting
 
     // IMMEDIATE optimistic update
     setComments(prev => {
@@ -2157,7 +2305,7 @@ export const CommentsSheet: React.FC<{
     });
 
     if (onComment) {
-      onComment(postId, t);
+      onComment(postId, finalText); // ✅ Use finalText instead of t
     }
 
     // Silent background POST
@@ -2165,7 +2313,7 @@ export const CommentsSheet: React.FC<{
       await apiFetch(`/api/posts/${postId}/comment`, {
         method: 'POST',
         body: JSON.stringify({
-          text: t,
+          text: finalText, // ✅ Use finalText instead of t
           user_id: safeUserId(currentUser),
           parent_comment_id: replyTo?.id || null,
         }),
@@ -2213,7 +2361,10 @@ export const CommentsSheet: React.FC<{
           <div className="p-3 bg-[#3A3B3C] border-b border-[#3E4042] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-[#B0B3B8] text-sm">Replying to</span>
-              <span className="text-[#1877F2] font-medium">{replyTo.author?.name || 'User'}</span>
+              {/* ✅ UPDATED: Show real name instead of "User" */}
+              <span className="text-[#1877F2] font-medium">
+                {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
+              </span>
             </div>
             <button
               onClick={() => setReplyTo(null)}
@@ -2224,10 +2375,10 @@ export const CommentsSheet: React.FC<{
           </div>
         )}
 
-        {/* Emoji picker */}
+        {/* ✅ UPDATED: Emoji picker with 200+ emojis */}
         {showEmojiPicker && (
           <div className="border-b border-[#3E4042] p-2 overflow-x-auto scrollbar-hide">
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
               {QUICK_EMOJIS.map(emoji => (
                 <button
                   key={emoji}
@@ -2282,9 +2433,15 @@ export const CommentsSheet: React.FC<{
                           • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
                         </span>
                       </p>
-                      <p className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
-                        {c.text}
-                      </p>
+                      {/* ✅ UPDATED: Use RichText component for mentions and hashtags */}
+                      <div className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
+                        <RichText
+                          text={String(c.text || '')}
+                          users={users}
+                          onProfileClick={onProfileClick}
+                          onHashtagClick={onHashtagClick}
+                        />
+                      </div>
                     </div>
                     
                     {/* Comment actions */}
@@ -2297,8 +2454,14 @@ export const CommentsSheet: React.FC<{
                       </button>
                       <button
                         onClick={() => {
-                          setReplyTo(c);
+                          // ✅ UPDATED: Store author info when tapping Reply
+                          const target = getReplyLabel(c);
+                          setReplyTo({
+                            ...c,
+                            _reply_author: target, // store resolved author
+                          });
                           inputRef.current?.focus();
+                          setShowEmojiPicker(false); // Close emoji picker when replying
                         }}
                         className="text-xs text-[#B0B3B8] hover:text-[#E4E6EB]"
                       >
@@ -2329,7 +2492,7 @@ export const CommentsSheet: React.FC<{
             ref={inputRef}
             type="text"
             className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
-            placeholder={replyTo ? `Reply to ${replyTo.author?.name || 'user'}...` : "Write a comment..."}
+            placeholder={replyTo ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...` : "Write a comment..."}
             value={text}
             onChange={(e) => setText(e.target.value)}
             autoFocus
