@@ -10,6 +10,7 @@
 // ✅ ADDED: StoryViewerModal for fullscreen story viewing
 // ✅ ADDED: Working create story functionality with API integration
 // ✅ FIXED: CreateStoryModal missing songs prop causing blank screen
+// ✅ FIXED: Name changing to "User" bug in authorFromFeedRow and mergeUserSafe
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -64,6 +65,25 @@ const safeNumber = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+
+/** ---------- Name handling helpers ---------- */
+const isPlaceholderName = (v: any) => {
+  const s = String(v ?? "").trim().toLowerCase();
+  return !s || s === "user" || s === "unknown" || s === "un" || s === "unnamed";
+};
+
+const pickBestName = (...vals: any[]): string => {
+  for (const v of vals) {
+    const str = String(v ?? "").trim();
+    if (!isPlaceholderName(str)) return str;
+  }
+  return "User";
+};
+
+const safeNonEmptyString = (v: any, fallback = ""): string => {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s ? s : fallback;
+};
 
 /** ---------- Facebook-like feed session + seen cache ---------- */
 const FEED_SESSION_KEY = 'unera_feed_session_seed';
@@ -224,6 +244,20 @@ const mergeUserSafe = (oldU: any, newU: any) => {
     next.cover_image_url = oldU.cover_image_url;
   }
 
+  // ✅ PROTECT NAMES: keep real name if incoming is placeholder
+  if (isPlaceholderName(newU?.name) && !isPlaceholderName(oldU?.name)) {
+    next.name = oldU.name;
+    // Only update username if it's also placeholder
+    if (isPlaceholderName(newU?.username) && !isPlaceholderName(oldU?.username)) {
+      next.username = oldU.username;
+    }
+  }
+
+  // ✅ PROTECT USERNAMES: keep real username if incoming is placeholder
+  if (isPlaceholderName(newU?.username) && !isPlaceholderName(oldU?.username)) {
+    next.username = oldU.username;
+  }
+
   return next;
 };
 
@@ -327,12 +361,33 @@ const normalizePost = (p: any): PostType => {
 
 /**
  * Normalize user data with UNERA-style profile pictures
+ * ✅ FIXED: Use safeNonEmptyString to prevent empty names
  * ✅ FIXED: cover_image_url can be undefined, not empty string
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
-  const userName = safeString(u?.name, safeString(u?.username, 'User'));
-  const userUsername = safeString(u?.username, safeString(u?.name, 'user'));
+  
+  // ✅ FIXED: Use safeNonEmptyString to preserve real names
+  const rawName = pickBestName(
+    u?.name,
+    u?.full_name,
+    u?.fullname,
+    u?.display_name,
+    u?.displayname,
+    u?.user_name,
+    u?.userName,
+    u?.username
+  );
+  
+  const rawUsername = pickBestName(
+    u?.username,
+    u?.handle,
+    u?.user_handle,
+    rawName.toLowerCase().replace(/\s+/g, '_')
+  );
+  
+  const userName = safeNonEmptyString(rawName, 'User');
+  const userUsername = safeNonEmptyString(rawUsername, 'user');
 
   const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
 
@@ -599,6 +654,61 @@ type View =
 const LS_USER_KEY = 'user';
 
 /**
+ * ✅ FIXED: Build a User object from feed row data
+ * Properly extract name from multiple possible fields
+ */
+const authorFromFeedRow = (row: any): User => {
+  // Extract the user ID from multiple possible fields
+  const id = safeNumber(
+    row?.user_id ?? 
+    row?.id ?? 
+    row?.author_id ?? 
+    row?.authorId ?? 
+    row?.userId
+  );
+
+  // ✅ FIXED: Extract real name from multiple possible fields (NOT just username)
+  const rawName = pickBestName(
+    row?.name,
+    row?.full_name,
+    row?.fullname,
+    row?.display_name,
+    row?.displayname,
+    row?.author_name,
+    row?.authorName,
+    row?.user_name,
+    row?.userName,
+    row?.username // Only as last resort
+  );
+
+  // ✅ FIXED: Extract username from multiple possible fields
+  const rawUsername = pickBestName(
+    row?.username,
+    row?.author_username,
+    row?.authorUsername,
+    row?.handle,
+    row?.user_handle,
+    rawName.toLowerCase().replace(/\s+/g, '_') // Generate from name if needed
+  );
+
+  // Use normalized name/username
+  const name = safeNonEmptyString(rawName, 'User');
+  const username = safeNonEmptyString(rawUsername, 'user');
+
+  return normalizeUser({
+    id,
+    name,
+    username,
+    profile_image_url: row?.profile_image_url ?? row?.author_image ?? "",
+    is_verified: row?.is_verified ?? 0,
+    role: row?.role ?? "user",
+    followers: [],
+    following: [],
+    created_at: row?.joined_date ?? row?.created_at ?? null,
+  });
+};
+
+/**
  * Normalize FEED rows returned by /api/feeds
  */
 const normalizeFeedRowToPost = (row: any): PostType => {
@@ -613,23 +723,6 @@ const normalizeFeedRowToPost = (row: any): PostType => {
     views: row?.views ?? 0,
     pool: row?.pool,
     follower_count: row?.follower_count,
-  });
-};
-
-const authorFromFeedRow = (row: any): User => {
-  const username = row?.username ?? 'user';
-  const name = row?.username ?? 'User';
-
-  return normalizeUser({
-    id: row?.user_id,
-    username,
-    name,
-    profile_image_url: row?.profile_image_url ?? '',
-    is_verified: row?.is_verified ?? 0,
-    role: row?.role ?? 'user',
-    followers: [],
-    following: [],
-    created_at: row?.joined_date ?? row?.created_at ?? null,
   });
 };
 
@@ -847,7 +940,7 @@ export default function App() {
             return;
           }
 
-          // Merge authors into users list - ✅ FIXED: Use mergeUserSafe to preserve cover images
+          // ✅ FIXED: Merge authors into users list with proper name protection
           setUsers((prev) => {
             const map = new Map<number, User>();
             safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
@@ -855,10 +948,12 @@ export default function App() {
             rows.forEach((r) => {
               const author = authorFromFeedRow(r);
               if (!author?.id) return;
-              if (!map.has(author.id)) map.set(author.id, author);
-              else {
+              
+              if (!map.has(author.id)) {
+                map.set(author.id, author);
+              } else {
                 const existing = map.get(author.id)!;
-                // ✅ FIXED: Use mergeUserSafe to preserve existing cover/profile images
+                // ✅ FIXED: Use mergeUserSafe to preserve existing names and images
                 map.set(author.id, normalizeUser(mergeUserSafe(existing, author)));
               }
             });
