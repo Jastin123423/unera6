@@ -31,7 +31,6 @@ const parseSeenIds = (raw: string | null, max = 250) => {
   return Array.from(new Set(ids)).slice(0, max);
 };
 
-// Deterministic seeded RNG + shuffle
 const mulberry32 = (seed: number) => {
   return function () {
     let t = (seed += 0x6d2b79f5);
@@ -74,7 +73,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const where: string[] = [];
     const binds: any[] = [];
 
-    // visibility
     where.push(`(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`);
 
     if (cursor && typeof cursor === 'string' && cursor.trim().length > 0) {
@@ -89,8 +87,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // ✅ baseSelect includes reactions_count + my_reaction + name
-    // IMPORTANT: my_reaction uses "?" so we MUST bind userId first in every query.
     const baseSelect = `
       SELECT
         p.id,
@@ -114,7 +110,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         p.views,
         p.shares,
 
-        -- ✅ reactions
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
 
         (SELECT pr.type
@@ -124,8 +119,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           LIMIT 1
         ) AS my_reaction,
 
-        -- ✅ Safe user fields (NOW includes name)
-        COALESCE(NULLIF(TRIM(u.name), ''), NULLIF(TRIM(u.username), ''), 'User') AS name,
+        -- ✅ users table DOES NOT have u.name, so use u.full_name safely:
+        COALESCE(NULLIF(TRIM(u.full_name), ''), NULLIF(TRIM(u.username), ''), 'User') AS name,
         COALESCE(u.username, 'user') AS username,
 
         CASE
@@ -141,7 +136,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LEFT JOIN users u ON u.id = p.user_id
     `;
 
-    // 1) Fresh pool
     const qFresh = `
       ${baseSelect}
       ${whereSql}
@@ -149,14 +143,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ✅ Bind order:
-    //  - first: userId (for my_reaction "?")
-    //  - then: binds (cursor/seen)
-    //  - last: limit
     const freshRes = await env.DB.prepare(qFresh).bind(userId, ...binds, freshCount).all();
     const fresh = Array.isArray(freshRes?.results) ? freshRes.results : [];
 
-    // 2) Explore pool
     let explore: any[] = [];
     if (exploreCount > 0) {
       const qExplore = `
@@ -169,7 +158,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       explore = Array.isArray(exploreRes?.results) ? exploreRes.results : [];
     }
 
-    // Merge + dedup
     const map = new Map<number, any>();
     for (const row of [...fresh, ...explore]) {
       const id = Number((row as any)?.id);
@@ -179,18 +167,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const merged = Array.from(map.values());
 
-    // ✅ FIX: nextCursor must be based on OLDEST item, not shuffled order
+    // ✅ correct nextCursor (oldest), not shuffled last
     const oldest = merged.reduce((acc: any, cur: any) => {
       if (!acc) return cur;
       return String(cur.created_at) < String(acc.created_at) ? cur : acc;
     }, null as any);
 
     const nextCursor = oldest?.created_at ?? null;
-
-    // Shuffle AFTER deciding cursor
     const ordered = seededShuffle(merged, seed);
 
-    // hasMore
     let hasMore = false;
     if (nextCursor) {
       const whereMore: string[] = [];
@@ -218,16 +203,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     if (debug) {
-      const totalPosts = await env.DB.prepare(`SELECT COUNT(*) as c FROM posts`).first();
-      const joinableUsers = await env.DB
-        .prepare(`SELECT COUNT(*) as c FROM posts p JOIN users u ON u.id = p.user_id`)
-        .first();
-      const publicOrNull = await env.DB
-        .prepare(
-          `SELECT COUNT(*) as c FROM posts p WHERE (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
-        )
-        .first();
-
       return json({
         success: true,
         userId,
@@ -236,13 +211,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         nextCursor,
         hasMore,
         feed: ordered,
-        debug: {
-          totalPosts: (totalPosts as any)?.c ?? null,
-          joinableUsers: (joinableUsers as any)?.c ?? null,
-          publicOrNull: (publicOrNull as any)?.c ?? null,
-          seenCount: seen.length,
-          returned: ordered.length,
-        },
       });
     }
 
