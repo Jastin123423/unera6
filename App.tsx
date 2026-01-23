@@ -351,19 +351,17 @@ const normalizePost = (p: any): PostType => {
  * Normalize user data with UNERA-style profile pictures
  * ✅ FIXED: cover_image_url can be undefined, not empty string
  * ✅ FIXED: Don't "manufacture" username from name in destructive way
+ * ✅ FIXED IMMEDIATELY: Safer username/name handling with proper trim and fallbacks
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
   
-  // ✅ FIX 3: Raw values with proper handling
-  const rawName = safeString(u?.name, '').trim();
-  const rawUsername = safeString(u?.username, '').trim();
-  
-  // ✅ Use name if available, otherwise username, otherwise fallback
-  const userName = rawName || rawUsername || 'User';
-  
-  // ✅ Stable username: use raw if available, otherwise generate stable fallback
-  const userUsername = rawUsername || (resolvedId ? `user_${resolvedId}` : 'user');
+  // ✅ FIXED IMMEDIATELY: Replace the problematic lines with safer version
+  const rawUsername = typeof u?.username === "string" ? u.username.trim() : "";
+  const rawName = typeof u?.name === "string" ? u.name.trim() : "";
+
+  const userUsername = rawUsername || "user";
+  const userName = rawName || rawUsername || "User";
 
   const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
 
