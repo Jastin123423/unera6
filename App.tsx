@@ -7,6 +7,7 @@
 // ✅ ADDED: onLikeComment handler for comment likes
 // ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
 // ✅ FIXED: Audio playback - immediate play on track selection
+// ✅ ADDED: Record play counts when audio actually starts playing
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -649,6 +650,37 @@ export default function App() {
 
   // ✅ ADDED: Hashtag filtering state for Facebook-like feed filtering
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
+
+  /** ---------- ✅ ADDED: Record play counts when audio actually starts playing ---------- */
+  const lastPlayedKeyRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!currentAudioTrack) return;
+    if (!isAudioPlaying) return;
+
+    const trackKey = `${currentAudioTrack.type}:${currentAudioTrack.id}`;
+    if (lastPlayedKeyRef.current === trackKey) return;
+    lastPlayedKeyRef.current = trackKey;
+
+    // fire and forget
+    (async () => {
+      try {
+        if (currentAudioTrack.type === "music") {
+          await fetch("/api/song-plays", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ song_id: currentAudioTrack.id, user_id: currentUser?.id ?? null }),
+          });
+        } else {
+          await fetch("/api/podcast-episode-plays", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ episode_id: currentAudioTrack.id, user_id: currentUser?.id ?? null }),
+          });
+        }
+      } catch {}
+    })();
+  }, [currentAudioTrack, isAudioPlaying, currentUser?.id]);
 
   /** ---------- Audio Playback Helper ---------- */
   // ✅ ADDED: Single playTrack helper for immediate playback
