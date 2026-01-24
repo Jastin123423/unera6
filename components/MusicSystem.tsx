@@ -113,10 +113,10 @@ function mapEpisodeFromApi(e: any): Episode {
     title: e.title || 'Untitled',
     description: e.description || '',
     host: e.host || e.artist_name || 'Unknown Host',
-    thumbnail: e.thumbnail || e.cover_image_url || DEFAULT_PODCAST_COVER,
+    thumbnail: e.cover_url || e.cover_image_url || DEFAULT_PODCAST_COVER,
     audioUrl: e.audio_url || e.audioUrl || '',
     duration: e.duration || e.duration_seconds || '45:00',
-    uploaderId: Number(e.uploader_id ?? e.uploaderId ?? 0) || 0,
+    uploaderId: Number(e.creator_id ?? e.uploader_id ?? e.uploaderId ?? 0) || 0,
     uploadDate: e.created_at || e.uploadDate || new Date().toISOString(),
     season: e.season || '',
     episode: e.episode || '',
@@ -431,7 +431,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 };
 
 /* =========================================================
-   UPLOAD MODAL (same UI; now uploads to backend using FormData)
+   UPLOAD MODAL (fixed with R2 upload + metadata POST)
 ========================================================= */
 
 interface AudioUploadModalProps {
@@ -482,88 +482,148 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
     setTempTrackCover('');
   };
 
-  const uploadSingle = async (type: 'music' | 'podcast') => {
-    if (!title) return alert('Title required');
-    if (!audioFile) return alert('Audio file required');
+  // Upload file to R2 using /api/upload (expects field name "file")
+  const uploadToR2 = async (file: File) => {
+    const fd = new FormData();
+    // IMPORTANT: upload.ts expects multipart field name: "file"
+    fd.append("file", file);
 
-    const endpoint = type === 'music' ? '/api/songs' : '/api/podcasts';
-    const form = new FormData();
+    const up = await apiForm<{ success: boolean; url: string; key: string }>(
+      "/api/upload",
+      fd
+    );
 
-    // Files
-    form.append('audio', audioFile);
-    if (coverFile) form.append('cover', coverFile);
-
-    // Common metadata
-    form.append('uploader_id', String((currentUser as any).id));
-    form.append('title', title);
-    form.append('genre', genre);
-    form.append('artist_name', artist);
-    form.append('host', artist);
-
-    // Music
-    if (type === 'music') {
-      form.append('album', 'Single');
-    }
-
-    // Podcast
-    if (type === 'podcast') {
-      if (!desc) return alert('Description required for podcast');
-      form.append('description', desc);
-      form.append('season', season);
-      form.append('episode', episodeNum);
-      form.append('guests', guests);
-    }
-
-    const res = await apiForm<any>(endpoint, form);
-    if (!res.success) {
-      console.error(res);
-      alert(res.error || 'Upload failed');
-      return;
-    }
+    if (!up.success) throw new Error(up.error || "Upload failed");
+    if (!(up.data as any)?.url) throw new Error("Upload failed: missing url");
+    return (up.data as any).url as string;
   };
 
-  const uploadAlbum = async () => {
-    if (!albumTitle) return alert('Album title required');
-    if (albumTracks.length === 0) return alert('Add at least 1 track');
+  const uploadSingle = async (type: "music" | "podcast") => {
+    if (!title.trim()) return alert("Title required");
+    if (!audioFile) return alert("Audio file required");
 
-    // Upload each track as a song with album name
-    for (const t of albumTracks) {
-      const form = new FormData();
-      form.append('audio', t.file);
-      if (coverFile) form.append('cover', coverFile);
-
-      form.append('uploader_id', String((currentUser as any).id));
-      form.append('title', t.title);
-      form.append('genre', genre);
-      form.append('artist_name', t.artist || artist);
-      form.append('album', albumTitle);
-
-      // Optional: if your backend supports cover_url override
-      if (t.cover) form.append('cover_url', t.cover);
-
-      const res = await apiForm<any>('/api/songs', form);
-      if (!res.success) {
-        console.error(res);
-        alert(`Failed uploading "${t.title}": ${res.error}`);
-        return;
-      }
-    }
-  };
-
-  const handleSubmit = async () => {
+    setSubmitting(true);
     try {
-      setSubmitting(true);
+      // 1) Upload audio to R2
+      const audioUrl = await uploadToR2(audioFile);
 
-      if (mode === 'single') await uploadSingle('music');
-      if (mode === 'podcast') await uploadSingle('podcast');
-      if (mode === 'album') await uploadAlbum();
+      // 2) Upload cover to R2 (optional)
+      const coverUrl = coverFile ? await uploadToR2(coverFile) : null;
+
+      if (type === "music") {
+        // 3) Save metadata to DB (JSON) -> /api/songs
+        const payload = {
+          uploader_id: Number((currentUser as any).id),
+          title: title.trim(),
+          artist_name: (artist || "").trim(),
+          album_name: "Single",
+          cover_image_url: coverUrl,
+          audio_url: audioUrl,
+          duration_seconds: null,
+          genre: (genre || "").trim() || null,
+        };
+
+        const res = await apiJson<any>("/api/songs", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.success) {
+          console.error("songs create failed:", res);
+          alert(res.error || "Failed to publish song");
+          return;
+        }
+      } else {
+        // PODCAST: your podcasts.ts expects JSON:
+        // { creator_id, title, description, audio_url, cover_url }
+        if (!desc.trim()) return alert("Description required for podcast");
+
+        const payload = {
+          creator_id: Number((currentUser as any).id),
+          title: title.trim(),
+          description: desc.trim(),
+          audio_url: audioUrl,
+          cover_url: coverUrl,
+        };
+
+        const res = await apiJson<any>("/api/podcasts", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.success) {
+          console.error("podcast create failed:", res);
+          alert(res.error || "Failed to publish podcast");
+          return;
+        }
+      }
 
       alert('Published successfully!');
       onUploaded();
       onClose();
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "Upload failed");
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const uploadAlbum = async () => {
+    if (!albumTitle.trim()) return alert("Album title required");
+    if (albumTracks.length === 0) return alert("Add at least 1 track");
+
+    setSubmitting(true);
+    try {
+      // Optional: one shared cover for all tracks
+      const sharedCoverUrl = coverFile ? await uploadToR2(coverFile) : null;
+
+      for (const t of albumTracks) {
+        // 1) upload each track audio
+        const audioUrl = await uploadToR2(t.file);
+
+        // 2) if track has a cover URL (external), use it; else shared coverUrl
+        const coverUrl = t.cover?.trim() ? t.cover.trim() : sharedCoverUrl;
+
+        // 3) create song in DB
+        const payload = {
+          uploader_id: Number((currentUser as any).id),
+          title: (t.title || "").trim(),
+          artist_name: (t.artist || artist || "").trim(),
+          album_name: albumTitle.trim(),
+          cover_image_url: coverUrl,
+          audio_url: audioUrl,
+          duration_seconds: null,
+          genre: (genre || "").trim() || null,
+        };
+
+        const res = await apiJson<any>("/api/songs", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.success) {
+          console.error("album track create failed:", t.title, res);
+          alert(`Failed uploading "${t.title}": ${res.error}`);
+          return;
+        }
+      }
+
+      alert('Album published successfully!');
+      onUploaded();
+      onClose();
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "Album upload failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (mode === 'single') await uploadSingle('music');
+    if (mode === 'podcast') await uploadSingle('podcast');
+    if (mode === 'album') await uploadAlbum();
   };
 
   return (
@@ -1018,7 +1078,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
   // Delete: your list does not show delete endpoints,
   // so this uses a common REST fallback:
   // DELETE /api/songs?id=123   and   DELETE /api/podcasts?id=123
-  // If your backend uses a different pattern, tell me and I’ll match it.
+  // If your backend uses a different pattern, tell me and I'll match it.
   const deleteSong = async (id: string) => {
     if (!currentUser || !isAdmin) return;
     if (!confirm('Delete this song?')) return;
@@ -1644,7 +1704,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
                       .map((song, i) => (
                         <div
                           key={song.id}
-                          className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer group transition-colors"
+                          className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors group"
                           onClick={() => handlePlayTrackFromSong(song)}
                         >
                           <div className="text-[#B0B3B8] font-bold w-4 text-center group-hover:hidden">{i + 1}</div>
@@ -1687,4 +1747,4 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
   );
 };
 
-export default MusicSystem;
+export default MusicSystem; 
