@@ -1,3 +1,5 @@
+
+
 // in App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
@@ -6,11 +8,6 @@
 // ✅ FIXED: Follow buttons reading and sending real data from API backend
 // ✅ ADDED: onLikeComment handler for comment likes
 // ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
-// ✅ ADDED: Story backend integration with liked_by_me support
-// ✅ ADDED: StoryViewerModal for fullscreen story viewing
-// ✅ ADDED: Working create story functionality with API integration
-// ✅ FIXED: CreateStoryModal missing songs prop causing blank screen
-// ✅ FIXED: Name changing to "User" bug - FINAL COMPREHENSIVE FIX
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -22,7 +19,7 @@ import {
   SuggestedProductsWidget,
   ShareBottomSheet,
 } from './components/Feed';
-import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
+import { StoryReel, CreateStoryModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
@@ -55,7 +52,6 @@ import {
   ReactionType,
   Group,
   Brand,
-  Song,
 } from './types';
 
 /** ---------- Safety helpers ---------- */
@@ -210,26 +206,12 @@ const diversifyFeed = (posts: PostType[], seed: number) => {
   return out;
 };
 
-/** ---------- Name Protection Helper ---------- */
-const isBadName = (v: any) => {
-  const s = String(v ?? "").trim().toLowerCase();
-  return !s || s === "user" || s === "unknown" || s === "un" || s === "unnamed";
-};
-
-/** ---------- Safe User Merge Helper (FIXED) ---------- */
+/** ---------- Safe User Merge Helper ---------- */
 const isHttpUrl = (v: any) =>
   typeof v === 'string' && (v.startsWith('https://') || v.startsWith('http://'));
 
 const mergeUserSafe = (oldU: any, newU: any) => {
   const next = { ...oldU, ...newU };
-
-  // ✅ PROTECT REAL NAMES from being overwritten by "User"
-  if (isBadName(newU?.name) && !isBadName(oldU?.name)) {
-    next.name = oldU.name;
-  }
-  if (isBadName(newU?.username) && !isBadName(oldU?.username)) {
-    next.username = oldU.username;
-  }
 
   // ✅ keep old profile/cover if incoming is missing/empty
   if (!isHttpUrl(newU?.profile_image_url) && isHttpUrl(oldU?.profile_image_url)) {
@@ -342,43 +324,12 @@ const normalizePost = (p: any): PostType => {
 
 /**
  * Normalize user data with UNERA-style profile pictures
- * ✅ FIXED: Use better name selection logic
+ * ✅ FIXED: cover_image_url can be undefined, not empty string
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
-  
-  // Helper function to pick the best name from multiple fields
-  const pickName = (...vals: any[]): string => {
-    for (const v of vals) {
-      const s = String(v ?? "").trim();
-      if (s && !isBadName(s)) return s;
-    }
-    return "";
-  };
-
-  const rawName = pickName(
-    u?.name,
-    u?.full_name,
-    u?.fullname,
-    u?.display_name,
-    u?.displayname,
-    u?.author_name,
-    u?.authorName,
-    u?.user_name,
-    u?.userName,
-    u?.username
-  );
-
-  const rawUsername = pickName(
-    u?.username,
-    u?.handle,
-    u?.user_handle,
-    rawName.toLowerCase().replace(/\s+/g, '_')
-  );
-
-  // Fallbacks
-  const userName = rawName || `User_${resolvedId || Date.now()}`;
-  const userUsername = rawUsername || `user_${resolvedId || Date.now()}`;
+  const userName = safeString(u?.name, safeString(u?.username, 'User'));
+  const userUsername = safeString(u?.username, safeString(u?.name, 'user'));
 
   const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
 
@@ -414,89 +365,6 @@ const normalizeUser = (u: any): User => {
     is_verified: Boolean(u?.is_verified ?? u?.isVerified),
     role: u?.role ?? 'user',
     created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
-  } as any;
-};
-
-/** ✅ ADDED: normalizeStory() author info preservation ---------- */
-const normalizeStory = (s: any): Story => {
-  const userId = safeNumber(s?.user_id ?? s?.author_id ?? s?.user?.id);
-
-  const authorName =
-    String(
-      s?.author_name ??
-      s?.name ??
-      s?.display_name ??
-      s?.username ??
-      s?.user?.name ??
-      s?.user?.username ??
-      ''
-    ).trim();
-
-  const authorUsername =
-    String(
-      s?.author_username ??
-      s?.username ??
-      s?.user?.username ??
-      (authorName ? authorName.toLowerCase().replace(/\s+/g, '_') : '')
-    ).trim();
-
-  const authorImage =
-    String(
-      s?.author_image ??
-      s?.profile_image_url ??
-      s?.user?.profile_image_url ??
-      s?.user?.avatar_url ??
-      ''
-    ).trim();
-
-  return {
-    ...s,
-    id: safeNumber(s?.id),
-    user_id: userId,
-
-    type: s?.type || 'text',
-    text_content: s?.text_content || '',
-    media_url: s?.media_url || null,
-    background_style: s?.background_style || null,
-    music_url: s?.music_url || null,
-    music_title: s?.music_title || null,
-
-    created_at: s?.created_at || new Date().toISOString(),
-    expires_at:
-      s?.expires_at ||
-      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-
-    likes_count: safeNumber(s?.likes_count, 0),
-    replies_count: safeNumber(s?.replies_count, 0),
-    views: safeNumber(s?.views, 0),
-    liked_by_me: safeNumber(s?.liked_by_me, 0) ? 1 : 0,
-
-    // ✅ Keep author fields ALWAYS filled if backend provides anything
-    author_name: authorName,
-    author_username: authorUsername,
-    author_image: authorImage,
-
-    // ✅ Keep user object if backend provides it (super useful)
-    user: s?.user ? normalizeUser(s.user) : undefined,
-  } as any;
-};
-
-/** ✅ ADDED: Normalize song data ---------- */
-const normalizeSong = (s: any): Song => {
-  return {
-    ...s,
-    id: safeNumber(s?.id),
-    title: safeString(s?.title, 'Untitled'),
-    artist_name: safeString(s?.artist_name, 'Unknown Artist'),
-    audio_url: safeString(s?.audio_url),
-    cover_image_url: safeString(s?.cover_image_url),
-    duration: safeNumber(s?.duration, 0),
-    plays: safeNumber(s?.plays, 0),
-    likes: safeNumber(s?.likes, 0),
-    liked_by_me: Boolean(s?.liked_by_me),
-    genre: safeString(s?.genre),
-    release_date: s?.release_date,
-    created_at: s?.created_at || new Date().toISOString(),
   } as any;
 };
 
@@ -644,45 +512,6 @@ type View =
 
 const LS_USER_KEY = 'user';
 
-/** ✅ FIXED: Helper to pick names from multiple fields ---------- */
-const pickName = (...vals: any[]): string => {
-  for (const v of vals) {
-    const s = String(v ?? "").trim();
-    if (s && !isBadName(s)) return s;
-  }
-  return "";
-};
-
-/**
- * ✅ FIXED: Build a User object from feed row data
- * NOW SAFE - won't create "User" names that overwrite real names
- */
-const authorFromFeedRow = (row: any): User => {
-  const id = safeNumber(row?.user_id ?? row?.id);
-
-  // ✅ FIXED: Use pickName to find real names, not default to "User"
-  const username = pickName(row?.username, row?.user_username, row?.handle) || `user_${id || 0}`;
-  const name = pickName(
-    row?.name,
-    row?.display_name,
-    row?.full_name,
-    row?.author_name,
-    row?.username
-  ) || username || `User_${id || 0}`;
-
-  return normalizeUser({
-    id,
-    username,
-    name,
-    profile_image_url: row?.profile_image_url ?? row?.avatar_url ?? '',
-    is_verified: row?.is_verified ?? 0,
-    role: row?.role ?? 'user',
-    followers: [],
-    following: [],
-    created_at: row?.joined_date ?? row?.created_at ?? null,
-  });
-};
-
 /**
  * Normalize FEED rows returned by /api/feeds
  */
@@ -698,6 +527,23 @@ const normalizeFeedRowToPost = (row: any): PostType => {
     views: row?.views ?? 0,
     pool: row?.pool,
     follower_count: row?.follower_count,
+  });
+};
+
+const authorFromFeedRow = (row: any): User => {
+  const username = row?.username ?? 'user';
+  const name = row?.username ?? 'User';
+
+  return normalizeUser({
+    id: row?.user_id,
+    username,
+    name,
+    profile_image_url: row?.profile_image_url ?? '',
+    is_verified: row?.is_verified ?? 0,
+    role: row?.role ?? 'user',
+    followers: [],
+    following: [],
+    created_at: row?.joined_date ?? row?.created_at ?? null,
   });
 };
 
@@ -763,7 +609,6 @@ export default function App() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
-  const [songs, setSongs] = useState<Song[]>([]); // ✅ ADDED: Songs state for CreateStoryModal
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
@@ -847,16 +692,6 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
-  /** ✅ ADDED: Fetch songs for CreateStoryModal ---------- */
-  const fetchSongs = useCallback(async () => {
-    try {
-      const data = await apiFetch('/api/songs').catch(() => []);
-      setSongs(safeArray(data).map(normalizeSong));
-    } catch {
-      setSongs([]);
-    }
-  }, []);
-
   /** ---------- Fetch users list ---------- */
   const fetchUsersList = useCallback(async () => {
     try {
@@ -866,35 +701,6 @@ export default function App() {
       setUsers([]);
     }
   }, []);
-
-  /** ✅ UPDATED: fetchOtherData with viewerId for stories and songs ---------- */
-  const fetchOtherData = useCallback(async () => {
-    // Always compute viewerId fresh from currentUser
-    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
-
-    const [s, r, pr, g, b, e, c] = await Promise.all([
-      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []), // ✅ Added viewerId
-      apiFetch('/api/reels').catch(() => []),
-      apiFetch('/api/products').catch(() => []),
-      apiFetch('/api/groups').catch(() => []),
-      apiFetch('/api/brands').catch(() => []),
-      apiFetch('/api/events').catch(() => []),
-      apiFetch('/api/chats').catch(() => []),
-    ]);
-
-    // Normalize stories with proper API response
-    const normalizedStories = safeArray(s)
-      .map(normalizeStory)
-      .sort((a: any, b: any) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime());
-
-    setStories(normalizedStories);
-    setReels(safeArray(r));
-    setProducts(safeArray(pr));
-    setGroups(safeArray(g));
-    setBrands(safeArray(b));
-    setEvents(safeArray(e));
-    setChats(safeArray(c));
-  }, [currentUser]);
 
   /** ---------- Fetch posts (Facebook-like freshness) ---------- */
   const fetchPostsForHome = useCallback(
@@ -915,7 +721,7 @@ export default function App() {
             return;
           }
 
-          // ✅ FIXED: Merge authors into users list with PROPER NAME PROTECTION
+          // Merge authors into users list - ✅ FIXED: Use mergeUserSafe to preserve cover images
           setUsers((prev) => {
             const map = new Map<number, User>();
             safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
@@ -923,14 +729,11 @@ export default function App() {
             rows.forEach((r) => {
               const author = authorFromFeedRow(r);
               if (!author?.id) return;
-              
-              if (!map.has(author.id)) {
-                map.set(author.id, author);
-              } else {
+              if (!map.has(author.id)) map.set(author.id, author);
+              else {
                 const existing = map.get(author.id)!;
-                // ✅ FIXED: Use mergeUserSafe to protect real names from being overwritten
-                const merged = mergeUserSafe(existing, author);
-                map.set(author.id, normalizeUser(merged));
+                // ✅ FIXED: Use mergeUserSafe to preserve existing cover/profile images
+                map.set(author.id, normalizeUser(mergeUserSafe(existing, author)));
               }
             });
 
@@ -1109,13 +912,6 @@ export default function App() {
     fetchUserFollowDataForUI(Number(currentUser.id)).catch(() => {});
   }, [currentUser?.id, fetchUserFollowDataForUI]);
 
-  /** ---------- Fetch songs when currentUser changes ---------- */
-  useEffect(() => {
-    if (currentUser) {
-      fetchSongs().catch(() => {});
-    }
-  }, [currentUser, fetchSongs]);
-
   /** ---------- Silent refresh helper ---------- */
   const scheduleSilentRefresh = useCallback(() => {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
@@ -1124,117 +920,26 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome]);
 
-  /** ✅ ADDED: Create Story Function with API integration ---------- */
-  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
-    if (!currentUser) return false;
+  /** ---------- Fetch other data ---------- */
+  const fetchOtherData = useCallback(async () => {
+    const [s, r, pr, g, b, e, c] = await Promise.all([
+      apiFetch('/api/stories').catch(() => []),
+      apiFetch('/api/reels').catch(() => []),
+      apiFetch('/api/products').catch(() => []),
+      apiFetch('/api/groups').catch(() => []),
+      apiFetch('/api/brands').catch(() => []),
+      apiFetch('/api/events').catch(() => []),
+      apiFetch('/api/chats').catch(() => []),
+    ]);
 
-    let media_url: string | null = null;
-    let music_url: string | null = null;
-
-    try {
-      // Upload media file if provided
-      if (storyData.media_file) {
-        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
-        media_url = uploadResult.url;
-      }
-
-      // Upload audio file if provided
-      if (storyData.audio_file) {
-        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'stories/music');
-        music_url = uploadResult.url;
-      }
-
-      const payload = {
-        user_id: currentUser.id,
-        type: storyData.type,
-        media_url: media_url || storyData.media_url || null,
-        text_content: storyData.text_content ?? null,
-        background_style: storyData.background_style ?? null,
-        music_url: music_url || storyData.music_url || null,
-        music_title: storyData.music_title ?? null,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      };
-
-      const res = await apiFetch("/api/stories", { method: "POST", body: JSON.stringify(payload) });
-
-      // Add new story into state immediately
-      const newStory = res?.story ? normalizeStory(res.story) : { 
-        ...payload, 
-        id: Date.now(), 
-        created_at: new Date().toISOString(),
-        likes_count: 0,
-        replies_count: 0,
-        views: 0,
-        liked_by_me: 0,
-        author_name: currentUser.name,
-        author_username: currentUser.username,
-        author_image: currentUser.profile_image_url,
-      };
-      
-      setStories(prev => [newStory as any, ...safeArray(prev)]);
-      return true;
-    } catch (error: any) {
-      console.error('Failed to create story:', error);
-      setLoginError(`Failed to create story: ${error.message}`);
-      return false;
-    }
-  }, [currentUser]);
-
-  /** ✅ ADDED: Like Story Function ---------- */
-  const likeStory = useCallback(async (storyId: number) => {
-    if (!currentUser) return;
-
-    // Optimistic update
-    setStories(prev =>
-      safeArray(prev).map((s: any) => {
-        if (Number(s.id) !== Number(storyId)) return s;
-        const liked = Boolean(s.liked_by_me);
-        const count = safeNumber(s.likes_count, 0);
-        return {
-          ...s,
-          liked_by_me: liked ? 0 : 1,
-          likes_count: liked ? Math.max(0, count - 1) : count + 1
-        };
-      })
-    );
-
-    try {
-      const data = await apiFetch(`/api/stories/${storyId}/react`, {
-        method: "POST",
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      // Update with server truth
-      setStories(prev =>
-        safeArray(prev).map((s: any) =>
-          Number(s.id) === Number(storyId)
-            ? {
-                ...s,
-                liked_by_me: data?.liked ? 1 : 0,
-                likes_count: safeNumber(data?.likes_count, s.likes_count),
-              }
-            : s
-        )
-      );
-    } catch {
-      // Rollback by refetch
-      fetchOtherData().catch(() => {});
-    }
-  }, [currentUser, fetchOtherData]);
-
-  /** ✅ ADDED: Reply to Story Function ---------- */
-  const replyToStory = useCallback(async (storyId: number, text: string) => {
-    if (!currentUser) return;
-
-    try {
-      await apiFetch(`/api/stories/${storyId}/reply`, {
-        method: "POST",
-        body: JSON.stringify({ user_id: currentUser.id, text }),
-      });
-    } catch (error) {
-      console.error('Failed to reply to story:', error);
-    }
-  }, [currentUser]);
+    setStories(safeArray(s));
+    setReels(safeArray(r));
+    setProducts(safeArray(pr));
+    setGroups(safeArray(g));
+    setBrands(safeArray(b));
+    setEvents(safeArray(e));
+    setChats(safeArray(c));
+  }, []);
 
   /** ---------- One fetch pipeline ---------- */
   const fetchData = useCallback(
@@ -1272,10 +977,6 @@ export default function App() {
       }
 
       await fetchData(viewer);
-      // Also fetch songs if we have a user
-      if (viewer) {
-        fetchSongs().catch(() => {});
-      }
     };
 
     init();
@@ -1513,13 +1214,11 @@ export default function App() {
 
       setView('home');
       await fetchPostsForHome(normalized);
-      // Also fetch songs after registration
-      fetchSongs().catch(() => {});
 
     } catch (error: any) {
       setLoginError(error?.message || 'Registration failed');
     }
-  }, [fetchPostsForHome, fetchSongs]);
+  }, [fetchPostsForHome]);
 
   /** ---------- Login (PROFESSIONALLY FIXED) ---------- */
   const handleLogin = async (email: string, password: string) => {
@@ -1565,12 +1264,6 @@ export default function App() {
       setView('home');
 
       await fetchPostsForHome(finalUser);
-
-      // ✅ IMPORTANT: Re-fetch stories with correct viewerId after login
-      fetchOtherData().catch(() => {});
-      // ✅ Fetch songs after login
-      fetchSongs().catch(() => {});
-
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -1599,11 +1292,8 @@ export default function App() {
     setSelectedUserId(null);
     setProfilePosts([]);
     setActiveHashtag(null); // ✅ Clear hashtag filter on logout
-    setSongs([]); // ✅ Clear songs on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
-    // Also re-fetch stories as guest
-    fetchOtherData().catch(() => {});
   };
 
   /** ---------- Navigation ---------- */
@@ -2519,26 +2209,6 @@ export default function App() {
         />
       )}
 
-      {showCreateStoryModal && currentUser && (
-        <CreateStoryModal
-          currentUser={currentUser}
-          songs={songs} // ✅ FIXED: Now passing the songs array
-          onClose={() => setShowCreateStoryModal(false)}
-          onCreate={(storyData) => {
-            createStory(storyData);
-            setShowCreateStoryModal(false);
-          }}
-        />
-      )}
-
-      {activeStory && (
-        <StoryViewerModal
-          story={activeStory}
-          onClose={() => setActiveStory(null)}
-          onProfileClick={(id) => openProfile(id)}
-        />
-      )}
-
       {activePost && currentUser && (
         <CommentsSheet
           post={activePost}
@@ -2594,6 +2264,10 @@ export default function App() {
       )}
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+
+      {showCreateStoryModal && currentUser && (
+        <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
+      )}
 
       {showCreateReelModal && currentUser && (
         <CreateReelModal currentUser={currentUser} onClose={() => setShowCreateReelModal(false)} onCreate={() => {}} />
