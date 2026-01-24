@@ -11,6 +11,7 @@
 // ✅ UPDATED: User total plays tracking + better play count logic
 // ✅ ADDED: Track owner info + verified badge support
 // ✅ UPDATED: Like sync between MusicSystem and GlobalAudioPlayer
+// ✅ FIXED: Profile photo display in GlobalAudioPlayer
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -664,26 +665,97 @@ export default function App() {
   // ✅ ADDED: Play count tracking ref
   const lastPlayedKeyRef = useRef<string>("");
 
-  /** ---------- ✅ ADDED: Helper to resolve track owner ---------- */
+  /** ---------- ✅ IMPROVED: Helper to resolve track owner ---------- */
   const resolveTrackOwner = useCallback((track: any): User | null => {
     if (!track) return null;
 
-    // try common fields
-    const ownerId =
-      safeNumber(track.user_id ?? track.owner_user_id ?? track.artist_user_id ?? track.creator_id ?? 0, 0);
+    // ✅ DEBUG: Log to see what track data we have
+    console.log('🔍 Resolving track owner for:', {
+      trackId: track.id,
+      trackTitle: track.title,
+      uploaderId: track.uploaderId,
+      userId: track.user_id,
+      artist: track.artist,
+      type: track.type
+    });
 
-    if (ownerId) {
-      const found = users.find((u) => Number(u.id) === Number(ownerId));
-      if (found) return found;
+    // ✅ First priority: Check if track has an uploaderProfile embedded
+    if (track.uploaderProfile && track.uploaderProfile.id) {
+      console.log('✅ Found embedded uploaderProfile:', track.uploaderProfile);
+      return normalizeUser(track.uploaderProfile);
     }
 
-    // fallback: if track has embedded owner fields
-    if (track?.owner && (track.owner.id || track.owner.user_id)) {
-      return normalizeUser(track.owner);
+    // ✅ Second priority: Check if track has user data embedded
+    if (track.user && track.user.id) {
+      console.log('✅ Found embedded user:', track.user);
+      return normalizeUser(track.user);
     }
 
-    return null;
-  }, [users]);
+    // ✅ Third priority: Try to get uploaderId from various possible fields
+    const uploaderId = 
+      safeNumber(
+        track.uploaderId ?? 
+        track.user_id ?? 
+        track.owner_user_id ?? 
+        track.artist_user_id ?? 
+        track.creator_id ?? 
+        track.userId ?? 
+        0, 
+        0
+      );
+
+    console.log('📋 Extracted uploaderId:', uploaderId);
+
+    if (uploaderId && uploaderId > 0) {
+      const found = users.find((u) => Number(u.id) === Number(uploaderId));
+      if (found) {
+        console.log('✅ Found user in users list:', found.name);
+        return found;
+      } else {
+        console.log('❌ User not found in users list for id:', uploaderId);
+        console.log('Available users:', users.map(u => ({ id: u.id, name: u.name })));
+      }
+    }
+
+    // ✅ Fourth priority: Try to find by artist name
+    if (track.artist) {
+      console.log('🔍 Searching by artist name:', track.artist);
+      const found = users.find((u) => 
+        u.name?.toLowerCase().includes(track.artist.toLowerCase()) ||
+        u.username?.toLowerCase().includes(track.artist.toLowerCase())
+      );
+      if (found) {
+        console.log('✅ Found user by artist name:', found.name);
+        return found;
+      }
+    }
+
+    // ✅ Fifth priority: If current track is playing and we have currentUser, maybe it's them
+    if (currentAudioTrack && currentAudioTrack.id === track.id && currentUser) {
+      console.log('✅ Using current user as fallback');
+      return currentUser;
+    }
+
+    console.log('❌ No owner found for track');
+    
+    // ✅ Ultimate fallback: Create a minimal user from track info
+    return {
+      id: uploaderId || 0,
+      name: track.artist || 'Artist',
+      username: track.artist?.toLowerCase().replace(/\s+/g, '') || 'artist',
+      email: '',
+      profile_image_url: generateProfilePictureUrl(track.artist || 'Artist', uploaderId || track.id),
+      cover_image_url: '',
+      followers: [],
+      following: [],
+      is_verified: false,
+      role: 'user',
+      is_online: false,
+      location: '',
+      bio: '',
+      created_at: null,
+    } as User;
+  }, [users, currentAudioTrack, currentUser]);
 
   /** ---------- ✅ ADDED: Fetch user total plays ---------- */
   const fetchMyTotalPlays = useCallback(async (userId: number) => {
@@ -1941,6 +2013,23 @@ export default function App() {
   const isLoading = false;
   if (isLoading) return <ProfessionalLoader />;
 
+  // ✅ DEBUG: Log current audio track to see what data we have
+  useEffect(() => {
+    if (currentAudioTrack) {
+      console.log('🎵 Current Audio Track:', {
+        id: currentAudioTrack.id,
+        title: currentAudioTrack.title,
+        artist: currentAudioTrack.artist,
+        uploaderId: currentAudioTrack.uploaderId,
+        type: currentAudioTrack.type,
+        trackData: currentAudioTrack
+      });
+      
+      const owner = resolveTrackOwner(currentAudioTrack);
+      console.log('👤 Resolved Owner:', owner);
+    }
+  }, [currentAudioTrack, resolveTrackOwner]);
+
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
       <Header
@@ -2046,8 +2135,16 @@ export default function App() {
                         setActiveReelId(p.id);
                         setView('reels');
                       }}
-                      // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
-                      onPlayAudioTrack={playTrack}
+                      // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
+                      onPlayAudioTrack={(trackData) => {
+                        const author = getPostAuthor(post);
+                        const audioTrack: AudioTrack = {
+                          ...trackData,
+                          uploaderId: postAuthorId,
+                          uploaderProfile: author, // ✅ Pass user profile data
+                        };
+                        playTrack(audioTrack);
+                      }}
                       groups={groups}
                       brands={brands}
                       chats={chats}
@@ -2099,8 +2196,14 @@ export default function App() {
               initialReelId={activeReelId}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
-              onPlayAudioTrack={playTrack}
+              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
+              onPlayAudioTrack={(trackData) => {
+                const audioTrack: AudioTrack = {
+                  ...trackData,
+                  uploaderProfile: users.find(u => u.id === trackData.uploaderId), // ✅ Pass user profile
+                };
+                playTrack(audioTrack);
+              }}
             />
           )}
 
@@ -2134,8 +2237,14 @@ export default function App() {
               onDeleteGroupPost={() => requireAuth('Deleting posts')}
               onRemoveMember={() => requireAuth('Removing members')}
               onUpdateGroupSettings={() => requireAuth('Updating settings')}
-              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
-              onPlayAudioTrack={playTrack}
+              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
+              onPlayAudioTrack={(trackData) => {
+                const audioTrack: AudioTrack = {
+                  ...trackData,
+                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
+                };
+                playTrack(audioTrack);
+              }}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
             />
@@ -2162,8 +2271,14 @@ export default function App() {
                 setCommentPostSnapshot(found);
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
-              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
-              onPlayAudioTrack={playTrack}
+              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
+              onPlayAudioTrack={(trackData) => {
+                const audioTrack: AudioTrack = {
+                  ...trackData,
+                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
+                };
+                playTrack(audioTrack);
+              }}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
             />
@@ -2172,8 +2287,14 @@ export default function App() {
           {view === 'music' && (
             <MusicSystem
               currentUser={currentUser}
-              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
-              onPlayTrack={playTrack}
+              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
+              onPlayTrack={(trackData) => {
+                const audioTrack: AudioTrack = {
+                  ...trackData,
+                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
+                };
+                playTrack(audioTrack);
+              }}
               onProfileClick={(id) => openProfile(id)}
               likedTracks={likedTracks}
               onToggleLike={handleMusicSystemLikeSync}
@@ -2242,8 +2363,14 @@ export default function App() {
               onViewImage={setFullScreenImage}
               onOpenComments={(id) => onOpenComments(id)}
               onVideoClick={() => {}}
-              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
-              onPlayAudioTrack={playTrack}
+              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
+              onPlayAudioTrack={(trackData) => {
+                const audioTrack: AudioTrack = {
+                  ...trackData,
+                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
+                };
+                playTrack(audioTrack);
+              }}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
             />
@@ -2286,8 +2413,14 @@ export default function App() {
                 setActiveReelId((p as any).id);
                 setView('reels');
               }}
-              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
-              onPlayAudioTrack={playTrack}
+              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
+              onPlayAudioTrack={(trackData) => {
+                const audioTrack: AudioTrack = {
+                  ...trackData,
+                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
+                };
+                playTrack(audioTrack);
+              }}
               onCreateStoryClick={handleCreateStoryFromProfile}
               // ✅ PROFESSIONALLY FIXED: Pass admin handlers with correct prop types
               onVerifyUser={(id) => verifyUser(id)}
