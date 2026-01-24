@@ -132,7 +132,7 @@ function mapEpisodeFromApi(e: any): Episode {
 }
 
 /* =========================================================
-   GLOBAL AUDIO PLAYER (same UI as yours)
+   GLOBAL AUDIO PLAYER (fixed for stable playback)
 ========================================================= */
 
 interface GlobalAudioPlayerProps {
@@ -169,6 +169,18 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   const lastUrlRef = useRef<string | null>(null);
   const playPromiseRef = useRef<Promise<void> | null>(null);
 
+  // Clean up audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // Handle audio playback based on props
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
@@ -189,36 +201,51 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', handleError);
 
+    // Manage playback based on currentTrack and isPlaying
     const managePlayback = async () => {
-      if (currentTrack?.url) {
-        if (lastUrlRef.current !== currentTrack.url) {
-          audio.pause();
-          audio.currentTime = 0;
-          audio.src = '';
-          await new Promise((r) => setTimeout(r, 80));
-          audio.src = currentTrack.url;
-          lastUrlRef.current = currentTrack.url;
-          audio.load();
-        }
-
-        if (isPlaying) {
-          try {
-            if (playPromiseRef.current) playPromiseRef.current.catch(() => {});
-            playPromiseRef.current = audio.play();
-            await playPromiseRef.current;
-          } catch (err: any) {
-            if (err?.name !== 'AbortError' && err?.name !== 'NotSupportedError') {
-              console.error('Playback failed', err);
-            }
-          }
-        } else {
-          if (!audio.paused) audio.pause();
-        }
-      } else {
+      if (!currentTrack?.url) {
         audio.pause();
         audio.currentTime = 0;
         audio.src = '';
         lastUrlRef.current = null;
+        return;
+      }
+
+      // If track changed, reset and load new audio
+      if (lastUrlRef.current !== currentTrack.url) {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.src = currentTrack.url;
+        lastUrlRef.current = currentTrack.url;
+        audio.load();
+        
+        // Auto-play when new track is loaded
+        if (isPlaying) {
+          try {
+            if (playPromiseRef.current) {
+              playPromiseRef.current.catch(() => {});
+            }
+            playPromiseRef.current = audio.play();
+            await playPromiseRef.current;
+          } catch (err: any) {
+            console.warn('Auto-play prevented:', err?.name);
+          }
+        }
+      } else {
+        // Same track, just manage play/pause state
+        if (isPlaying && audio.paused) {
+          try {
+            if (playPromiseRef.current) {
+              playPromiseRef.current.catch(() => {});
+            }
+            playPromiseRef.current = audio.play();
+            await playPromiseRef.current;
+          } catch (err: any) {
+            console.warn('Play failed:', err);
+          }
+        } else if (!isPlaying && !audio.paused) {
+          audio.pause();
+        }
       }
     };
 
@@ -229,12 +256,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       audio.removeEventListener('timeupdate', setAudioTime);
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('error', handleError);
-
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-        audioRef.current.src = '';
-      }
     };
   }, [currentTrack, isPlaying, onNext]);
 
@@ -258,8 +279,21 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      setCurrentTime(0);
     }
     if (isPlaying) onTogglePlay();
+  };
+
+  // Handle close - stop audio completely
+  const handleClose = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current.src = '';
+      lastUrlRef.current = null;
+    }
+    onClose();
   };
 
   if (!currentTrack) return null;
@@ -298,7 +332,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
             </div>
 
             <div
-              onClick={onClose}
+              onClick={handleClose}
               className="w-10 h-10 rounded-full hover:bg-red-500/20 flex items-center justify-center cursor-pointer transition-colors text-gray-400 hover:text-red-500"
             >
               <i className="fas fa-times text-xl"></i>
@@ -386,7 +420,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
                 <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-1'} text-white text-2xl`}></i>
               </div>
               <i className="fas fa-step-forward text-white text-3xl cursor-pointer hover:text-[#1877F2] transition-colors" onClick={onNext}></i>
-              <div className="cursor-pointer text-gray-400 hover:text-white transition-colors" onClick={onClose}>
+              <div className="cursor-pointer text-gray-400 hover:text-white transition-colors" onClick={handleClose}>
                 <i className="fas fa-times text-xl"></i>
               </div>
             </div>
@@ -420,7 +454,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
               <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-0.5'} text-sm`}></i>
             </div>
             <i className="fas fa-step-forward text-gray-400 cursor-pointer hover:text-white text-lg" onClick={onNext}></i>
-            <div className="cursor-pointer text-gray-400 hover:text-red-500 ml-2" onClick={onClose}>
+            <div className="cursor-pointer text-gray-400 hover:text-red-500 ml-2" onClick={handleClose}>
               <i className="fas fa-times text-lg"></i>
             </div>
           </div>
@@ -883,7 +917,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
 };
 
 /* =========================================================
-   MAIN MUSIC SYSTEM (same UI, now backed by APIs)
+   MAIN MUSIC SYSTEM (fixed for immediate playback)
 ========================================================= */
 
 interface MusicSystemProps {
@@ -1025,6 +1059,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
     }
   };
 
+  // FIXED: Play track immediately when clicked
   const handlePlayTrackFromSong = (song: Song) => {
     const uploaderProfile = users.find((u) => u.id === song.uploaderId);
     const audioTrack: AudioTrack = {
@@ -1047,9 +1082,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
     } as any;
 
+    // ✅ Immediately play the track
     onPlayTrack(audioTrack);
   };
 
+  // FIXED: Play track immediately when clicked
   const handlePlayTrackFromEpisode = (episode: Episode) => {
     const uploaderProfile = users.find((u) => u.id === episode.uploaderId);
     const audioTrack: AudioTrack = {
@@ -1072,6 +1109,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
     } as any;
 
+    // ✅ Immediately play the track
     onPlayTrack(audioTrack);
   };
 
@@ -1747,4 +1785,4 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
   );
 };
 
-export default MusicSystem; 
+export default MusicSystem;
