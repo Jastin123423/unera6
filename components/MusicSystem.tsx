@@ -917,17 +917,32 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
 };
 
 /* =========================================================
-   MAIN MUSIC SYSTEM (fixed for immediate playback)
+   MAIN MUSIC SYSTEM (PROFESSIONALLY FIXED WITH ALL REQUIREMENTS)
 ========================================================= */
 
 interface MusicSystemProps {
   currentUser: User | null;
   onPlayTrack: (track: AudioTrack) => void;
   onProfileClick?: (id: number) => void;
+  likedTracks: string[];
+  onToggleLike: (id: string, type: 'music' | 'podcast') => void;
+  playHistory: AudioTrack[];
+  onFollow: (userId: number) => Promise<void>;
+  checkIsFollowing: (userId: number) => boolean;
   users?: User[]; // optional, for verified badges & profiles
 }
 
-const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onProfileClick, users = [] }) => {
+const MusicSystem: React.FC<MusicSystemProps> = ({ 
+  currentUser, 
+  onPlayTrack, 
+  onProfileClick, 
+  likedTracks: initialLikedTracks, 
+  onToggleLike,
+  playHistory,
+  onFollow,
+  checkIsFollowing,
+  users = [] 
+}) => {
   const [view, setView] = useState<'music' | 'podcasts' | 'dashboard' | 'artist'>('music');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArtistId, setSelectedArtistId] = useState<number | null>(null);
@@ -938,12 +953,80 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [likedTracks, setLikedTracks] = useState<string[]>([]);
+  // ✅ UPDATED: Use typed IDs for liked tracks
+  const [likedTracks, setLikedTracks] = useState<string[]>(initialLikedTracks);
   const [downloads, setDownloads] = useState<string[]>([]);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
 
   const isAdmin = (currentUser as any)?.role === 'admin';
+
+  // ✅ ADDED: Fetch my likes from backend when user exists
+  const fetchMyLikes = useCallback(async () => {
+    if (!currentUser) return;
+
+    const userId = String((currentUser as any).id);
+
+    try {
+      const [songLikesRes, episodeLikesRes] = await Promise.all([
+        apiJson<any[]>(`/api/song-likes?userId=${encodeURIComponent(userId)}`),
+        apiJson<any[]>(`/api/podcast-episode-likes?userId=${encodeURIComponent(userId)}`),
+      ]);
+
+      const songIds = songLikesRes.success ? (songLikesRes.data || []).map((x: any) => String(x.song_id ?? x.id)) : [];
+      const epIds   = episodeLikesRes.success ? (episodeLikesRes.data || []).map((x: any) => String(x.episode_id ?? x.id)) : [];
+
+      // ✅ store as "type:id" so ids don't collide between songs and episodes
+      setLikedTracks([
+        ...songIds.map((id: string) => `music:${id}`),
+        ...epIds.map((id: string) => `podcast:${id}`),
+      ]);
+    } catch (error) {
+      console.error('Failed to fetch likes:', error);
+    }
+  }, [currentUser]);
+
+  // ✅ ADDED: Load likes when user changes
+  useEffect(() => {
+    fetchMyLikes();
+  }, [fetchMyLikes]);
+
+  // ✅ UPDATED: Check if a track is liked with typed IDs
+  const isTrackLiked = useCallback((id: string | number, type: 'music' | 'podcast'): boolean => {
+    return likedTracks.includes(`${type}:${String(id)}`);
+  }, [likedTracks]);
+
+  // ✅ UPDATED: Toggle like with typed IDs
+  const toggleLike = useCallback(async (id: string | number, type: 'music' | 'podcast') => {
+    if (!currentUser) {
+      return;
+    }
+
+    const trackId = String(id);
+    const key = `${type}:${trackId}`;
+    const isLiked = likedTracks.includes(key);
+
+    // Optimistic update
+    setLikedTracks(prev => isLiked ? prev.filter(x => x !== key) : [...prev, key]);
+
+    // Update local state
+    if (type === 'music') {
+      setSongs(prev => prev.map(song =>
+        String(song.id) === trackId
+          ? { ...song, stats: { ...(song.stats || {}), likes: Math.max(0, ((song.stats as any)?.likes || 0) + (isLiked ? -1 : 1)) } }
+          : song
+      ));
+    } else {
+      setEpisodes(prev => prev.map(episode =>
+        String(episode.id) === trackId
+          ? { ...episode, stats: { ...(episode.stats || {}), likes: Math.max(0, ((episode.stats as any)?.likes || 0) + (isLiked ? -1 : 1)) } }
+          : episode
+      ));
+    }
+
+    // Call parent handler
+    onToggleLike(trackId, type);
+  }, [currentUser, likedTracks, onToggleLike]);
 
   // Structured data (same behavior)
   const structuredData = useMemo(
@@ -996,71 +1079,8 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
     fetchPodcasts();
   }, [fetchSongs, fetchPodcasts]);
 
-  // Like/unlike (Song vs Podcast Episode) using your correct endpoints
-  const toggleLike = useCallback(
-    async (id: string, type: 'music' | 'podcast') => {
-      if (!currentUser) {
-        alert('Please login to like.');
-        return;
-      }
-
-      const isLiked = likedTracks.includes(id);
-      const userId = String((currentUser as any).id);
-
-      // endpoints from your API list
-      const endpoint = type === 'music' ? '/api/song-likes' : '/api/podcast-episode-likes';
-
-      // Best-practice:
-      // - POST to like
-      // - DELETE to unlike
-      // If your backend uses only POST toggle, you can change this easily.
-      const method = isLiked ? 'DELETE' : 'POST';
-
-      const body =
-        type === 'music'
-          ? { song_id: id, user_id: userId }
-          : { episode_id: id, user_id: userId };
-
-      const res = await apiJson<any>(endpoint, { method, body: JSON.stringify(body) });
-      if (!res.success) {
-        alert(res.error || 'Failed to update like.');
-        return;
-      }
-
-      setLikedTracks((prev) => (isLiked ? prev.filter((x) => x !== id) : [...prev, id]));
-
-      // optimistic counters
-      if (type === 'music') {
-        setSongs((prev) =>
-          prev.map((s) =>
-            String(s.id) === id
-              ? { ...s, stats: { ...(s.stats || {}), likes: Math.max(0, ((s.stats as any)?.likes || 0) + (isLiked ? -1 : 1)) } }
-              : s
-          )
-        );
-      } else {
-        setEpisodes((prev) =>
-          prev.map((e) =>
-            String(e.id) === id
-              ? { ...e, stats: { ...(e.stats || {}), likes: Math.max(0, ((e.stats as any)?.likes || 0) + (isLiked ? -1 : 1)) } }
-              : e
-          )
-        );
-      }
-    },
-    [currentUser, likedTracks]
-  );
-
-  const handleArtistClick = (uploaderId: number) => {
-    if (onProfileClick) onProfileClick(uploaderId);
-    else {
-      setSelectedArtistId(uploaderId);
-      setView('artist');
-    }
-  };
-
-  // FIXED: Play track immediately when clicked
-  const handlePlayTrackFromSong = (song: Song) => {
+  // ✅ ADDED: Record play count when track is played (Option B from requirements)
+  const handlePlayTrackFromSong = useCallback(async (song: Song) => {
     const uploaderProfile = users.find((u) => u.id === song.uploaderId);
     const audioTrack: AudioTrack = {
       id: String(song.id),
@@ -1082,12 +1102,33 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
     } as any;
 
+    // ✅ Record play count
+    try {
+      await fetch("/api/song-plays", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          song_id: String(song.id), 
+          user_id: currentUser?.id ?? null 
+        }),
+      });
+      
+      // Optimistic update
+      setSongs(prev => prev.map(s =>
+        String(s.id) === String(song.id)
+          ? { ...s, stats: { ...(s.stats||{}), plays: ((s.stats as any)?.plays || 0) + 1 } }
+          : s
+      ));
+    } catch (error) {
+      console.error('Failed to record play:', error);
+    }
+
     // ✅ Immediately play the track
     onPlayTrack(audioTrack);
-  };
+  }, [currentUser, users, onPlayTrack]);
 
-  // FIXED: Play track immediately when clicked
-  const handlePlayTrackFromEpisode = (episode: Episode) => {
+  // ✅ ADDED: Record play count for podcasts
+  const handlePlayTrackFromEpisode = useCallback(async (episode: Episode) => {
     const uploaderProfile = users.find((u) => u.id === episode.uploaderId);
     const audioTrack: AudioTrack = {
       id: String(episode.id),
@@ -1109,8 +1150,37 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
     } as any;
 
+    // ✅ Record play count
+    try {
+      await fetch("/api/podcast-episode-plays", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          episode_id: String(episode.id), 
+          user_id: currentUser?.id ?? null 
+        }),
+      });
+      
+      // Optimistic update
+      setEpisodes(prev => prev.map(ep =>
+        String(ep.id) === String(episode.id)
+          ? { ...ep, stats: { ...(ep.stats||{}), plays: ((ep.stats as any)?.plays || 0) + 1 } }
+          : ep
+      ));
+    } catch (error) {
+      console.error('Failed to record play:', error);
+    }
+
     // ✅ Immediately play the track
     onPlayTrack(audioTrack);
+  }, [currentUser, users, onPlayTrack]);
+
+  const handleArtistClick = (uploaderId: number) => {
+    if (onProfileClick) onProfileClick(uploaderId);
+    else {
+      setSelectedArtistId(uploaderId);
+      setView('artist');
+    }
   };
 
   // Delete: your list does not show delete endpoints,
@@ -1143,12 +1213,10 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
 
   const handleDownload = (id: string) => {
     if (!currentUser) {
-      alert('Please login to download music.');
       return;
     }
     if (!downloads.includes(id)) {
       setDownloads((prev) => [...prev, id]);
-      alert('Download started!');
     }
   };
 
@@ -1173,6 +1241,34 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
       .sort((a, b) => new Date(b.uploadDate || 0).getTime() - new Date(a.uploadDate || 0).getTime())
       .slice(0, 5);
   }, [songs]);
+
+  // ✅ ADDED: Dashboard stats calculations
+  const dashboardStats = useMemo(() => {
+    const totalPlays = 
+      songs.reduce((sum, song) => sum + ((song.stats as any)?.plays || 0), 0) +
+      episodes.reduce((sum, episode) => sum + ((episode.stats as any)?.plays || 0), 0);
+    
+    const totalLikes = likedTracks.length;
+    const totalTracks = songs.length + episodes.length;
+    
+    // Calculate user's upload stats
+    const userSongs = songs.filter((s) => s.uploaderId === (currentUser as any)?.id);
+    const userEpisodes = episodes.filter((e) => e.uploaderId === (currentUser as any)?.id);
+    
+    const userPlays = 
+      userSongs.reduce((sum, song) => sum + ((song.stats as any)?.plays || 0), 0) +
+      userEpisodes.reduce((sum, episode) => sum + ((episode.stats as any)?.plays || 0), 0);
+    
+    return {
+      totalPlays,
+      totalLikes,
+      totalTracks,
+      userSongs: userSongs.length,
+      userEpisodes: userEpisodes.length,
+      userPlays,
+      userUploads: userSongs.length + userEpisodes.length,
+    };
+  }, [songs, episodes, likedTracks, currentUser]);
 
   const selectedArtistUser: User | null = useMemo(() => {
     if (!selectedArtistId) return null;
@@ -1360,7 +1456,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
                             className="text-sm hover:scale-110 transition-transform"
                             title="Like"
                           >
-                            <i className={`${likedTracks.includes(String(song.id)) ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                            <i className={`${isTrackLiked(String(song.id), 'music') ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
                           </button>
                         </div>
                       </div>
@@ -1418,7 +1514,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
                             className="text-sm hover:scale-110 transition-transform"
                             title="Like"
                           >
-                            <i className={`${likedTracks.includes(String(song.id)) ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                            <i className={`${isTrackLiked(String(song.id), 'music') ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
                           </button>
                         </div>
                       </div>
@@ -1478,7 +1574,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
                           className="text-lg hover:scale-110 transition-transform"
                           title="Like"
                         >
-                          <i className={`${likedTracks.includes(String(song.id)) ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                          <i className={`${isTrackLiked(String(song.id), 'music') ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
                         </button>
 
                         {isAdmin && (
@@ -1550,7 +1646,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
                                   className="text-lg hover:scale-110 transition-transform"
                                   title="Like"
                                 >
-                                  <i className={`${likedTracks.includes(String(episode.id)) ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                                  <i className={`${isTrackLiked(String(episode.id), 'podcast') ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
                                 </button>
 
                                 {isAdmin && (
@@ -1585,7 +1681,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
           </div>
         )}
 
-        {/* DASHBOARD */}
+        {/* DASHBOARD - PROFESSIONALLY FIXED WITH REAL DATA */}
         {view === 'dashboard' && currentUser && !showLoading && (
           <div className="space-y-8">
             <div className="bg-[#242526] rounded-2xl p-6">
@@ -1601,49 +1697,50 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
                 </button>
               </div>
 
-              {/* Stats */}
+              {/* ✅ UPDATED: Dashboard stats with real data */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[#B0B3B8] text-sm">Your Songs</p>
-                      <p className="text-2xl font-bold text-white">{songs.filter((s) => s.uploaderId === (currentUser as any).id).length}</p>
-                    </div>
-                    <i className="fas fa-music text-[#1877F2] text-xl"></i>
-                  </div>
-                </div>
-
-                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-sm">Your Podcasts</p>
-                      <p className="text-2xl font-bold text-white">{episodes.filter((e) => e.uploaderId === (currentUser as any).id).length}</p>
-                    </div>
-                    <i className="fas fa-podcast text-[#45BD62] text-xl"></i>
-                  </div>
-                </div>
-
-                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
                       <p className="text-[#B0B3B8] text-sm">Total Plays</p>
-                      <p className="text-2xl font-bold text-white">
-                        {songs.filter((s) => s.uploaderId === (currentUser as any).id).reduce((a, s) => a + ((s.stats as any)?.plays || 0), 0) +
-                          episodes.filter((e) => e.uploaderId === (currentUser as any).id).reduce((a, e) => a + ((e.stats as any)?.plays || 0), 0)}
-                      </p>
+                      <p className="text-2xl font-bold text-white">{dashboardStats.totalPlays.toLocaleString()}</p>
                     </div>
-                    <i className="fas fa-headphones text-[#F3425F] text-xl"></i>
+                    <i className="fas fa-headphones text-[#1877F2] text-xl"></i>
                   </div>
+                  <p className="text-[#888] text-xs mt-2">All songs & podcasts</p>
                 </div>
 
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-[#B0B3B8] text-sm">Your Likes</p>
-                      <p className="text-2xl font-bold text-white">{likedTracks.length}</p>
+                      <p className="text-2xl font-bold text-white">{dashboardStats.totalLikes}</p>
                     </div>
                     <i className="fas fa-heart text-[#F3425F] text-xl"></i>
                   </div>
+                  <p className="text-[#888] text-xs mt-2">Liked tracks count</p>
+                </div>
+
+                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[#B0B3B8] text-sm">Your Uploads</p>
+                      <p className="text-2xl font-bold text-white">{dashboardStats.userUploads}</p>
+                    </div>
+                    <i className="fas fa-upload text-[#45BD62] text-xl"></i>
+                  </div>
+                  <p className="text-[#888] text-xs mt-2">{dashboardStats.userSongs} songs + {dashboardStats.userEpisodes} podcasts</p>
+                </div>
+
+                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[#B0B3B8] text-sm">Your Plays</p>
+                      <p className="text-2xl font-bold text-white">{dashboardStats.userPlays.toLocaleString()}</p>
+                    </div>
+                    <i className="fas fa-play-circle text-[#F7B928] text-xl"></i>
+                  </div>
+                  <p className="text-[#888] text-xs mt-2">Your content plays</p>
                 </div>
               </div>
 
@@ -1651,6 +1748,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
               <div className="bg-[#1E1E1E] rounded-2xl border border-[#333] overflow-hidden">
                 <div className="p-6 border-b border-[#333]">
                   <h3 className="text-xl font-bold text-white">Your Catalog</h3>
+                  <p className="text-[#888] text-sm">Manage your uploaded content</p>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -1660,6 +1758,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
                         <th className="p-4">Content</th>
                         <th className="p-4">Type</th>
                         <th className="p-4 text-right">Plays</th>
+                        <th className="p-4 text-right">Likes</th>
                         <th className="p-4 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -1672,14 +1771,20 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
                               <img src={item.cover || item.thumbnail} className="w-10 h-10 rounded object-cover" alt="" />
                               <div>
                                 <div className="font-bold text-white text-sm">{item.title}</div>
-                                <div className="text-xs text-[#888]">{item.duration}</div>
+                                <div className="text-xs text-[#888]">{item.artist || item.host}</div>
                               </div>
                             </div>
                           </td>
 
-                          <td className="p-4">{item.host ? 'Podcast' : 'Music'}</td>
+                          <td className="p-4">
+                            <span className={`px-2 py-1 rounded text-xs ${item.host ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                              {item.host ? 'Podcast' : 'Music'}
+                            </span>
+                          </td>
 
                           <td className="p-4 text-right font-bold text-sm">{(item.stats as any)?.plays || 0}</td>
+                          
+                          <td className="p-4 text-right font-bold text-sm">{(item.stats as any)?.likes || 0}</td>
 
                           <td className="p-4 text-right">
                             <button
@@ -1695,7 +1800,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
 
                       {songs.filter((s) => s.uploaderId === (currentUser as any).id).length === 0 && episodes.filter((e) => e.uploaderId === (currentUser as any).id).length === 0 && (
                         <tr>
-                          <td colSpan={4} className="p-12 text-center text-[#666]">
+                          <td colSpan={5} className="p-12 text-center text-[#666]">
                             <div className="mb-3">
                               <i className="fas fa-music text-4xl opacity-50"></i>
                             </div>
@@ -1706,6 +1811,31 @@ const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onP
                       )}
                     </tbody>
                   </table>
+                </div>
+              </div>
+
+              {/* Recent Activity */}
+              <div className="mt-8 bg-[#1E1E1E] rounded-2xl border border-[#333] p-6">
+                <h3 className="text-xl font-bold text-white mb-4">Recent Activity</h3>
+                <div className="space-y-3">
+                  {playHistory.slice(0, 5).map((track, index) => (
+                    <div key={index} className="flex items-center gap-3 p-3 hover:bg-[#2A2A2A] rounded-lg">
+                      <img src={track.cover} className="w-10 h-10 rounded object-cover" alt="" />
+                      <div className="flex-1">
+                        <div className="font-medium text-white text-sm">{track.title}</div>
+                        <div className="text-xs text-[#888]">{track.artist}</div>
+                      </div>
+                      <div className="text-xs text-[#888]">
+                        {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  ))}
+                  {playHistory.length === 0 && (
+                    <div className="text-center py-4 text-[#666]">
+                      <i className="fas fa-history text-2xl mb-2"></i>
+                      <p>No recent plays</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
