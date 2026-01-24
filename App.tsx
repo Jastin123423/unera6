@@ -1,4 +1,4 @@
-Only copy story/stories model how it is exactly handled and mentioned in this App.tsx   to the App.tsx I provided earlier. Do not focus on other things but only stories. Update the first App.tsx story I provided to look exact the same on how Story.tsx and apis are handled, copy to first App.tsx 
+
 
 // in App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
