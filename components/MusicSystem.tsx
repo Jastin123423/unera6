@@ -498,10 +498,20 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 
             <div className="flex-1 cursor-pointer overflow-hidden">
               <h4 className="text-white font-bold text-[16px] truncate">{currentTrack.title}</h4>
-              <p className="text-gray-400 text-[14px] truncate flex items-center gap-1">
-                {displayUser ? displayUser.name : currentTrack.artist}
-                {(displayUser as any)?.isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
-              </p>
+              {/* ✅ UPDATED: Show artist profile photo and verification badge in mini player */}
+              <div className="flex items-center gap-2 mt-1">
+                {displayUser && (
+                  <img 
+                    src={(displayUser as any).profileImage || (displayUser as any).profile_image_url || currentTrack.cover} 
+                    className="w-4 h-4 rounded-full object-cover border border-white/20"
+                    alt=""
+                  />
+                )}
+                <p className="text-gray-400 text-[14px] truncate flex items-center gap-1">
+                  {displayUser ? displayUser.name : currentTrack.artist}
+                  {(displayUser as any)?.isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -1611,40 +1621,23 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
         {/* MUSIC VIEW */}
         {view === 'music' && !showLoading && (
           <div className="space-y-8">
-            {/* Dashboard-like stats at top */}
-            {currentUser && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div className="bg-[#242526] p-4 rounded-xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-xs">My Total Plays</p>
-                      <p className="text-xl font-bold text-white">
-                        {playsLoading ? '...' : myTotalPlays.toLocaleString()}
-                      </p>
-                    </div>
-                    <i className="fas fa-headphones text-[#1877F2] text-lg"></i>
-                  </div>
-                </div>
-
-                <div className="bg-[#242526] p-4 rounded-xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-xs">My Likes</p>
-                      <p className="text-xl font-bold text-white">{likedTracks.length}</p>
-                    </div>
-                    <i className="fas fa-heart text-[#F3425F] text-lg"></i>
-                  </div>
-                </div>
-
-                <div className="bg-[#242526] p-4 rounded-xl border border-[#333]">
-                  <div className="flex items-center justify-between">
+            {/* ✅ MODIFIED: Keep only Now Playing stats at top */}
+            {currentUser && currentTrack && (
+              <div className="bg-[#242526] p-4 rounded-xl border border-[#333]">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <img src={currentTrack.cover} className="w-12 h-12 rounded-lg object-cover" alt="" />
                     <div>
                       <p className="text-[#B0B3B8] text-xs">Now Playing</p>
-                      <p className="text-xl font-bold text-white truncate">
-                        {currentTrack && isPlaying ? currentTrack.title : '—'}
-                      </p>
+                      <p className="text-lg font-bold text-white truncate max-w-xs">{currentTrack.title}</p>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-[#B0B3B8] text-sm">{currentTrack.artist}</span>
+                        {currentTrack.isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
+                      </div>
                     </div>
-                    <i className="fas fa-play text-[#45BD62] text-lg"></i>
+                  </div>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isPlaying ? 'bg-[#1877F2]' : 'bg-[#3E4042]'}`}>
+                    <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-0.5'} text-white`}></i>
                   </div>
                 </div>
               </div>
@@ -1965,19 +1958,9 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 </button>
               </div>
 
-              {/* ✅ FIXED: Dashboard stats with real backend data */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
-                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-sm">Total Plays</p>
-                      <p className="text-2xl font-bold text-white">{dashboardStats.totalPlays.toLocaleString()}</p>
-                    </div>
-                    <i className="fas fa-headphones text-[#1877F2] text-xl"></i>
-                  </div>
-                  <p className="text-[#888] text-xs mt-2">All songs & podcasts</p>
-                </div>
-
+              {/* ✅ MODIFIED: Remove "Total Plays All songs & podcasts" stat (first card) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+                {/* Keep only 3 cards: Likes on Your Content, Your Uploads, My Total Plays */}
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
                     <div>
