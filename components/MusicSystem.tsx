@@ -75,7 +75,7 @@ async function apiForm<T>(endpoint: string, form: FormData, options: RequestInit
 }
 
 /* =========================================================
-   MAPPERS (backend -> UI types)
+   MAPPERS (backend -> UI types) - FIXED: reads plays_count/likes_count
 ========================================================= */
 
 const DEFAULT_SONG_COVER =
@@ -84,7 +84,11 @@ const DEFAULT_SONG_COVER =
 const DEFAULT_PODCAST_COVER =
   'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
 
+// ✅ FIXED: Reads plays_count and likes_count from backend
 function mapSongFromApi(s: any): Song {
+  const plays = Number(s.plays_count ?? s.plays ?? s.stats?.plays ?? 0);
+  const likes = Number(s.likes_count ?? s.likes ?? s.stats?.likes ?? 0);
+
   return {
     id: String(s.id),
     title: s.title || 'Untitled',
@@ -95,19 +99,23 @@ function mapSongFromApi(s: any): Song {
     uploaderId: Number(s.uploader_id ?? s.uploaderId ?? 0) || 0,
     uploadDate: s.created_at || s.uploadDate || new Date().toISOString(),
     genre: s.genre || '',
-    album: s.album || 'Single',
+    album: s.album_name || s.album || 'Single',
     isVerified: Boolean(s.is_verified || s.isVerified),
-    stats: s.stats || {
-      plays: Number(s.plays || 0),
-      likes: Number(s.likes || 0),
-      shares: Number(s.shares || 0),
-      downloads: Number(s.downloads || 0),
-      reelsUse: Number(s.reelsUse || 0),
+    stats: {
+      plays,
+      likes,
+      shares: Number(s.shares_count ?? s.shares ?? s.stats?.shares ?? 0),
+      downloads: Number(s.downloads_count ?? s.downloads ?? s.stats?.downloads ?? 0),
+      reelsUse: Number(s.reels_use_count ?? s.reelsUse ?? s.stats?.reelsUse ?? 0),
     },
   } as any;
 }
 
+// ✅ FIXED: Reads plays_count and likes_count from backend for episodes too
 function mapEpisodeFromApi(e: any): Episode {
+  const plays = Number(e.plays_count ?? e.plays ?? e.stats?.plays ?? 0);
+  const likes = Number(e.likes_count ?? e.likes ?? e.stats?.likes ?? 0);
+
   return {
     id: String(e.id),
     title: e.title || 'Untitled',
@@ -121,12 +129,12 @@ function mapEpisodeFromApi(e: any): Episode {
     season: e.season || '',
     episode: e.episode || '',
     guests: e.guests || '',
-    stats: e.stats || {
-      plays: Number(e.plays || 0),
-      likes: Number(e.likes || 0),
-      shares: Number(e.shares || 0),
-      downloads: Number(e.downloads || 0),
-      reelsUse: Number(e.reelsUse || 0),
+    stats: {
+      plays,
+      likes,
+      shares: Number(e.shares_count ?? e.shares ?? e.stats?.shares ?? 0),
+      downloads: Number(e.downloads_count ?? e.downloads ?? e.stats?.downloads ?? 0),
+      reelsUse: Number(e.reels_use_count ?? e.reelsUse ?? e.stats?.reelsUse ?? 0),
     },
   } as any;
 }
@@ -917,6 +925,122 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
 };
 
 /* =========================================================
+   API HELPER FUNCTIONS FOR PLAYS AND LIKES
+========================================================= */
+
+// ✅ FIXED: Smart play recording with fallback
+async function recordSongPlay(songId: string, userId: any) {
+  // Try new endpoint first: /api/songs/:id/play
+  try {
+    const a = await apiJson<any>(`/api/songs/${encodeURIComponent(songId)}/play`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId ?? null }),
+    });
+    if (a.success) return a.data;
+  } catch (error) {
+    console.warn('New play endpoint failed, trying fallback...');
+  }
+
+  // Fallback to older endpoint: /api/song-plays
+  try {
+    const b = await apiJson<any>(`/api/song-plays`, {
+      method: "POST",
+      body: JSON.stringify({ song_id: songId, user_id: userId ?? null }),
+    });
+    return b.success ? b.data : null;
+  } catch (error) {
+    console.error('All play endpoints failed:', error);
+    return null;
+  }
+}
+
+// ✅ FIXED: Smart podcast play recording with fallback
+async function recordEpisodePlay(episodeId: string, userId: any) {
+  // Try new endpoint first: /api/podcasts/:id/play
+  try {
+    const a = await apiJson<any>(`/api/podcasts/${encodeURIComponent(episodeId)}/play`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId ?? null }),
+    });
+    if (a.success) return a.data;
+  } catch (error) {
+    console.warn('New podcast play endpoint failed, trying fallback...');
+  }
+
+  // Fallback to older endpoint: /api/podcast-episode-plays
+  try {
+    const b = await apiJson<any>(`/api/podcast-episode-plays`, {
+      method: "POST",
+      body: JSON.stringify({ episode_id: episodeId, user_id: userId ?? null }),
+    });
+    return b.success ? b.data : null;
+  } catch (error) {
+    console.error('All podcast play endpoints failed:', error);
+    return null;
+  }
+}
+
+// ✅ FIXED: Smart song like with fallback
+async function toggleSongLike(songId: string, userId: any, method: 'POST' | 'DELETE' = 'POST') {
+  // Try new endpoint first: /api/songs/:id/like
+  try {
+    const a = await apiJson<any>(`/api/songs/${encodeURIComponent(songId)}/like`, {
+      method: method,
+      body: JSON.stringify({ user_id: userId }),
+    });
+    if (a.success) return a.data;
+  } catch (error) {
+    console.warn('New like endpoint failed, trying fallback...');
+  }
+
+  // Fallback to older endpoint: /api/song-likes
+  try {
+    const endpoint = method === 'DELETE' 
+      ? `/api/song-likes?song_id=${encodeURIComponent(songId)}&user_id=${encodeURIComponent(userId)}`
+      : '/api/song-likes';
+    
+    const b = await apiJson<any>(endpoint, {
+      method: method,
+      body: method === 'DELETE' ? undefined : JSON.stringify({ song_id: songId, user_id: userId }),
+    });
+    return b.success ? b.data : null;
+  } catch (error) {
+    console.error('All like endpoints failed:', error);
+    return null;
+  }
+}
+
+// ✅ FIXED: Smart episode like with fallback
+async function toggleEpisodeLike(episodeId: string, userId: any, method: 'POST' | 'DELETE' = 'POST') {
+  // Try new endpoint first: /api/podcasts/:id/like
+  try {
+    const a = await apiJson<any>(`/api/podcasts/${encodeURIComponent(episodeId)}/like`, {
+      method: method,
+      body: JSON.stringify({ user_id: userId }),
+    });
+    if (a.success) return a.data;
+  } catch (error) {
+    console.warn('New podcast like endpoint failed, trying fallback...');
+  }
+
+  // Fallback to older endpoint: /api/podcast-episode-likes
+  try {
+    const endpoint = method === 'DELETE'
+      ? `/api/podcast-episode-likes?episode_id=${encodeURIComponent(episodeId)}&user_id=${encodeURIComponent(userId)}`
+      : '/api/podcast-episode-likes';
+    
+    const b = await apiJson<any>(endpoint, {
+      method: method,
+      body: method === 'DELETE' ? undefined : JSON.stringify({ episode_id: episodeId, user_id: userId }),
+    });
+    return b.success ? b.data : null;
+  } catch (error) {
+    console.error('All podcast like endpoints failed:', error);
+    return null;
+  }
+}
+
+/* =========================================================
    MAIN MUSIC SYSTEM (PROFESSIONALLY FIXED WITH ALL REQUIREMENTS)
 ========================================================= */
 
@@ -961,7 +1085,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
   const isAdmin = (currentUser as any)?.role === 'admin';
 
-  // ✅ ADDED: Fetch my likes from backend when user exists
+  // ✅ FIXED: Fetch my likes from backend when user exists
   const fetchMyLikes = useCallback(async () => {
     if (!currentUser) return;
 
@@ -986,17 +1110,17 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     }
   }, [currentUser]);
 
-  // ✅ ADDED: Load likes when user changes
+  // ✅ FIXED: Load likes when user changes
   useEffect(() => {
     fetchMyLikes();
   }, [fetchMyLikes]);
 
-  // ✅ UPDATED: Check if a track is liked with typed IDs
+  // ✅ FIXED: Check if a track is liked with typed IDs
   const isTrackLiked = useCallback((id: string | number, type: 'music' | 'podcast'): boolean => {
     return likedTracks.includes(`${type}:${String(id)}`);
   }, [likedTracks]);
 
-  // ✅ UPDATED: Toggle like with typed IDs
+  // ✅ FIXED: UPDATED toggleLike with backend sync for counts
   const toggleLike = useCallback(async (id: string | number, type: 'music' | 'podcast') => {
     if (!currentUser) {
       return;
@@ -1005,27 +1129,55 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     const trackId = String(id);
     const key = `${type}:${trackId}`;
     const isLiked = likedTracks.includes(key);
+    const userId = String((currentUser as any).id);
 
-    // Optimistic update
+    // Optimistic UI update for like button
     setLikedTracks(prev => isLiked ? prev.filter(x => x !== key) : [...prev, key]);
 
-    // Update local state
-    if (type === 'music') {
-      setSongs(prev => prev.map(song =>
-        String(song.id) === trackId
-          ? { ...song, stats: { ...(song.stats || {}), likes: Math.max(0, ((song.stats as any)?.likes || 0) + (isLiked ? -1 : 1)) } }
-          : song
-      ));
-    } else {
-      setEpisodes(prev => prev.map(episode =>
-        String(episode.id) === trackId
-          ? { ...episode, stats: { ...(episode.stats || {}), likes: Math.max(0, ((episode.stats as any)?.likes || 0) + (isLiked ? -1 : 1)) } }
-          : episode
-      ));
-    }
-
-    // Call parent handler
+    // Call parent handler (App.tsx) - this should call backend
     onToggleLike(trackId, type);
+
+    // ✅ FIXED: Now sync counts from backend response
+    try {
+      const res = type === "music"
+        ? await toggleSongLike(trackId, userId, isLiked ? 'DELETE' : 'POST')
+        : await toggleEpisodeLike(trackId, userId, isLiked ? 'DELETE' : 'POST');
+
+      if (res) {
+        // ✅ Get the updated count from backend response
+        const likesCount = Number(res.likes_count ?? res.likes ?? res.count ?? 0);
+        
+        if (type === "music") {
+          setSongs(prev => prev.map(song =>
+            String(song.id) === trackId
+              ? { 
+                  ...song, 
+                  stats: { 
+                    ...(song.stats || {}), 
+                    likes: likesCount || (song.stats as any)?.likes || 0 
+                  } 
+                }
+              : song
+          ));
+        } else {
+          setEpisodes(prev => prev.map(ep =>
+            String(ep.id) === trackId
+              ? { 
+                  ...ep, 
+                  stats: { 
+                    ...(ep.stats || {}), 
+                    likes: likesCount || (ep.stats as any)?.likes || 0 
+                  } 
+                }
+              : ep
+          ));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to sync like count from backend:', error);
+      // If backend fails, revert optimistic like toggle
+      setLikedTracks(prev => isLiked ? [...prev, key] : prev.filter(x => x !== key));
+    }
   }, [currentUser, likedTracks, onToggleLike]);
 
   // Structured data (same behavior)
@@ -1079,7 +1231,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     fetchPodcasts();
   }, [fetchSongs, fetchPodcasts]);
 
-  // ✅ ADDED: Record play count when track is played (Option B from requirements)
+  // ✅ FIXED: Record play count when track is played with smart fallback
   const handlePlayTrackFromSong = useCallback(async (song: Song) => {
     const uploaderProfile = users.find((u) => u.id === song.uploaderId);
     const audioTrack: AudioTrack = {
@@ -1102,32 +1254,48 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
     } as any;
 
-    // ✅ Record play count
+    // ✅ FIXED: Record play count with smart fallback
     try {
-      await fetch("/api/song-plays", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          song_id: String(song.id), 
-          user_id: currentUser?.id ?? null 
-        }),
-      });
+      const res = await recordSongPlay(String(song.id), currentUser?.id ?? null);
       
-      // Optimistic update
-      setSongs(prev => prev.map(s =>
-        String(s.id) === String(song.id)
-          ? { ...s, stats: { ...(s.stats||{}), plays: ((s.stats as any)?.plays || 0) + 1 } }
-          : s
-      ));
+      setSongs(prev => prev.map(s => {
+        if (String(s.id) !== String(song.id)) return s;
+
+        const nextPlays =
+          Number(res?.plays_count ?? res?.plays ?? (s.stats as any)?.plays ?? 0) || 0;
+
+        // if backend doesn't return count, just +1
+        const fallback = ((s.stats as any)?.plays || 0) + 1;
+
+        return {
+          ...s,
+          stats: { 
+            ...(s.stats || {}), 
+            plays: nextPlays || fallback 
+          },
+        };
+      }));
     } catch (error) {
       console.error('Failed to record play:', error);
+      // if request fails, do optimistic +1
+      setSongs(prev => prev.map(s =>
+        String(s.id) === String(song.id)
+          ? { 
+              ...s, 
+              stats: { 
+                ...(s.stats || {}), 
+                plays: ((s.stats as any)?.plays || 0) + 1 
+              } 
+            }
+          : s
+      ));
     }
 
     // ✅ Immediately play the track
     onPlayTrack(audioTrack);
   }, [currentUser, users, onPlayTrack]);
 
-  // ✅ ADDED: Record play count for podcasts
+  // ✅ FIXED: Record play count for podcasts with smart fallback
   const handlePlayTrackFromEpisode = useCallback(async (episode: Episode) => {
     const uploaderProfile = users.find((u) => u.id === episode.uploaderId);
     const audioTrack: AudioTrack = {
@@ -1150,25 +1318,41 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
     } as any;
 
-    // ✅ Record play count
+    // ✅ FIXED: Record play count with smart fallback
     try {
-      await fetch("/api/podcast-episode-plays", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          episode_id: String(episode.id), 
-          user_id: currentUser?.id ?? null 
-        }),
-      });
+      const res = await recordEpisodePlay(String(episode.id), currentUser?.id ?? null);
       
-      // Optimistic update
+      setEpisodes(prev => prev.map(ep => {
+        if (String(ep.id) !== String(episode.id)) return ep;
+
+        const nextPlays =
+          Number(res?.plays_count ?? res?.plays ?? (ep.stats as any)?.plays ?? 0) || 0;
+
+        // if backend doesn't return count, just +1
+        const fallback = ((ep.stats as any)?.plays || 0) + 1;
+
+        return {
+          ...ep,
+          stats: { 
+            ...(ep.stats || {}), 
+            plays: nextPlays || fallback 
+          },
+        };
+      }));
+    } catch (error) {
+      console.error('Failed to record podcast play:', error);
+      // if request fails, do optimistic +1
       setEpisodes(prev => prev.map(ep =>
         String(ep.id) === String(episode.id)
-          ? { ...ep, stats: { ...(ep.stats||{}), plays: ((ep.stats as any)?.plays || 0) + 1 } }
+          ? { 
+              ...ep, 
+              stats: { 
+                ...(ep.stats || {}), 
+                plays: ((ep.stats as any)?.plays || 0) + 1 
+              } 
+            }
           : ep
       ));
-    } catch (error) {
-      console.error('Failed to record play:', error);
     }
 
     // ✅ Immediately play the track
@@ -1242,33 +1426,50 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       .slice(0, 5);
   }, [songs]);
 
-  // ✅ ADDED: Dashboard stats calculations
+  // ✅ FIXED: UPDATED Dashboard stats calculations with correct totals
   const dashboardStats = useMemo(() => {
-    const totalPlays = 
-      songs.reduce((sum, song) => sum + ((song.stats as any)?.plays || 0), 0) +
-      episodes.reduce((sum, episode) => sum + ((episode.stats as any)?.plays || 0), 0);
-    
-    const totalLikes = likedTracks.length;
+    const totalPlays =
+      songs.reduce((sum, s) => sum + (Number((s.stats as any)?.plays) || 0), 0) +
+      episodes.reduce((sum, e) => sum + (Number((e.stats as any)?.plays) || 0), 0);
+
+    const totalLikesReceived =
+      songs.reduce((sum, s) => sum + (Number((s.stats as any)?.likes) || 0), 0) +
+      episodes.reduce((sum, e) => sum + (Number((e.stats as any)?.likes) || 0), 0);
+
     const totalTracks = songs.length + episodes.length;
-    
-    // Calculate user's upload stats
-    const userSongs = songs.filter((s) => s.uploaderId === (currentUser as any)?.id);
-    const userEpisodes = episodes.filter((e) => e.uploaderId === (currentUser as any)?.id);
-    
-    const userPlays = 
-      userSongs.reduce((sum, song) => sum + ((song.stats as any)?.plays || 0), 0) +
-      userEpisodes.reduce((sum, episode) => sum + ((episode.stats as any)?.plays || 0), 0);
-    
+
+    const myId = Number((currentUser as any)?.id || 0);
+
+    const userSongs = songs.filter((s) => Number(s.uploaderId) === myId);
+    const userEpisodes = episodes.filter((e) => Number(e.uploaderId) === myId);
+
+    const userPlays =
+      userSongs.reduce((sum, s) => sum + (Number((s.stats as any)?.plays) || 0), 0) +
+      userEpisodes.reduce((sum, e) => sum + (Number((e.stats as any)?.plays) || 0), 0);
+
+    const userLikesReceived =
+      userSongs.reduce((sum, s) => sum + (Number((s.stats as any)?.likes) || 0), 0) +
+      userEpisodes.reduce((sum, e) => sum + (Number((e.stats as any)?.likes) || 0), 0);
+
     return {
       totalPlays,
-      totalLikes,
       totalTracks,
+
+      // likes on all content in system
+      totalLikesReceived,
+
       userSongs: userSongs.length,
       userEpisodes: userEpisodes.length,
-      userPlays,
       userUploads: userSongs.length + userEpisodes.length,
+
+      // plays + likes on MY content (this is what creators care about)
+      userPlays,
+      userLikesReceived,
+      
+      // likes user has made (from likedTracks)
+      myLikesCount: likedTracks.length,
     };
-  }, [songs, episodes, likedTracks, currentUser]);
+  }, [songs, episodes, currentUser, likedTracks]);
 
   const selectedArtistUser: User | null = useMemo(() => {
     if (!selectedArtistId) return null;
@@ -1697,7 +1898,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 </button>
               </div>
 
-              {/* ✅ UPDATED: Dashboard stats with real data */}
+              {/* ✅ FIXED: Dashboard stats with real backend data */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
@@ -1713,12 +1914,12 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[#B0B3B8] text-sm">Your Likes</p>
-                      <p className="text-2xl font-bold text-white">{dashboardStats.totalLikes}</p>
+                      <p className="text-[#B0B3B8] text-sm">Likes on Your Content</p>
+                      <p className="text-2xl font-bold text-white">{dashboardStats.userLikesReceived.toLocaleString()}</p>
                     </div>
                     <i className="fas fa-heart text-[#F3425F] text-xl"></i>
                   </div>
-                  <p className="text-[#888] text-xs mt-2">Liked tracks count</p>
+                  <p className="text-[#888] text-xs mt-2">Likes your content received</p>
                 </div>
 
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
@@ -1735,12 +1936,12 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[#B0B3B8] text-sm">Your Plays</p>
-                      <p className="text-2xl font-bold text-white">{dashboardStats.userPlays.toLocaleString()}</p>
+                      <p className="text-[#B0B3B8] text-sm">Your Likes</p>
+                      <p className="text-2xl font-bold text-white">{dashboardStats.myLikesCount}</p>
                     </div>
-                    <i className="fas fa-play-circle text-[#F7B928] text-xl"></i>
+                    <i className="fas fa-thumbs-up text-[#F7B928] text-xl"></i>
                   </div>
-                  <p className="text-[#888] text-xs mt-2">Your content plays</p>
+                  <p className="text-[#888] text-xs mt-2">Tracks you liked</p>
                 </div>
               </div>
 
