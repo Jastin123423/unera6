@@ -1,1744 +1,2628 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import type { Song, Episode, AudioTrack, User } from '../types';
+Only copy story/stories model how it is exactly handled and mentioned in this App.tsx   to the App.tsx I provided earlier. Do not focus on other things but only stories. Update the first App.tsx story I provided to look exact the same on how Story.tsx and apis are handled, copy to first App.tsx 
 
-/* =========================================================
-   API CLIENT (safe JSON parsing + auth + errors)
-========================================================= */
+// in App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
+// (Unique Profile Colors & Proper Sizing)
+// ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
+// ✅ FIXED: Immediate reaction updates with my_reaction field
+// ✅ UPDATED: Added viewerId to profile posts fetch and preserved reaction data
+// ✅ FIXED: Follow buttons reading and sending real data from API backend
+// ✅ ADDED: onLikeComment handler for comment likes
+// ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
+// ✅ UPDATED: Story backend integration with liked_by_me support
+// ✅ FIXED: Blank screen issue by fixing initialization order
+// ✅ UPDATED: StoryViewer with stable user data, follow support, and Facebook-like navigation
+// ✅ FIXED: authorFromFeedRow name assignment bug
+// ✅ FIXED: normalizeStory author info preservation
+// ✅ FIXED: Merge story authors into users list
+// ✅ FIXED: StoryViewer fallback avatar generation
+// ✅ FIXED: Real names changing to "User" then back issue (mergeUserSafe protections)
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Login, Register } from './components/Auth';
+import { Header, Sidebar, RightSidebar } from './components/Layout';
+import {
+  CreatePost,
+  Post,
+  CommentsSheet,
+  CreatePostModal,
+  SuggestedProductsWidget,
+  ShareBottomSheet,
+} from './components/Feed';
+import { StoryReel, CreateStoryModal, StoryViewer } from './components/Story';
+import { UserProfile } from './components/UserProfile';
+import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
+import { ReelsFeed, CreateReelModal } from './components/Reels';
+import { ImageViewer, ProfessionalLoader } from './components/Common';
+import {
+  EventsPage,
+  BirthdaysPage,
+  MemoriesPage,
+  SettingsPage,
+  SuggestedProfilesPage,
+} from './components/MenuPages';
+import { HelpSupportPage } from './components/HelpSupport';
+import { CreateEventModal } from './components/Events';
+import { BrandsPage } from './components/Brands';
+import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
+import { GroupsPage } from './components/Groups';
+import { ToolsPage } from './components/Tools';
+import { PrivacyPolicyPage } from './components/PrivacyPolicy';
+import { TermsOfServicePage } from './components/TermsOfService';
+import { useLanguage } from './contexts/LanguageContext';
+import {
+  User,
+  Post as PostType,
+  Story,
+  Reel,
+  Notification,
+  Event,
+  Product,
+  AudioTrack,
+  ReactionType,
+  Group,
+  Brand,
+} from './types';
 
-type ApiResult<T> = { success: true; data: T } | { success: false; error: string; data?: any };
-
-const getAuthHeaders = (): HeadersInit => {
-  const token = localStorage.getItem('unera_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+/** ---------- Safety helpers ---------- */
+const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+const safeNumber = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
 };
+const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
-const safeParseJson = async (res: Response) => {
-  const ct = res.headers.get('content-type') || '';
-  if (ct.includes('application/json')) return res.json();
-  // fallback: try text for debugging
-  const txt = await res.text();
+/** ---------- Facebook-like feed session + seen cache ---------- */
+const FEED_SESSION_KEY = 'unera_feed_session_seed';
+const FEED_LAST_ACTIVE_KEY = 'unera_feed_last_active';
+const FEED_SEEN_KEY = 'unera_feed_seen_ids';
+const FEED_RETURN_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes away => refresh
+const FEED_SEEN_LIMIT = 1500;
+
+const nowMs = () => Date.now();
+
+const readJson = <T,>(key: string, fallback: T): T => {
   try {
-    return JSON.parse(txt);
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
   } catch {
-    return { raw: txt };
+    return fallback;
   }
 };
 
-async function apiJson<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResult<T>> {
+const writeJson = (key: string, value: any) => {
   try {
-    const res = await fetch(endpoint, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders(),
-        ...(options.headers || {}),
-      },
-    });
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+};
 
-    const payload = await safeParseJson(res);
+// Deterministic seeded RNG
+const mulberry32 = (seed: number) => {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
 
-    if (!res.ok) {
-      return { success: false, error: (payload?.error || payload?.message || `API Error: ${res.status}`) as string, data: payload };
-    }
-
-    // many APIs return { data: [...] } or direct array/object
-    const data = (payload?.data ?? payload) as T;
-    return { success: true, data };
-  } catch (e: any) {
-    return { success: false, error: e?.message || 'Network error' };
+const hashToSeed = (s: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-}
+  return h >>> 0;
+};
 
-async function apiForm<T>(endpoint: string, form: FormData, options: RequestInit = {}): Promise<ApiResult<T>> {
+const getOrCreateSessionSeed = (userId?: number | null) => {
   try {
-    const res = await fetch(endpoint, {
-      method: options.method || 'POST',
-      ...options,
-      body: form,
-      headers: {
-        ...getAuthHeaders(),
-        ...(options.headers || {}),
-      },
-    });
+    const existing = sessionStorage.getItem(FEED_SESSION_KEY);
+    if (existing) return Number(existing) || 1;
 
-    const payload = await safeParseJson(res);
-
-    if (!res.ok) {
-      return { success: false, error: (payload?.error || payload?.message || `API Error: ${res.status}`) as string, data: payload };
-    }
-
-    const data = (payload?.data ?? payload) as T;
-    return { success: true, data };
-  } catch (e: any) {
-    return { success: false, error: e?.message || 'Network error' };
+    const seedStr = `${userId ?? 'guest'}:${nowMs()}:${Math.random()}`;
+    const seed = hashToSeed(seedStr);
+    sessionStorage.setItem(FEED_SESSION_KEY, String(seed));
+    return seed;
+  } catch {
+    return hashToSeed(`${userId ?? 'guest'}:${nowMs()}`);
   }
-}
+};
 
-/* =========================================================
-   MAPPERS (backend -> UI types)
-========================================================= */
+const seededShuffle = <T,>(arr: T[], seed: number) => {
+  const a = arr.slice();
+  const rnd = mulberry32(seed);
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
 
-const DEFAULT_SONG_COVER =
-  'https://images.unsplash.com/photo-1514525253440-b393452e8d26?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
+const getSeenSet = () => {
+  const ids = readJson<number[]>(FEED_SEEN_KEY, []);
+  return new Set(ids.map(Number).filter(Number.isFinite));
+};
 
-const DEFAULT_PODCAST_COVER =
-  'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
+const pushSeenIds = (ids: number[]) => {
+  const existing = readJson<number[]>(FEED_SEEN_KEY, []);
+  const merged = [...ids, ...existing].map(Number).filter(Number.isFinite);
+  const dedup = Array.from(new Set(merged)).slice(0, FEED_SEEN_LIMIT);
+  writeJson(FEED_SEEN_KEY, dedup);
+};
 
-function mapSongFromApi(s: any): Song {
-  return {
-    id: String(s.id),
-    title: s.title || 'Untitled',
-    artist: s.artist_name || s.artist || 'Unknown Artist',
-    cover: s.cover_image_url || s.cover || DEFAULT_SONG_COVER,
-    audioUrl: s.audio_url || s.audioUrl || '',
-    duration: s.duration || s.duration_seconds || '3:00',
-    uploaderId: Number(s.uploader_id ?? s.uploaderId ?? 0) || 0,
-    uploadDate: s.created_at || s.uploadDate || new Date().toISOString(),
-    genre: s.genre || '',
-    album: s.album || 'Single',
-    isVerified: Boolean(s.is_verified || s.isVerified),
-    stats: s.stats || {
-      plays: Number(s.plays || 0),
-      likes: Number(s.likes || 0),
-      shares: Number(s.shares || 0),
-      downloads: Number(s.downloads || 0),
-      reelsUse: Number(s.reelsUse || 0),
-    },
-  } as any;
-}
+// Avoid boring sequences: same author too often + mix types a bit
+const diversifyFeed = (posts: PostType[], seed: number) => {
+  if (!Array.isArray(posts) || posts.length <= 2) return posts;
 
-function mapEpisodeFromApi(e: any): Episode {
-  return {
-    id: String(e.id),
-    title: e.title || 'Untitled',
-    description: e.description || '',
-    host: e.host || e.artist_name || 'Unknown Host',
-    thumbnail: e.cover_url || e.cover_image_url || DEFAULT_PODCAST_COVER,
-    audioUrl: e.audio_url || e.audioUrl || '',
-    duration: e.duration || e.duration_seconds || '45:00',
-    uploaderId: Number(e.creator_id ?? e.uploader_id ?? e.uploaderId ?? 0) || 0,
-    uploadDate: e.created_at || e.uploadDate || new Date().toISOString(),
-    season: e.season || '',
-    episode: e.episode || '',
-    guests: e.guests || '',
-    stats: e.stats || {
-      plays: Number(e.plays || 0),
-      likes: Number(e.likes || 0),
-      shares: Number(e.shares || 0),
-      downloads: Number(e.downloads || 0),
-      reelsUse: Number(e.reelsUse || 0),
-    },
-  } as any;
-}
+  const rnd = mulberry32(seed ^ 0x9e3779b9);
+  const buckets = new Map<string, PostType[]>();
 
-/* =========================================================
-   GLOBAL AUDIO PLAYER (same UI as yours)
-========================================================= */
+  const keyOf = (p: any) => {
+    const uid = Number(p?.user_id ?? 0);
+    const type = String(p?.type ?? 'post');
+    return `u:${uid}|t:${type}`;
+  };
 
-interface GlobalAudioPlayerProps {
-  currentTrack: AudioTrack | null;
-  isPlaying: boolean;
-  onTogglePlay: () => void;
-  onNext: () => void;
-  onPrevious: () => void;
-  onClose: () => void;
-  onDownload: (id: string) => void;
-  onLike: (id: string, type: 'music' | 'podcast') => void;
-  onArtistClick?: (uploaderId: number) => void;
-  isLiked: boolean;
-  uploaderProfile?: User | null;
-}
+  for (const p of posts) {
+    const k = keyOf(p);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(p);
+  }
 
-export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
-  currentTrack,
-  isPlaying,
-  onTogglePlay,
-  onNext,
-  onPrevious,
-  onClose,
-  onDownload,
-  onLike,
-  onArtistClick,
-  isLiked,
-  uploaderProfile,
-}) => {
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [expanded, setExpanded] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const lastUrlRef = useRef<string | null>(null);
-  const playPromiseRef = useRef<Promise<void> | null>(null);
+  const keys = seededShuffle(Array.from(buckets.keys()), Math.floor(rnd() * 1e9));
+  const out: PostType[] = [];
+  let lastAuthor = -1;
+  let repeats = 0;
 
-  useEffect(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-      audioRef.current.preload = 'metadata';
-    }
+  while (out.length < posts.length) {
+    let progressed = false;
 
-    const audio = audioRef.current;
+    for (const k of keys) {
+      const b = buckets.get(k);
+      if (!b || b.length === 0) continue;
 
-    const setAudioData = () => {
-      if (!isNaN(audio.duration)) setDuration(audio.duration);
-    };
-    const setAudioTime = () => setCurrentTime(audio.currentTime);
-    const handleEnded = () => onNext();
-    const handleError = (e: Event) => console.warn('Audio playback warning:', e);
+      const candidate = b[0];
+      const author = Number((candidate as any).user_id ?? -1);
 
-    audio.addEventListener('loadeddata', setAudioData);
-    audio.addEventListener('timeupdate', setAudioTime);
-    audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('error', handleError);
+      // allow at most 1 consecutive repeat
+      if (author === lastAuthor && repeats >= 1) continue;
 
-    const managePlayback = async () => {
-      if (currentTrack?.url) {
-        if (lastUrlRef.current !== currentTrack.url) {
-          audio.pause();
-          audio.currentTime = 0;
-          audio.src = '';
-          await new Promise((r) => setTimeout(r, 80));
-          audio.src = currentTrack.url;
-          lastUrlRef.current = currentTrack.url;
-          audio.load();
-        }
+      out.push(b.shift()!);
+      progressed = true;
 
-        if (isPlaying) {
-          try {
-            if (playPromiseRef.current) playPromiseRef.current.catch(() => {});
-            playPromiseRef.current = audio.play();
-            await playPromiseRef.current;
-          } catch (err: any) {
-            if (err?.name !== 'AbortError' && err?.name !== 'NotSupportedError') {
-              console.error('Playback failed', err);
-            }
-          }
-        } else {
-          if (!audio.paused) audio.pause();
-        }
-      } else {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.src = '';
-        lastUrlRef.current = null;
+      if (author === lastAuthor) repeats++;
+      else {
+        lastAuthor = author;
+        repeats = 0;
       }
-    };
 
-    managePlayback();
-
-    return () => {
-      audio.removeEventListener('loadeddata', setAudioData);
-      audio.removeEventListener('timeupdate', setAudioTime);
-      audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('error', handleError);
-    };
-  }, [currentTrack, isPlaying, onNext]);
-
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = Number(e.target.value);
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
-      setCurrentTime(time);
+      if (out.length >= posts.length) break;
     }
-  };
 
-  const formatTime = (time: number) => {
-    if (isNaN(time)) return '0:00';
-    const m = Math.floor(time / 60);
-    const s = Math.floor(time % 60);
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
-  };
-
-  const handleStop = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+    // if stuck, relax rule
+    if (!progressed) {
+      for (const k of keys) {
+        const b = buckets.get(k);
+        if (b && b.length) {
+          out.push(b.shift()!);
+          if (out.length >= posts.length) break;
+        }
+      }
     }
-    if (isPlaying) onTogglePlay();
-  };
+  }
 
-  if (!currentTrack) return null;
-
-  return (
-    <div
-      className={`fixed bottom-0 left-0 right-0 bg-[#0A0A0A] border-t border-[#222] transition-all duration-500 z-[160] shadow-2xl ${
-        expanded ? 'h-full border-none' : 'h-20 mb-0'
-      }`}
-    >
-      {expanded && (
-        <div className="flex flex-col h-full w-full relative overflow-hidden bg-gradient-to-b from-gray-900 to-black animate-slide-up">
-          <div
-            className="absolute inset-0 z-0 opacity-40 blur-3xl scale-150 pointer-events-none"
-            style={{
-              backgroundImage: `url(${currentTrack.cover})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            }}
-          ></div>
-
-          <div className="relative z-10 flex justify-between items-center p-6 pt-10 text-white">
-            <div
-              onClick={() => setExpanded(false)}
-              className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center cursor-pointer transition-colors"
-            >
-              <i className="fas fa-chevron-down text-2xl"></i>
-            </div>
-
-            <div className="flex flex-col items-center">
-              <span className="text-[10px] font-bold tracking-widest uppercase text-gray-400">Now Playing</span>
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-bold bg-[#1877F2] px-1.5 py-0.5 rounded text-white">Hi-Res</span>
-                <span className="text-sm font-bold">{currentTrack.type === 'podcast' ? 'Podcast' : 'Music'}</span>
-              </div>
-            </div>
-
-            <div
-              onClick={onClose}
-              className="w-10 h-10 rounded-full hover:bg-red-500/20 flex items-center justify-center cursor-pointer transition-colors text-gray-400 hover:text-red-500"
-            >
-              <i className="fas fa-times text-xl"></i>
-            </div>
-          </div>
-
-          <div className="relative z-10 flex-1 flex items-center justify-center p-8">
-            <div
-              className={`w-[280px] h-[280px] sm:w-[320px] sm:h-[320px] rounded-full border-[8px] border-[#1A1A1A] shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden relative flex items-center justify-center ${
-                isPlaying ? 'animate-[spin_15s_linear_infinite]' : ''
-              }`}
-              style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}
-            >
-              <img src={currentTrack.cover} className="w-full h-full object-cover" alt="" />
-              <div className="absolute w-8 h-8 bg-[#0A0A0A] rounded-full border-2 border-[#333]"></div>
-            </div>
-          </div>
-
-          <div className="relative z-10 p-6 sm:p-8 pb-12 bg-gradient-to-t from-black via-black/90 to-transparent">
-            <div className="flex justify-between items-end mb-6">
-              <div className="flex-1 pr-4">
-                <h2 className="text-2xl font-bold text-white mb-2 line-clamp-1 leading-tight">{currentTrack.title}</h2>
-
-                <div
-                  className="flex items-center gap-2 cursor-pointer hover:bg-white/10 p-2 -ml-2 rounded-lg transition-colors w-fit"
-                  onClick={() => currentTrack.uploaderId && onArtistClick && onArtistClick(currentTrack.uploaderId)}
-                >
-                  {uploaderProfile ? (
-                    <>
-                      <img src={(uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url || currentTrack.cover} className="w-8 h-8 rounded-full border border-white/20 object-cover" alt="" />
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1">
-                          <span className="text-white text-[16px] font-bold">{uploaderProfile.name}</span>
-                          {(uploaderProfile as any).isVerified && <i className="fas fa-check-circle text-xs text-[#1877F2]"></i>}
-                        </div>
-                        <span className="text-[#B0B3B8] text-[14px]">~ {currentTrack.artist}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <img src={currentTrack.cover} className="w-8 h-8 rounded-full border border-white/20 object-cover" alt="" />
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1">
-                          <span className="text-white text-[16px] font-bold">{currentTrack.artist}</span>
-                          {(currentTrack as any).isVerified && <i className="fas fa-check-circle text-xs text-[#1877F2]"></i>}
-                        </div>
-                        <span className="text-[#B0B3B8] text-[14px]">{currentTrack.type === 'podcast' ? 'Host' : 'Artist'}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <i className="fas fa-download text-white text-2xl cursor-pointer hover:text-[#1877F2] transition-colors" onClick={() => onDownload(String(currentTrack.id))} title="Download"></i>
-                <i
-                  className={`${isLiked ? 'fas text-[#F3425F]' : 'far text-white'} fa-heart text-2xl cursor-pointer hover:scale-110 transition-transform`}
-                  onClick={() => onLike(String(currentTrack.id), currentTrack.type)}
-                ></i>
-              </div>
-            </div>
-
-            <div className="mb-6 group">
-              <input
-                type="range"
-                min={0}
-                max={duration || 100}
-                value={currentTime}
-                onChange={handleSeek}
-                className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#1877F2]"
-              />
-              <div className="flex justify-between text-[11px] text-gray-400 font-medium mt-2">
-                <span>{formatTime(currentTime)}</span>
-                <span>{formatTime(duration)}</span>
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center mb-10 px-4">
-              <i className="fas fa-stop text-[#B0B3B8] text-xl cursor-pointer hover:text-red-500 transition-colors" onClick={handleStop} title="Stop"></i>
-              <i className="fas fa-step-backward text-white text-3xl cursor-pointer hover:text-[#1877F2] transition-colors" onClick={onPrevious}></i>
-              <div
-                className="w-16 h-16 bg-[#1877F2] rounded-full flex items-center justify-center cursor-pointer shadow-[0_0_20px_rgba(24,119,242,0.4)] hover:scale-110 hover:shadow-[0_0_30px_rgba(24,119,242,0.6)] transition-all"
-                onClick={onTogglePlay}
-              >
-                <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-1'} text-white text-2xl`}></i>
-              </div>
-              <i className="fas fa-step-forward text-white text-3xl cursor-pointer hover:text-[#1877F2] transition-colors" onClick={onNext}></i>
-              <div className="cursor-pointer text-gray-400 hover:text-white transition-colors" onClick={onClose}>
-                <i className="fas fa-times text-xl"></i>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!expanded && (
-        <div className="flex items-center justify-between px-4 h-full bg-[#141414] border-t border-[#333] relative">
-          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gray-800">
-            <div className="h-full bg-[#1877F2]" style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}></div>
-          </div>
-
-          <div className="flex items-center flex-1 overflow-hidden" onClick={() => setExpanded(true)}>
-            <div className="w-12 h-12 relative group cursor-pointer mr-3">
-              <img src={currentTrack.cover} alt="Cover" className={`w-full h-full object-cover rounded-lg border border-[#333] ${isPlaying ? 'animate-pulse' : ''}`} />
-            </div>
-
-            <div className="flex-1 cursor-pointer overflow-hidden">
-              <h4 className="text-white font-bold text-[16px] truncate">{currentTrack.title}</h4>
-              <p className="text-gray-400 text-[14px] truncate flex items-center gap-1">
-                {uploaderProfile ? uploaderProfile.name : currentTrack.artist}
-                {(uploaderProfile as any)?.isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <i className="fas fa-step-backward text-gray-400 cursor-pointer hover:text-white text-lg" onClick={onPrevious}></i>
-            <div className="w-10 h-10 bg-[#1877F2] rounded-full flex items-center justify-center text-white cursor-pointer hover:scale-105 transition-transform shadow-lg" onClick={onTogglePlay}>
-              <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-0.5'} text-sm`}></i>
-            </div>
-            <i className="fas fa-step-forward text-gray-400 cursor-pointer hover:text-white text-lg" onClick={onNext}></i>
-            <div className="cursor-pointer text-gray-400 hover:text-red-500 ml-2" onClick={onClose}>
-              <i className="fas fa-times text-lg"></i>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return out;
 };
 
-/* =========================================================
-   UPLOAD MODAL (fixed with R2 upload + metadata POST)
-========================================================= */
+/** ---------- Placeholder Detection ---------- */
+const isPlaceholderName = (v: any) => {
+  const s = String(v ?? "").trim().toLowerCase();
+  return !s || s === "user" || s === "un" || s === "unera";
+};
 
-interface AudioUploadModalProps {
-  currentUser: User;
-  onClose: () => void;
-  onUploaded: () => void; // refresh after success
-}
+const isPlaceholderUsername = (v: any) => {
+  const s = String(v ?? "").trim().toLowerCase();
+  return !s || s === "user";
+};
 
-const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClose, onUploaded }) => {
-  const [mode, setMode] = useState<'single' | 'album' | 'podcast'>('single');
-  const [artist, setArtist] = useState((currentUser as any).name || (currentUser as any).username || '');
-  const [genre, setGenre] = useState('');
-  const [coverPreview, setCoverPreview] = useState('');
-  const [coverFile, setCoverFile] = useState<File | null>(null);
+/** ---------- Safe User Merge Helper ---------- */
+const isHttpUrl = (v: any) =>
+  typeof v === 'string' && (v.startsWith('https://') || v.startsWith('http://'));
 
-  const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [audioFile, setAudioFile] = useState<File | null>(null);
+const mergeUserSafe = (oldU: any, newU: any) => {
+  const next = { ...oldU, ...newU };
 
-  const [albumTitle, setAlbumTitle] = useState('');
-  const [albumTracks, setAlbumTracks] = useState<{ title: string; file: File; cover?: string; artist?: string }[]>([]);
-  const [season, setSeason] = useState('');
-  const [episodeNum, setEpisodeNum] = useState('');
-  const [guests, setGuests] = useState('');
+  // ✅ protect profile/cover images (your existing logic)
+  if (!isHttpUrl(newU?.profile_image_url) && isHttpUrl(oldU?.profile_image_url)) {
+    next.profile_image_url = oldU.profile_image_url;
+  }
+  if (!isHttpUrl(newU?.cover_image_url) && isHttpUrl(oldU?.cover_image_url)) {
+    next.cover_image_url = oldU.cover_image_url;
+  }
 
-  const [tempTrackTitle, setTempTrackTitle] = useState('');
-  const [tempTrackArtist, setTempTrackArtist] = useState(artist);
-  const [tempTrackFile, setTempTrackFile] = useState<File | null>(null);
-  const [tempTrackCover, setTempTrackCover] = useState('');
+  // ✅ NEW: protect name + username from being overwritten by placeholders
+  if (isPlaceholderName(newU?.name) && !isPlaceholderName(oldU?.name)) {
+    next.name = oldU.name;
+  }
+  if (isPlaceholderUsername(newU?.username) && !isPlaceholderUsername(oldU?.username)) {
+    next.username = oldU.username;
+  }
 
-  const [submitting, setSubmitting] = useState(false);
+  return next;
+};
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const coverInputRef = useRef<HTMLInputElement>(null);
-  const trackInputRef = useRef<HTMLInputElement>(null);
+/** ---------- UNERA Professional Profile Picture Generator ---------- */
+const COLORS = [
+  '#1877F2',
+  '#45BD62',
+  '#F3425F',
+  '#F7B928',
+  '#9360F7',
+  '#FF6B35',
+  '#00B5AD',
+  '#E41E3F',
+  '#7B68EE',
+  '#20B2AA',
+  '#FF6347',
+  '#9B59B6',
+  '#1ABC9C',
+  '#3498DB',
+  '#E74C3C',
+  '#2ECC71',
+  '#F39C12',
+  '#D35400',
+];
 
-  const defaultCover =
-    'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
+const getUserColor = (identifier: string | number): string => {
+  if (!identifier && identifier !== 0) return '#1877F2';
+  const str = String(identifier);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % COLORS.length;
+  return COLORS[index];
+};
 
-  const handleAddTrack = () => {
-    if (!tempTrackTitle || !tempTrackFile) {
-      alert('Track title and audio file are required.');
-      return;
-    }
-    setAlbumTracks((prev) => [...prev, { title: tempTrackTitle, artist: tempTrackArtist, file: tempTrackFile, cover: tempTrackCover }]);
-    setTempTrackTitle('');
-    setTempTrackFile(null);
-    setTempTrackCover('');
+const generateInitials = (name: string): string => {
+  if (!name || typeof name !== 'string' || name.trim().length === 0) return 'UN';
+  const words = name.trim().split(/\s+/).filter((w) => w.length > 0);
+  if (words.length === 0) return 'UN';
+  if (words.length === 1) {
+    const w = words[0];
+    if (w.length >= 2) return w.substring(0, 2).toUpperCase();
+    return (w.charAt(0) + w.charAt(0)).toUpperCase();
+  }
+  return words[0].charAt(0).toUpperCase() + words[1].charAt(0).toUpperCase();
+};
+
+const generateProfilePictureUrl = (name: string, identifier: string | number): string => {
+  const initials = generateInitials(name);
+  const backgroundColor = getUserColor(identifier).replace('#', '');
+  const size = 128;
+  const fontSize = 0.5;
+  const textColor = 'FFFFFF';
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    initials
+  )}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
+};
+
+/**
+ * Normalize raw D1 rows to UI-safe PostType shape.
+ * ✅ UPDATED: Preserve my_reaction and reactions_count fields
+ */
+const normalizePost = (p: any): PostType => {
+  const mediaType = p?.media_type ?? p?.mediaType ?? null;
+  const mediaUrl = p?.media_url ?? p?.mediaUrl ?? null;
+
+  const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
+
+  return {
+    ...p,
+    id: resolvedId,
+    user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
+    content: safeString(p?.content),
+    media_url: mediaUrl,
+    media_type: mediaType,
+    reactions: safeArray(p?.reactions),
+    comments: safeArray(p?.comments),
+    shares: safeNumber(p?.shares),
+    views: safeNumber(p?.views),
+    visibility: p?.visibility ?? 'public',
+    type:
+      p?.type ??
+      (() => {
+        if (!mediaType) return 'post';
+        if (mediaType.startsWith('image/')) return 'image';
+        if (mediaType.startsWith('video/')) return 'video';
+        if (mediaType.startsWith('audio/')) return 'audio';
+        return 'post';
+      })(),
+    created_at: p?.created_at ?? new Date().toISOString(),
+    
+    // ✅ ADD THESE (very important) - Preserve reaction data
+    my_reaction: p?.my_reaction ?? p?.myReaction ?? null,
+    myReaction: p?.myReaction ?? p?.my_reaction ?? null,
+    reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
+    reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
+    likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
+  } as any;
+};
+
+/**
+ * Normalize user data with UNERA-style profile pictures
+ * ✅ FIXED: cover_image_url can be undefined, not empty string
+ * ✅ FIXED: Don't "manufacture" username from name in destructive way
+ * ✅ FIXED IMMEDIATELY: Safer username/name handling with proper trim and fallbacks
+ */
+const normalizeUser = (u: any): User => {
+  const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
+  
+  // ✅ FIXED IMMEDIATELY: Replace the problematic lines with safer version
+  const rawUsername = typeof u?.username === "string" ? u.username.trim() : "";
+  const rawName = typeof u?.name === "string" ? u.name.trim() : "";
+
+  const userUsername = rawUsername || "user";
+  const userName = rawName || rawUsername || "User";
+
+  const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
+
+  const existingProfileImage = u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '';
+  let profileImageUrl = existingProfileImage;
+
+  const shouldGenerateNewPicture =
+    !profileImageUrl ||
+    profileImageUrl.trim() === '' ||
+    profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
+    profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
+    profileImageUrl.includes('ui-avatars.com/api/?background=1877F2&color=fff') ||
+    (profileImageUrl.includes('ui-avatars.com/api/?name=') && !profileImageUrl.includes('font-size=0.5'));
+
+  if (shouldGenerateNewPicture) {
+    profileImageUrl = generateProfilePictureUrl(userName, colorIdentifier);
+  }
+
+  // ✅ FIXED: Don't default cover to empty string, keep undefined if missing
+  const cover = typeof (u?.cover_image_url ?? u?.coverImage) === 'string'
+    ? String(u?.cover_image_url ?? u?.coverImage).trim()
+    : undefined;
+
+  return {
+    ...u,
+    id: resolvedId,
+    name: userName,
+    username: userUsername,
+    followers: safeArray<number>(u?.followers),
+    following: safeArray<number>(u?.following),
+    profile_image_url: profileImageUrl,
+    cover_image_url: cover, // ✅ Can be undefined, not empty string
+    is_verified: Boolean(u?.is_verified ?? u?.isVerified),
+    role: u?.role ?? 'user',
+    created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
+  } as any;
+};
+
+/** ---------- Optimistic reaction helper ---------- */
+const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meId: number) => {
+  if (Number(p?.id) !== Number(postId)) return p;
+
+  const prevMy = p?.my_reaction ?? p?.myReaction ?? null;
+  const nextMy = prevMy === type ? null : type;
+
+  const prevArr = safeArray<any>(p?.reactions);
+  const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== Number(meId));
+  const nextArr = nextMy ? [...withoutMe, { user_id: meId, type: nextMy }] : withoutMe;
+
+  const prevCount =
+    safeNumber(p?.reactions_count, safeNumber(p?.reactionsCount, safeNumber(p?.likesCount, prevArr.length)));
+
+  const nextCount =
+    prevMy
+      ? (nextMy ? prevCount : Math.max(0, prevCount - 1))
+      : (nextMy ? prevCount + 1 : prevCount);
+
+  return {
+    ...p,
+    reactions: nextArr,
+    my_reaction: nextMy,
+    myReaction: nextMy,
+    reactions_count: nextCount,
+    reactionsCount: nextCount,
+    likesCount: nextCount,
+  };
+};
+
+/** ---------- API helper ---------- */
+const apiFetch = async (url: string, options: RequestInit = {}) => {
+  const headers: HeadersInit = {
+    Accept: 'application/json',
+    ...(options.headers || {}),
   };
 
-  // Upload file to R2 using /api/upload (expects field name "file")
-  const uploadToR2 = async (file: File) => {
-    const fd = new FormData();
-    // IMPORTANT: upload.ts expects multipart field name: "file"
-    fd.append("file", file);
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
 
-    const up = await apiForm<{ success: boolean; url: string; key: string }>(
-      "/api/upload",
-      fd
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const res = await fetch(url, { ...options, headers, signal: controller.signal });
+
+    const contentType = res.headers.get('content-type') || '';
+    let data: any = null;
+
+    try {
+      if (contentType.includes('application/json')) data = await res.json();
+      else {
+        const text = await res.text();
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { error: text };
+        }
+      }
+    } catch (e: any) {
+      data = { error: e?.message || 'Failed to parse response' };
+    }
+
+    if (!res.ok) {
+      const msg = data?.error || data?.message || `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+
+    return data;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+/**
+ * Fetch user's followers/following data
+ */
+const fetchUserFollowData = async (userId: number): Promise<{ followers: number[], following: number[] }> => {
+  try {
+    const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
+    return {
+      followers: safeArray<number>(data?.followers),
+      following: safeArray<number>(data?.following)
+    };
+  } catch (error) {
+    console.error('Failed to fetch follow data:', error);
+    return { followers: [], following: [] };
+  }
+};
+
+/**
+ * Upload file to Cloudflare R2
+ */
+const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('filename', file.name);
+    formData.append('type', file.type);
+    formData.append('folder', folder);
+    formData.append('timestamp', Date.now().toString());
+
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Upload failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.url) throw new Error('No URL returned from upload');
+
+    return { url: result.url, type: file.type, filename: file.name };
+  } catch (error) {
+    console.error('Upload failed:', error);
+    throw error;
+  }
+};
+
+type View =
+  | 'home'
+  | 'reels'
+  | 'marketplace'
+  | 'groups'
+  | 'brands'
+  | 'music'
+  | 'tools'
+  | 'profiles'
+  | 'events'
+  | 'birthdays'
+  | 'memories'
+  | 'settings'
+  | 'privacy'
+  | 'terms'
+  | 'help'
+  | 'profile'
+  | 'login'
+  | 'register';
+
+const LS_USER_KEY = 'user';
+
+/**
+ * Normalize FEED rows returned by /api/feeds
+ */
+const normalizeFeedRowToPost = (row: any): PostType => {
+  return normalizePost({
+    ...row,
+    user_id: safeNumber(row?.user_id),
+    content: row?.content ?? '',
+    created_at: row?.created_at,
+    media_url: row?.media_url ?? null,
+    media_type: row?.media_type ?? null,
+    shares: row?.shares ?? 0,
+    views: row?.views ?? 0,
+    pool: row?.pool,
+    follower_count: row?.follower_count,
+  });
+};
+
+// ✅ FIX 2 — Make authorFromFeedRow() NOT invent "User" while merging
+const authorFromFeedRow = (row: any): User => {
+  const rawName =
+    row?.name ??
+    row?.full_name ??
+    row?.display_name ??
+    row?.user_name ??
+    row?.author_name ??
+    row?.post_author_name;
+
+  const rawUsername =
+    row?.username ??
+    row?.user_username ??
+    row?.author_username ??
+    row?.post_author_username;
+
+  return normalizeUser({
+    id: row?.user_id,
+    // ✅ do NOT default to "user"/"User" here:
+    name: typeof rawName === "string" ? rawName.trim() : undefined,
+    username: typeof rawUsername === "string" ? rawUsername.trim() : undefined,
+
+    profile_image_url: row?.profile_image_url ?? row?.avatar_url ?? "",
+    is_verified: row?.is_verified ?? 0,
+    role: row?.role ?? "user",
+    followers: [],
+    following: [],
+    created_at: row?.joined_date ?? row?.created_at ?? null,
+  });
+};
+
+// Facebook-like feed merging utility
+const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
+  const map = new Map<number, PostType>();
+  prev.forEach((p: any) => map.set(Number(p.id), p));
+
+  incoming.forEach((p: any) => {
+    const existing = map.get(Number(p.id));
+    if (existing) {
+      map.set(Number(p.id), {
+        ...existing,
+        ...p,
+        reactions: (existing as any).reactions,
+        shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
+        comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
+      } as any);
+    } else {
+      map.set(Number(p.id), p);
+    }
+  });
+
+  const prevIds = new Set(prev.map((p: any) => Number(p.id)));
+  const newOnes = incoming.filter((p: any) => !prevIds.has(Number(p.id)));
+
+  return [...newOnes, ...prev.map((p: any) => map.get(Number(p.id))!).filter(Boolean)];
+};
+
+// Minimal fallback user for UI stability
+const createFallbackUser = (): User => {
+  const fallbackName = 'User';
+  const fallbackId = 0;
+  return {
+    id: fallbackId,
+    username: 'user',
+    name: fallbackName,
+    email: '',
+    profile_image_url: generateProfilePictureUrl(fallbackName, fallbackId),
+    cover_image_url: '',
+    followers: [],
+    following: [],
+    is_verified: false,
+    role: 'user',
+    is_online: false,
+    location: '',
+    bio: '',
+    created_at: null,
+  };
+};
+
+/** ✅ FIXED: normalizeStory() author info preservation ---------- */
+const normalizeStory = (s: any): Story => {
+  const userId = safeNumber(s?.user_id ?? s?.author_id ?? s?.user?.id);
+
+  const authorName =
+    String(
+      s?.author_name ??
+      s?.name ??
+      s?.display_name ??
+      s?.username ??
+      s?.user?.name ??
+      s?.user?.username ??
+      ''
+    ).trim();
+
+  const authorUsername =
+    String(
+      s?.author_username ??
+      s?.username ??
+      s?.user?.username ??
+      (authorName ? authorName.toLowerCase().replace(/\s+/g, '_') : '')
+    ).trim();
+
+  const authorImage =
+    String(
+      s?.author_image ??
+      s?.profile_image_url ??
+      s?.user?.profile_image_url ??
+      s?.user?.avatar_url ??
+      ''
+    ).trim();
+
+  return {
+    ...s,
+    id: safeNumber(s?.id),
+    user_id: userId,
+
+    type: s?.type || 'text',
+    text_content: s?.text_content || '',
+    media_url: s?.media_url || null,
+    background_style: s?.background_style || null,
+    music_url: s?.music_url || null,
+    music_title: s?.music_title || null,
+
+    created_at: s?.created_at || new Date().toISOString(),
+    expires_at:
+      s?.expires_at ||
+      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+
+    likes_count: safeNumber(s?.likes_count, 0),
+    replies_count: safeNumber(s?.replies_count, 0),
+    views: safeNumber(s?.views, 0),
+    liked_by_me: safeNumber(s?.liked_by_me, 0) ? 1 : 0,
+
+    // ✅ Keep author fields ALWAYS filled if backend provides anything
+    author_name: authorName,
+    author_username: authorUsername,
+    author_image: authorImage,
+
+    // ✅ Keep user object if backend provides it (super useful)
+    user: s?.user ? normalizeUser(s.user) : undefined,
+  } as any;
+};
+
+export default function App() {
+  useLanguage();
+
+  /** ---------- State ---------- */
+  const [users, setUsers] = useState<User[]>([]);
+  const [posts, setPosts] = useState<PostType[]>([]);
+  const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
+  const [stories, setStories] = useState<Story[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [chats, setChats] = useState<any[]>([]);
+
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
+  const [view, setView] = useState<View>('home');
+
+  const [feedHydrated, setFeedHydrated] = useState(false);
+  const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
+
+  const lastGoodPostsRef = useRef<PostType[]>([]);
+  const stableFeedRef = useRef<PostType[]>([]);
+  const scheduleSilentRefreshRef = useRef<any>(null);
+
+  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
+
+  const [loginError, setLoginError] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [activeReelId, setActiveReelId] = useState<number | null>(null);
+  const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
+  const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [activeStory, setActiveStory] = useState<Story | null>(null);
+  const [activeProduct, setActiveProduct] = useState<Product | null>(null);
+
+  const [showCreatePostModal, setShowCreatePostModal] = useState(false);
+  const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
+  const [showCreateReelModal, setShowCreateReelModal] = useState(false);
+  const [showCreateEventModal, setShowCreateEventModal] = useState(false);
+
+  const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+
+  const [activeSharePost, setActiveSharePost] = useState<any>(null);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [shareInProgress, setShareInProgress] = useState(false);
+
+  // Add state for follow loading to prevent double clicks
+  const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
+
+  // ✅ ADDED: Hashtag filtering state for Facebook-like feed filtering
+  const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
+
+  /** ---------- Auth gate ---------- */
+  const requireAuth = useCallback(
+    (actionName = 'This action') => {
+      if (currentUser) return true;
+      setLoginError(`${actionName} requires login.`);
+      setView('login');
+      return false;
+    },
+    [currentUser]
+  );
+
+  /** ---------- ADMIN ROLE GUARDS (PROFESSIONALLY FIXED) ---------- */
+  // ✅ FIXED: Add trim() to handle spaces and ensure case-insensitive comparison
+  const roleOf = (u: any) => String(u?.role || "").trim().toLowerCase();
+  const isAdmin = (u: any) => roleOf(u) === "admin";
+  const isModerator = (u: any) => roleOf(u) === "moderator";
+
+  const requireAdmin = useCallback((action = "This action") => {
+    if (!requireAuth(action)) return false;
+    if (!isAdmin(currentUser)) {
+      setLoginError(`${action} requires admin.`);
+      return false;
+    }
+    return true;
+  }, [requireAuth, currentUser]);
+
+  const requireModOrAdmin = useCallback((action = "This action") => {
+    if (!requireAuth(action)) return false;
+    if (!(isAdmin(currentUser) || isModerator(currentUser))) {
+      setLoginError(`${action} requires moderator or admin.`);
+      return false;
+    }
+    return true;
+  }, [requireAuth, currentUser]);
+
+  const openProfile = useCallback((id: number) => {
+    setSelectedUserId(Number(id));
+    setView('profile');
+    window.scrollTo(0, 0);
+  }, []);
+
+  /** ---------- Fetch users list ---------- */
+  const fetchUsersList = useCallback(async () => {
+    try {
+      const u = await apiFetch('/api/users').catch(() => []);
+      setUsers(safeArray(u).map(normalizeUser));
+    } catch {
+      setUsers([]);
+    }
+  }, []);
+
+  /** ---------- Fetch other data ---------- */
+  const fetchOtherData = useCallback(async () => {
+    // ✅ 1) Fetch stories with viewerId (so liked_by_me works)
+    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+    const [s, r, pr, g, b, e, c] = await Promise.all([
+      apiFetch(`/api/stories?viewerId=${viewerId}`).catch(() => []), // ✅ Updated with viewerId
+      apiFetch('/api/reels').catch(() => []),
+      apiFetch('/api/products').catch(() => []),
+      apiFetch('/api/groups').catch(() => []),
+      apiFetch('/api/brands').catch(() => []),
+      apiFetch('/api/events').catch(() => []),
+      apiFetch('/api/chats').catch(() => []),
+    ]);
+
+    // ✅ Normalize stories to ensure consistent data types
+    const normalizedStories = safeArray(s)
+      .map(normalizeStory)
+      .sort((a: any, b: any) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime());
+
+    setStories(normalizedStories);
+
+    // ✅ 3) ADDED: Merge story authors into users[]
+    setUsers(prev => {
+      const map = new Map<number, User>();
+      safeArray(prev).forEach(u => map.set(Number(u.id), normalizeUser(u)));
+
+      normalizedStories.forEach((st: any) => {
+        const uid = Number(st.user_id);
+        if (!uid) return;
+
+        // build best possible user from story
+        const u = normalizeUser({
+          id: uid,
+          name: st.author_name || st.user?.name || 'User',
+          username: st.author_username || st.user?.username || 'user',
+          profile_image_url: st.author_image || st.user?.profile_image_url || '',
+          is_verified: st.user?.is_verified ?? 0,
+          role: st.user?.role ?? 'user',
+        });
+
+        if (!map.has(uid)) map.set(uid, u);
+        else map.set(uid, normalizeUser(mergeUserSafe(map.get(uid)!, u)));
+      });
+
+      return Array.from(map.values());
+    });
+
+    setReels(safeArray(r));
+    setProducts(safeArray(pr));
+    setGroups(safeArray(g));
+    setBrands(safeArray(b));
+    setEvents(safeArray(e));
+    setChats(safeArray(c));
+  }, [currentUser]);
+
+  /** ---------- Fetch posts (Facebook-like freshness) ---------- */
+  const fetchPostsForHome = useCallback(
+    async (viewer: User | null) => {
+      setIsFeedRefreshing(true);
+
+      try {
+        const seed = getOrCreateSessionSeed(viewer?.id ?? null);
+        const seen = getSeenSet();
+
+        if (viewer?.id) {
+          const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
+          const rows = safeArray<any>(data?.feed);
+
+          if (!rows.length) {
+            if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
+            if (!feedHydrated) setFeedHydrated(true);
+            return;
+          }
+
+          // Merge authors into users list - ✅ FIXED: Use mergeUserSafe to preserve cover/images AND names
+          setUsers((prev) => {
+            const map = new Map<number, User>();
+            safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
+
+            rows.forEach((r) => {
+              const author = authorFromFeedRow(r);
+              if (!author?.id) return;
+              if (!map.has(author.id)) map.set(author.id, author);
+              else {
+                const existing = map.get(author.id)!;
+                // ✅ FIXED: Use mergeUserSafe to preserve existing data (including real names)
+                map.set(author.id, normalizeUser(mergeUserSafe(existing, author)));
+              }
+            });
+
+            return Array.from(map.values());
+          });
+
+          const normalized = rows.map(normalizeFeedRowToPost);
+
+          // unseen first + session shuffle + diversify
+          const unseen = normalized.filter((p: any) => !seen.has(Number(p.id)));
+          const seenOnes = normalized.filter((p: any) => seen.has(Number(p.id)));
+
+          const ordered = diversifyFeed(
+            [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
+            seed
+          );
+
+          // remember "first screen"
+          pushSeenIds(ordered.slice(0, 40).map((p: any) => Number(p.id)));
+
+          setPosts((prev) => {
+            const next = mergeFeed(prev, ordered);
+            stableFeedRef.current = next;
+            lastGoodPostsRef.current = next;
+            return next;
+          });
+
+          if (!feedHydrated) setFeedHydrated(true);
+
+          // keep comments stable
+          if (activeCommentsPostId != null) {
+            const found = ordered.find((p: any) => Number(p.id) === Number(activeCommentsPostId));
+            if (found) setCommentPostSnapshot(found);
+          }
+
+          return;
+        }
+
+        // Guest feed fallback
+        const p = await apiFetch('/api/posts');
+        const normalized = safeArray(p).map(normalizePost);
+
+        if (normalized.length) {
+          const unseen = normalized.filter((x: any) => !seen.has(Number(x.id)));
+          const seenOnes = normalized.filter((x: any) => seen.has(Number(x.id)));
+
+          const ordered = diversifyFeed(
+            [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
+            seed
+          );
+
+          pushSeenIds(ordered.slice(0, 40).map((x: any) => Number(x.id)));
+
+          setPosts((prev) => {
+            const next = mergeFeed(prev, ordered);
+            stableFeedRef.current = next;
+            lastGoodPostsRef.current = next;
+            return next;
+          });
+        } else if (lastGoodPostsRef.current.length) {
+          setPosts(lastGoodPostsRef.current);
+        }
+
+        if (!feedHydrated) setFeedHydrated(true);
+
+        if (activeCommentsPostId != null) {
+          const found = normalized.find((x: any) => Number(x.id) === Number(activeCommentsPostId));
+          if (found) setCommentPostSnapshot(found);
+        }
+      } catch {
+        if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
+        if (!feedHydrated) setFeedHydrated(true);
+      } finally {
+        setIsFeedRefreshing(false);
+      }
+    },
+    [activeCommentsPostId, feedHydrated]
+  );
+
+  /** ✅ Fetch profile posts with viewerId (latest only) ---------- */
+  const fetchProfilePosts = useCallback(async (profileUserId: number) => {
+    try {
+      // ✅ ADDED: Always send viewerId when fetching profile posts
+      const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+      const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`);
+      
+      const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
+      const normalized = list.map(normalizePost);
+
+      // Always latest-first (already ordered by API, but keep safe)
+      normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+
+      // ✅ UPDATED: Don't let a profile refetch overwrite local reaction truth
+      setProfilePosts(prev => {
+        // Merge with any local truth we already have
+        const localTruth = [...safeArray(posts), ...safeArray(prev)];
+        const map = new Map<number, any>();
+        localTruth.forEach((p: any) => map.set(Number(p.id), p));
+
+        return normalized.map((p: any) => {
+          const local = map.get(Number(p.id));
+          if (!local) return p;
+
+          return {
+            ...p,
+            my_reaction: p.my_reaction ?? local.my_reaction ?? local.myReaction ?? null,
+            myReaction: p.myReaction ?? p.my_reaction ?? local.myReaction ?? local.my_reaction ?? null,
+            reactions: Array.isArray(p.reactions) && p.reactions.length ? p.reactions : safeArray(local.reactions),
+            reactions_count: safeNumber(p.reactions_count, safeNumber(local.reactions_count, safeNumber(local.likesCount, 0))),
+            reactionsCount: safeNumber(p.reactionsCount, safeNumber(local.reactionsCount, safeNumber(local.likesCount, 0))),
+            likesCount: safeNumber(p.likesCount, safeNumber(local.likesCount, safeNumber(local.reactions_count, 0))),
+          };
+        });
+      });
+    } catch {
+      setProfilePosts([]);
+    }
+  }, [currentUser, posts]);
+
+  /** ✅ Fetch profile posts when user opens profile ---------- */
+  useEffect(() => {
+    if (view !== 'profile') return;
+    if (!selectedUserId) return;
+
+    fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+  }, [view, selectedUserId, fetchProfilePosts]);
+
+  /** ---------- Fetch follow data for a user ---------- */
+  const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
+    try {
+      const followData = await fetchUserFollowData(userId);
+      
+      // Update the specific user in the users list
+      setUsers(prev => {
+        return prev.map(user => {
+          if (Number(user.id) === Number(userId)) {
+            return normalizeUser({
+              ...user,
+              followers: followData.followers,
+              following: followData.following
+            });
+          }
+          return user;
+        });
+      });
+
+      // Also update currentUser if it's the logged in user
+      if (currentUser && Number(currentUser.id) === Number(userId)) {
+        const updatedCurrentUser = normalizeUser({
+          ...currentUser,
+          followers: followData.followers,
+          following: followData.following
+        });
+        setCurrentUser(updatedCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
+      }
+
+      return followData;
+    } catch (error) {
+      console.error('Failed to fetch follow data for UI:', error);
+      return { followers: [], following: [] };
+    }
+  }, [currentUser]);
+
+  /** ---------- Load follow data when viewing a profile ---------- */
+  useEffect(() => {
+    if (view !== 'profile' || !selectedUserId) return;
+    
+    fetchUserFollowDataForUI(Number(selectedUserId)).catch(() => {});
+  }, [view, selectedUserId, fetchUserFollowDataForUI]);
+
+  /** ---------- Load follow data for current user on login ---------- */
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    
+    fetchUserFollowDataForUI(Number(currentUser.id)).catch(() => {});
+  }, [currentUser?.id, fetchUserFollowDataForUI]);
+
+  /** ---------- Silent refresh helper ---------- */
+  const scheduleSilentRefresh = useCallback(() => {
+    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
+    scheduleSilentRefreshRef.current = setTimeout(() => {
+      fetchPostsForHome(currentUser).catch(() => {});
+    }, 8000);
+  }, [currentUser, fetchPostsForHome]);
+
+  /** ✅ 2) Add likeStory and replyToStory handlers ---------- */
+  const likeStory = useCallback(async (storyId: number) => {
+    if (!currentUser) return;
+
+    // optimistic toggle
+    setStories(prev =>
+      safeArray(prev).map((s: any) => {
+        if (Number(s.id) !== Number(storyId)) return s;
+        const liked = Boolean(s.liked_by_me);
+        const count = safeNumber(s.likes_count, 0);
+        return {
+          ...s,
+          liked_by_me: liked ? 0 : 1,
+          likes_count: liked ? Math.max(0, count - 1) : count + 1
+        };
+      })
     );
 
-    if (!up.success) throw new Error(up.error || "Upload failed");
-    if (!(up.data as any)?.url) throw new Error("Upload failed: missing url");
-    return (up.data as any).url as string;
+    try {
+      const data = await apiFetch(`/api/stories/${storyId}/react`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+      // server truth
+      setStories(prev =>
+        safeArray(prev).map((s: any) =>
+          Number(s.id) === Number(storyId)
+            ? {
+                ...s,
+                liked_by_me: data?.liked ? 1 : 0,
+                likes_count: safeNumber(data?.likes_count, s.likes_count),
+              }
+            : s
+        )
+      );
+    } catch {
+      // rollback by refetch
+      fetchOtherData().catch(() => {});
+    }
+  }, [currentUser, fetchOtherData]);
+
+  const replyToStory = useCallback(async (storyId: number, text: string) => {
+    if (!currentUser) return;
+
+    await apiFetch(`/api/stories/${storyId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: currentUser.id, text }),
+    });
+  }, [currentUser]);
+
+  /** ✅ 5) Add createStory handler ---------- */
+  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
+    if (!currentUser) return;
+
+    let media_url: string | null = null;
+    let music_url: string | null = null;
+
+    try {
+      // Upload media file if provided
+      if (storyData.media_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
+        media_url = uploadResult.url;
+      }
+
+      // Upload audio file if provided
+      if (storyData.audio_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'stories/music');
+        music_url = uploadResult.url;
+      }
+
+      const payload = {
+        user_id: currentUser.id,
+        type: storyData.type,
+        media_url: media_url || storyData.media_url || null,
+        text_content: storyData.text_content ?? null,
+        background_style: storyData.background_style ?? null,
+        music_url: music_url || storyData.music_url || null,
+        music_title: storyData.music_title ?? null,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      };
+
+      const res = await apiFetch("/api/stories", { method: "POST", body: JSON.stringify(payload) });
+
+      // add new story into state immediately
+      const newStory = res?.story ? normalizeStory(res.story) : { 
+        ...payload, 
+        id: Date.now(), 
+        created_at: new Date().toISOString(),
+        likes_count: 0,
+        replies_count: 0,
+        views: 0,
+        liked_by_me: 0
+      };
+      
+      setStories(prev => [newStory as any, ...safeArray(prev)]);
+      return true;
+    } catch (error: any) {
+      console.error('Failed to create story:', error);
+      setLoginError(`Failed to create story: ${error.message}`);
+      return false;
+    }
+  }, [currentUser]);
+
+  /** ---------- One fetch pipeline ---------- */
+  const fetchData = useCallback(
+    async (viewer: User | null) => {
+      await Promise.all([fetchUsersList(), fetchPostsForHome(viewer), fetchOtherData()]);
+    },
+    [fetchUsersList, fetchPostsForHome, fetchOtherData]
+  );
+
+  /** ---------- Restore session + initial load ---------- */
+  useEffect(() => {
+    const init = async () => {
+      let viewer: User | null = null;
+
+      try {
+        const raw = localStorage.getItem(LS_USER_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          const normalized = normalizeUser(saved);
+          if (normalized?.id) {
+            viewer = normalized;
+            setCurrentUser(normalized);
+            setSelectedUserId(Number(normalized.id));
+
+            setUsers((prev) => {
+              const arr = safeArray(prev);
+              const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
+              if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+              return [normalized, ...arr];
+            });
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      await fetchData(viewer);
+    };
+
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchData]);
+
+  /** ---------- Return detection (leave -> come back => new seed + refresh) ---------- */
+  useEffect(() => {
+    const markActive = () => {
+      try {
+        localStorage.setItem(FEED_LAST_ACTIVE_KEY, String(nowMs()));
+      } catch {}
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        markActive();
+        return;
+      }
+
+      const last = Number(localStorage.getItem(FEED_LAST_ACTIVE_KEY) || '0') || 0;
+      const away = nowMs() - last;
+
+      if (away > FEED_RETURN_THRESHOLD_MS) {
+        try {
+          sessionStorage.removeItem(FEED_SESSION_KEY);
+        } catch {}
+        fetchPostsForHome(currentUser).catch(() => {});
+      }
+    };
+
+    const events = ['click', 'scroll', 'keydown', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, markActive, { passive: true } as any));
+    document.addEventListener('visibilitychange', onVisibility);
+
+    markActive();
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, markActive as any));
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [currentUser, fetchPostsForHome]);
+
+  /** ---------- Smart Polling ---------- */
+  useEffect(() => {
+    if (activeCommentsPostId != null) return;
+    if (document.visibilityState !== 'visible') return;
+
+    let stopped = false;
+
+    const tick = async () => {
+      if (stopped) return;
+      if (document.visibilityState !== 'visible') return;
+      if (activeCommentsPostId != null) return;
+      await fetchPostsForHome(currentUser).catch(() => {});
+    };
+
+    const t = setInterval(tick, 30000);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
+  }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
+
+  /** ---------- ADMIN API ACTIONS (ADDED) ---------- */
+  const verifyUser = useCallback(
+    async (userId: number) => {
+      if (!requireAdmin("Verify user")) return;
+
+      // optimistic toggle
+      setUsers((prev) =>
+        prev.map((u: any) =>
+          Number(u.id) === Number(userId) ? { ...u, is_verified: u.is_verified ? 0 : 1 } : u
+        )
+      );
+
+      try {
+        await apiFetch("/api/admin/users/verify", {
+          method: "POST",
+          body: JSON.stringify({ user_id: Number(userId) }),
+        });
+
+        await fetchUsersList();
+      } catch (e: any) {
+        await fetchUsersList(); // rollback by refetch
+        setLoginError(e?.message || "Verify failed");
+      }
+    },
+    [requireAdmin, fetchUsersList]
+  );
+
+  const suspendUser = useCallback(
+    async (userId: number, duration: "24h" | "5d" | "30d" | "manual") => {
+      if (!requireModOrAdmin("Suspend user")) return;
+
+      try {
+        await apiFetch("/api/admin/users/suspend", {
+          method: "POST",
+          body: JSON.stringify({ user_id: Number(userId), duration }),
+        });
+
+        await fetchUsersList();
+      } catch (e: any) {
+        setLoginError(e?.message || "Suspend failed");
+      }
+    },
+    [requireModOrAdmin, fetchUsersList]
+  );
+
+  const deleteUserAccount = useCallback(
+    async (userId: number) => {
+      if (!requireAdmin("Delete account")) return;
+
+      // optimistic remove
+      setUsers((prev) => prev.filter((u: any) => Number(u.id) !== Number(userId)));
+
+      try {
+        await apiFetch("/api/admin/users/delete", {
+          method: "DELETE",
+          body: JSON.stringify({ user_id: Number(userId) }),
+        });
+
+        await fetchUsersList();
+        fetchPostsForHome(currentUser).catch(() => {});
+      } catch (e: any) {
+        await fetchUsersList(); // rollback
+        setLoginError(e?.message || "Delete failed");
+      }
+    },
+    [requireAdmin, fetchUsersList, fetchPostsForHome, currentUser]
+  );
+
+  const setModeratorRole = useCallback(
+    async (userId: number, role: "moderator" | "user") => {
+      if (!requireAdmin("Change user role")) return;
+
+      try {
+        await apiFetch("/api/admin/users/role", {
+          method: "POST",
+          body: JSON.stringify({ user_id: Number(userId), role }),
+        });
+
+        await fetchUsersList();
+      } catch (e: any) {
+        setLoginError(e?.message || "Role change failed");
+      }
+    },
+    [requireAdmin, fetchUsersList]
+  );
+
+  /** ---------- ✅ ADDED: Hashtag filtering logic ---------- */
+  const handleHashtagClick = useCallback((tag: string) => {
+    const cleanedTag = tag.startsWith('#') ? tag.toLowerCase() : `#${tag.toLowerCase()}`;
+    setActiveHashtag(cleanedTag);
+    setView('home');
+    window.scrollTo(0, 0);
+  }, []);
+
+  const clearHashtag = useCallback(() => {
+    setActiveHashtag(null);
+  }, []);
+
+  // ✅ Filter posts based on active hashtag
+  const filteredPosts = useMemo(() => {
+    if (!activeHashtag) return posts;
+    
+    const tagWithoutHash = activeHashtag.replace('#', '').toLowerCase();
+    return posts.filter((p: any) => {
+      const content = String(p.content || '').toLowerCase();
+      return content.includes(`#${tagWithoutHash}`) || content.includes(` ${tagWithoutHash} `);
+    });
+  }, [posts, activeHashtag]);
+
+  /** ---------- Derived ---------- */
+  const rankedPosts = useMemo(() => {
+    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
+                     activeHashtag ? filteredPosts : posts;
+    return Array.isArray(feedToRank) ? feedToRank : [];
+  }, [posts, filteredPosts, activeHashtag]);
+
+  /** ✅ Updated activePost resolver to include profilePosts ---------- */
+  const activePost = useMemo(() => {
+    if (activeCommentsPostId == null) return null;
+
+    if (commentPostSnapshot && Number((commentPostSnapshot as any)?.id) === Number(activeCommentsPostId)) {
+      return commentPostSnapshot;
+    }
+
+    const source = view === 'profile' ? profilePosts : posts;
+    return source.find((p: any) => Number(p.id) === Number(activeCommentsPostId)) || null;
+  }, [posts, profilePosts, view, activeCommentsPostId, commentPostSnapshot]);
+
+  const profileUser = useMemo(() => {
+    if (selectedUserId) {
+      return users.find((u) => Number(u.id) === Number(selectedUserId)) || null;
+    }
+    return currentUser || null;
+  }, [selectedUserId, users, currentUser]);
+
+  /** ---------- Handle user registration ---------- */
+  const handleRegister = useCallback(async (userData: any) => {
+    try {
+      setLoginError('');
+
+      const res = await fetch('/api/users/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Registration failed');
+      if (!data?.user) throw new Error('Registration failed: user missing');
+
+      const normalized = normalizeUser(data.user);
+      if (!normalized?.id) throw new Error('Registration failed: invalid user id');
+
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+
+      setCurrentUser(normalized);
+      setSelectedUserId(Number(normalized.id));
+
+      // Add user to users list
+      setUsers((prev) => {
+        const arr = safeArray(prev);
+        const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
+        if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+        return [normalized, ...arr];
+      });
+
+      // New session seed
+      try {
+        sessionStorage.removeItem(FEED_SESSION_KEY);
+      } catch {}
+
+      setView('home');
+      await fetchPostsForHome(normalized);
+
+    } catch (error: any) {
+      setLoginError(error?.message || 'Registration failed');
+    }
+  }, [fetchPostsForHome]);
+
+  /** ---------- Login (PROFESSIONALLY FIXED) ---------- */
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      setLoginError('');
+
+      const res = await fetch('/api/users/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Login failed');
+      if (!data?.user) throw new Error('Login failed: user missing');
+
+      const normalized = normalizeUser(data.user);
+      if (!normalized?.id) throw new Error('Login failed: invalid user id');
+
+      // ✅ FIXED: Use finalUser consistently, don't setCurrentUser twice
+      let finalUser = normalized;
+      try {
+        const fresh = await apiFetch(`/api/users?id=${normalized.id}`);
+        finalUser = normalizeUser({ ...normalized, ...fresh });
+      } catch {}
+
+      setCurrentUser(finalUser);
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(finalUser));
+
+      // new session seed
+      try {
+        sessionStorage.removeItem(FEED_SESSION_KEY);
+      } catch {}
+
+      setUsers((prev) => {
+        const arr = safeArray(prev);
+        const exists = arr.some((x) => Number(x.id) === Number(finalUser.id));
+        if (exists) return arr.map((x) => (Number(x.id) === Number(finalUser.id) ? finalUser : x));
+        return [finalUser, ...arr];
+      });
+
+      setSelectedUserId(Number(finalUser.id));
+      setView('home');
+
+      await fetchPostsForHome(finalUser);
+    } catch (error: any) {
+      setLoginError(error?.message || 'Login failed');
+    }
   };
 
-  const uploadSingle = async (type: "music" | "podcast") => {
-    if (!title.trim()) return alert("Title required");
-    if (!audioFile) return alert("Audio file required");
+  /** ✅ ADDED: Handle comment likes ---------- */
+  const handleLikeComment = async (commentId: number) => {
+    if (!currentUser) return;
 
-    setSubmitting(true);
+    // This endpoint MUST exist: functions/api/comments/[id]/like.ts
+    await fetch(`/api/comments/${commentId}/like`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(LS_USER_KEY);
+
     try {
-      // 1) Upload audio to R2
-      const audioUrl = await uploadToR2(audioFile);
+      sessionStorage.removeItem(FEED_SESSION_KEY);
+    } catch {}
 
-      // 2) Upload cover to R2 (optional)
-      const coverUrl = coverFile ? await uploadToR2(coverFile) : null;
+    setCurrentUser(null);
+    setSelectedUserId(null);
+    setProfilePosts([]);
+    setActiveHashtag(null);
+    setView('home');
+    fetchPostsForHome(null).catch(() => {});
+  };
 
-      if (type === "music") {
-        // 3) Save metadata to DB (JSON) -> /api/songs
-        const payload = {
-          uploader_id: Number((currentUser as any).id),
-          title: title.trim(),
-          artist_name: (artist || "").trim(),
-          album_name: "Single",
-          cover_image_url: coverUrl,
-          audio_url: audioUrl,
-          duration_seconds: null,
-          genre: (genre || "").trim() || null,
-        };
+  /** ---------- Navigation ---------- */
+  const handleNavigate = (target: View) => {
+    if (['settings', 'memories'].includes(target) && !currentUser) {
+      setLoginError(`Please login to view ${target}.`);
+      return setView('login');
+    }
 
-        const res = await apiJson<any>("/api/songs", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
+    if (target === 'profile') {
+      if (!currentUser) {
+        setLoginError('Please login to view your profile.');
+        return setView('login');
+      }
+      openProfile(currentUser.id);
+      return;
+    }
 
-        if (!res.success) {
-          console.error("songs create failed:", res);
-          alert(res.error || "Failed to publish song");
-          return;
-        }
-      } else {
-        // PODCAST: your podcasts.ts expects JSON:
-        // { creator_id, title, description, audio_url, cover_url }
-        if (!desc.trim()) return alert("Description required for podcast");
+    setView(target);
 
-        const payload = {
-          creator_id: Number((currentUser as any).id),
-          title: title.trim(),
-          description: desc.trim(),
-          audio_url: audioUrl,
-          cover_url: coverUrl,
-        };
+    if (['home', 'reels', 'marketplace', 'groups'].includes(target)) {
+      setActiveTab(target as any);
+    }
+    window.scrollTo(0, 0);
+  };
 
-        const res = await apiJson<any>("/api/podcasts", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
+  /** ---------- API actions ---------- */
+  const createPost = useCallback(
+    async (
+      text: string,
+      file: File | null,
+      meta?: {
+        type?: 'text' | 'image' | 'video';
+        visibility?: string;
+        location?: string;
+        feeling?: string;
+        taggedUsers?: number[];
+        background?: string;
+        linkPreview?: any;
+      }
+    ) => {
+      if (!requireAuth('Creating posts')) return;
 
-        if (!res.success) {
-          console.error("podcast create failed:", res);
-          alert(res.error || "Failed to publish podcast");
+      const trimmed = (text || '').trim();
+      if (!trimmed && !file && !meta?.background) return;
+
+      let media_url: string | null = null;
+      let media_type: string | null = null;
+
+      if (file) {
+        try {
+          const uploadResult = await uploadToCloudflareR2(file);
+          media_url = uploadResult.url;
+          media_type = uploadResult.type;
+        } catch (error: any) {
+          setLoginError(`Failed to upload file: ${error.message}`);
           return;
         }
       }
 
-      alert('Published successfully!');
-      onUploaded();
-      onClose();
-    } catch (e: any) {
-      console.error(e);
-      alert(e?.message || "Upload failed");
-    } finally {
-      setSubmitting(false);
-    }
-  };
+      const payload: any = {
+        user_id: currentUser!.id,
+        content: trimmed,
+        media_url,
+        media_type,
+        visibility: meta?.visibility ?? 'public',
+        location: meta?.location,
+        feeling: meta?.feeling,
+        tagged_users: meta?.taggedUsers,
+        background: meta?.background,
+        link_preview: meta?.linkPreview,
+        type: (() => {
+          if (!media_type) return meta?.type || 'text';
+          if (media_type.startsWith('image/')) return 'image';
+          if (media_type.startsWith('video/')) return 'video';
+          if (media_type.startsWith('audio/')) return 'audio';
+          return meta?.type || 'text';
+        })(),
+      };
 
-  const uploadAlbum = async () => {
-    if (!albumTitle.trim()) return alert("Album title required");
-    if (albumTracks.length === 0) return alert("Add at least 1 track");
+      const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
 
-    setSubmitting(true);
-    try {
-      // Optional: one shared cover for all tracks
-      const sharedCoverUrl = coverFile ? await uploadToR2(coverFile) : null;
+      const newPostRaw =
+        data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
 
-      for (const t of albumTracks) {
-        // 1) upload each track audio
-        const audioUrl = await uploadToR2(t.file);
+      const normalized = normalizePost(newPostRaw);
 
-        // 2) if track has a cover URL (external), use it; else shared coverUrl
-        const coverUrl = t.cover?.trim() ? t.cover.trim() : sharedCoverUrl;
+      setPosts((prev) => {
+        const next = [normalized, ...safeArray(prev)];
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
 
-        // 3) create song in DB
-        const payload = {
-          uploader_id: Number((currentUser as any).id),
-          title: (t.title || "").trim(),
-          artist_name: (t.artist || artist || "").trim(),
-          album_name: albumTitle.trim(),
-          cover_image_url: coverUrl,
-          audio_url: audioUrl,
-          duration_seconds: null,
-          genre: (genre || "").trim() || null,
-        };
+      /** ✅ Keep profile posts updated when you create a post ---------- */
+      setProfilePosts((prev) => {
+        if (!currentUser) return prev;
+        const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
+        if (!isMyProfile) return prev;
 
-        const res = await apiJson<any>("/api/songs", {
-          method: "POST",
-          body: JSON.stringify(payload),
+        const next = [normalized, ...safeArray(prev)];
+        return next;
+      });
+
+      pushSeenIds([Number((normalized as any).id)]);
+
+      setShowCreatePostModal(false);
+      scheduleSilentRefresh();
+    },
+    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
+  );
+
+  /** ✅ FIXED: onReactPost with immediate my_reaction updates and commentPostSnapshot sync ---------- */
+  const onReactPost = useCallback(
+    async (postId: number, type: ReactionType) => {
+      if (!requireAuth('Reacting')) return;
+      const meId = Number(currentUser!.id);
+
+      // ✅ Optimistic update (homepage)
+      setPosts(prev => {
+        const next = safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId));
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      // ✅ Optimistic update (profile list in App state)
+      setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
+
+      // ✅ Update commentPostSnapshot if it's the same post
+      setCommentPostSnapshot(prev =>
+        prev && Number(prev.id) === Number(postId)
+          ? applyOptimisticReaction(prev, postId, type, meId)
+          : prev
+      );
+
+      try {
+        const data = await apiFetch(`/api/posts/${postId}/react`, {
+          method: 'POST',
+          body: JSON.stringify({ type, user_id: meId }),
         });
 
-        if (!res.success) {
-          console.error("album track create failed:", t.title, res);
-          alert(`Failed uploading "${t.title}": ${res.error}`);
-          return;
+        if (data?.success && ("reactions_count" in data || "my_reaction" in data)) {
+          const serverMy = data.my_reaction ?? null;
+          const serverCount = safeNumber(data.reactions_count, 0);
+
+          const applyServerTruth = (p: any) => {
+            if (Number(p?.id) !== Number(postId)) return p;
+
+            const prevArr = safeArray<any>(p?.reactions);
+            const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== Number(meId));
+            const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
+
+            return {
+              ...p,
+              reactions: nextArr,
+              my_reaction: serverMy,
+              myReaction: serverMy,
+              reactions_count: serverCount,
+              reactionsCount: serverCount,
+              likesCount: serverCount,
+            };
+          };
+
+          setPosts(prev => safeArray(prev).map(applyServerTruth));
+          setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
+          // ✅ Update commentPostSnapshot with server truth
+          setCommentPostSnapshot(prev => (prev ? applyServerTruth(prev) : prev));
+        }
+      } catch {
+        scheduleSilentRefresh();
+      }
+    },
+    [currentUser, requireAuth, scheduleSilentRefresh]
+  );
+
+  const handleOpenShareSheet = useCallback(
+    (post: any) => {
+      if (!currentUser) {
+        setLoginError('Please login to share posts.');
+        setView('login');
+        return;
+      }
+      setActiveSharePost(post);
+      setShowShareSheet(true);
+    },
+    [currentUser]
+  );
+
+  const handleShareComplete = useCallback(
+    async (destination: string, data?: any) => {
+      if (data?.success && activeSharePost) {
+        setPosts((prev) => {
+          const next = safeArray(prev).map((p: any) =>
+            Number(p.id) === Number(activeSharePost.id)
+              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+              : p
+          );
+          lastGoodPostsRef.current = next;
+          stableFeedRef.current = next;
+          return next;
+        });
+
+        /** ✅ Update profile posts when sharing ---------- */
+        setProfilePosts((prev) => {
+          return safeArray(prev).map((p: any) =>
+            Number(p.id) === Number(activeSharePost.id)
+              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+              : p
+          );
+        });
+
+        try {
+          await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
+            method: 'POST',
+            body: JSON.stringify({ destination }),
+          });
+        } catch (error) {
+          console.error('Failed to record share:', error);
         }
       }
 
-      alert('Album published successfully!');
-      onUploaded();
-      onClose();
-    } catch (e: any) {
-      console.error(e);
-      alert(e?.message || "Album upload failed");
-    } finally {
-      setSubmitting(false);
-    }
+      setShareInProgress(false);
+      setActiveSharePost(null);
+      setShowShareSheet(false);
+      scheduleSilentRefresh();
+    },
+    [activeSharePost, scheduleSilentRefresh]
+  );
+
+  /** ✅ Updated onOpenComments to search in correct list ---------- */
+  const onOpenComments = (postId: number) => {
+    if (!requireAuth('Commenting')) return;
+
+    const pid = Number(postId);
+    setActiveCommentsPostId(pid);
+
+    const source = view === 'profile' ? profilePosts : posts;
+    const found = source.find((p: any) => Number(p.id) === pid) || null;
+    setCommentPostSnapshot(found);
   };
 
-  const handleSubmit = async () => {
-    if (mode === 'single') await uploadSingle('music');
-    if (mode === 'podcast') await uploadSingle('podcast');
-    if (mode === 'album') await uploadAlbum();
-  };
+  const deletePost = useCallback(
+    async (postId: number) => {
+      if (!requireAuth('Deleting posts')) return;
+
+      const prev = posts;
+      const prevProfilePosts = profilePosts;
+      
+      setPosts((p) => {
+        const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      /** ✅ Keep profile posts updated when you delete ---------- */
+      setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+      } catch {
+        setPosts(prev);
+        lastGoodPostsRef.current = prev;
+        stableFeedRef.current = prev;
+        
+        /** ✅ Rollback profile posts on error ---------- */
+        setProfilePosts(prevProfilePosts);
+        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+      }
+    },
+    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+  );
+
+  const editPost = useCallback(
+    async (postId: number, content: string) => {
+      if (!requireAuth('Editing posts')) return;
+      const trimmed = (content || '').trim();
+      if (!trimmed) return;
+
+      const prev = posts;
+      const prevProfilePosts = profilePosts;
+      
+      setPosts((p) => {
+        const next = safeArray(p).map((x: any) =>
+          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+        );
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      /** ✅ Keep profile posts updated when you edit ---------- */
+      setProfilePosts((prev) =>
+        safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
+      );
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
+      } catch {
+        setPosts(prev);
+        lastGoodPostsRef.current = prev;
+        stableFeedRef.current = prev;
+        
+        /** ✅ Rollback profile posts on error ---------- */
+        setProfilePosts(prevProfilePosts);
+        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+      }
+    },
+    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+  );
+
+  /** ✅ FIXED: Follow User with EXACT same API structure as original working code ---------- */
+  const followUser = useCallback(
+    async (targetUserId: number) => {
+      if (!requireAuth('Following')) return;
+      if (!currentUser) return;
+
+      const meId = Number(currentUser.id);
+      const targetId = Number(targetUserId);
+
+      // ✅ backend blocks self-follow
+      if (!targetId || targetId === meId) return;
+
+      // ✅ TRUE follow state comes from my "following"
+      const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
+      const isFollowingNow = myFollowing.has(targetId);
+
+      // Set loading state to prevent double clicks
+      setFollowLoading(prev => ({ ...prev, [targetId]: true }));
+
+      // Save original state for potential rollback
+      const originalUsers = [...users];
+      const originalCurrentUser = { ...currentUser };
+
+      // ---------- optimistic update ----------
+      setUsers((prev) => {
+        const arr = safeArray(prev).map(normalizeUser);
+
+        return arr.map((u) => {
+          const uid = Number(u.id);
+
+          // update ME.following
+          if (uid === meId) {
+            const following = new Set<number>(safeArray<number>((u as any).following));
+            if (isFollowingNow) following.delete(targetId);
+            else following.add(targetId);
+            return normalizeUser({ ...u, following: Array.from(following) });
+          }
+
+          // update TARGET.followers
+          if (uid === targetId) {
+            const followers = new Set<number>(safeArray<number>((u as any).followers));
+            if (isFollowingNow) followers.delete(meId);
+            else followers.add(meId);
+            return normalizeUser({ ...u, followers: Array.from(followers) });
+          }
+
+          return u;
+        });
+      });
+
+      // keep currentUser in sync + persist
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        const following = new Set<number>(safeArray<number>((prev as any).following));
+        if (isFollowingNow) following.delete(targetId);
+        else following.add(targetId);
+        const next = normalizeUser({ ...prev, following: Array.from(following) });
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
+        return next;
+      });
+
+      // ---------- API ----------
+      try {
+        if (isFollowingNow) {
+          // ✅ EXACTLY as in original code: Unfollow
+          await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
+            method: 'DELETE',
+          });
+        } else {
+          // ✅ EXACTLY as in original code: Follow
+          await apiFetch('/api/user-follows', {
+            method: 'POST',
+            body: JSON.stringify({ follower_id: meId, following_id: targetId }),
+          });
+        }
+
+        // ✅ Refresh follow data from server for consistency
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
+
+        scheduleSilentRefresh();
+      } catch (e: any) {
+        console.error('Follow toggle failed:', e);
+
+        // ✅ rollback using original state
+        setUsers(originalUsers);
+        setCurrentUser(originalCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
+        
+        // ✅ rollback using server truth
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
+        
+        // Show error message
+        setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
+      } finally {
+        // Clear loading state
+        setFollowLoading(prev => ({ ...prev, [targetId]: false }));
+      }
+    },
+    [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
+  );
+
+  /** ✅ SIMPLIFIED & RELIABLE: Check if current user is following a specific user ---------- */
+  const checkIsFollowing = useCallback((targetUserId: number): boolean => {
+    if (!currentUser || !targetUserId) return false;
+    
+    // Direct check of current user's following array
+    const myFollowing = safeArray<number>((currentUser as any).following);
+    return myFollowing.includes(Number(targetUserId));
+  }, [currentUser]);
+
+  const updateUserDetails = useCallback(
+    async (data: Partial<User>) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      await apiFetch(`/api/users`, {
+        method: 'PUT',
+        body: JSON.stringify({ id: currentUser.id, ...data }),
+      });
+
+      const merged = normalizeUser({ ...currentUser, ...data });
+      setCurrentUser(merged);
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(merged));
+
+      setUsers((prev) => safeArray(prev).map((u) => (Number(u.id) === Number(merged.id) ? merged : u)));
+    },
+    [requireAuth, currentUser]
+  );
+
+  const updateProfileImage = useCallback(
+    async (file: File) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      // ✅ ADDED: Validate file is an image
+      if (!file.type || !file.type.startsWith('image/')) {
+        setLoginError('Only image files are allowed.');
+        return;
+      }
+
+      try {
+        const uploadResult = await uploadToCloudflareR2(file, 'profiles');
+        await updateUserDetails({ profile_image_url: uploadResult.url } as any);
+      } catch (error: any) {
+        setLoginError(`Failed to upload profile image: ${error.message}`);
+      }
+    },
+    [requireAuth, currentUser, updateUserDetails]
+  );
+
+  const updateCoverImage = useCallback(
+    async (file: File) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      // ✅ ADDED: Validate file is an image
+      if (!file.type || !file.type.startsWith('image/')) {
+        setLoginError('Only image files are allowed.');
+        return;
+      }
+
+      try {
+        const uploadResult = await uploadToCloudflareR2(file, 'covers');
+        await updateUserDetails({ cover_image_url: uploadResult.url } as any);
+      } catch (error: any) {
+        setLoginError(`Failed to upload cover image: ${error.message}`);
+      }
+    },
+    [requireAuth, currentUser, updateUserDetails]
+  );
+
+  /** ---------- Helper function to get post author ---------- */
+  const getPostAuthor = useCallback(
+    (post: PostType) => {
+      const author = users.find((u) => Number(u.id) === Number((post as any).user_id));
+      if (author) return author;
+      return createFallbackUser();
+    },
+    [users]
+  );
+
+  /** ---------- Handle create story from profile ---------- */
+  const handleCreateStoryFromProfile = useCallback(() => {
+    if (!requireAuth('Creating stories')) return;
+    setShowCreateStoryModal(true);
+  }, [requireAuth]);
+
+  /** ---------- Render ---------- */
+  const isLoading = false;
+  if (isLoading) return <ProfessionalLoader />;
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4">
-      <div className="bg-[#1E1E1E] rounded-2xl w-full max-w-3xl border border-[#333] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        <div className="p-5 border-b border-[#333] bg-[#252525]">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h2 className="text-[#FFF] text-2xl font-bold">Professional Upload</h2>
-              <p className="text-[#888] text-sm">Distribute your content to UNERA Music</p>
-            </div>
-            <i className="fas fa-times text-[#888] cursor-pointer text-xl hover:text-white transition-colors" onClick={onClose}></i>
+    <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
+      <Header
+        onHomeClick={() => handleNavigate('home')}
+        onProfileClick={(id: number) => openProfile(id)}
+        onReelsClick={() => handleNavigate('reels')}
+        onMarketplaceClick={() => handleNavigate('marketplace')}
+        onGroupsClick={() => handleNavigate('groups')}
+        currentUser={currentUser}
+        notifications={notifications}
+        users={users}
+        onLogout={handleLogout}
+        onLoginClick={() => setView('login')}
+        onMarkNotificationsRead={() => {}}
+        activeTab={activeTab}
+        onNavigate={(v: any) => handleNavigate(v)}
+      />
+
+      <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
+        {currentUser && (
+          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
+            <Sidebar
+              currentUser={currentUser}
+              onProfileClick={(id) => openProfile(id)}
+              onReelsClick={() => handleNavigate('reels')}
+              onMarketplaceClick={() => handleNavigate('marketplace')}
+              onGroupsClick={() => handleNavigate('groups')}
+            />
           </div>
+        )}
 
-          <div className="flex p-1 bg-[#111] rounded-lg">
-            {['single', 'album', 'podcast'].map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m as any)}
-                className={`flex-1 py-2.5 rounded-md font-bold capitalize text-sm transition-all ${
-                  mode === m ? 'bg-[#1877F2] text-white shadow-lg' : 'text-[#888] hover:text-white'
-                }`}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-6 overflow-y-auto flex-1 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div>
-                <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">
-                  {mode === 'podcast' ? 'Host / Creator Name' : 'Main Artist Name'}
-                </label>
-                <input
-                  className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2]"
-                  value={artist}
-                  onChange={(e) => setArtist(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Genre / Category</label>
-                <input
-                  className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2]"
-                  placeholder="Pop, Tech, News..."
-                  value={genre}
-                  onChange={(e) => setGenre(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">{mode === 'album' ? 'Album Artwork' : 'Artwork'}</label>
-                <div
-                  onClick={() => coverInputRef.current?.click()}
-                  className="w-full bg-[#151515] border border-[#333] rounded-lg h-[120px] flex flex-col items-center justify-center cursor-pointer hover:border-[#1877F2] group relative overflow-hidden"
-                >
-                  {coverPreview ? (
-                    <img src={coverPreview} className="w-full h-full object-cover" alt="Cover Preview" />
-                  ) : (
-                    <>
-                      <i className="fas fa-image text-2xl text-[#666] group-hover:text-white mb-2"></i>
-                      <span className="text-[#666] text-xs group-hover:text-white">Upload Image</span>
-                    </>
-                  )}
-
-                  <input
-                    type="file"
-                    ref={coverInputRef}
-                    className="hidden"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) {
-                        setCoverFile(f);
-                        setCoverPreview(URL.createObjectURL(f));
-                      }
-                    }}
-                  />
+        <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
+          {view === 'home' && (
+            <div className="w-full pt-4 md:px-8 pb-10">
+              {/* ✅ ADDED: Hashtag filter chip */}
+              {activeHashtag && (
+                <div className="mb-3 px-4">
+                  <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
+                    <span className="text-[#1877F2] font-semibold">{activeHashtag}</span>
+                    <button 
+                      onClick={clearHashtag} 
+                      className="text-[#B0B3B8] hover:text-white ml-1"
+                    >
+                      <i className="fas fa-times" />
+                    </button>
+                  </div>
+                  <p className="text-[#B0B3B8] text-xs mt-1">
+                    Showing posts with {activeHashtag}
+                  </p>
                 </div>
-              </div>
+              )}
 
-              {(mode === 'single' || mode === 'podcast') && (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-[#333] bg-[#151515] rounded-lg h-[86px] flex items-center justify-center cursor-pointer hover:border-[#1877F2] group"
-                >
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    className="hidden"
-                    accept="audio/*"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) setAudioFile(f);
-                    }}
-                  />
-                  {audioFile ? (
-                    <div className="text-[#1877F2] font-semibold flex items-center gap-2">
-                      <i className="fas fa-check-circle"></i> {audioFile.name}
-                    </div>
-                  ) : (
-                    <div className="text-[#666] group-hover:text-white flex items-center gap-2">
-                      <i className="fas fa-cloud-upload-alt"></i> Upload High Quality Audio
-                    </div>
-                  )}
+              <StoryReel
+                stories={stories}
+                onProfileClick={(id) => openProfile(id)}
+                onCreateStory={() => {
+                  if (!requireAuth('Creating stories')) return;
+                  setShowCreateStoryModal(true);
+                }}
+                onViewStory={(s) => setActiveStory(s)}
+                currentUser={currentUser}
+                onRequestLogin={() => setView('login')}
+              />
+
+              {currentUser && (
+                <CreatePost
+                  currentUser={currentUser}
+                  onProfileClick={(id) => openProfile(id)}
+                  onClick={() => {
+                    if (!requireAuth('Creating posts')) return;
+                    setShowCreatePostModal(true);
+                  }}
+                />
+              )}
+
+              {currentUser && products.length > 0 && (
+                <SuggestedProductsWidget
+                  products={products}
+                  currentUser={currentUser}
+                  onViewProduct={setActiveProduct}
+                  onSeeAll={() => handleNavigate('marketplace')}
+                />
+              )}
+
+              {rankedPosts.length > 0 ? (
+                rankedPosts.map((post) => {
+                  const postAuthorId = Number((post as any).user_id);
+                  const isFollowing = checkIsFollowing(postAuthorId);
+                  
+                  return (
+                    <Post
+                      key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
+                      post={post}
+                      author={getPostAuthor(post)}
+                      currentUser={currentUser}
+                      users={users}
+                      onProfileClick={(id) => openProfile(id)}
+                      onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                      onShare={() => handleOpenShareSheet(post)}
+                      onViewImage={setFullScreenImage}
+                      onOpenComments={(postId: number) => onOpenComments(postId)}
+                      onVideoClick={(p: any) => {
+                        setActiveReelId(p.id);
+                        setView('reels');
+                      }}
+                      onPlayAudioTrack={setCurrentAudioTrack}
+                      groups={groups}
+                      brands={brands}
+                      chats={chats}
+                      // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
+                      onHashtagClick={handleHashtagClick}
+                      // ✅ CORRECT: Pass follow status and handler
+                      isFollowing={isFollowing}
+                      onFollow={() => followUser(postAuthorId)}
+                      followLoading={followLoading[postAuthorId] || false}
+                    />
+                  );
+                })
+              ) : !feedHydrated ? (
+                <div className="text-center py-20 text-[#B0B3B8]"></div>
+              ) : activeHashtag ? (
+                <div className="text-center py-20 text-[#B0B3B8]">
+                  <p>No posts found with {activeHashtag}.</p>
+                  <button 
+                    onClick={clearHashtag}
+                    className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
+                  >
+                    Clear filter
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center py-20 text-[#B0B3B8]">
+                  <p>No posts available.</p>
+                  {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
                 </div>
               )}
             </div>
-          </div>
+          )}
 
-          <div className="border-t border-[#333] pt-6">
-            {mode === 'single' && (
-              <div>
-                <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Song Name</label>
-                <input
-                  className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2] text-lg font-bold"
-                  placeholder="Enter song title..."
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-              </div>
-            )}
+          {view === 'reels' && (
+            <ReelsFeed
+              reels={reels}
+              users={users}
+              currentUser={currentUser}
+              onProfileClick={(id) => openProfile(id)}
+              onCreateReelClick={() => {
+                if (!requireAuth('Creating reels')) return;
+                setShowCreateReelModal(true);
+              }}
+              onReact={() => requireAuth('Reacting')}
+              onComment={() => requireAuth('Commenting')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onFollow={(id: number) => followUser(id)}
+              getCommentAuthor={(id) => users.find((u) => u.id === id)}
+              initialReelId={activeReelId}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          )}
 
-            {mode === 'podcast' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Episode Title</label>
-                  <input
-                    className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2] text-lg font-bold"
-                    placeholder="e.g. The Future of AI"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
-                </div>
+          {view === 'marketplace' && (
+            <MarketplacePage
+              currentUser={currentUser}
+              products={products}
+              onNavigateHome={() => handleNavigate('home')}
+              onCreateProduct={() => requireAuth('Creating products')}
+              onViewProduct={setActiveProduct}
+            />
+          )}
 
-                <div className="grid grid-cols-3 gap-4">
-                  <input className="bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none" placeholder="Season (e.g. 1)" value={season} onChange={(e) => setSeason(e.target.value)} />
-                  <input className="bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none" placeholder="Episode # (e.g. 5)" value={episodeNum} onChange={(e) => setEpisodeNum(e.target.value)} />
-                  <input className="bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none" placeholder="Guest Names" value={guests} onChange={(e) => setGuests(e.target.value)} />
-                </div>
+          {view === 'groups' && (
+            <GroupsPage
+              currentUser={currentUser}
+              groups={groups}
+              users={users}
+              onCreateGroup={() => requireAuth('Creating groups')}
+              onJoinGroup={() => requireAuth('Joining groups')}
+              onLeaveGroup={() => requireAuth('Leaving groups')}
+              onDeleteGroup={() => requireAuth('Deleting groups')}
+              onUpdateGroupImage={() => requireAuth('Updating groups')}
+              onPostToGroup={() => requireAuth('Posting')}
+              onCreateGroupEvent={() => requireAuth('Creating events')}
+              onInviteToGroup={() => requireAuth('Inviting')}
+              onProfileClick={(id) => openProfile(id)}
+              onLikePost={() => requireAuth('Liking')}
+              onOpenComments={() => requireAuth('Commenting')}
+              onSharePost={(post: any) => handleOpenShareSheet(post)}
+              onDeleteGroupPost={() => requireAuth('Deleting posts')}
+              onRemoveMember={() => requireAuth('Removing members')}
+              onUpdateGroupSettings={() => requireAuth('Updating settings')}
+              onPlayAudioTrack={setCurrentAudioTrack}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+            />
+          )}
 
-                <div>
-                  <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Description / Show Notes</label>
-                  <textarea
-                    className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2] h-60 resize-none"
-                    placeholder="Write a professional description about this episode..."
-                    value={desc}
-                    onChange={(e) => setDesc(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
+          {view === 'brands' && (
+            <BrandsPage
+              currentUser={currentUser}
+              brands={brands}
+              posts={posts}
+              users={users}
+              onCreateBrand={() => requireAuth('Creating brands')}
+              onFollowBrand={(id: number) => followUser(id)}
+              onProfileClick={(id) => openProfile(id)}
+              onPostAsBrand={() => requireAuth('Posting')}
+              onReact={() => requireAuth('Reacting')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onOpenComments={(id: any) => {
+                if (!requireAuth('Commenting')) return;
+                const pid = Number(id);
+                setActiveCommentsPostId(pid);
+                const source = view === 'profile' ? profilePosts : posts;
+                const found = source.find((p: any) => Number(p.id) === pid) || null;
+                setCommentPostSnapshot(found);
+              }}
+              onDeleteBrand={() => requireAuth('Deleting brands')}
+              onPlayAudioTrack={setCurrentAudioTrack}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          )}
 
-            {mode === 'album' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Album Name</label>
-                  <input
-                    className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2] text-lg font-bold"
-                    placeholder="Enter album title..."
-                    value={albumTitle}
-                    onChange={(e) => setAlbumTitle(e.target.value)}
-                  />
-                </div>
+          {view === 'music' && (
+            <MusicSystem
+              currentUser={currentUser}
+              onPlayTrack={setCurrentAudioTrack}
+              onProfileClick={(id) => openProfile(id)}
+              likedTracks={[]}
+              onToggleLike={() => requireAuth('Liking')}
+              playHistory={[]}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+            />
+          )}
 
-                <div className="bg-[#111] p-4 rounded-xl border border-[#333]">
-                  <h4 className="text-white font-bold mb-3 flex items-center gap-2">
-                    <i className="fas fa-list-ol text-[#1877F2]"></i> Add Tracks to Album
-                  </h4>
+          {view === 'tools' && <ToolsPage />}
 
-                  <div className="space-y-2 mb-4">
-                    {albumTracks.map((t, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-[#1A1A1A] rounded border border-[#333]">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[#666] font-mono">{idx + 1}</span>
-                          <img src={t.cover || coverPreview || defaultCover} className="w-8 h-8 rounded object-cover" alt="" />
-                          <div>
-                            <span className="text-white font-semibold block">{t.title}</span>
-                            <span className="text-[#666] text-xs">{t.artist}</span>
-                          </div>
-                        </div>
-                        <i className="fas fa-trash text-red-500 cursor-pointer" onClick={() => setAlbumTracks(albumTracks.filter((_, i) => i !== idx))}></i>
-                      </div>
-                    ))}
-                    {albumTracks.length === 0 && <div className="text-[#666] text-sm text-center py-2">No tracks added yet.</div>}
-                  </div>
+          {view === 'profiles' && (
+            <SuggestedProfilesPage
+              currentUser={currentUser as any}
+              users={users}
+              onFollow={(id: number) => followUser(id)}
+              onProfileClick={(id) => openProfile(id)}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          )}
 
-                  <div className="flex flex-col gap-2 p-3 bg-[#1A1A1A] rounded border border-[#333] border-dashed">
-                    <div className="grid grid-cols-2 gap-2">
-                      <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Song Name" value={tempTrackTitle} onChange={(e) => setTempTrackTitle(e.target.value)} />
-                      <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Artist Name" value={tempTrackArtist} onChange={(e) => setTempTrackArtist(e.target.value)} />
-                    </div>
+          {view === 'events' && (
+            <EventsPage
+              events={events}
+              currentUser={currentUser as any}
+              onJoinEvent={() => requireAuth('Joining events')}
+              onCreateEventClick={() => {
+                if (!requireAuth('Creating events')) return;
+                setShowCreateEventModal(true);
+              }}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+            />
+          )}
 
-                    <input className="w-full bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Specific Artwork URL (Optional)" value={tempTrackCover} onChange={(e) => setTempTrackCover(e.target.value)} />
+          {view === 'birthdays' && (
+            <BirthdaysPage
+              currentUser={currentUser as any}
+              users={users}
+              onMessage={(id) => {
+                if (!requireAuth('Messaging')) return;
+                setActiveChatUser(users.find((u) => u.id === id) || null);
+              }}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+            />
+          )}
 
-                    <div className="flex items-center gap-2 mt-2">
-                      <div
-                        onClick={() => trackInputRef.current?.click()}
-                        className="flex-1 bg-[#222] hover:bg-[#333] p-2 rounded text-center cursor-pointer text-sm text-[#888] hover:text-white transition-colors border border-[#444]"
-                      >
-                        {tempTrackFile ? (
-                          <span className="text-[#1877F2] font-bold">
-                            <i className="fas fa-file-audio"></i> {tempTrackFile.name}
-                          </span>
-                        ) : (
-                          'Select Audio File'
-                        )}
-                      </div>
+          {view === 'memories' && currentUser && (
+            <MemoriesPage
+              currentUser={currentUser}
+              posts={posts}
+              users={users}
+              onProfileClick={(id) => openProfile(id)}
+              onReact={() => requireAuth('Reacting')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onViewImage={setFullScreenImage}
+              onOpenComments={(id) => onOpenComments(id)}
+              onVideoClick={() => {}}
+              onPlayAudioTrack={setCurrentAudioTrack}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+            />
+          )}
 
-                      <button onClick={handleAddTrack} className="bg-[#1877F2] text-white px-6 py-2 rounded text-sm font-bold hover:bg-[#166FE5]">
-                        Add Track
-                      </button>
-                    </div>
+          {view === 'settings' && currentUser && (
+            <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
+          )}
 
-                    <input
-                      type="file"
-                      ref={trackInputRef}
-                      className="hidden"
-                      accept="audio/*"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setTempTrackFile(f);
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+          {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
+          {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
+          {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
 
-        <div className="p-5 border-t border-[#333] bg-[#252525] flex justify-end">
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="bg-[#1877F2] hover:bg-[#166FE5] disabled:opacity-60 text-white py-3 px-8 rounded-xl font-bold transition-all shadow-lg text-lg flex items-center gap-2"
-          >
-            {submitting ? (
-              <>
-                <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span> Publishing...
-              </>
-            ) : (
-              <>
-                <i className="fas fa-cloud-upload-alt"></i> Publish Content
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+          {view === 'profile' && profileUser && (
+            <UserProfile
+              user={profileUser}
+              currentUser={currentUser}
+              users={users}
+              posts={profilePosts}
+              reels={reels}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={(id: number) => followUser(id)}
+              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+              onComment={() => requireAuth('Commenting')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onMessage={(id) => {
+                if (!requireAuth('Messaging')) return;
+                setActiveChatUser(users.find((u) => u.id === id) || null);
+              }}
+              onCreatePost={createPost as any}
+              onUpdateProfileImage={updateProfileImage as any}
+              onUpdateCoverImage={updateCoverImage as any}
+              onUpdateUserDetails={updateUserDetails as any}
+              onDeletePost={(postId: number) => deletePost(postId)}
+              onEditPost={(postId: number, content: string) => editPost(postId, content)}
+              getCommentAuthor={(id) => users.find((u) => u.id === id)}
+              onViewImage={setFullScreenImage}
+              onOpenComments={(postId) => onOpenComments(postId)}
+              onVideoClick={(p) => {
+                setActiveReelId((p as any).id);
+                setView('reels');
+              }}
+              onPlayAudioTrack={setCurrentAudioTrack}
+              onCreateStoryClick={handleCreateStoryFromProfile}
+              // ✅ PROFESSIONALLY FIXED: Pass admin handlers with correct prop types
+              onVerifyUser={(id) => verifyUser(id)}
+              onRestrictUser={(id, duration) => suspendUser(id, duration)}
+              onDeleteUser={(id) => deleteUserAccount(id)}
+              onMakeModerator={(id, make) => setModeratorRole(id, make ? "moderator" : "user")}
+              // ✅ ADDED: Pass follow status to UserProfile
+              isFollowing={checkIsFollowing(Number(profileUser.id))}
+              followLoading={followLoading[Number(profileUser.id)] || false}
+            />
+          )}
 
-/* =========================================================
-   MAIN MUSIC SYSTEM (same UI, now backed by APIs)
-========================================================= */
+          {view === 'login' && (
+            <Login
+              onLogin={handleLogin}
+              onNavigateToRegister={() => setView('register')}
+              onNavigateToForgotPassword={() => setView('login')}
+              onClose={() => setView('home')}
+              error={loginError}
+            />
+          )}
 
-interface MusicSystemProps {
-  currentUser: User | null;
-  onPlayTrack: (track: AudioTrack) => void;
-  onProfileClick?: (id: number) => void;
-  users?: User[]; // optional, for verified badges & profiles
-}
-
-const MusicSystem: React.FC<MusicSystemProps> = ({ currentUser, onPlayTrack, onProfileClick, users = [] }) => {
-  const [view, setView] = useState<'music' | 'podcasts' | 'dashboard' | 'artist'>('music');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedArtistId, setSelectedArtistId] = useState<number | null>(null);
-
-  const [songs, setSongs] = useState<Song[]>([]);
-  const [episodes, setEpisodes] = useState<Episode[]>([]);
-  const [loadingSongs, setLoadingSongs] = useState(false);
-  const [loadingEpisodes, setLoadingEpisodes] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [likedTracks, setLikedTracks] = useState<string[]>([]);
-  const [downloads, setDownloads] = useState<string[]>([]);
-
-  const [showUploadModal, setShowUploadModal] = useState(false);
-
-  const isAdmin = (currentUser as any)?.role === 'admin';
-
-  // Structured data (same behavior)
-  const structuredData = useMemo(
-    () => ({
-      '@context': 'https://schema.org',
-      '@type': 'WebSite',
-      name: 'UNERA Music',
-      url: 'https://unera.social/music',
-      description: 'Stream and upload music on UNERA Social Platform',
-      publisher: {
-        '@type': 'Organization',
-        name: 'UNERA',
-        logo: 'https://unera.social/logo.png',
-      },
-    }),
-    []
-  );
-
-  const fetchSongs = useCallback(async () => {
-    setLoadingSongs(true);
-    setError(null);
-    const res = await apiJson<any[]>('/api/songs', { method: 'GET' });
-    if (!res.success) {
-      setError(res.error);
-      setLoadingSongs(false);
-      return;
-    }
-    const arr = Array.isArray(res.data) ? res.data : (res.data as any)?.results || [];
-    setSongs(arr.map(mapSongFromApi));
-    setLoadingSongs(false);
-  }, []);
-
-  const fetchPodcasts = useCallback(async () => {
-    setLoadingEpisodes(true);
-    setError(null);
-    const res = await apiJson<any[]>('/api/podcasts', { method: 'GET' });
-    if (!res.success) {
-      setError(res.error);
-      setLoadingEpisodes(false);
-      return;
-    }
-    const arr = Array.isArray(res.data) ? res.data : (res.data as any)?.results || [];
-    setEpisodes(arr.map(mapEpisodeFromApi));
-    setLoadingEpisodes(false);
-  }, []);
-
-  useEffect(() => {
-    // load both so dashboard/artist works immediately
-    fetchSongs();
-    fetchPodcasts();
-  }, [fetchSongs, fetchPodcasts]);
-
-  // Like/unlike (Song vs Podcast Episode) using your correct endpoints
-  const toggleLike = useCallback(
-    async (id: string, type: 'music' | 'podcast') => {
-      if (!currentUser) {
-        alert('Please login to like.');
-        return;
-      }
-
-      const isLiked = likedTracks.includes(id);
-      const userId = String((currentUser as any).id);
-
-      // endpoints from your API list
-      const endpoint = type === 'music' ? '/api/song-likes' : '/api/podcast-episode-likes';
-
-      // Best-practice:
-      // - POST to like
-      // - DELETE to unlike
-      // If your backend uses only POST toggle, you can change this easily.
-      const method = isLiked ? 'DELETE' : 'POST';
-
-      const body =
-        type === 'music'
-          ? { song_id: id, user_id: userId }
-          : { episode_id: id, user_id: userId };
-
-      const res = await apiJson<any>(endpoint, { method, body: JSON.stringify(body) });
-      if (!res.success) {
-        alert(res.error || 'Failed to update like.');
-        return;
-      }
-
-      setLikedTracks((prev) => (isLiked ? prev.filter((x) => x !== id) : [...prev, id]));
-
-      // optimistic counters
-      if (type === 'music') {
-        setSongs((prev) =>
-          prev.map((s) =>
-            String(s.id) === id
-              ? { ...s, stats: { ...(s.stats || {}), likes: Math.max(0, ((s.stats as any)?.likes || 0) + (isLiked ? -1 : 1)) } }
-              : s
-          )
-        );
-      } else {
-        setEpisodes((prev) =>
-          prev.map((e) =>
-            String(e.id) === id
-              ? { ...e, stats: { ...(e.stats || {}), likes: Math.max(0, ((e.stats as any)?.likes || 0) + (isLiked ? -1 : 1)) } }
-              : e
-          )
-        );
-      }
-    },
-    [currentUser, likedTracks]
-  );
-
-  const handleArtistClick = (uploaderId: number) => {
-    if (onProfileClick) onProfileClick(uploaderId);
-    else {
-      setSelectedArtistId(uploaderId);
-      setView('artist');
-    }
-  };
-
-  const handlePlayTrackFromSong = (song: Song) => {
-    const uploaderProfile = users.find((u) => u.id === song.uploaderId);
-    const audioTrack: AudioTrack = {
-      id: String(song.id),
-      title: song.title,
-      artist: song.artist,
-      duration:
-        typeof song.duration === 'string'
-          ? (() => {
-              const parts = song.duration.split(':');
-              const mm = Number(parts[0] || 0);
-              const ss = Number(parts[1] || 0);
-              return mm * 60 + ss || 180;
-            })()
-          : (song.duration as any) || 180,
-      url: song.audioUrl || '',
-      uploaderId: song.uploaderId || 1,
-      cover: song.cover,
-      type: 'music',
-      isVerified: Boolean((uploaderProfile as any)?.isVerified),
-    } as any;
-
-    onPlayTrack(audioTrack);
-  };
-
-  const handlePlayTrackFromEpisode = (episode: Episode) => {
-    const uploaderProfile = users.find((u) => u.id === episode.uploaderId);
-    const audioTrack: AudioTrack = {
-      id: String(episode.id),
-      title: episode.title,
-      artist: episode.host || 'Podcast Host',
-      duration:
-        typeof episode.duration === 'string'
-          ? (() => {
-              const parts = episode.duration.split(':');
-              const mm = Number(parts[0] || 0);
-              const ss = Number(parts[1] || 0);
-              return mm * 60 + ss || 1800;
-            })()
-          : (episode.duration as any) || 1800,
-      url: episode.audioUrl || '',
-      uploaderId: episode.uploaderId || 1,
-      cover: (episode as any).thumbnail,
-      type: 'podcast',
-      isVerified: Boolean((uploaderProfile as any)?.isVerified),
-    } as any;
-
-    onPlayTrack(audioTrack);
-  };
-
-  // Delete: your list does not show delete endpoints,
-  // so this uses a common REST fallback:
-  // DELETE /api/songs?id=123   and   DELETE /api/podcasts?id=123
-  // If your backend uses a different pattern, tell me and I'll match it.
-  const deleteSong = async (id: string) => {
-    if (!currentUser || !isAdmin) return;
-    if (!confirm('Delete this song?')) return;
-
-    const res = await apiJson<any>(`/api/songs?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-    if (!res.success) {
-      alert(res.error || 'Failed to delete');
-      return;
-    }
-    setSongs((prev) => prev.filter((s) => String(s.id) !== id));
-  };
-
-  const deleteEpisode = async (id: string) => {
-    if (!currentUser || !isAdmin) return;
-    if (!confirm('Delete this episode?')) return;
-
-    const res = await apiJson<any>(`/api/podcasts?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-    if (!res.success) {
-      alert(res.error || 'Failed to delete');
-      return;
-    }
-    setEpisodes((prev) => prev.filter((e) => String(e.id) !== id));
-  };
-
-  const handleDownload = (id: string) => {
-    if (!currentUser) {
-      alert('Please login to download music.');
-      return;
-    }
-    if (!downloads.includes(id)) {
-      setDownloads((prev) => [...prev, id]);
-      alert('Download started!');
-    }
-  };
-
-  const filteredSongs = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return songs;
-    return songs.filter((s) => s.title.toLowerCase().includes(q) || s.artist.toLowerCase().includes(q));
-  }, [songs, searchQuery]);
-
-  const filteredEpisodes = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return episodes;
-    return episodes.filter((e) => e.title.toLowerCase().includes(q) || (e.host || '').toLowerCase().includes(q));
-  }, [episodes, searchQuery]);
-
-  const trendingSongs = useMemo(() => {
-    return [...songs].sort((a, b) => ((b.stats as any)?.plays || 0) - ((a.stats as any)?.plays || 0)).slice(0, 5);
-  }, [songs]);
-
-  const recentSongs = useMemo(() => {
-    return [...songs]
-      .sort((a, b) => new Date(b.uploadDate || 0).getTime() - new Date(a.uploadDate || 0).getTime())
-      .slice(0, 5);
-  }, [songs]);
-
-  const selectedArtistUser: User | null = useMemo(() => {
-    if (!selectedArtistId) return null;
-
-    // if profile exists in users, use it
-    const found = users.find((u) => u.id === selectedArtistId);
-    if (found) return found;
-
-    // fallback to artist name from songs
-    const artistName = songs.find((s) => s.uploaderId === selectedArtistId)?.artist || 'Artist';
-
-    return {
-      id: selectedArtistId,
-      name: artistName,
-      profileImage: `https://ui-avatars.com/api/?name=${encodeURIComponent(artistName)}&background=random`,
-      coverImage:
-        'https://images.unsplash.com/photo-1514525253440-b393452e8d26?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
-      followers: [],
-      following: [],
-      isOnline: false,
-      isVerified: false,
-      role: 'user',
-    } as any;
-  }, [selectedArtistId, users, songs]);
-
-  // SEO schema (same style)
-  useEffect(() => {
-    const schema = {
-      '@context': 'https://schema.org',
-      '@type': 'MusicGroup',
-      name: 'UNERA Music',
-      description: 'Stream and upload music on UNERA Social Platform',
-      url: typeof window !== 'undefined' ? window.location.href : 'https://unera.social/music',
-      track: songs.slice(0, 10).map((song) => ({
-        '@type': 'MusicRecording',
-        name: song.title,
-        byArtist: { '@type': 'MusicGroup', name: song.artist },
-        duration: typeof song.duration === 'string' ? song.duration : 'PT3M',
-        url: song.audioUrl,
-      })),
-    };
-
-    const existing = document.querySelector('script[type="application/ld+json"][data-unera-music="1"]');
-    if (existing) existing.remove();
-
-    const script = document.createElement('script');
-    script.type = 'application/ld+json';
-    script.setAttribute('data-unera-music', '1');
-    script.textContent = JSON.stringify(schema);
-    document.head.appendChild(script);
-
-    return () => {
-      script.remove();
-    };
-  }, [songs]);
-
-  const showLoading = (view === 'music' && loadingSongs) || (view === 'podcasts' && loadingEpisodes);
-
-  return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white font-sans">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
-
-      {/* Navigation Tabs */}
-      <div className="sticky top-14 bg-[#0A0A0A]/95 backdrop-blur-md z-30 px-4 py-4 border-b border-[#222] flex gap-6 overflow-x-auto scrollbar-hide">
-        <button onClick={() => setView('music')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'music' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
-          MUSIC
-        </button>
-        <button onClick={() => setView('podcasts')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'podcasts' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
-          PODCASTS
-        </button>
-
-        {currentUser && (
-          <button onClick={() => setView('dashboard')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'dashboard' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
-            DASHBOARD
-          </button>
-        )}
-
-        {selectedArtistId && (
-          <button onClick={() => setView('artist')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'artist' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
-            ARTIST
-          </button>
-        )}
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-            <div>
-              <h1 className="text-4xl font-bold text-white mb-2">🎵 UNERA Music</h1>
-              <p className="text-[#B0B3B8] text-lg">Stream and discover trending music</p>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search music or podcasts..."
-                  className="bg-[#242526] text-white px-4 py-3 pl-10 rounded-xl w-full md:w-64 border border-[#3E4042] focus:border-[#1877F2] focus:outline-none"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-                <i className="fas fa-search absolute left-3 top-3.5 text-[#B0B3B8]"></i>
-              </div>
-
-              <button
-                onClick={() => {
-                  // manual refresh
-                  fetchSongs();
-                  fetchPodcasts();
-                }}
-                className="bg-[#242526] border border-[#3E4042] px-4 py-3 rounded-xl hover:border-[#1877F2] transition-colors"
-                title="Refresh"
-              >
-                <i className="fas fa-rotate-right text-[#B0B3B8]"></i>
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 rounded-xl">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <i className="fas fa-triangle-exclamation"></i>
-                  <span className="text-sm font-semibold">{error}</span>
-                </div>
-                <button onClick={() => { fetchSongs(); fetchPodcasts(); }} className="text-sm font-bold text-[#1877F2] hover:underline">
-                  Retry
-                </button>
-              </div>
-            </div>
+          {view === 'register' && (
+            <Register 
+              onRegister={handleRegister} 
+              onBackToLogin={() => setView('login')} 
+              error={loginError}
+            />
           )}
         </div>
 
-        {showLoading && (
-          <div className="flex justify-center py-16">
-            <div className="w-10 h-10 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
-          </div>
-        )}
-
-        {/* MUSIC VIEW */}
-        {view === 'music' && !showLoading && (
-          <div className="space-y-8">
-            {/* Trending */}
-            <div className="bg-[#242526] rounded-2xl p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">🔥 Trending Now</h2>
-                  <p className="text-[#B0B3B8] text-sm mt-1">Most streamed music this week</p>
-                </div>
-                <button className="text-[#1877F2] hover:text-[#166FE5] font-semibold">View Chart</button>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                {trendingSongs.length > 0 ? (
-                  trendingSongs.map((song) => (
-                    <div
-                      key={song.id}
-                      className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
-                      onClick={() => handlePlayTrackFromSong(song)}
-                    >
-                      <div className="relative aspect-square overflow-hidden">
-                        <img src={song.cover} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        <div className="absolute top-2 left-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">🔥 {(song.stats as any)?.plays || 0}</div>
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-                            <i className="fas fa-play text-black text-xl ml-1"></i>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="p-3">
-                        <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
-                        <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
-                          {song.artist}
-                          {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                        </p>
-                        <div className="flex justify-between items-center mt-2">
-                          <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleLike(String(song.id), 'music');
-                            }}
-                            className="text-sm hover:scale-110 transition-transform"
-                            title="Like"
-                          >
-                            <i className={`${likedTracks.includes(String(song.id)) ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="col-span-5 text-center py-8">
-                    <i className="fas fa-fire text-4xl text-[#B0B3B8] mb-4"></i>
-                    <p className="text-[#B0B3B8]">No trending music yet</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* New Releases */}
-            <div className="bg-[#242526] rounded-2xl p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">✨ New Releases</h2>
-                  <p className="text-[#B0B3B8] text-sm mt-1">Recently uploaded music</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                {recentSongs.length > 0 ? (
-                  recentSongs.map((song) => (
-                    <div
-                      key={song.id}
-                      className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
-                      onClick={() => handlePlayTrackFromSong(song)}
-                    >
-                      <div className="relative aspect-square overflow-hidden">
-                        <img src={song.cover} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        <div className="absolute top-2 left-2 bg-[#1877F2] text-white text-xs font-bold px-2 py-1 rounded">NEW</div>
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-                            <i className="fas fa-play text-black text-xl ml-1"></i>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="p-3">
-                        <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
-                        <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
-                          {song.artist}
-                          {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                        </p>
-                        <div className="flex justify-between items-center mt-2">
-                          <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleLike(String(song.id), 'music');
-                            }}
-                            className="text-sm hover:scale-110 transition-transform"
-                            title="Like"
-                          >
-                            <i className={`${likedTracks.includes(String(song.id)) ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="col-span-5 text-center py-8">
-                    <i className="fas fa-music text-4xl text-[#B0B3B8] mb-4"></i>
-                    <p className="text-[#B0B3B8]">No new releases yet</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* All Music */}
-            <div className="bg-[#242526] rounded-2xl p-6">
-              <h2 className="text-2xl font-bold text-white mb-6">All Music ({filteredSongs.length})</h2>
-
-              <div className="space-y-2">
-                {filteredSongs.length > 0 ? (
-                  filteredSongs.map((song, index) => (
-                    <div
-                      key={song.id}
-                      className="flex items-center gap-4 p-4 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors group"
-                      onClick={() => handlePlayTrackFromSong(song)}
-                    >
-                      <div className="text-[#B0B3B8] font-bold w-6 text-center">{index + 1}</div>
-
-                      <img src={song.cover} alt={song.title} className="w-12 h-12 rounded-lg object-cover" />
-
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-white truncate">{song.title}</h3>
-
-                        <div
-                          className="flex items-center gap-1 text-[#B0B3B8] text-sm cursor-pointer hover:underline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (song.uploaderId) handleArtistClick(song.uploaderId);
-                          }}
-                        >
-                          <span>{song.artist}</span>
-                          {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                          {(song.stats as any)?.plays > 1000 && (
-                            <span className="text-xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded ml-2">🔥 {(song.stats as any).plays} plays</span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4">
-                        <span className="text-[#B0B3B8] text-sm">{(song as any).duration || '3:00'}</span>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleLike(String(song.id), 'music');
-                          }}
-                          className="text-lg hover:scale-110 transition-transform"
-                          title="Like"
-                        >
-                          <i className={`${likedTracks.includes(String(song.id)) ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
-                        </button>
-
-                        {isAdmin && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteSong(String(song.id));
-                            }}
-                            className="text-red-500 hover:text-red-400"
-                            title="Delete"
-                          >
-                            <i className="fas fa-trash"></i>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center py-12">
-                    <i className="fas fa-music text-5xl text-[#B0B3B8] mb-4"></i>
-                    <p className="text-[#B0B3B8] text-lg">No songs found</p>
-                    {searchQuery && <p className="text-[#B0B3B8] text-sm mt-2">Try a different search term</p>}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* PODCAST VIEW */}
-        {view === 'podcasts' && !showLoading && (
-          <div className="space-y-8">
-            <div className="bg-[#242526] rounded-2xl p-6">
-              <h2 className="text-2xl font-bold text-white mb-6">Podcasts & Episodes ({filteredEpisodes.length})</h2>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredEpisodes.length > 0 ? (
-                  filteredEpisodes.map((episode) => (
-                    <div
-                      key={episode.id}
-                      className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
-                      onClick={() => handlePlayTrackFromEpisode(episode)}
-                    >
-                      <div className="p-4">
-                        <div className="flex items-start gap-4">
-                          <div className="relative w-16 h-16 flex-shrink-0">
-                            <img src={(episode as any).thumbnail} alt={episode.title} className="w-full h-full object-cover rounded-lg" />
-                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <i className="fas fa-play text-white"></i>
-                            </div>
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-bold text-white line-clamp-2">{episode.title}</h3>
-                            <p className="text-[#B0B3B8] text-sm mt-1 flex items-center gap-1">
-                              {(episode as any).host || 'Unknown Host'}
-                              {users.find((u) => u.id === episode.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                            </p>
-
-                            <div className="flex items-center justify-between mt-3">
-                              <span className="text-[#B0B3B8] text-xs">{(episode as any).duration || '45:00'}</span>
-
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleLike(String(episode.id), 'podcast');
-                                  }}
-                                  className="text-lg hover:scale-110 transition-transform"
-                                  title="Like"
-                                >
-                                  <i className={`${likedTracks.includes(String(episode.id)) ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
-                                </button>
-
-                                {isAdmin && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      deleteEpisode(String(episode.id));
-                                    }}
-                                    className="text-red-500 hover:text-red-400"
-                                    title="Delete"
-                                  >
-                                    <i className="fas fa-trash"></i>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {(episode as any).description && <p className="text-[#B0B3B8] text-sm mt-3 line-clamp-2">{(episode as any).description}</p>}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="col-span-3 text-center py-12">
-                    <i className="fas fa-podcast text-5xl text-[#B0B3B8] mb-4"></i>
-                    <p className="text-[#B0B3B8] text-lg">No podcasts found</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* DASHBOARD */}
-        {view === 'dashboard' && currentUser && !showLoading && (
-          <div className="space-y-8">
-            <div className="bg-[#242526] rounded-2xl p-6">
-              <div className="flex flex-col items-center justify-center mb-10 mt-4 text-center">
-                <h2 className="text-3xl font-bold mb-3 bg-gradient-to-r from-white to-gray-400 text-transparent bg-clip-text">Creator Studio</h2>
-                <p className="text-[#888] mb-6 max-w-2xl">Upload your music, podcasts, and albums. Monitor your performance.</p>
-
-                <button
-                  onClick={() => setShowUploadModal(true)}
-                  className="bg-gradient-to-r from-[#1877F2] to-[#0062E3] px-10 py-4 rounded-full font-bold flex items-center gap-3 hover:scale-105 transition-transform shadow-[0_4px_20px_rgba(24,119,242,0.5)] text-lg"
-                >
-                  <i className="fas fa-cloud-upload-alt text-2xl"></i> Upload New Content
-                </button>
-              </div>
-
-              {/* Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
-                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-sm">Your Songs</p>
-                      <p className="text-2xl font-bold text-white">{songs.filter((s) => s.uploaderId === (currentUser as any).id).length}</p>
-                    </div>
-                    <i className="fas fa-music text-[#1877F2] text-xl"></i>
-                  </div>
-                </div>
-
-                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-sm">Your Podcasts</p>
-                      <p className="text-2xl font-bold text-white">{episodes.filter((e) => e.uploaderId === (currentUser as any).id).length}</p>
-                    </div>
-                    <i className="fas fa-podcast text-[#45BD62] text-xl"></i>
-                  </div>
-                </div>
-
-                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-sm">Total Plays</p>
-                      <p className="text-2xl font-bold text-white">
-                        {songs.filter((s) => s.uploaderId === (currentUser as any).id).reduce((a, s) => a + ((s.stats as any)?.plays || 0), 0) +
-                          episodes.filter((e) => e.uploaderId === (currentUser as any).id).reduce((a, e) => a + ((e.stats as any)?.plays || 0), 0)}
-                      </p>
-                    </div>
-                    <i className="fas fa-headphones text-[#F3425F] text-xl"></i>
-                  </div>
-                </div>
-
-                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-sm">Your Likes</p>
-                      <p className="text-2xl font-bold text-white">{likedTracks.length}</p>
-                    </div>
-                    <i className="fas fa-heart text-[#F3425F] text-xl"></i>
-                  </div>
-                </div>
-              </div>
-
-              {/* Catalog */}
-              <div className="bg-[#1E1E1E] rounded-2xl border border-[#333] overflow-hidden">
-                <div className="p-6 border-b border-[#333]">
-                  <h3 className="text-xl font-bold text-white">Your Catalog</h3>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead className="bg-[#252525] text-[#888] text-xs uppercase font-bold">
-                      <tr>
-                        <th className="p-4">Content</th>
-                        <th className="p-4">Type</th>
-                        <th className="p-4 text-right">Plays</th>
-                        <th className="p-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-
-                    <tbody className="divide-y divide-[#333]">
-                      {[...songs.filter((s) => s.uploaderId === (currentUser as any).id), ...episodes.filter((e) => e.uploaderId === (currentUser as any).id)].map((item: any) => (
-                        <tr key={item.id} className="hover:bg-[#2A2A2A]">
-                          <td className="p-4">
-                            <div className="flex items-center gap-3">
-                              <img src={item.cover || item.thumbnail} className="w-10 h-10 rounded object-cover" alt="" />
-                              <div>
-                                <div className="font-bold text-white text-sm">{item.title}</div>
-                                <div className="text-xs text-[#888]">{item.duration}</div>
-                              </div>
-                            </div>
-                          </td>
-
-                          <td className="p-4">{item.host ? 'Podcast' : 'Music'}</td>
-
-                          <td className="p-4 text-right font-bold text-sm">{(item.stats as any)?.plays || 0}</td>
-
-                          <td className="p-4 text-right">
-                            <button
-                              onClick={() => (item.host ? deleteEpisode(String(item.id)) : deleteSong(String(item.id)))}
-                              className="text-red-500 hover:text-red-400 p-2"
-                              title="Delete"
-                            >
-                              <i className="fas fa-trash-alt"></i>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-
-                      {songs.filter((s) => s.uploaderId === (currentUser as any).id).length === 0 && episodes.filter((e) => e.uploaderId === (currentUser as any).id).length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="p-12 text-center text-[#666]">
-                            <div className="mb-3">
-                              <i className="fas fa-music text-4xl opacity-50"></i>
-                            </div>
-                            <p className="text-lg">No uploads yet.</p>
-                            <p className="text-sm">Start by clicking "Upload New Content" above.</p>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ARTIST VIEW */}
-        {view === 'artist' && selectedArtistUser && !showLoading && (
-          <div className="space-y-8">
-            <div className="bg-[#242526] rounded-2xl overflow-hidden">
-              <div className="h-48 relative">
-                <img src={(selectedArtistUser as any).coverImage || (selectedArtistUser as any).profileImage} className="w-full h-full object-cover" alt="" />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A] to-transparent"></div>
-
-                <div className="absolute bottom-4 left-4 flex items-end gap-4">
-                  <img src={(selectedArtistUser as any).profileImage} className="w-20 h-20 rounded-full border-4 border-[#0A0A0A] shadow-xl object-cover" alt="" />
-                  <div className="mb-2">
-                    <h1 className="text-2xl font-bold flex items-center gap-2">
-                      {selectedArtistUser.name}
-                      {(selectedArtistUser as any).isVerified && <i className="fas fa-check-circle text-[#1877F2] text-sm"></i>}
-                    </h1>
-                    <p className="text-[#CCC] text-sm">{((selectedArtistUser as any).followers?.length || 0)} Followers</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-white mb-4">Popular Releases</h2>
-                  <div className="space-y-2">
-                    {songs
-                      .filter((s) => s.uploaderId === selectedArtistUser.id)
-                      .slice(0, 5)
-                      .map((song, i) => (
-                        <div
-                          key={song.id}
-                          className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors group"
-                          onClick={() => handlePlayTrackFromSong(song)}
-                        >
-                          <div className="text-[#B0B3B8] font-bold w-4 text-center group-hover:hidden">{i + 1}</div>
-                          <div className="hidden group-hover:block w-4 text-center text-white">
-                            <i className="fas fa-play"></i>
-                          </div>
-
-                          <img src={song.cover} className="w-10 h-10 rounded object-cover" alt="" />
-
-                          <div className="flex-1">
-                            <div className="font-bold text-white text-sm">{song.title}</div>
-                            <div className="text-xs text-[#888]">{(song.stats as any)?.plays || 0} plays</div>
-                          </div>
-
-                          <div className="text-sm text-[#B0B3B8]">{(song as any).duration || '3:00'}</div>
-                        </div>
-                      ))}
-
-                    {songs.filter((s) => s.uploaderId === selectedArtistUser.id).length === 0 && <p className="text-[#666] text-center py-4">No tracks available from this artist.</p>}
-                  </div>
-                </div>
-              </div>
-            </div>
+        {currentUser && (
+          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
+            <RightSidebar
+              contacts={users.filter((u) => u.id !== currentUser.id)}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
           </div>
         )}
       </div>
 
-      {/* Upload Modal */}
-      {showUploadModal && currentUser && (
-        <AudioUploadModal
+      {/* Modals / Overlays */}
+      {activeProduct && (
+        <ProductDetailModal
+          product={activeProduct}
           currentUser={currentUser}
-          onClose={() => setShowUploadModal(false)}
-          onUploaded={() => {
-            fetchSongs();
-            fetchPodcasts();
+          onClose={() => setActiveProduct(null)}
+          onMessage={(id) => {
+            if (!requireAuth('Messaging')) return;
+            setActiveChatUser(users.find((u) => u.id === id) || null);
+            setView('home');
+          }}
+          onFollow={followUser}
+          checkIsFollowing={checkIsFollowing}
+        />
+      )}
+
+      {showCreateEventModal && currentUser && (
+        <CreateEventModal
+          currentUser={currentUser}
+          onClose={() => setShowCreateEventModal(false)}
+          onCreate={() => {}}
+        />
+      )}
+
+      {showCreatePostModal && currentUser && (
+        <CreatePostModal
+          currentUser={currentUser}
+          users={users}
+          onClose={() => setShowCreatePostModal(false)}
+          onCreatePost={(text: string, file: File | null, meta?: any) => createPost(text, file, meta)}
+        />
+      )}
+
+      {activePost && currentUser && (
+        <CommentsSheet
+          post={activePost}
+          currentUser={currentUser}
+          users={users}
+          onClose={() => {
+            setActiveCommentsPostId(null);
+            setCommentPostSnapshot(null);
+          }}
+          onComment={() => {}}
+          // ✅ ADDED: Pass onLikeComment handler
+          onLikeComment={handleLikeComment}
+          getCommentAuthor={(id) => users.find((u) => u.id === id)}
+          onProfileClick={(id) => openProfile(id)}
+          // ✅ ADDED: Pass onHashtagClick handler for comments
+          onHashtagClick={handleHashtagClick}
+          onFollow={followUser}
+          checkIsFollowing={checkIsFollowing}
+        />
+      )}
+
+      {activeSharePost && (
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => {
+            setShowShareSheet(false);
+            setActiveSharePost(null);
+          }}
+          post={activeSharePost}
+          currentUser={currentUser}
+          users={users}
+          groups={groups}
+          brands={brands}
+          chats={chats}
+          onShareComplete={handleShareComplete}
+          onFollow={followUser}
+          checkIsFollowing={checkIsFollowing}
+        />
+      )}
+
+      {currentAudioTrack && (
+        <GlobalAudioPlayer
+          currentTrack={currentAudioTrack}
+          isPlaying={isAudioPlaying}
+          onTogglePlay={() => setIsAudioPlaying(!isAudioPlaying)}
+          onNext={() => {}}
+          onPrevious={() => {}}
+          onClose={() => setCurrentAudioTrack(null)}
+          onDownload={() => {}}
+          onLike={() => requireAuth('Liking')}
+          isLiked={false}
+        />
+      )}
+
+      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+
+      {/* ✅ ✅ ✅ UPDATED: StoryViewer with all fixes (no flickering, stable navigation, follow support) */}
+      {activeStory && (
+        <StoryViewer
+          story={activeStory}
+          user={(() => {
+            const uid = Number((activeStory as any)?.user_id);
+            const fromUsers = users.find((u) => Number(u.id) === uid);
+
+            if (fromUsers) return fromUsers;
+
+            const name =
+              String((activeStory as any)?.author_name || "").trim() ||
+              String((activeStory as any)?.username || "").trim() ||
+              "User";
+
+            return {
+              id: uid,
+              name,
+              username: String((activeStory as any)?.author_username || name).toLowerCase().replace(/\s+/g, "_"),
+              // ✅ FIXED: Generate avatar if author_image empty
+              profile_image_url:
+                String((activeStory as any)?.author_image || "").trim() ||
+                generateProfilePictureUrl(name, uid),
+            } as any;
+          })()}
+          currentUser={currentUser}
+          onClose={() => setActiveStory(null)}
+          onFollow={(id) => followUser(id)}
+          isFollowing={checkIsFollowing(Number((activeStory as any)?.user_id))}
+          onNext={() => {
+            const uid = Number((activeStory as any).user_id);
+
+            const decks = Array.from(
+              new Set(safeArray(stories).map((s: any) => Number(s.user_id)))
+            );
+
+            const userDeck = safeArray(stories)
+              .filter((s: any) => Number(s.user_id) === uid)
+              .slice()
+              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
+
+            const idx = userDeck.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
+            const nextInUser = userDeck[idx + 1];
+
+            if (nextInUser) return setActiveStory(nextInUser);
+
+            // move to next user's first story
+            const deckIndex = decks.findIndex((x) => x === uid);
+            const nextUserId = decks[deckIndex + 1];
+            if (!nextUserId) return setActiveStory(null);
+
+            const nextUserDeck = safeArray(stories)
+              .filter((s: any) => Number(s.user_id) === Number(nextUserId))
+              .slice()
+              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
+
+            setActiveStory(nextUserDeck[0] || null);
+          }}
+          onPrev={() => {
+            const uid = Number((activeStory as any).user_id);
+
+            const decks = Array.from(
+              new Set(safeArray(stories).map((s: any) => Number(s.user_id)))
+            );
+
+            const userDeck = safeArray(stories)
+              .filter((s: any) => Number(s.user_id) === uid)
+              .slice()
+              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
+
+            const idx = userDeck.findIndex((s: any) => Number(s.id) === Number((activeStory as any).id));
+            const prevInUser = userDeck[idx - 1];
+
+            if (prevInUser) return setActiveStory(prevInUser);
+
+            // move to previous user's last story
+            const deckIndex = decks.findIndex((x) => x === uid);
+            const prevUserId = decks[deckIndex - 1];
+            if (!prevUserId) return;
+
+            const prevUserDeck = safeArray(stories)
+              .filter((s: any) => Number(s.user_id) === Number(prevUserId))
+              .slice()
+              .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
+
+            setActiveStory(prevUserDeck[prevUserDeck.length - 1] || null);
+          }}
+          onLike={(id) => likeStory(id)}
+          onReply={(id, text) => replyToStory(id, text)}
+          allStories={stories}
+        />
+      )}
+
+      {showCreateStoryModal && currentUser && (
+        <CreateStoryModal 
+          currentUser={currentUser} 
+          songs={[]}
+          onClose={() => setShowCreateStoryModal(false)}
+          onCreate={(s) => {
+            createStory(s as any);
+            setShowCreateStoryModal(false);
           }}
         />
       )}
+
+      {showCreateReelModal && currentUser && (
+        <CreateReelModal currentUser={currentUser} onClose={() => setShowCreateReelModal(false)} onCreate={() => {}} />
+      )}
     </div>
   );
-};
-
-export default MusicSystem;
+}
