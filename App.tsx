@@ -1,6 +1,3 @@
-
-
-
 // in App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
@@ -9,6 +6,7 @@
 // ✅ FIXED: Follow buttons reading and sending real data from API backend
 // ✅ ADDED: onLikeComment handler for comment likes
 // ✅ ADDED: Hashtag filtering logic for Facebook-like feed filtering
+// ✅ FIXED: Audio playback - immediate play on track selection
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -651,6 +649,14 @@ export default function App() {
 
   // ✅ ADDED: Hashtag filtering state for Facebook-like feed filtering
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
+
+  /** ---------- Audio Playback Helper ---------- */
+  // ✅ ADDED: Single playTrack helper for immediate playback
+  const playTrack = useCallback((track: AudioTrack | null) => {
+    if (!track) return;
+    setCurrentAudioTrack(track);
+    setIsAudioPlaying(true); // ✅ always start playing on selection
+  }, []);
 
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
@@ -1905,7 +1911,8 @@ export default function App() {
                         setActiveReelId(p.id);
                         setView('reels');
                       }}
-                      onPlayAudioTrack={setCurrentAudioTrack}
+                      // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
+                      onPlayAudioTrack={playTrack}
                       groups={groups}
                       brands={brands}
                       chats={chats}
@@ -1957,6 +1964,8 @@ export default function App() {
               initialReelId={activeReelId}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
+              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
+              onPlayAudioTrack={playTrack}
             />
           )}
 
@@ -1990,7 +1999,8 @@ export default function App() {
               onDeleteGroupPost={() => requireAuth('Deleting posts')}
               onRemoveMember={() => requireAuth('Removing members')}
               onUpdateGroupSettings={() => requireAuth('Updating settings')}
-              onPlayAudioTrack={setCurrentAudioTrack}
+              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
+              onPlayAudioTrack={playTrack}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
             />
@@ -2017,7 +2027,8 @@ export default function App() {
                 setCommentPostSnapshot(found);
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
-              onPlayAudioTrack={setCurrentAudioTrack}
+              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
+              onPlayAudioTrack={playTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
             />
@@ -2026,7 +2037,8 @@ export default function App() {
           {view === 'music' && (
             <MusicSystem
               currentUser={currentUser}
-              onPlayTrack={setCurrentAudioTrack}
+              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
+              onPlayTrack={playTrack}
               onProfileClick={(id) => openProfile(id)}
               likedTracks={[]}
               onToggleLike={() => requireAuth('Liking')}
@@ -2089,7 +2101,8 @@ export default function App() {
               onViewImage={setFullScreenImage}
               onOpenComments={(id) => onOpenComments(id)}
               onVideoClick={() => {}}
-              onPlayAudioTrack={setCurrentAudioTrack}
+              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
+              onPlayAudioTrack={playTrack}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
             />
@@ -2132,7 +2145,8 @@ export default function App() {
                 setActiveReelId((p as any).id);
                 setView('reels');
               }}
-              onPlayAudioTrack={setCurrentAudioTrack}
+              // ✅ FIXED: Use playTrack helper instead of setCurrentAudioTrack
+              onPlayAudioTrack={playTrack}
               onCreateStoryClick={handleCreateStoryFromProfile}
               // ✅ PROFESSIONALLY FIXED: Pass admin handlers with correct prop types
               onVerifyUser={(id) => verifyUser(id)}
@@ -2254,10 +2268,15 @@ export default function App() {
         <GlobalAudioPlayer
           currentTrack={currentAudioTrack}
           isPlaying={isAudioPlaying}
-          onTogglePlay={() => setIsAudioPlaying(!isAudioPlaying)}
+          // ✅ FIXED: Use functional update for stable toggle
+          onTogglePlay={() => setIsAudioPlaying((p) => !p)}
           onNext={() => {}}
           onPrevious={() => {}}
-          onClose={() => setCurrentAudioTrack(null)}
+          // ✅ FIXED: Close must also stop playing
+          onClose={() => {
+            setCurrentAudioTrack(null);
+            setIsAudioPlaying(false);
+          }}
           onDownload={() => {}}
           onLike={() => requireAuth('Liking')}
           isLiked={false}
