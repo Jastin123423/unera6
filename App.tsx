@@ -15,6 +15,8 @@
 // ✅ ADDED: Track plays count synchronization
 // ✅ FIXED: Total plays persistence across refreshes
 // ✅ FIXED: Profile picture display in audio player
+// ✅ ADDED: Modern Boomplay-style player design with rotating album art
+// ✅ ADDED: Default music cover for songs without covers
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -61,21 +63,6 @@ import {
   Brand,
 } from './types';
 
-// Add this with your other constants
-const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
-
-// ✅ Also update the generateProfilePictureUrl function to use proper sizing for music covers
-const generateProfilePictureUrl = (name: string, identifier: string | number): string => {
-  const initials = generateInitials(name);
-  const backgroundColor = getUserColor(identifier).replace('#', '');
-  const size = 128;
-  const fontSize = 0.5;
-  const textColor = 'FFFFFF';
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
-    initials
-  )}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
-};
-
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
@@ -83,6 +70,10 @@ const safeNumber = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+
+/** ---------- Constants ---------- */
+const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
+const LS_USER_KEY = 'user';
 
 /** ---------- Facebook-like feed session + seen cache ---------- */
 const FEED_SESSION_KEY = 'unera_feed_session_seed';
@@ -532,8 +523,6 @@ type View =
   | 'login'
   | 'register';
 
-const LS_USER_KEY = 'user';
-
 /**
  * Normalize FEED rows returned by /api/feeds
  */
@@ -875,14 +864,24 @@ export default function App() {
 
   /** ---------- ✅ CORE PLAYER ACTIONS ---------- */
   const onPlayTrack = useCallback((track: AudioTrack) => {
-    setCurrentAudioTrack(track);
+    // ✅ Ensure track has a valid cover, use default if not
+    const trackWithCover = {
+      ...track,
+      cover: track.cover && 
+             track.cover.trim() !== '' && 
+             track.cover.startsWith('http')
+             ? track.cover
+             : DEFAULT_MUSIC_COVER
+    };
+
+    setCurrentAudioTrack(trackWithCover);
     setIsAudioPlaying(true);
 
     // store history (no duplicates back-to-back)
     setPlayHistory(prev => {
       const last = prev[0];
       if (last && last.type === track.type && String(last.id) === String(track.id)) return prev;
-      return [track, ...prev].slice(0, 50);
+      return [trackWithCover, ...prev].slice(0, 50);
     });
   }, []);
 
@@ -900,9 +899,17 @@ export default function App() {
     setPlayHistory(prev => {
       if (prev.length < 2) return prev;
       const next = prev[1];
-      setCurrentAudioTrack(next);
+      const nextWithCover = {
+        ...next,
+        cover: next.cover && 
+               next.cover.trim() !== '' && 
+               next.cover.startsWith('http')
+               ? next.cover
+               : DEFAULT_MUSIC_COVER
+      };
+      setCurrentAudioTrack(nextWithCover);
       setIsAudioPlaying(true);
-      return [next, ...prev.filter((_, i) => i !== 1)].slice(0, 50);
+      return [nextWithCover, ...prev.filter((_, i) => i !== 1)].slice(0, 50);
     });
   }, []);
 
@@ -911,9 +918,17 @@ export default function App() {
     setPlayHistory(prev => {
       if (prev.length < 2) return prev;
       const prevTrack = prev[1];
-      setCurrentAudioTrack(prevTrack);
+      const prevTrackWithCover = {
+        ...prevTrack,
+        cover: prevTrack.cover && 
+               prevTrack.cover.trim() !== '' && 
+               prevTrack.cover.startsWith('http')
+               ? prevTrack.cover
+               : DEFAULT_MUSIC_COVER
+      };
+      setCurrentAudioTrack(prevTrackWithCover);
       setIsAudioPlaying(true);
-      return [prevTrack, ...prev.filter((_, i) => i !== 1)].slice(0, 50);
+      return [prevTrackWithCover, ...prev.filter((_, i) => i !== 1)].slice(0, 50);
     });
   }, []);
 
