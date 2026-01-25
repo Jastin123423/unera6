@@ -1,4 +1,6 @@
-//Just in App.tsx (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
+// App.tsx - Updated with New Groups Backend Integration
+
+// (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
 // ✅ FIXED: Immediate reaction updates with my_reaction field
@@ -19,6 +21,7 @@
 // ✅ ADDED: Default music cover for songs without covers
 // ✅ ADDED: Product creation with POST to backend
 // ✅ UPDATED: Product normalization for consistency - FIXED marketplace products issue
+// ✅ UPDATED: Groups backend integration with real API endpoints
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -1323,7 +1326,9 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome]);
 
-  /** ---------- ✅ UPDATED: Fetch other data with product normalization ---------- */
+  // ==================== GROUPS BACKEND INTEGRATIONS ====================
+
+  /** ---------- ✅ 1) UPDATED: Fetch groups correctly (new response shapes) ---------- */
   const fetchOtherData = useCallback(async () => {
     const [s, r, pr, g, b, e, c] = await Promise.all([
       apiFetch('/api/stories').catch(() => []),
@@ -1340,7 +1345,6 @@ export default function App() {
     
     // ✅ FIXED: Handle different API response formats for products
     const prRaw = pr;
-    // try all common shapes
     const prList =
       Array.isArray(prRaw) ? prRaw :
       Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
@@ -1349,18 +1353,288 @@ export default function App() {
       Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
       [];
 
-    // Debug log (remove in production)
-    console.log("API /api/products raw:", prRaw);
-    console.log("API /api/products list length:", prList.length);
-
-    // ✅ UPDATED: Normalize products with proper handling
     setProducts(prList.map(normalizeProduct));
     
-    setGroups(safeArray(g));
+    // ✅ 1) UPDATED: Handle new groups API response shape
+    const gRaw = g;
+    const gList = Array.isArray(gRaw)
+      ? gRaw
+      : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
+      : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
+      : [];
+    
+    setGroups(gList);
+    
     setBrands(safeArray(b));
     setEvents(safeArray(e));
     setChats(safeArray(c));
   }, []);
+
+  /** ---------- ✅ 2) Fetch group posts with viewerId ---------- */
+  const fetchGroupPosts = useCallback(async (groupId: number) => {
+    try {
+      const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+      const res = await apiFetch(`/api/group-posts?group_id=${groupId}&viewerId=${viewerId}`);
+      return safeArray((res as any)?.posts);
+    } catch (error) {
+      console.error('Failed to fetch group posts:', error);
+      return [];
+    }
+  }, [currentUser]);
+
+  /** ---------- ✅ 3) Implement real Group Like toggle ---------- */
+  const toggleGroupPostLike = useCallback(async (postId: number) => {
+    if (!requireAuth("Liking")) return;
+    const meId = Number(currentUser!.id);
+
+    try {
+      const res = await apiFetch("/api/group-post-likes", {
+        method: "POST",
+        body: JSON.stringify({ user_id: meId, post_id: Number(postId) })
+      });
+
+      // backend returns { success, liked, likes_count }
+      return {
+        liked: !!(res as any)?.liked,
+        likes_count: Number((res as any)?.likes_count || 0),
+      };
+    } catch (error) {
+      console.error('Failed to toggle group post like:', error);
+      return { liked: false, likes_count: 0 };
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ 4) Implement Group Comments fetch + create ---------- */
+  const fetchGroupPostComments = useCallback(async (postId: number) => {
+    try {
+      const res = await apiFetch(`/api/group-post-comments?post_id=${Number(postId)}`);
+      return safeArray((res as any)?.comments);
+    } catch (error) {
+      console.error('Failed to fetch group comments:', error);
+      return [];
+    }
+  }, []);
+
+  const createGroupPostComment = useCallback(async (postId: number, text: string, parent_comment_id?: number | null) => {
+    if (!requireAuth("Commenting")) return;
+    const meId = Number(currentUser!.id);
+
+    try {
+      const res = await apiFetch("/api/group-post-comments", {
+        method: "POST",
+        body: JSON.stringify({
+          user_id: meId,
+          post_id: Number(postId),
+          text: String(text || "").trim(),
+          parent_comment_id: parent_comment_id ?? null,
+        }),
+      });
+
+      return res;
+    } catch (error) {
+      console.error('Failed to create group comment:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ 5) Join/Leave group using new endpoints ---------- */
+  const joinGroup = useCallback(async (groupId: number) => {
+    if (!requireAuth("Joining groups")) return;
+    const meId = Number(currentUser!.id);
+
+    try {
+      return await apiFetch("/api/group-members", {
+        method: "POST",
+        body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
+      });
+    } catch (error) {
+      console.error('Failed to join group:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  const leaveGroup = useCallback(async (groupId: number) => {
+    if (!requireAuth("Leaving groups")) return;
+    const meId = Number(currentUser!.id);
+
+    try {
+      return await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      console.error('Failed to leave group:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ 6) Create Group Post with media upload ---------- */
+  const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
+    if (!requireAuth("Posting")) return;
+    const meId = Number(currentUser!.id);
+
+    let media_url: string | null = null;
+    if (file) {
+      const up = await uploadToCloudflareR2(file, "group-posts");
+      media_url = up.url;
+    }
+
+    try {
+      return await apiFetch("/api/group-posts", {
+        method: "POST",
+        body: JSON.stringify({
+          group_id: Number(groupId),
+          user_id: meId,
+          content: String(text || "").trim() || null,
+          media_url,
+        }),
+      });
+    } catch (error) {
+      console.error('Failed to create group post:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ 7) Create Group ---------- */
+  const createGroup = useCallback(async (groupData: Partial<Group>) => {
+    if (!requireAuth("Creating groups")) return;
+    const meId = Number(currentUser!.id);
+
+    try {
+      const res = await apiFetch("/api/groups", {
+        method: "POST",
+        body: JSON.stringify({
+          ...groupData,
+          admin_id: meId,
+          created_at: new Date().toISOString(),
+        }),
+      });
+
+      // Refresh groups list
+      fetchOtherData().catch(() => {});
+      return res;
+    } catch (error) {
+      console.error('Failed to create group:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth, fetchOtherData]);
+
+  /** ---------- ✅ 8) Delete Group ---------- */
+  const deleteGroup = useCallback(async (groupId: number) => {
+    if (!requireAdmin('Deleting groups')) return;
+
+    try {
+      await apiFetch(`/api/groups?id=${Number(groupId)}`, {
+        method: "DELETE",
+      });
+
+      // Refresh groups list
+      fetchOtherData().catch(() => {});
+      return true;
+    } catch (error) {
+      console.error('Failed to delete group:', error);
+      throw error;
+    }
+  }, [requireAdmin, fetchOtherData]);
+
+  /** ---------- ✅ 9) Update Group Settings ---------- */
+  const updateGroupSettings = useCallback(async (groupId: number, settings: Partial<Group>) => {
+    if (!requireAuth("Updating group settings")) return;
+
+    try {
+      const res = await apiFetch(`/api/groups?id=${Number(groupId)}`, {
+        method: "PUT",
+        body: JSON.stringify(settings),
+      });
+
+      // Refresh groups list
+      fetchOtherData().catch(() => {});
+      return res;
+    } catch (error) {
+      console.error('Failed to update group settings:', error);
+      throw error;
+    }
+  }, [requireAuth, fetchOtherData]);
+
+  /** ---------- ✅ 10) Fetch Group Details ---------- */
+  const fetchGroupDetails = useCallback(async (groupId: number) => {
+    try {
+      const res = await apiFetch(`/api/groups?id=${Number(groupId)}`);
+      return {
+        group: (res as any)?.group,
+        members: safeArray((res as any)?.members),
+      };
+    } catch (error) {
+      console.error('Failed to fetch group details:', error);
+      return { group: null, members: [] };
+    }
+  }, []);
+
+  /** ---------- ✅ 11) Invite to Group ---------- */
+  const inviteToGroup = useCallback(async (groupId: number, userIds: number[]) => {
+    if (!requireAuth("Inviting to groups")) return;
+    const meId = Number(currentUser!.id);
+
+    try {
+      return await apiFetch("/api/group-invites", {
+        method: "POST",
+        body: JSON.stringify({
+          group_id: Number(groupId),
+          inviter_id: meId,
+          invitee_ids: userIds,
+        }),
+      });
+    } catch (error) {
+      console.error('Failed to invite to group:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ 12) Delete Group Post ---------- */
+  const deleteGroupPost = useCallback(async (groupId: number, postId: number) => {
+    if (!requireAuth("Deleting group posts")) return;
+
+    try {
+      await apiFetch(`/api/group-posts?post_id=${Number(postId)}`, {
+        method: "DELETE",
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to delete group post:', error);
+      throw error;
+    }
+  }, [requireAuth]);
+
+  /** ---------- ✅ 13) Remove Group Member ---------- */
+  const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
+    if (!requireAdmin('Removing group members')) return;
+
+    try {
+      await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${Number(memberId)}`, {
+        method: "DELETE",
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to remove group member:', error);
+      throw error;
+    }
+  }, [requireAdmin]);
+
+  /** ---------- ✅ 14) Update Group Image ---------- */
+  const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
+    if (!requireAuth("Updating group image")) return;
+
+    try {
+      const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
+      const imageUrl = uploadResult.url;
+
+      const field = type === 'cover' ? 'cover_image' : 'profile_image';
+      await updateGroupSettings(groupId, { [field]: imageUrl } as any);
+      return imageUrl;
+    } catch (error) {
+      console.error('Failed to update group image:', error);
+      throw error;
+    }
+  }, [requireAuth, updateGroupSettings]);
 
   /** ---------- One fetch pipeline ---------- */
   const fetchData = useCallback(
@@ -2403,25 +2677,28 @@ export default function App() {
               currentUser={currentUser}
               groups={groups}
               users={users}
-              onCreateGroup={() => requireAuth('Creating groups')}
-              onJoinGroup={() => requireAuth('Joining groups')}
-              onLeaveGroup={() => requireAuth('Leaving groups')}
-              onDeleteGroup={() => requireAuth('Deleting groups')}
-              onUpdateGroupImage={() => requireAuth('Updating groups')}
-              onPostToGroup={() => requireAuth('Posting')}
+              // ✅ UPDATED: Real group functions instead of requireAuth placeholders
+              onCreateGroup={createGroup}
+              onJoinGroup={joinGroup}
+              onLeaveGroup={leaveGroup}
+              onDeleteGroup={deleteGroup}
+              onUpdateGroupImage={updateGroupImage}
+              onPostToGroup={createGroupPost}
               onCreateGroupEvent={() => requireAuth('Creating events')}
-              onInviteToGroup={() => requireAuth('Inviting')}
+              onInviteToGroup={inviteToGroup}
               onProfileClick={(id) => openProfile(id)}
-              onLikePost={() => requireAuth('Liking')}
+              onLikePost={toggleGroupPostLike}
               onOpenComments={() => requireAuth('Commenting')}
               onSharePost={(post: any) => handleOpenShareSheet(post)}
-              onDeleteGroupPost={() => requireAuth('Deleting posts')}
-              onRemoveMember={() => requireAuth('Removing members')}
-              onUpdateGroupSettings={() => requireAuth('Updating settings')}
+              onDeleteGroupPost={deleteGroupPost}
+              onRemoveMember={removeGroupMember}
+              onUpdateGroupSettings={updateGroupSettings}
               // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayAudioTrack={onPlayTrack}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
+              // ✅ ADDED: Optional initialGroupId prop
+              initialGroupId={null}
             />
           )}
 
