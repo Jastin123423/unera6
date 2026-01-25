@@ -1,4 +1,4 @@
-// functions/api/groups.ts
+//. functions/api/groups.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { cors, ok, bad, server, json } from "./_cors";
 
