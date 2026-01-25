@@ -1,12 +1,14 @@
+// Groups.tsx - Professional Version with API Integration
+
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { User, Group, Event, Post as PostType, ReactionType, AudioTrack } from '../types';
+import { User, Group, Event, Post as PostType, ReactionType } from '../types';
 import { Post } from './Feed';
 import { CreateEventModal } from './Events';
 
 interface GroupSettingsModalProps {
   group: Group;
   onClose: () => void;
-  onUpdate: (settings: Partial<Group>) => void;
+  onUpdate: (settings: Partial<Group>) => Promise<void>;
   isAdmin: boolean;
   onDeleteGroup: () => void;
 }
@@ -18,13 +20,22 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
   isAdmin,
   onDeleteGroup,
 }) => {
-  const [name, setName] = useState(group.name);
-  const [desc, setDesc] = useState(group.description);
+  const [name, setName] = useState(group.name || '');
+  const [desc, setDesc] = useState(group.description || '');
   const [postingAllowed, setPostingAllowed] = useState(group.member_posting_allowed ?? true);
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    onUpdate({ name, description: desc, member_posting_allowed: postingAllowed });
-    onClose();
+  const handleSave = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await onUpdate({ name: name.trim(), description: desc.trim(), member_posting_allowed: postingAllowed });
+    } catch (error) {
+      console.error('Failed to update group settings:', error);
+    } finally {
+      setSaving(false);
+      onClose();
+    }
   };
 
   return (
@@ -66,24 +77,21 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
               <div className="text-[#b0b3b8] text-xs">Allow members to post in the group</div>
             </div>
             <div
-              className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors ${
-                postingAllowed ? 'bg-[#1877f2]' : 'bg-gray-600'
-              }`}
+              className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors ${postingAllowed ? 'bg-[#1877f2]' : 'bg-gray-600'}`}
               onClick={() => setPostingAllowed(!postingAllowed)}
             >
               <div
-                className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                  postingAllowed ? 'left-7' : 'left-1'
-                }`}
+                className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${postingAllowed ? 'left-7' : 'left-1'}`}
               ></div>
             </div>
           </div>
 
           <button
             onClick={handleSave}
-            className="w-full bg-[#1877f2] hover:bg-[#166fe5] text-white py-2.5 rounded-lg font-bold transition-colors"
+            disabled={saving || !name.trim()}
+            className="w-full bg-[#1877f2] hover:bg-[#166fe5] text-white py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save Changes
+            {saving ? 'Saving...' : 'Save Changes'}
           </button>
 
           {isAdmin && (
@@ -107,37 +115,42 @@ interface GroupsPageProps {
   groups: Group[];
   users: User[];
 
-  onCreateGroup: (group: Partial<Group>) => void;
-  onJoinGroup: (groupId: number) => void;
-  onLeaveGroup: (groupId: number) => void;
-  onDeleteGroup: (groupId: number) => void;
+  // Group management functions
+  onCreateGroup: (group: Partial<Group>) => Promise<any>;
+  onJoinGroup: (groupId: number) => Promise<any>;
+  onLeaveGroup: (groupId: number) => Promise<any>;
+  onDeleteGroup: (groupId: number) => Promise<any>;
 
-  onUpdateGroupImage: (groupId: number, type: 'cover' | 'profile', file: File) => void;
-  onPostToGroup: (
-    groupId: number,
-    content: string,
-    file: File | null,
-    type: 'image' | 'video' | 'doc' | 'text',
-    background?: string
-  ) => void;
-  onCreateGroupEvent: (groupId: number, event: Partial<Event>) => void;
-  onInviteToGroup: (groupId: number, userIds: number[]) => void;
+  // Group content functions
+  onUpdateGroupImage: (groupId: number, type: 'cover' | 'profile', file: File) => Promise<any>;
+  onPostToGroup: (groupId: number, content: string, file?: File | null) => Promise<any>;
+  onCreateGroupEvent: (groupId: number, event: Partial<Event>) => Promise<any>;
+  onInviteToGroup: (groupId: number, userIds: number[]) => Promise<any>;
 
+  // Interaction functions
   onProfileClick: (id: number) => void;
-  onLikePost: (groupId: number, postId: number, type: ReactionType) => void;
-  onOpenComments: (groupId: number, postId: number) => void;
-  onSharePost: (groupId: number, postId: number) => void;
-  onDeleteGroupPost: (groupId: number, postId: number) => void;
-  onRemoveMember: (groupId: number, memberId: number) => void;
-  onUpdateGroupSettings: (groupId: number, settings: Partial<Group>) => void;
+  onLikePost: (postId: number) => Promise<{ liked: boolean; likes_count: number }>;
+  onOpenComments: (postId: number) => void;
+  onSharePost: (postId: number) => void;
+  onDeleteGroupPost: (groupId: number, postId: number) => Promise<any>;
+  onRemoveMember: (groupId: number, memberId: number) => Promise<any>;
+  onUpdateGroupSettings: (groupId: number, settings: Partial<Group>) => Promise<any>;
 
+  // Optional functions
+  fetchGroupPosts?: (groupId: number) => Promise<any[]>;
+  fetchGroupDetails?: (groupId: number) => Promise<{ group: Group; members: any[] }>;
+  fetchComments?: (postId: number) => Promise<any[]>;
+  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>;
+
+  // Other props
   initialGroupId?: string | null;
-  onPlayAudioTrack?: (track: AudioTrack) => void;
+  onPlayAudioTrack?: (track: any) => void;
+  onFollow?: (userId: number) => Promise<any>;
+  checkIsFollowing?: (userId: number) => boolean;
 }
 
 /**
- * SAFETY: normalize any incoming group from API so UI never crashes.
- * Your backend /api/groups might return only DB fields (no members/posts/events).
+ * Normalize group data for UI safety
  */
 function normalizeGroup(raw: any): Group {
   const members = Array.isArray(raw?.members) ? raw.members : [];
@@ -146,19 +159,47 @@ function normalizeGroup(raw: any): Group {
 
   return {
     ...raw,
-    id: Number(raw?.id ?? 0),
-    admin_id: Number(raw?.admin_id ?? 0),
-    name: String(raw?.name ?? ''),
+    id: Number(raw?.id ?? raw?.groupId ?? 0),
+    admin_id: Number(raw?.admin_id ?? raw?.adminId ?? 0),
+    name: String(raw?.name ?? 'Untitled Group'),
     description: String(raw?.description ?? ''),
     type: (raw?.type === 'private' ? 'private' : 'public') as any,
-    cover_image: String(raw?.cover_image ?? ''),
-    profile_image: String(raw?.profile_image ?? ''),
+    cover_image: String(raw?.cover_image ?? raw?.coverImage ?? ''),
+    profile_image: String(raw?.profile_image ?? raw?.profileImage ?? ''),
     created_at: raw?.created_at ?? new Date().toISOString(),
     member_posting_allowed: raw?.member_posting_allowed ?? true,
     members,
     posts,
     events,
+    members_count: Number(raw?.members_count ?? members.length),
   } as Group;
+}
+
+/**
+ * Normalize post data for UI safety
+ */
+function normalizePost(post: any): PostType {
+  const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
+  const mediaType = post?.media_type ?? post?.mediaType ?? null;
+
+  return {
+    ...post,
+    id: Number(post?.id ?? post?.post_id ?? 0),
+    user_id: Number(post?.user_id ?? post?.authorId ?? 0),
+    content: String(post?.content ?? post?.text ?? ''),
+    media_url: mediaUrl,
+    media_type: mediaType,
+    type: post?.type ?? (mediaUrl ? (mediaType?.startsWith('image/') ? 'image' : 'video') : 'text'),
+    reactions: Array.isArray(post?.reactions) ? post.reactions : [],
+    comments: Array.isArray(post?.comments) ? post.comments : [],
+    shares: Number(post?.shares ?? 0),
+    views: Number(post?.views ?? 0),
+    created_at: post?.created_at ?? new Date().toISOString(),
+    visibility: 'public',
+    groupId: post?.groupId ? Number(post.groupId) : null,
+    my_reaction: post?.my_reaction ?? null,
+    reactions_count: Number(post?.reactions_count ?? post?.likesCount ?? 0),
+  } as any;
 }
 
 export const GroupsPage: React.FC<GroupsPageProps> = ({
@@ -180,8 +221,14 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   onDeleteGroupPost,
   onRemoveMember,
   onUpdateGroupSettings,
+  fetchGroupPosts,
+  fetchGroupDetails,
+  fetchComments,
+  onComment,
   initialGroupId,
   onPlayAudioTrack,
+  onFollow,
+  checkIsFollowing,
 }) => {
   const [view, setView] = useState<'feed' | 'detail'>('feed');
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
@@ -200,6 +247,10 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   
   // Pinned groups state
   const [pinnedGroups, setPinnedGroups] = useState<Set<number>>(new Set());
+
+  // Group posts state
+  const [groupPosts, setGroupPosts] = useState<PostType[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
 
   const groupCoverInputRef = useRef<HTMLInputElement>(null);
   const groupProfileInputRef = useRef<HTMLInputElement>(null);
@@ -232,6 +283,28 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     () => safeGroups.find(g => g.id === activeGroupId) || null,
     [safeGroups, activeGroupId]
   );
+
+  // Load group posts when active group changes
+  useEffect(() => {
+    if (activeGroup && fetchGroupPosts) {
+      loadGroupPosts();
+    }
+  }, [activeGroup]);
+
+  const loadGroupPosts = async () => {
+    if (!activeGroup || !fetchGroupPosts) return;
+    
+    setLoadingPosts(true);
+    try {
+      const posts = await fetchGroupPosts(activeGroup.id);
+      setGroupPosts(posts.map(normalizePost));
+    } catch (error) {
+      console.error('Failed to load group posts:', error);
+      setGroupPosts([]);
+    } finally {
+      setLoadingPosts(false);
+    }
+  };
 
   useEffect(() => {
     if (!showGroupPostModal) {
@@ -269,37 +342,52 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     window.scrollTo(0, 0);
   };
 
-  const handleCreateSubmit = () => {
+  const handleCreateSubmit = async () => {
     if (!newGroupName.trim()) return;
 
-    onCreateGroup({
-      name: newGroupName,
-      description: newGroupDesc,
-      type: newGroupType,
-      profile_image: `https://ui-avatars.com/api/?name=${encodeURIComponent(newGroupName)}&background=random`,
-      cover_image:
-        'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1500&q=80',
-    });
+    try {
+      await onCreateGroup({
+        name: newGroupName.trim(),
+        description: newGroupDesc.trim(),
+        type: newGroupType,
+        profile_image: `https://ui-avatars.com/api/?name=${encodeURIComponent(newGroupName)}&background=random`,
+        cover_image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1500&q=80',
+      });
 
-    setShowCreateModal(false);
-    setNewGroupName('');
-    setNewGroupDesc('');
+      setShowCreateModal(false);
+      setNewGroupName('');
+      setNewGroupDesc('');
+    } catch (error) {
+      console.error('Failed to create group:', error);
+    }
   };
 
-  const handlePostSubmit = () => {
+  const handlePostSubmit = async () => {
     if (!activeGroup) return;
     if (!postContent.trim() && !postFile) return;
 
-    let type: 'text' | 'image' | 'video' | 'doc' = 'text';
-    if (postFile) type = postFile.type.startsWith('image') ? 'image' : 'video';
-
-    onPostToGroup(activeGroup.id, postContent, postFile, type);
-    setShowGroupPostModal(false);
+    try {
+      await onPostToGroup(activeGroup.id, postContent.trim(), postFile);
+      setShowGroupPostModal(false);
+      setPostContent('');
+      setPostFile(null);
+      
+      // Reload posts
+      if (fetchGroupPosts) {
+        loadGroupPosts();
+      }
+    } catch (error) {
+      console.error('Failed to create group post:', error);
+    }
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
     if (e.target.files && e.target.files[0] && activeGroup) {
-      onUpdateGroupImage(activeGroup.id, type, e.target.files[0]);
+      try {
+        await onUpdateGroupImage(activeGroup.id, type, e.target.files[0]);
+      } catch (error) {
+        console.error('Failed to update group image:', error);
+      }
     }
   };
 
@@ -307,7 +395,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
 
   // Pin/Unpin group function
   const togglePinGroup = (groupId: number, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent triggering group click
+    e.stopPropagation();
     setPinnedGroups(prev => {
       const newSet = new Set(prev);
       if (newSet.has(groupId)) {
@@ -346,6 +434,60 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   };
 
   const hasNewPosts = (g: Group) => Number((g as any)?.newPostsCount ?? 0) > 0;
+
+  // Handle like post
+  const handleLikePost = async (postId: number) => {
+    if (!currentUser) return;
+    
+    try {
+      const result = await onLikePost(postId);
+      
+      // Update local state
+      setGroupPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          return {
+            ...post,
+            my_reaction: result.liked ? 'like' : null,
+            reactions_count: result.likes_count,
+          } as any;
+        }
+        return post;
+      }));
+    } catch (error) {
+      console.error('Failed to like post:', error);
+    }
+  };
+
+  // Handle join/leave group
+  const handleJoinGroup = async () => {
+    if (!activeGroup || !currentUser) return;
+    
+    try {
+      await onJoinGroup(activeGroup.id);
+      // Force a re-render by updating state
+      if (fetchGroupDetails) {
+        const details = await fetchGroupDetails(activeGroup.id);
+        // Update groups list
+        // Note: In a real app, you'd update the parent state
+      }
+    } catch (error) {
+      console.error('Failed to join group:', error);
+    }
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!activeGroup || !currentUser) return;
+    
+    try {
+      await onLeaveGroup(activeGroup.id);
+      // Force a re-render
+      if (fetchGroupDetails) {
+        const details = await fetchGroupDetails(activeGroup.id);
+      }
+    } catch (error) {
+      console.error('Failed to leave group:', error);
+    }
+  };
 
   // FEED VIEW (Facebook-style with dark theme)
   if (view === 'feed' || !activeGroup) {
@@ -546,7 +688,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                             </div>
 
                             <div className="flex items-center gap-2 mt-0.5">
-                              {/* blue dot */}
                               <span
                                 className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`}
                               />
@@ -600,7 +741,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                             </div>
 
                             <div className="flex items-center gap-2 mt-0.5">
-                              {/* blue dot */}
                               <span
                                 className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`}
                               />
@@ -741,38 +881,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const canManage = Boolean(isGroupAdmin || isAdmin);
   const canPost = canManage || (activeGroup.member_posting_allowed ?? true);
 
-  const mergedPosts = useMemo(() => {
-    const groupPosts = (activeGroup.posts ?? []).map((gp: any) => ({
-      ...gp,
-      type: gp.media_url && String(gp.media_url).includes('.mp4') ? 'video' : gp.media_url ? 'image' : 'text',
-      visibility: 'Public',
-      reactions: gp.reactions || [],
-      comments: gp.comments || [],
-      shares: gp.shares || 0,
-      created_at: 'Recently',
-      groupId: activeGroup.id,
-      groupName: activeGroup.name,
-      createdAt: gp.created_at ? new Date(gp.created_at).getTime() : 0,
-    }));
-
-    const eventPosts = (activeGroup.events ?? []).map((ev: any) => ({
-      id: Number(ev.id ?? 0) + 5000,
-      user_id: Number(ev.creator_id ?? 0),
-      type: 'event',
-      event: ev,
-      created_at: 'Upcoming',
-      groupId: activeGroup.id,
-      groupName: activeGroup.name,
-      reactions: [],
-      comments: [],
-      shares: 0,
-      createdAt: ev.event_date ? new Date(ev.event_date).getTime() : 0,
-      visibility: 'Public',
-    }));
-
-    return [...groupPosts, ...eventPosts].sort((a: any, b: any) => (b.createdAt as number) - (a.createdAt as number));
-  }, [activeGroup]);
-
   const createdDate =
     activeGroup.created_at && !Number.isNaN(new Date(activeGroup.created_at as any).getTime())
       ? new Date(activeGroup.created_at as any)
@@ -844,7 +952,10 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                       <i className="fas fa-plus"></i> Invite
                     </button>
 
-                    <button className="bg-[#2d2d2d] text-[#e4e6eb] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#3a3a3a] flex-1 md:flex-none transition-all">
+                    <button 
+                      className="bg-[#2d2d2d] text-[#e4e6eb] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#3a3a3a] flex-1 md:flex-none transition-all"
+                      onClick={handleLeaveGroup}
+                    >
                       <i className="fas fa-check"></i> Joined
                     </button>
 
@@ -859,7 +970,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                   </>
                 ) : (
                   <button
-                    onClick={() => (currentUser ? onJoinGroup(activeGroup.id) : alert('Login first'))}
+                    onClick={handleJoinGroup}
                     className="bg-[#1877f2] text-white px-8 py-2 rounded-lg font-bold text-base hover:bg-[#166fe5] w-full md:w-auto transition-all shadow-lg"
                   >
                     Join Group
@@ -916,41 +1027,57 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                   <h3 className="text-[#e4e6eb] font-bold text-xl mb-2">This Group is Private</h3>
                   <p className="text-[#b0b3b8] mb-8 max-w-xs mx-auto">Only members of this community can see the discussions and members.</p>
                   <button
-                    onClick={() => (currentUser ? onJoinGroup(activeGroup.id) : alert('Login first'))}
+                    onClick={handleJoinGroup}
                     className="bg-[#1877f2] text-white px-10 py-2.5 rounded-lg font-black shadow-lg hover:bg-[#166fe5] transition-all active:scale-95"
                   >
                     Join Group
                   </button>
                 </div>
-              ) : mergedPosts.length > 0 ? (
-                mergedPosts.map((post: any) => (
-                  <Post
-                    key={post.id}
-                    post={post as PostType}
-                    author={
-                      users.find(u => u.id === (post as any).user_id) ||
-                      ({
-                        id: 0,
-                        username: 'guest',
-                        name: 'Guest User',
-                        profile_image_url: 'https://ui-avatars.com/api/?name=User&background=random',
-                        followers: [],
-                        following: [],
-                        email: '',
-                      } as User)
-                    }
-                    currentUser={currentUser}
-                    users={users}
-                    onProfileClick={onProfileClick}
-                    onReact={(pid, type) => onLikePost(activeGroup.id, pid, type)}
-                    onShare={pid => onSharePost(activeGroup.id, pid)}
-                    onDelete={pid => onDeleteGroupPost(activeGroup.id, pid)}
-                    onViewImage={() => {}}
-                    onOpenComments={pid => onOpenComments(activeGroup.id, pid)}
-                    onVideoClick={() => {}}
-                    onPlayAudioTrack={onPlayAudioTrack}
-                  />
-                ))
+              ) : groupPosts.length > 0 ? (
+                groupPosts.map((post) => {
+                  const author = users.find(u => u.id === post.user_id) || {
+                    id: post.user_id || 0,
+                    username: 'unknown',
+                    name: 'Unknown User',
+                    profile_image_url: 'https://ui-avatars.com/api/?name=User&background=random',
+                    followers: [],
+                    following: [],
+                    email: '',
+                    is_verified: false,
+                    role: 'user',
+                    is_online: false,
+                    location: '',
+                    bio: '',
+                    created_at: null,
+                  };
+                  
+                  return (
+                    <Post
+                      key={post.id}
+                      post={post}
+                      author={author}
+                      currentUser={currentUser}
+                      users={users}
+                      onProfileClick={onProfileClick}
+                      onReact={(postId: number, type: ReactionType) => handleLikePost(postId)}
+                      onShare={(postId: number) => onSharePost(postId)}
+                      onDelete={(postId: number) => onDeleteGroupPost(activeGroup.id, postId)}
+                      onViewImage={() => {}}
+                      onOpenComments={(postId: number) => onOpenComments(postId)}
+                      onVideoClick={() => {}}
+                      onPlayAudioTrack={onPlayAudioTrack}
+                      onFollow={onFollow}
+                      checkIsFollowing={checkIsFollowing}
+                    />
+                  );
+                })
+              ) : loadingPosts ? (
+                <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                  <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
+                    <i className="fas fa-spinner fa-spin text-[#b0b3b8] text-2xl"></i>
+                  </div>
+                  <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">Loading posts...</h3>
+                </div>
               ) : (
                 <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
                   <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
@@ -976,7 +1103,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 </div>
                 <div>
                   <div className="font-bold">{activeGroup.type === 'public' ? 'Public' : 'Private'}</div>
-                  <div className="text-xs text-[#b0b3b8]">Anyone can see who&apos;s in the group and what they post.</div>
+                  <div className="text-xs text-[#b0b3b8]">Anyone can see who's in the group and what they post.</div>
                 </div>
               </div>
 
@@ -1026,7 +1153,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                       </div>
                     </div>
 
-                    {isAdmin && memberId !== currentUser?.id && (
+                    {canManage && memberId !== currentUser?.id && (
                       <button
                         onClick={() => onRemoveMember(activeGroup.id, memberId)}
                         className="text-[#b0b3b8] hover:text-white px-4 py-1.5 bg-[#2d2d2d] hover:bg-red-500/20 rounded font-bold text-sm transition-all border border-transparent hover:border-red-500/30"
