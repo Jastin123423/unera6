@@ -501,16 +501,24 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
               {/* ✅ UPDATED: Show artist profile photo and verification badge in mini player */}
               <div className="flex items-center gap-2 mt-1">
                 {displayUser && (
-                  <img 
-                    src={(displayUser as any).profileImage || (displayUser as any).profile_image_url || currentTrack.cover} 
-                    className="w-4 h-4 rounded-full object-cover border border-white/20"
-                    alt=""
-                  />
+                  <>
+                    <img 
+                      src={(displayUser as any).profileImage || (displayUser as any).profile_image_url || currentTrack.cover} 
+                      className="w-4 h-4 rounded-full object-cover border border-white/20"
+                      alt=""
+                    />
+                    <span className="text-gray-400 text-[14px] truncate flex items-center gap-1">
+                      {displayUser.name}
+                      {(displayUser as any)?.isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
+                    </span>
+                  </>
                 )}
-                <p className="text-gray-400 text-[14px] truncate flex items-center gap-1">
-                  {displayUser ? displayUser.name : currentTrack.artist}
-                  {(displayUser as any)?.isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
-                </p>
+                {!displayUser && (
+                  <span className="text-gray-400 text-[14px] truncate flex items-center gap-1">
+                    {currentTrack.artist}
+                    {(currentTrack as any).isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -706,9 +714,9 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
         if (!res.success) {
           console.error("album track create failed:", t.title, res);
           alert(`Failed uploading "${t.title}": ${res.error}`);
-          return;
-        }
-      }
+              return;
+            }
+          }
 
       alert('Album published successfully!');
       onUploaded();
@@ -1108,15 +1116,15 @@ interface MusicSystemProps {
   onPlayTrack: (track: AudioTrack) => void;
   onProfileClick?: (id: number) => void;
   likedTracks: string[];
-  onToggleLike: (key: string, liked: boolean) => void; // ✅ UPDATED: Changed prop type
+  onToggleLike: (key: string, liked: boolean) => void;
   playHistory: AudioTrack[];
   onFollow: (userId: number) => Promise<void>;
   checkIsFollowing: (userId: number) => boolean;
   users?: User[];
-  currentTrack?: AudioTrack | null; // ✅ ADDED: Current playing track
-  isPlaying?: boolean; // ✅ ADDED: Current playing state
-  myTotalPlays?: number; // ✅ ADDED: User's total plays
-  playsLoading?: boolean; // ✅ ADDED: Plays loading state
+  currentTrack?: AudioTrack | null;
+  isPlaying?: boolean;
+  myTotalPlays?: number;
+  playsLoading?: boolean;
 }
 
 const MusicSystem: React.FC<MusicSystemProps> = ({ 
@@ -1124,15 +1132,15 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   onPlayTrack, 
   onProfileClick, 
   likedTracks: initialLikedTracks, 
-  onToggleLike, // ✅ UPDATED: Now expects (key, liked)
+  onToggleLike,
   playHistory,
   onFollow,
   checkIsFollowing,
   users = [],
-  currentTrack, // ✅ ADDED
-  isPlaying, // ✅ ADDED
-  myTotalPlays = 0, // ✅ ADDED
-  playsLoading = false // ✅ ADDED
+  currentTrack,
+  isPlaying,
+  myTotalPlays = 0,
+  playsLoading = false
 }) => {
   const [view, setView] = useState<'music' | 'podcasts' | 'dashboard' | 'artist'>('music');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1144,13 +1152,18 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ UPDATED: Use typed IDs for liked tracks
+  // ✅ FIX 1: Keep likedTracks synced with App.tsx changes
   const [likedTracks, setLikedTracks] = useState<string[]>(initialLikedTracks);
   const [downloads, setDownloads] = useState<string[]>([]);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
 
   const isAdmin = (currentUser as any)?.role === 'admin';
+
+  // ✅ FIX 1: Sync likedTracks when parent updates
+  useEffect(() => {
+    setLikedTracks(initialLikedTracks || []);
+  }, [initialLikedTracks]);
 
   // ✅ FIXED: Fetch my likes from backend when user exists
   const fetchMyLikes = useCallback(async () => {
@@ -1173,17 +1186,25 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
         ...epIds.map((id: string) => `podcast:${id}`),
       ];
       
+      // ✅ FIX 2: Update local state only, App will sync via props
       setLikedTracks(newLikedTracks);
       
-      // ✅ Sync with parent (App.tsx)
-      newLikedTracks.forEach(key => {
-        const [type, id] = key.split(':');
-        onToggleLike(key, true);
-      });
+      // ✅ FIX 2: Minimize parent sync - only sync if there's a significant difference
+      const currentKeys = new Set(newLikedTracks);
+      const prevKeys = new Set(initialLikedTracks);
+      
+      // Only sync if there are actual differences
+      if (newLikedTracks.length !== initialLikedTracks.length || 
+          !newLikedTracks.every(k => initialLikedTracks.includes(k))) {
+        // Sync each track once
+        newLikedTracks.forEach(key => {
+          onToggleLike(key, true);
+        });
+      }
     } catch (error) {
       console.error('Failed to fetch likes:', error);
     }
-  }, [currentUser, onToggleLike]);
+  }, [currentUser, onToggleLike, initialLikedTracks]);
 
   // ✅ FIXED: Load likes when user changes
   useEffect(() => {
@@ -1195,7 +1216,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     return likedTracks.includes(`${type}:${String(id)}`);
   }, [likedTracks]);
 
-  // ✅ FIXED: UPDATED toggleLike with backend sync for counts AND parent sync
+  // ✅ FIXED: UPDATED toggleLike with immediate heart color change
   const toggleLike = useCallback(async (id: string | number, type: 'music' | 'podcast') => {
     if (!currentUser) {
       return;
@@ -1206,8 +1227,14 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     const isLiked = likedTracks.includes(key);
     const userId = String((currentUser as any).id);
 
-    // ✅ 1. Optimistic UI update for like button
-    setLikedTracks(prev => isLiked ? prev.filter(x => x !== key) : [...prev, key]);
+    // ✅ 1. IMMEDIATE UI UPDATE: Change heart color instantly
+    setLikedTracks(prev => {
+      if (isLiked) {
+        return prev.filter(x => x !== key);
+      } else {
+        return [...prev, key];
+      }
+    });
     
     // ✅ 2. Call parent handler (App.tsx) with updated state
     onToggleLike(key, !isLiked);
@@ -1229,7 +1256,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                   ...song, 
                   stats: { 
                     ...(song.stats || {}), 
-                    likes: likesCount || (song.stats as any)?.likes || 0 
+                    likes: Math.max(likesCount, (song.stats as any)?.likes || 0)
                   } 
                 }
               : song
@@ -1241,7 +1268,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                   ...ep, 
                   stats: { 
                     ...(ep.stats || {}), 
-                    likes: likesCount || (ep.stats as any)?.likes || 0 
+                    likes: Math.max(likesCount, (ep.stats as any)?.likes || 0)
                   } 
                 }
               : ep
@@ -1329,7 +1356,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       cover: song.cover,
       type: 'music',
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
-      likesCount: Number((song.stats as any)?.likes || 0), // ✅ ADDED: Include likes count
+      likesCount: Number((song.stats as any)?.likes || 0),
     } as any;
 
     // ✅ Immediately play the track (play count will be recorded when audio actually starts via onStarted callback)
@@ -1357,7 +1384,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       cover: (episode as any).thumbnail,
       type: 'podcast',
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
-      likesCount: Number((episode.stats as any)?.likes || 0), // ✅ ADDED: Include likes count
+      likesCount: Number((episode.stats as any)?.likes || 0),
     } as any;
 
     // ✅ Immediately play the track (play count will be recorded when audio actually starts via onStarted callback)
@@ -1655,45 +1682,48 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 {trendingSongs.length > 0 ? (
-                  trendingSongs.map((song) => (
-                    <div
-                      key={song.id}
-                      className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
-                      onClick={() => handlePlayTrackFromSong(song)}
-                    >
-                      <div className="relative aspect-square overflow-hidden">
-                        <img src={song.cover} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        <div className="absolute top-2 left-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">🔥 {(song.stats as any)?.plays || 0}</div>
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-                            <i className="fas fa-play text-black text-xl ml-1"></i>
+                  trendingSongs.map((song) => {
+                    const isLiked = isTrackLiked(String(song.id), 'music');
+                    return (
+                      <div
+                        key={song.id}
+                        className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
+                        onClick={() => handlePlayTrackFromSong(song)}
+                      >
+                        <div className="relative aspect-square overflow-hidden">
+                          <img src={song.cover} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <div className="absolute top-2 left-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">🔥 {(song.stats as any)?.plays || 0}</div>
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
+                              <i className="fas fa-play text-black text-xl ml-1"></i>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-3">
+                          <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
+                          <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
+                            {song.artist}
+                            {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
+                          </p>
+                          <div className="flex justify-between items-center mt-2">
+                            <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleLike(String(song.id), 'music');
+                              }}
+                              className="text-sm hover:scale-110 transition-transform flex items-center gap-1"
+                              title="Like"
+                            >
+                              <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                              <span className="text-xs ml-1 text-[#B0B3B8]">{(song.stats as any)?.likes || 0}</span>
+                            </button>
                           </div>
                         </div>
                       </div>
-
-                      <div className="p-3">
-                        <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
-                        <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
-                          {song.artist}
-                          {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                        </p>
-                        <div className="flex justify-between items-center mt-2">
-                          <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleLike(String(song.id), 'music');
-                            }}
-                            className="text-sm hover:scale-110 transition-transform"
-                            title="Like"
-                          >
-                            <i className={`${isTrackLiked(String(song.id), 'music') ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
-                            <span className="text-xs ml-1 text-[#B0B3B8]">{(song.stats as any)?.likes || 0}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="col-span-5 text-center py-8">
                     <i className="fas fa-fire text-4xl text-[#B0B3B8] mb-4"></i>
@@ -1714,45 +1744,48 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 {recentSongs.length > 0 ? (
-                  recentSongs.map((song) => (
-                    <div
-                      key={song.id}
-                      className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
-                      onClick={() => handlePlayTrackFromSong(song)}
-                    >
-                      <div className="relative aspect-square overflow-hidden">
-                        <img src={song.cover} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        <div className="absolute top-2 left-2 bg-[#1877F2] text-white text-xs font-bold px-2 py-1 rounded">NEW</div>
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-                            <i className="fas fa-play text-black text-xl ml-1"></i>
+                  recentSongs.map((song) => {
+                    const isLiked = isTrackLiked(String(song.id), 'music');
+                    return (
+                      <div
+                        key={song.id}
+                        className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
+                        onClick={() => handlePlayTrackFromSong(song)}
+                      >
+                        <div className="relative aspect-square overflow-hidden">
+                          <img src={song.cover} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <div className="absolute top-2 left-2 bg-[#1877F2] text-white text-xs font-bold px-2 py-1 rounded">NEW</div>
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
+                              <i className="fas fa-play text-black text-xl ml-1"></i>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-3">
+                          <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
+                          <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
+                            {song.artist}
+                            {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
+                          </p>
+                          <div className="flex justify-between items-center mt-2">
+                            <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleLike(String(song.id), 'music');
+                              }}
+                              className="text-sm hover:scale-110 transition-transform flex items-center gap-1"
+                              title="Like"
+                            >
+                              <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                              <span className="text-xs ml-1 text-[#B0B3B8]">{(song.stats as any)?.likes || 0}</span>
+                            </button>
                           </div>
                         </div>
                       </div>
-
-                      <div className="p-3">
-                        <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
-                        <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
-                          {song.artist}
-                          {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                        </p>
-                        <div className="flex justify-between items-center mt-2">
-                          <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleLike(String(song.id), 'music');
-                            }}
-                            className="text-sm hover:scale-110 transition-transform"
-                            title="Like"
-                          >
-                            <i className={`${isTrackLiked(String(song.id), 'music') ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
-                            <span className="text-xs ml-1 text-[#B0B3B8]">{(song.stats as any)?.likes || 0}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="col-span-5 text-center py-8">
                     <i className="fas fa-music text-4xl text-[#B0B3B8] mb-4"></i>
@@ -1772,6 +1805,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                     const isCurrentTrack = currentTrack && 
                       currentTrack.type === 'music' && 
                       String(currentTrack.id) === String(song.id);
+                    const isLiked = isTrackLiked(String(song.id), 'music');
                     
                     return (
                       <div
@@ -1824,7 +1858,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                             className="text-lg hover:scale-110 transition-transform flex items-center gap-1"
                             title="Like"
                           >
-                            <i className={`${isTrackLiked(String(song.id), 'music') ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                            <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
                             <span className="text-xs text-[#B0B3B8]">{(song.stats as any)?.likes || 0}</span>
                           </button>
 
@@ -1868,6 +1902,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                     const isCurrentTrack = currentTrack && 
                       currentTrack.type === 'podcast' && 
                       String(currentTrack.id) === String(episode.id);
+                    const isLiked = isTrackLiked(String(episode.id), 'podcast');
                     
                     return (
                       <div
@@ -1905,7 +1940,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                                     className="text-lg hover:scale-110 transition-transform flex items-center gap-1"
                                     title="Like"
                                   >
-                                    <i className={`${isTrackLiked(String(episode.id), 'podcast') ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                                    <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
                                     <span className="text-xs text-[#B0B3B8]">{(episode.stats as any)?.likes || 0}</span>
                                   </button>
 
@@ -1958,9 +1993,8 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 </button>
               </div>
 
-              {/* ✅ MODIFIED: Remove "Total Plays All songs & podcasts" stat (first card) */}
+              {/* ✅ MODIFIED: Dashboard stats cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
-                {/* Keep only 3 cards: Likes on Your Content, Your Uploads, My Total Plays */}
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
                     <div>
@@ -2120,27 +2154,42 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                     {songs
                       .filter((s) => s.uploaderId === selectedArtistUser.id)
                       .slice(0, 5)
-                      .map((song, i) => (
-                        <div
-                          key={song.id}
-                          className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors group"
-                          onClick={() => handlePlayTrackFromSong(song)}
-                        >
-                          <div className="text-[#B0B3B8] font-bold w-4 text-center group-hover:hidden">{i + 1}</div>
-                          <div className="hidden group-hover:block w-4 text-center text-white">
-                            <i className="fas fa-play"></i>
+                      .map((song, i) => {
+                        const isLiked = isTrackLiked(String(song.id), 'music');
+                        return (
+                          <div
+                            key={song.id}
+                            className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors group"
+                            onClick={() => handlePlayTrackFromSong(song)}
+                          >
+                            <div className="text-[#B0B3B8] font-bold w-4 text-center group-hover:hidden">{i + 1}</div>
+                            <div className="hidden group-hover:block w-4 text-center text-white">
+                              <i className="fas fa-play"></i>
+                            </div>
+
+                            <img src={song.cover} className="w-10 h-10 rounded object-cover" alt="" />
+
+                            <div className="flex-1">
+                              <div className="font-bold text-white text-sm">{song.title}</div>
+                              <div className="text-xs text-[#888]">{(song.stats as any)?.plays || 0} plays</div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm text-[#B0B3B8]">{(song as any).duration || '3:00'}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleLike(String(song.id), 'music');
+                                }}
+                                className="text-lg hover:scale-110 transition-transform"
+                                title="Like"
+                              >
+                                <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                              </button>
+                            </div>
                           </div>
-
-                          <img src={song.cover} className="w-10 h-10 rounded object-cover" alt="" />
-
-                          <div className="flex-1">
-                            <div className="font-bold text-white text-sm">{song.title}</div>
-                            <div className="text-xs text-[#888]">{(song.stats as any)?.plays || 0} plays</div>
-                          </div>
-
-                          <div className="text-sm text-[#B0B3B8]">{(song as any).duration || '3:00'}</div>
-                        </div>
-                      ))}
+                        );
+                      })}
 
                     {songs.filter((s) => s.uploaderId === selectedArtistUser.id).length === 0 && <p className="text-[#666] text-center py-4">No tracks available from this artist.</p>}
                   </div>
