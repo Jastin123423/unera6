@@ -17,6 +17,8 @@
 // ✅ FIXED: Profile picture display in audio player
 // ✅ ADDED: Modern Boomplay-style player design with rotating album art
 // ✅ ADDED: Default music cover for songs without covers
+// ✅ ADDED: Product creation with POST to backend
+// ✅ ADDED: Product normalization for consistency
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -378,6 +380,36 @@ const normalizeUser = (u: any): User => {
     is_verified: Boolean(u?.is_verified ?? u?.isVerified),
     role: u?.role ?? 'user',
     created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
+  } as any;
+};
+
+/**
+ * ✅ ADDED: Normalize product data for consistency
+ */
+const normalizeProduct = (p: any) => {
+  let imgs: string[] = [];
+  try {
+    const parsed = typeof p?.images === "string" ? JSON.parse(p.images) : p.images;
+    imgs = Array.isArray(parsed) ? parsed : [];
+  } catch { imgs = []; }
+
+  return {
+    ...p,
+    id: safeNumber(p?.id),
+    seller_id: safeNumber(p?.seller_id),
+    seller_name: safeString(p?.seller_name ?? p?.sellerName ?? "Seller"),
+    seller_avatar: safeString(p?.seller_avatar ?? p?.sellerAvatar ?? ""),
+    images: imgs.length ? imgs : [DEFAULT_MUSIC_COVER], // optional fallback
+    main_price: safeNumber(p?.main_price),
+    discount_price: p?.discount_price == null ? null : safeNumber(p?.discount_price),
+    quantity: safeNumber(p?.quantity, 1),
+    address: safeString(p?.address),
+    title: safeString(p?.title),
+    description: safeString(p?.description),
+    category: safeString(p?.category),
+    country: safeString(p?.country),
+    phone_number: safeString(p?.phone_number ?? ""),
+    created_at: p?.created_at ?? new Date().toISOString(),
   } as any;
 };
 
@@ -986,6 +1018,43 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
+  /** ---------- ✅ ADDED: CREATE PRODUCT FUNCTION ---------- */
+  const createProduct = useCallback(async (productData: any) => {
+    if (!requireAuth("Creating products")) return;
+    if (!currentUser) return;
+
+    const payload = { ...productData, seller_id: currentUser.id };
+
+    // ✅ optimistic insert (optional)
+    const tempId = Date.now();
+    const optimistic = normalizeProduct({
+      ...payload,
+      id: tempId,
+      seller_name: currentUser.name,
+      seller_avatar: currentUser.profile_image_url,
+      seller_id: currentUser.id,
+    });
+
+    setProducts(prev => [optimistic, ...safeArray(prev)]);
+
+    try {
+      const res = await apiFetch("/api/products", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      const created = normalizeProduct(res?.product ?? res);
+      setProducts(prev => {
+        const filtered = safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId));
+        return [created, ...filtered];
+      });
+    } catch (e: any) {
+      // rollback optimistic on failure
+      setProducts(prev => safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId)));
+      setLoginError(e?.message || "Failed to create product");
+    }
+  }, [currentUser, requireAuth]);
+
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -1253,7 +1322,7 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome]);
 
-  /** ---------- Fetch other data ---------- */
+  /** ---------- ✅ UPDATED: Fetch other data with product normalization ---------- */
   const fetchOtherData = useCallback(async () => {
     const [s, r, pr, g, b, e, c] = await Promise.all([
       apiFetch('/api/stories').catch(() => []),
@@ -1267,7 +1336,8 @@ export default function App() {
 
     setStories(safeArray(s));
     setReels(safeArray(r));
-    setProducts(safeArray(pr));
+    // ✅ UPDATED: Normalize products when fetched
+    setProducts(safeArray(pr).map(normalizeProduct));
     setGroups(safeArray(g));
     setBrands(safeArray(b));
     setEvents(safeArray(e));
@@ -2304,7 +2374,8 @@ export default function App() {
               currentUser={currentUser}
               products={products}
               onNavigateHome={() => handleNavigate('home')}
-              onCreateProduct={() => requireAuth('Creating products')}
+              // ✅ UPDATED: Use createProduct function instead of requireAuth
+              onCreateProduct={createProduct}
               onViewProduct={setActiveProduct}
             />
           )}
