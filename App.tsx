@@ -1018,6 +1018,17 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
+  /** ---------- Auth gate ---------- */
+  const requireAuth = useCallback(
+    (actionName = 'This action') => {
+      if (currentUser) return true;
+      setLoginError(`${actionName} requires login.`);
+      setView('login');
+      return false;
+    },
+    [currentUser]
+  );
+
   /** ---------- ✅ ADDED: CREATE PRODUCT FUNCTION ---------- */
   const createProduct = useCallback(async (productData: any) => {
     if (!requireAuth("Creating products")) return;
@@ -1054,17 +1065,6 @@ export default function App() {
       setLoginError(e?.message || "Failed to create product");
     }
   }, [currentUser, requireAuth]);
-
-  /** ---------- Auth gate ---------- */
-  const requireAuth = useCallback(
-    (actionName = 'This action') => {
-      if (currentUser) return true;
-      setLoginError(`${actionName} requires login.`);
-      setView('login');
-      return false;
-    },
-    [currentUser]
-  );
 
   /** ---------- ADMIN ROLE GUARDS (PROFESSIONALLY FIXED) ---------- */
   const roleOf = (u: any) => String(u?.role || '').trim().toLowerCase();
@@ -2610,8 +2610,9 @@ export default function App() {
             setActiveChatUser(users.find((u) => u.id === id) || null);
             setView('home');
           }}
-          onFollow={followUser}
-          checkIsFollowing={checkIsFollowing}
+          // ✅ REMOVED: These props are not accepted by ProductDetailModal
+          // onFollow={followUser}
+          // checkIsFollowing={checkIsFollowing}
         />
       )}
 
