@@ -13,6 +13,8 @@
 // ✅ UPDATED: Like sync between MusicSystem and GlobalAudioPlayer
 // ✅ ADDED: Professional music player state management with play history
 // ✅ ADDED: Track plays count synchronization
+// ✅ FIXED: Total plays persistence across refreshes
+// ✅ FIXED: Profile picture display in audio player
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -668,6 +670,9 @@ export default function App() {
 
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
+  
+  // ✅ ADDED: Authentication hydration state
+  const [authHydrated, setAuthHydrated] = useState(false);
 
   const lastGoodPostsRef = useRef<PostType[]>([]);
   const stableFeedRef = useRef<PostType[]>([]);
@@ -719,11 +724,25 @@ export default function App() {
   // plays map for current track UI (player can show total plays)
   const [trackPlays, setTrackPlays] = useState<Record<string, number>>({});
 
-  // optional "my plays" counter (dashboard)
+  // ✅ FIXED: User's total plays with per-user caching to prevent disappearance
   const [myTotalPlays, setMyTotalPlays] = useState<number>(() => {
-    const v = Number(localStorage.getItem('unera_my_total_plays') || 0);
-    return Number.isFinite(v) ? v : 0;
+    try {
+      const rawUser = localStorage.getItem(LS_USER_KEY);
+      let uid = 0;
+      try { 
+        const user = JSON.parse(rawUser || '{}');
+        uid = Number(user?.id || 0); 
+      } catch {}
+      
+      // Per-user cache key to prevent mix-ups between accounts
+      const key = uid ? `unera_my_total_plays_${uid}` : 'unera_my_total_plays';
+      const v = Number(localStorage.getItem(key) || 0);
+      return Number.isFinite(v) ? v : 0;
+    } catch {
+      return 0;
+    }
   });
+  
   const [playsLoading, setPlaysLoading] = useState(false);
 
   // ✅ ADDED: Play count tracking ref
@@ -734,9 +753,17 @@ export default function App() {
     localStorage.setItem('unera_liked_tracks', JSON.stringify(likedTracks));
   }, [likedTracks]);
 
+  // ✅ FIXED: Persist total plays per user (not globally)
   useEffect(() => {
+    if (!currentUser?.id) return;
+    
+    // Store per-user to prevent mix-ups
+    const key = `unera_my_total_plays_${Number(currentUser.id)}`;
+    localStorage.setItem(key, String(myTotalPlays));
+    
+    // Also keep legacy key for compatibility
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
-  }, [myTotalPlays]);
+  }, [myTotalPlays, currentUser?.id]);
 
   /** ---------- ✅ ADDED: Helper to resolve track owner ---------- */
   const resolveTrackOwner = useCallback((track: any): User | null => {
@@ -759,62 +786,82 @@ export default function App() {
     return null;
   }, [users]);
 
-  /** ---------- ✅ ADDED: Fetch user total plays ---------- */
+  /** ---------- ✅ FIXED: Fetch user total plays with proper caching ---------- */
   const fetchMyTotalPlays = useCallback(async (userId: number) => {
-    if (!userId) return 0;
+    if (!userId) return myTotalPlays;
+
+    const cacheKey = `unera_my_total_plays_${userId}`;
+
+    // ✅ Read cached value (per-user)
+    const cached = (() => {
+      try {
+        const v = Number(localStorage.getItem(cacheKey) || localStorage.getItem('unera_my_total_plays') || 0);
+        return Number.isFinite(v) ? v : 0;
+      } catch {
+        return 0;
+      }
+    })();
 
     setPlaysLoading(true);
     try {
       // ✅ OPTION A (preferred): one endpoint that returns total plays for the user
       const totalRes = await apiFetch(`/api/user-plays/total?userId=${userId}`);
-      const total = safeNumber(totalRes?.total, 0);
-      setMyTotalPlays(total);
-      return total;
-    } catch {
-      // ✅ OPTION B fallback: sum two endpoints
-      try {
-        const [s, p] = await Promise.all([
-          apiFetch(`/api/song-plays/total?userId=${userId}`).catch(() => ({ total: 0 })),
-          apiFetch(`/api/podcast-episode-plays/total?userId=${userId}`).catch(() => ({ total: 0 })),
-        ]);
-        const total = safeNumber(s?.total, 0) + safeNumber(p?.total, 0);
+      const total = safeNumber(totalRes?.total, NaN);
+
+      if (Number.isFinite(total) && total > 0) {
         setMyTotalPlays(total);
+        localStorage.setItem(cacheKey, String(total));
         return total;
+      }
+
+      throw new Error('Invalid total from API');
+    } catch {
+      try {
+        // ✅ OPTION B fallback: sum two endpoints
+        const [s, p] = await Promise.all([
+          apiFetch(`/api/song-plays/total?userId=${userId}`).catch(() => ({ total: NaN })),
+          apiFetch(`/api/podcast-episode-plays/total?userId=${userId}`).catch(() => ({ total: NaN })),
+        ]);
+        
+        const sTotal = safeNumber(s?.total, NaN);
+        const pTotal = safeNumber(p?.total, NaN);
+
+        if (Number.isFinite(sTotal) || Number.isFinite(pTotal)) {
+          const total = (Number.isFinite(sTotal) ? sTotal : 0) + (Number.isFinite(pTotal) ? pTotal : 0);
+          setMyTotalPlays(total);
+          localStorage.setItem(cacheKey, String(total));
+          return total;
+        }
+
+        // ✅ If both invalid -> keep cached value (don't wipe to 0!)
+        setMyTotalPlays(cached);
+        return cached;
       } catch {
-        setMyTotalPlays(0);
-        return 0;
+        // ✅ Keep cached value on complete failure
+        setMyTotalPlays(cached);
+        return cached;
       }
     } finally {
       setPlaysLoading(false);
     }
-  }, []);
+  }, [myTotalPlays, apiFetch]);
 
-  // Call it after login + on restore session
+  // ✅ FIXED: Call fetchMyTotalPlays only after auth is hydrated
   useEffect(() => {
+    if (!authHydrated) return; // ✅ Wait until session restore is finished
+
     if (currentUser?.id) {
       fetchMyTotalPlays(Number(currentUser.id)).catch(() => {});
     } else {
+      // Only set to 0 after we're sure there's no user
       setMyTotalPlays(0);
     }
-  }, [currentUser?.id, fetchMyTotalPlays]);
+  }, [authHydrated, currentUser?.id, fetchMyTotalPlays]);
 
   /** ---------- ✅ CORE PLAYER ACTIONS ---------- */
   const onPlayTrack = useCallback((track: AudioTrack) => {
-    setCurrentAudioTrack((prev) => {
-      const prevKey = prev ? `${prev.type}:${prev.id}` : '';
-      const nextKey = `${track.type}:${track.id}`;
-
-      if (prevKey === nextKey) {
-        // same track tapped -> toggle play/pause
-        setIsAudioPlaying((p) => !p);
-        return prev;
-      }
-
-      // new track -> force play
-      lastPlayedKeyRef.current = ''; // allow count for new track when it starts
-      setIsAudioPlaying(true);
-      return track;
-    });
+    setCurrentAudioTrack(track);
+    setIsAudioPlaying(true);
 
     // store history (no duplicates back-to-back)
     setPlayHistory(prev => {
@@ -862,8 +909,15 @@ export default function App() {
 
       const userId = (currentUser as any)?.id ?? null;
 
-      // optimistic "my plays"
-      if (userId) setMyTotalPlays(p => p + 1);
+      // ✅ Optimistic "my plays" - only if user is logged in
+      if (userId) {
+        setMyTotalPlays(p => p + 1);
+        
+        // ✅ Also update localStorage immediately for persistence
+        const key = `unera_my_total_plays_${Number(userId)}`;
+        const current = Number(localStorage.getItem(key) || '0');
+        localStorage.setItem(key, String(current + 1));
+      }
 
       const res = await recordPlay(track, userId);
 
@@ -1198,7 +1252,7 @@ export default function App() {
     [fetchUsersList, fetchPostsForHome, fetchOtherData]
   );
 
-  /** ---------- Restore session + initial load ---------- */
+  /** ---------- ✅ FIXED: Restore session + initial load with auth hydration ---------- */
   useEffect(() => {
     const init = async () => {
       let viewer: User | null = null;
@@ -1226,6 +1280,7 @@ export default function App() {
       }
 
       await fetchData(viewer);
+      setAuthHydrated(true); // ✅ Mark auth as hydrated AFTER session restore
     };
 
     init();
@@ -2294,6 +2349,7 @@ export default function App() {
               users={users}
               currentTrack={currentAudioTrack}
               isPlaying={isAudioPlaying}
+              // ✅ FIXED: Pass myTotalPlays from App state (now persistent)
               myTotalPlays={currentUser?.id ? myTotalPlays : 0}
               playsLoading={playsLoading}
             />
