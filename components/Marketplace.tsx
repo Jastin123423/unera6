@@ -34,6 +34,18 @@ const uploadToCloudflareR2 = async (file: File): Promise<string> => {
   }
 };
 
+// --- Helper function to safely get images ---
+const safeImages = (imgs: any): string[] => {
+  if (Array.isArray(imgs)) return imgs.filter(Boolean);
+  if (typeof imgs === 'string') {
+    try {
+      const p = JSON.parse(imgs);
+      return Array.isArray(p) ? p.filter(Boolean) : [];
+    } catch {}
+  }
+  return [];
+};
+
 // --- OSM LOCATION SEARCH COMPONENT (Duplicated for standalone use in Marketplace) ---
 const LocationSearch: React.FC<{ 
   value: string, 
@@ -154,6 +166,28 @@ const getCurrencySymbolForCountry = (countryCode: string): string => {
   return country ? country.symbol : '$';
 };
 
+// --- Helper to normalize country values for comparison ---
+const normCountry = (v: any): string => {
+  const str = String(v || '').trim();
+  // Try to match by country code first
+  for (const country of MARKETPLACE_COUNTRIES) {
+    if (country.id === 'all') continue;
+    
+    // Check if string matches country code
+    if (str.toUpperCase() === country.code.toUpperCase()) {
+      return country.code;
+    }
+    
+    // Check if string contains country name
+    if (str.toLowerCase().includes(country.name.toLowerCase())) {
+      return country.code;
+    }
+  }
+  
+  // Return original string uppercase if no match
+  return str.toUpperCase();
+};
+
 // --- PRODUCT DETAIL MODAL ---
 interface ProductDetailModalProps {
     product: Product;
@@ -175,6 +209,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
       return MARKETPLACE_COUNTRIES.find(c => c.code === 'US') || MARKETPLACE_COUNTRIES[0];
     };
     
+    const productImages = safeImages((product as any).images);
     const countryData = detectProductCountry(product.address);
     const symbol = countryData.symbol;
     const hasDiscount = !!product.discount_price;
@@ -189,19 +224,25 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                 {/* Left: Image Gallery */}
                 <div className="w-full md:w-[60%] bg-[#18191A] flex flex-col relative border-r border-[#3E4042]">
                     <div className="flex-1 relative flex items-center justify-center overflow-hidden">
-                        <img src={product.images[activeImageIndex]} alt={product.title} className="max-w-full max-h-full object-contain transition-all duration-300" />
+                        {productImages.length > 0 ? (
+                            <img src={productImages[activeImageIndex]} alt={product.title} className="max-w-full max-h-full object-contain transition-all duration-300" />
+                        ) : (
+                            <div className="flex items-center justify-center w-full h-full bg-[#242526]">
+                                <i className="fas fa-image text-5xl text-[#3E4042]"></i>
+                            </div>
+                        )}
                         
-                        {product.images.length > 1 && (
+                        {productImages.length > 1 && (
                             <>
                                 <button 
                                     className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-black/40 rounded-full text-white flex items-center justify-center hover:bg-black/60 transition-colors"
-                                    onClick={() => setActiveImageIndex(prev => prev === 0 ? product.images.length - 1 : prev - 1)}
+                                    onClick={() => setActiveImageIndex(prev => prev === 0 ? productImages.length - 1 : prev - 1)}
                                 >
                                     <i className="fas fa-chevron-left text-xl"></i>
                                 </button>
                                 <button 
                                     className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-black/40 rounded-full text-white flex items-center justify-center hover:bg-black/60 transition-colors"
-                                    onClick={() => setActiveImageIndex(prev => prev === product.images.length - 1 ? 0 : prev + 1)}
+                                    onClick={() => setActiveImageIndex(prev => prev === productImages.length - 1 ? 0 : prev + 1)}
                                 >
                                     <i className="fas fa-chevron-right text-xl"></i>
                                 </button>
@@ -209,17 +250,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                         )}
                     </div>
                     {/* Thumbnails */}
-                    <div className="h-24 bg-[#242526]/50 backdrop-blur-sm flex items-center gap-3 px-4 overflow-x-auto border-t border-[#3E4042] scrollbar-hide">
-                        {product.images.map((img, idx) => (
-                            <div 
-                                key={idx} 
-                                className={`h-16 min-w-[64px] rounded-lg overflow-hidden cursor-pointer border-2 transition-all ${activeImageIndex === idx ? 'border-[#1877F2] scale-105 shadow-lg' : 'border-transparent opacity-50 hover:opacity-100'}`}
-                                onClick={() => setActiveImageIndex(idx)}
-                            >
-                                <img src={img} className="h-full w-full object-cover" alt="thumb" />
-                            </div>
-                        ))}
-                    </div>
+                    {productImages.length > 1 && (
+                        <div className="h-24 bg-[#242526]/50 backdrop-blur-sm flex items-center gap-3 px-4 overflow-x-auto border-t border-[#3E4042] scrollbar-hide">
+                            {productImages.map((img, idx) => (
+                                <div 
+                                    key={idx} 
+                                    className={`h-16 min-w-[64px] rounded-lg overflow-hidden cursor-pointer border-2 transition-all ${activeImageIndex === idx ? 'border-[#1877F2] scale-105 shadow-lg' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                                    onClick={() => setActiveImageIndex(idx)}
+                                >
+                                    <img src={img} className="h-full w-full object-cover" alt="thumb" />
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Right: Details */}
@@ -328,24 +371,32 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
     
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Auto-detect user country for filtering and currency
+    // Auto-detect user country for currency, but DON'T force filter
     useEffect(() => {
+        console.log("Marketplace: products:", products.length, "selectedCountry:", selectedCountry, "userCountry:", userCountry);
+        if (products[0]) {
+            console.log("Sample product country:", (products[0] as any).country);
+            console.log("Normalized sample product country:", normCountry((products[0] as any).country));
+        }
+
         if (currentUser) {
             const detected = detectCountryFromUser(currentUser);
             setUserCountry(detected);
-            setSelectedCountry(detected);
+            
+            // ✅ FIXED: DO NOT force filter — let user choose
+            // setSelectedCountry(detected);
+            
             setCurrencySymbol(getCurrencySymbolForCountry(detected));
             
             // ✅ FIXED: Set phone from user profile
-            if (currentUser.phone) {
-                setPhone(currentUser.phone);
+            if ((currentUser as any).phone) {
+                setPhone((currentUser as any).phone);
             }
         } else {
             setUserCountry('all');
-            setSelectedCountry('all');
             setCurrencySymbol('$');
         }
-    }, [currentUser]);
+    }, [currentUser, products]);
 
     // Update currency symbol when detected country changes
     useEffect(() => {
@@ -447,11 +498,39 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
         }
     };
 
-    // FILTERING LOGIC: prioritizes location match if specified
-    const filteredProducts = products.filter(p => {
-        if (selectedCountry !== 'all' && p.country !== selectedCountry) return false;
-        if (selectedCategory !== 'all' && p.category !== selectedCategory) return false;
-        if (searchQuery && !p.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    // ✅ FIXED: Tolerant country filtering logic
+    const filteredProducts = products.filter((p: any) => {
+        const pCountry = normCountry(p.country);
+        const sel = normCountry(selectedCountry);
+        
+        // If country filter is active
+        if (selectedCountry !== 'all') {
+            // Get the selected country object
+            const selObj = MARKETPLACE_COUNTRIES.find(c => normCountry(c.code) === sel);
+            
+            // Check multiple matching possibilities
+            let match = false;
+            
+            // 1. Direct code match (TZ === TZ)
+            if (pCountry === sel) match = true;
+            
+            // 2. Country name match (Tanzania === TZ)
+            if (selObj && pCountry.toLowerCase().includes(selObj.name.toLowerCase())) match = true;
+            
+            // 3. Country code in product country field (TZ in "TZ, Dar es Salaam")
+            if (!match && selObj && p.country && typeof p.country === 'string') {
+                if (p.country.toUpperCase().includes(selObj.code)) match = true;
+            }
+            
+            if (!match) return false;
+        }
+        
+        // Category filter
+        if (selectedCategory !== 'all' && String(p.category) !== String(selectedCategory)) return false;
+        
+        // Search filter
+        if (searchQuery && !String(p.title || '').toLowerCase().includes(searchQuery.toLowerCase())) return false;
+        
         return true;
     });
 
@@ -469,7 +548,15 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                 </div>
                 <div className="flex items-center gap-3">
                     {/* Country Selector with Flag and Currency */}
-                    <div className="bg-[#3A3B3C] px-3 py-1.5 rounded-full flex items-center gap-2 cursor-pointer hover:bg-[#4E4F50] transition-colors" onClick={() => setSelectedCountry('all')}>
+                    <div 
+                        className="bg-[#3A3B3C] px-3 py-1.5 rounded-full flex items-center gap-2 cursor-pointer hover:bg-[#4E4F50] transition-colors" 
+                        onClick={() => {
+                            const countryList = ['all', ...MARKETPLACE_COUNTRIES.filter(c => c.id !== 'all').map(c => c.code)];
+                            const currentIndex = countryList.indexOf(selectedCountry);
+                            const nextIndex = (currentIndex + 1) % countryList.length;
+                            setSelectedCountry(countryList[nextIndex]);
+                        }}
+                    >
                         <span className="text-lg">{activeCountry.flag}</span>
                         <span className="text-sm font-bold text-[#E4E6EB]">
                             {activeCountry.code === 'all' ? 'Worldwide' : `${activeCountry.name} (${activeCountry.symbol})`}
@@ -516,67 +603,112 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
 
             <div className="max-w-[1400px] mx-auto px-4 mt-6">
                 {/* Dynamic Location Banner - Show user's detected country */}
-                {currentUser && userCountry !== 'all' && (
+                {currentUser && userCountry !== 'all' && selectedCountry === 'all' && (
                     <div className="mb-6 p-4 bg-[#263951] rounded-2xl border border-[#2D88FF]/30 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="w-12 h-12 rounded-full bg-[#1877F2]/20 flex items-center justify-center text-[#1877F2]">
                                 <i className="fas fa-globe-africa text-xl"></i>
                             </div>
                             <div>
-                                <h3 className="text-[#E4E6EB] font-bold">Local Marketplace</h3>
+                                <h3 className="text-[#E4E6EB] font-bold">Local Marketplace Available</h3>
                                 <p className="text-[#B0B3B8] text-sm">
-                                    Showing products in <span className="text-[#1877F2] font-semibold">
+                                    We detected you're in <span className="text-[#1877F2] font-semibold">
                                     {MARKETPLACE_COUNTRIES.find(c => c.code === userCountry)?.name || 'your region'}
-                                    </span> ({currencySymbol})
+                                    </span>. Switch to see local products.
                                 </p>
                             </div>
                         </div>
-                        <button onClick={() => setSelectedCountry('all')} className="text-[#1877F2] font-bold text-sm hover:underline">View Worldwide</button>
+                        <button 
+                            onClick={() => setSelectedCountry(userCountry)} 
+                            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+                        >
+                            Show Local ({getCurrencySymbolForCountry(userCountry)})
+                        </button>
                     </div>
                 )}
 
                 {/* Products Grid */}
                 {filteredProducts.length > 0 ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                        {filteredProducts.map(product => {
-                            const pCountry = MARKETPLACE_COUNTRIES.find(c => c.code === product.country);
-                            const symbol = pCountry ? pCountry.symbol : '$';
-                            const flag = pCountry ? pCountry.flag : '🌍';
-                            
-                            return (
-                                <div key={product.id} className="bg-[#242526] rounded-2xl overflow-hidden cursor-pointer hover:shadow-2xl hover:-translate-y-1 transition-all border border-[#3E4042] flex flex-col group" onClick={() => onViewProduct(product)}>
-                                    <div className="relative aspect-square overflow-hidden bg-[#18191A]">
-                                        <img src={product.images[0]} alt={product.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                                        <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg text-[10px] font-bold text-white uppercase flex items-center gap-1">
-                                            <span>{flag}</span>
-                                            <span className="truncate max-w-[80px]">{product.address.split(',')[0]}</span>
+                    <>
+                        <div className="mb-4 text-sm text-[#B0B3B8]">
+                            Showing {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''} 
+                            {selectedCountry !== 'all' ? ` in ${activeCountry.name}` : ' worldwide'}
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                            {filteredProducts.map((product: any) => {
+                                const productImages = safeImages(product.images);
+                                const cover = productImages[0] || 'https://via.placeholder.com/600x600?text=No+Image';
+                                
+                                // Detect country for this product
+                                const detectProductCountry = () => {
+                                    const pCountry = normCountry(product.country);
+                                    const country = MARKETPLACE_COUNTRIES.find(c => 
+                                        c.code === pCountry || 
+                                        (product.country && typeof product.country === 'string' && product.country.toLowerCase().includes(c.name.toLowerCase()))
+                                    );
+                                    return country || MARKETPLACE_COUNTRIES.find(c => c.code === 'US') || MARKETPLACE_COUNTRIES[0];
+                                };
+                                
+                                const pCountry = detectProductCountry();
+                                const symbol = pCountry.symbol;
+                                const flag = pCountry.flag;
+                                
+                                return (
+                                    <div key={product.id} className="bg-[#242526] rounded-2xl overflow-hidden cursor-pointer hover:shadow-2xl hover:-translate-y-1 transition-all border border-[#3E4042] flex flex-col group" onClick={() => onViewProduct(product)}>
+                                        <div className="relative aspect-square overflow-hidden bg-[#18191A]">
+                                            <img src={cover} alt={product.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                            <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg text-[10px] font-bold text-white uppercase flex items-center gap-1">
+                                                <span>{flag}</span>
+                                                <span className="truncate max-w-[80px]">{product.address ? product.address.split(',')[0] : 'No Location'}</span>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="p-3 flex-1 flex flex-col">
-                                        <h3 className="text-[#E4E6EB] font-bold text-sm line-clamp-2 mb-2 min-h-[40px]">{product.title}</h3>
-                                        <div className="mt-auto">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[#F02849] font-black text-lg">{symbol}{product.main_price.toFixed(0)}</span>
-                                                <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] group-hover:bg-[#1877F2] flex items-center justify-center text-[#B0B3B8] group-hover:text-white transition-colors">
-                                                    <i className="fas fa-chevron-right text-xs"></i>
+                                        <div className="p-3 flex-1 flex flex-col">
+                                            <h3 className="text-[#E4E6EB] font-bold text-sm line-clamp-2 mb-2 min-h-[40px]">{product.title}</h3>
+                                            <div className="mt-auto">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[#F02849] font-black text-lg">{symbol}{product.main_price.toFixed(0)}</span>
+                                                    <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] group-hover:bg-[#1877F2] flex items-center justify-center text-[#B0B3B8] group-hover:text-white transition-colors">
+                                                        <i className="fas fa-chevron-right text-xs"></i>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            );
-                        })}
-                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
                 ) : (
                     <div className="flex flex-col items-center justify-center py-24 text-center">
                         <div className="w-24 h-24 bg-[#242526] rounded-full flex items-center justify-center mb-6 border border-[#3E4042]">
                              <i className="fas fa-store-slash text-4xl text-[#3E4042]"></i>
                         </div>
-                        <h3 className="text-[#E4E6EB] font-bold text-xl mb-2">No items found in this area</h3>
-                        <p className="text-[#B0B3B8] max-w-xs mb-8">Try adjusting your filters or expanding your location to see more results.</p>
-                        <button onClick={() => {setSelectedCountry('all'); setSelectedCategory('all'); setSearchQuery('');}} className="px-8 py-3 bg-[#3A3B3C] text-[#E4E6EB] rounded-xl font-bold hover:bg-[#4E4F50] transition-colors">
+                        <h3 className="text-[#E4E6EB] font-bold text-xl mb-2">
+                            {selectedCountry !== 'all' 
+                                ? `No items found in ${activeCountry.name}`
+                                : 'No items found'
+                            }
+                        </h3>
+                        <p className="text-[#B0B3B8] max-w-xs mb-8">
+                            {selectedCountry !== 'all' 
+                                ? 'Try switching to worldwide view or adjusting your search.'
+                                : 'Try adjusting your search or create a listing.'
+                            }
+                        </p>
+                        <button 
+                            onClick={() => {setSelectedCountry('all'); setSelectedCategory('all'); setSearchQuery('');}} 
+                            className="px-8 py-3 bg-[#3A3B3C] text-[#E4E6EB] rounded-xl font-bold hover:bg-[#4E4F50] transition-colors mb-4"
+                        >
                             Clear all filters
                         </button>
+                        {selectedCountry !== 'all' && (
+                            <button 
+                                onClick={() => setSelectedCountry('all')} 
+                                className="px-8 py-3 bg-[#1877F2] text-white rounded-xl font-bold hover:bg-[#166FE5] transition-colors"
+                            >
+                                View Worldwide
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
