@@ -61,6 +61,21 @@ import {
   Brand,
 } from './types';
 
+// Add this with your other constants
+const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
+
+// ✅ Also update the generateProfilePictureUrl function to use proper sizing for music covers
+const generateProfilePictureUrl = (name: string, identifier: string | number): string => {
+  const initials = generateInitials(name);
+  const backgroundColor = getUserColor(identifier).replace('#', '');
+  const size = 128;
+  const fontSize = 0.5;
+  const textColor = 'FFFFFF';
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    initials
+  )}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
+};
+
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
