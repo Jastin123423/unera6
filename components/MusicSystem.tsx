@@ -409,7 +409,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       }`}
     >
       {expanded ? (
-        {/* EXPANDED VIEW - MODERN BOOMPLAY STYLE */}
+        // EXPANDED VIEW - MODERN BOOMPLAY STYLE
         <div className="flex flex-col h-full w-full relative overflow-hidden bg-gradient-to-b from-gray-900 to-black">
           {/* Background Gradient */}
           <div
@@ -619,7 +619,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
           </div>
         </div>
       ) : (
-        {/* MINI PLAYER - MODERN DESIGN */}
+        // MINI PLAYER - MODERN DESIGN
         <div className="flex items-center justify-between h-full px-6 bg-gradient-to-r from-[#0A0A0A] to-[#1A1A1A]">
           {/* Left: Track Info & Album Art */}
           <div 
