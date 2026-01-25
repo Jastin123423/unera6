@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type { Song, Episode, AudioTrack, User } from '../types';
 
 /* =========================================================
+   CONSTANTS & DEFAULTS
+========================================================= */
+const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
+const DEFAULT_PODCAST_COVER = 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
+
+/* =========================================================
    API CLIENT (safe JSON parsing + auth + errors)
 ========================================================= */
 
@@ -78,19 +84,20 @@ async function apiForm<T>(endpoint: string, form: FormData, options: RequestInit
    MAPPERS (backend -> UI types) - FIXED: reads plays_count/likes_count
 ========================================================= */
 
-const DEFAULT_SONG_COVER =
-  'https://images.unsplash.com/photo-1514525253440-b393452e8d26?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
-
-const DEFAULT_PODCAST_COVER =
-  'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
-
 // ✅ FIXED: Reads plays_count and likes_count from backend
 function mapSongFromApi(s: any): Song {
   const plays = Number(s.plays_count ?? s.plays ?? s.stats?.plays ?? 0);
   const likes = Number(s.likes_count ?? s.likes ?? s.stats?.likes ?? 0);
   
-  // ✅ FIX: Use default cover if none provided
-  const cover = s.cover_image_url || s.cover || DEFAULT_SONG_COVER;
+  // ✅ FIX: Use default cover if none provided or invalid
+  let cover = s.cover_image_url || s.cover || DEFAULT_MUSIC_COVER;
+  
+  // Check if cover is a valid URL, otherwise use default
+  if (!cover || cover.trim() === '' || 
+      cover.includes('ui-avatars.com') || 
+      !cover.startsWith('http')) {
+    cover = DEFAULT_MUSIC_COVER;
+  }
 
   return {
     id: String(s.id),
@@ -119,8 +126,15 @@ function mapEpisodeFromApi(e: any): Episode {
   const plays = Number(e.plays_count ?? e.plays ?? e.stats?.plays ?? 0);
   const likes = Number(e.likes_count ?? e.likes ?? e.stats?.likes ?? 0);
   
-  // ✅ FIX: Use default cover if none provided
-  const thumbnail = e.cover_url || e.cover_image_url || e.thumbnail || DEFAULT_PODCAST_COVER;
+  // ✅ FIX: Use default cover if none provided or invalid
+  let thumbnail = e.cover_url || e.cover_image_url || e.thumbnail || DEFAULT_PODCAST_COVER;
+  
+  // Check if thumbnail is a valid URL, otherwise use default
+  if (!thumbnail || thumbnail.trim() === '' || 
+      thumbnail.includes('ui-avatars.com') || 
+      !thumbnail.startsWith('http')) {
+    thumbnail = DEFAULT_PODCAST_COVER;
+  }
 
   return {
     id: String(e.id),
@@ -146,7 +160,7 @@ function mapEpisodeFromApi(e: any): Episode {
 }
 
 /* =========================================================
-   GLOBAL AUDIO PLAYER (updated with onStarted callback + owner support)
+   MODERN GLOBAL AUDIO PLAYER (Boomplay Style)
 ========================================================= */
 
 interface GlobalAudioPlayerProps {
@@ -161,7 +175,6 @@ interface GlobalAudioPlayerProps {
   onArtistClick?: (uploaderId: number) => void;
   isLiked: boolean;
   uploaderProfile?: User | null;
-  // ✅ ADDED: New props for total plays and audio started event
   ownerUser?: User | null;
   totalPlays?: number;
   totalPlaysLoading?: boolean;
@@ -180,7 +193,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   onArtistClick,
   isLiked,
   uploaderProfile,
-  // ✅ ADDED: New props
   ownerUser,
   totalPlays = 0,
   totalPlaysLoading = false,
@@ -192,8 +204,10 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastUrlRef = useRef<string | null>(null);
   const playPromiseRef = useRef<Promise<void> | null>(null);
-  // ✅ ADDED: Track started key to prevent duplicate onStarted calls
   const startedKeyRef = useRef<string>("");
+  const [volume, setVolume] = useState(1);
+  const [isRepeating, setIsRepeating] = useState(false);
+  const [isShuffling, setIsShuffling] = useState(false);
 
   // Clean up audio on unmount
   useEffect(() => {
@@ -221,7 +235,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       if (startedKeyRef.current === k) return;
       startedKeyRef.current = k;
       
-      onStarted(currentTrack); // ✅ THIS IS THE TRUTH EVENT
+      onStarted(currentTrack);
     };
 
     el.addEventListener("playing", onPlaying);
@@ -233,6 +247,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     if (!audioRef.current) {
       audioRef.current = new Audio();
       audioRef.current.preload = 'metadata';
+      audioRef.current.volume = volume;
     }
 
     const audio = audioRef.current;
@@ -241,7 +256,14 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       if (!isNaN(audio.duration)) setDuration(audio.duration);
     };
     const setAudioTime = () => setCurrentTime(audio.currentTime);
-    const handleEnded = () => onNext();
+    const handleEnded = () => {
+      if (isRepeating) {
+        audio.currentTime = 0;
+        audio.play();
+      } else {
+        onNext();
+      }
+    };
     const handleError = (e: Event) => console.warn('Audio playback warning:', e);
 
     audio.addEventListener('loadeddata', setAudioData);
@@ -305,7 +327,14 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('error', handleError);
     };
-  }, [currentTrack, isPlaying, onNext]);
+  }, [currentTrack, isPlaying, onNext, isRepeating]);
+
+  // Update volume when changed
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = Number(e.target.value);
@@ -313,6 +342,11 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       audioRef.current.currentTime = time;
       setCurrentTime(time);
     }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const vol = Number(e.target.value);
+    setVolume(vol);
   };
 
   const formatTime = (time: number) => {
@@ -332,7 +366,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     if (isPlaying) onTogglePlay();
   };
 
-  // Handle close - stop audio completely
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (audioRef.current) {
@@ -348,207 +381,353 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 
   // ✅ FIXED: Use ownerUser if provided, otherwise fallback to uploaderProfile or track artist
   const displayUser = ownerUser || uploaderProfile;
+  
   // ✅ FIXED: Get profile picture from user object
   const profilePicture = displayUser 
     ? (displayUser as any).profileImage || (displayUser as any).profile_image_url 
     : null;
+  
+  // ✅ FIXED: Get display name from user object
+  const displayName = displayUser 
+    ? displayUser.name || displayUser.username 
+    : currentTrack.artist;
+
+  // ✅ FIXED: For podcasts, always show "Host" if type is podcast
+  const userRole = currentTrack.type === 'podcast' ? 'Host' : 'Artist';
+
+  // ✅ FIXED: Get track cover or use default
+  const trackCover = currentTrack.cover && 
+                    currentTrack.cover.trim() !== '' && 
+                    currentTrack.cover.startsWith('http')
+                    ? currentTrack.cover
+                    : DEFAULT_MUSIC_COVER;
 
   return (
     <div
-      className={`fixed bottom-0 left-0 right-0 bg-[#0A0A0A] border-t border-[#222] transition-all duration-500 z-[160] shadow-2xl ${
-        expanded ? 'h-full border-none' : 'h-20 mb-0'
+      className={`fixed bottom-0 left-0 right-0 bg-gradient-to-t from-[#0A0A0A] to-[#1A1A1A] transition-all duration-500 z-[160] shadow-2xl border-t border-[#333] ${
+        expanded ? 'h-full' : 'h-24'
       }`}
     >
-      {expanded && (
-        <div className="flex flex-col h-full w-full relative overflow-hidden bg-gradient-to-b from-gray-900 to-black animate-slide-up">
+      {expanded ? (
+        {/* EXPANDED VIEW - MODERN BOOMPLAY STYLE */}
+        <div className="flex flex-col h-full w-full relative overflow-hidden bg-gradient-to-b from-gray-900 to-black">
+          {/* Background Gradient */}
           <div
             className="absolute inset-0 z-0 opacity-40 blur-3xl scale-150 pointer-events-none"
             style={{
-              backgroundImage: `url(${currentTrack.cover})`,
+              backgroundImage: `url(${trackCover})`,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
             }}
           ></div>
 
-          <div className="relative z-10 flex justify-between items-center p-6 pt-10 text-white">
-            <div
+          {/* Header */}
+          <div className="relative z-10 flex justify-between items-center p-6 pt-8 text-white">
+            <button
               onClick={() => setExpanded(false)}
               className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center cursor-pointer transition-colors"
             >
-              <i className="fas fa-chevron-down text-2xl"></i>
-            </div>
+              <i className="fas fa-chevron-down text-xl"></i>
+            </button>
 
             <div className="flex flex-col items-center">
-              <span className="text-[10px] font-bold tracking-widest uppercase text-gray-400">Now Playing</span>
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-bold bg-[#1877F2] px-1.5 py-0.5 rounded text-white">Hi-Res</span>
-                <span className="text-sm font-bold">{currentTrack.type === 'podcast' ? 'Podcast' : 'Music'}</span>
+              <span className="text-xs font-medium text-gray-400">Now Playing</span>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-sm font-bold text-white">{currentTrack.title}</span>
               </div>
             </div>
 
-            <div
-              onClick={handleClose}
-              className="w-10 h-10 rounded-full hover:bg-red-500/20 flex items-center justify-center cursor-pointer transition-colors text-gray-400 hover:text-red-500"
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onLike(String(currentTrack.id), currentTrack.type);
+              }}
+              className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center cursor-pointer transition-colors"
             >
-              <i className="fas fa-times text-xl"></i>
-            </div>
+              <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart text-xl`}></i>
+            </button>
           </div>
 
-          <div className="relative z-10 flex-1 flex items-center justify-center p-8">
-            <div
-              className={`w-[280px] h-[280px] sm:w-[320px] sm:h-[320px] rounded-full border-[8px] border-[#1A1A1A] shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden relative flex items-center justify-center ${
-                isPlaying ? 'animate-[spin_15s_linear_infinite]' : ''
-              }`}
-              style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}
-            >
-              <img src={currentTrack.cover} className="w-full h-full object-cover" alt="" />
-              <div className="absolute w-8 h-8 bg-[#0A0A0A] rounded-full border-2 border-[#333]"></div>
-            </div>
-          </div>
-
-          <div className="relative z-10 p-6 sm:p-8 pb-12 bg-gradient-to-t from-black via-black/90 to-transparent">
-            <div className="flex justify-between items-end mb-6">
-              <div className="flex-1 pr-4">
-                <h2 className="text-2xl font-bold text-white mb-2 line-clamp-1 leading-tight">{currentTrack.title}</h2>
-
-                <div
-                  className="flex items-center gap-2 cursor-pointer hover:bg-white/10 p-2 -ml-2 rounded-lg transition-colors w-fit"
-                  onClick={() => currentTrack.uploaderId && onArtistClick && onArtistClick(currentTrack.uploaderId)}
+          {/* Rotating Album Art - BOOMPLAY STYLE */}
+          <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-8">
+            <div className="relative mb-12">
+              {/* Outer Ring with Gradient */}
+              <div className="absolute inset-0 rounded-full animate-spin-slow" style={{
+                background: 'conic-gradient(from 0deg, #1877F2, #F3425F, #45BD62, #F7B928, #1877F2)',
+                filter: 'blur(8px)',
+                opacity: 0.3,
+              }}></div>
+              
+              {/* Album Art Container */}
+              <div
+                className={`relative w-[280px] h-[280px] rounded-full border-[12px] border-[#1A1A1A]/80 shadow-[0_0_80px_rgba(0,0,0,0.7)] overflow-hidden flex items-center justify-center ${
+                  isPlaying ? 'animate-spin-slow' : ''
+                }`}
+                style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}
+              >
+                {/* Album Art */}
+                <img 
+                  src={trackCover} 
+                  className="w-full h-full object-cover" 
+                  alt="Album Art" 
+                />
+                
+                {/* Center Circle */}
+                <div className="absolute w-12 h-12 bg-[#0A0A0A] rounded-full border-4 border-[#333] flex items-center justify-center">
+                  <div className="w-4 h-4 bg-[#333] rounded-full"></div>
+                </div>
+              </div>
+              
+              {/* Play/Pause Button Overlay */}
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                <button
+                  onClick={onTogglePlay}
+                  className="w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center hover:scale-110 transition-transform"
                 >
-                  {displayUser ? (
-                    <>
-                      {/* ✅ FIXED: Show profile picture if available */}
-                      {profilePicture ? (
-                        <img src={profilePicture} className="w-8 h-8 rounded-full border border-white/20 object-cover" alt="" />
-                      ) : (
-                        <img src={currentTrack.cover} className="w-8 h-8 rounded-full border border-white/20 object-cover" alt="" />
-                      )}
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1">
-                          <span className="text-white text-[16px] font-bold">{displayUser.name}</span>
-                          {(displayUser as any).isVerified && <i className="fas fa-check-circle text-xs text-[#1877F2]"></i>}
-                        </div>
-                        <span className="text-[#B0B3B8] text-[14px]">~ {currentTrack.artist}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <img src={currentTrack.cover} className="w-8 h-8 rounded-full border border-white/20 object-cover" alt="" />
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1">
-                          <span className="text-white text-[16px] font-bold">{currentTrack.artist}</span>
-                          {(currentTrack as any).isVerified && <i className="fas fa-check-circle text-xs text-[#1877F2]"></i>}
-                        </div>
-                        <span className="text-[#B0B3B8] text-[14px]">{currentTrack.type === 'podcast' ? 'Host' : 'Artist'}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <i className="fas fa-download text-white text-2xl cursor-pointer hover:text-[#1877F2] transition-colors" onClick={() => onDownload(String(currentTrack.id))} title="Download"></i>
-                <i
-                  className={`${isLiked ? 'fas text-[#F3425F]' : 'far text-white'} fa-heart text-2xl cursor-pointer hover:scale-110 transition-transform`}
-                  onClick={() => onLike(String(currentTrack.id), currentTrack.type)}
-                ></i>
+                  <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-white text-3xl ml-1`}></i>
+                </button>
               </div>
             </div>
 
-            {/* ✅ ADDED: Total plays display */}
-            {totalPlays > 0 && (
-              <div className="mb-4 text-center">
-                <div className="inline-flex items-center gap-2 bg-[#1877F2]/20 px-3 py-1 rounded-full">
-                  <i className="fas fa-headphones text-xs text-[#1877F2]"></i>
-                  <span className="text-xs font-semibold text-[#B0B3B8]">
-                    {totalPlaysLoading ? '...' : `${totalPlays.toLocaleString()} total plays`}
-                  </span>
+            {/* Track Info */}
+            <div className="text-center px-8 max-w-xl">
+              <h2 className="text-2xl font-bold text-white mb-2">{currentTrack.title}</h2>
+              
+              {/* Artist Info with Profile Picture */}
+              <div
+                className="flex items-center justify-center gap-3 cursor-pointer group"
+                onClick={() => currentTrack.uploaderId && onArtistClick && onArtistClick(currentTrack.uploaderId)}
+              >
+                {profilePicture ? (
+                  <img 
+                    src={profilePicture} 
+                    className="w-10 h-10 rounded-full border-2 border-white/30 object-cover group-hover:scale-110 transition-transform" 
+                    alt="Profile" 
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-[#1877F2] to-[#F3425F] flex items-center justify-center text-white font-bold">
+                    {displayName?.charAt(0) || 'U'}
+                  </div>
+                )}
+                <div className="text-left">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white font-semibold">{displayName}</span>
+                    {displayUser?.isVerified && (
+                      <i className="fas fa-check-circle text-[#1877F2] text-sm"></i>
+                    )}
+                  </div>
+                  <span className="text-[#B0B3B8] text-sm">{userRole}</span>
                 </div>
               </div>
-            )}
 
-            <div className="mb-6 group">
+              {/* Total Plays */}
+              {totalPlays > 0 && (
+                <div className="mt-4">
+                  <div className="inline-flex items-center gap-2 bg-[#1877F2]/20 px-4 py-2 rounded-full">
+                    <i className="fas fa-headphones text-sm text-[#1877F2]"></i>
+                    <span className="text-sm font-medium text-[#B0B3B8]">
+                      {totalPlaysLoading ? '...' : `${totalPlays.toLocaleString()} plays`}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Progress Bar & Controls */}
+          <div className="relative z-10 p-6 pb-10 bg-gradient-to-t from-black via-black/95 to-transparent">
+            {/* Progress Bar */}
+            <div className="mb-8">
+              <div className="flex justify-between text-sm text-[#B0B3B8] mb-2">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
               <input
                 type="range"
                 min={0}
                 max={duration || 100}
                 value={currentTime}
                 onChange={handleSeek}
-                className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#1877F2]"
+                className="w-full h-1 bg-gray-700/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#1877F2]"
               />
-              <div className="flex justify-between text-[11px] text-gray-400 font-medium mt-2">
+            </div>
+
+            {/* Player Controls */}
+            <div className="flex items-center justify-between px-4 mb-8">
+              <button
+                onClick={() => setIsShuffling(!isShuffling)}
+                className={`text-xl ${isShuffling ? 'text-[#1877F2]' : 'text-[#B0B3B8] hover:text-white'}`}
+              >
+                <i className="fas fa-random"></i>
+              </button>
+
+              <button onClick={onPrevious} className="text-2xl text-white hover:text-[#1877F2]">
+                <i className="fas fa-step-backward"></i>
+              </button>
+
+              <button
+                onClick={onTogglePlay}
+                className="w-16 h-16 bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(24,119,242,0.5)] hover:scale-105 transition-transform"
+              >
+                <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-1'} text-white text-2xl`}></i>
+              </button>
+
+              <button onClick={onNext} className="text-2xl text-white hover:text-[#1877F2]">
+                <i className="fas fa-step-forward"></i>
+              </button>
+
+              <button
+                onClick={() => setIsRepeating(!isRepeating)}
+                className={`text-xl ${isRepeating ? 'text-[#1877F2]' : 'text-[#B0B3B8] hover:text-white'}`}
+              >
+                <i className="fas fa-redo"></i>
+              </button>
+            </div>
+
+            {/* Volume & Additional Controls */}
+            <div className="flex items-center justify-between">
+              <button
+                onClick={handleStop}
+                className="flex items-center gap-2 text-[#B0B3B8] hover:text-white"
+              >
+                <i className="fas fa-stop"></i>
+                <span className="text-sm">Stop</span>
+              </button>
+
+              <div className="flex items-center gap-3">
+                <i className="fas fa-volume-down text-[#B0B3B8]"></i>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={volume}
+                  onChange={handleVolumeChange}
+                  className="w-32 h-1 bg-gray-700/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                />
+                <i className="fas fa-volume-up text-[#B0B3B8]"></i>
+              </div>
+
+              <button
+                onClick={() => onDownload(String(currentTrack.id))}
+                className="flex items-center gap-2 text-[#B0B3B8] hover:text-white"
+              >
+                <i className="fas fa-download"></i>
+                <span className="text-sm">Download</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        {/* MINI PLAYER - MODERN DESIGN */}
+        <div className="flex items-center justify-between h-full px-6 bg-gradient-to-r from-[#0A0A0A] to-[#1A1A1A]">
+          {/* Left: Track Info & Album Art */}
+          <div 
+            className="flex items-center gap-4 flex-1 cursor-pointer overflow-hidden"
+            onClick={() => setExpanded(true)}
+          >
+            {/* Rotating Mini Album Art */}
+            <div className="relative">
+              <div className={`w-14 h-14 rounded-full overflow-hidden border-2 border-[#333] ${isPlaying ? 'animate-spin-slow' : ''}`}>
+                <img 
+                  src={trackCover} 
+                  alt="Album Art" 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              {isPlaying && (
+                <div className="absolute -inset-2 border-2 border-[#1877F2]/30 rounded-full animate-ping"></div>
+              )}
+            </div>
+
+            {/* Track Info */}
+            <div className="flex-1 min-w-0">
+              <h4 className="text-white font-semibold text-sm truncate">{currentTrack.title}</h4>
+              <div className="flex items-center gap-2 mt-1">
+                {profilePicture ? (
+                  <img 
+                    src={profilePicture} 
+                    className="w-4 h-4 rounded-full object-cover border border-white/20"
+                    alt="Profile"
+                  />
+                ) : null}
+                <span className="text-gray-400 text-xs truncate flex items-center gap-1">
+                  {displayName}
+                  {displayUser?.isVerified && (
+                    <i className="fas fa-check-circle text-[8px] text-[#1877F2]"></i>
+                  )}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Center: Progress Bar (Mini) */}
+          <div className="flex-1 max-w-md mx-4 hidden md:block">
+            <div className="relative">
+              <div className="h-1 bg-gray-700/50 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] rounded-full"
+                  style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
+                ></div>
+              </div>
+              <div className="flex justify-between text-[10px] text-gray-500 mt-1">
                 <span>{formatTime(currentTime)}</span>
                 <span>{formatTime(duration)}</span>
               </div>
             </div>
+          </div>
 
-            <div className="flex justify-between items-center mb-10 px-4">
-              <i className="fas fa-stop text-[#B0B3B8] text-xl cursor-pointer hover:text-red-500 transition-colors" onClick={handleStop} title="Stop"></i>
-              <i className="fas fa-step-backward text-white text-3xl cursor-pointer hover:text-[#1877F2] transition-colors" onClick={onPrevious}></i>
-              <div
-                className="w-16 h-16 bg-[#1877F2] rounded-full flex items-center justify-center cursor-pointer shadow-[0_0_20px_rgba(24,119,242,0.4)] hover:scale-110 hover:shadow-[0_0_30px_rgba(24,119,242,0.6)] transition-all"
-                onClick={onTogglePlay}
-              >
-                <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-1'} text-white text-2xl`}></i>
-              </div>
-              <i className="fas fa-step-forward text-white text-3xl cursor-pointer hover:text-[#1877F2] transition-colors" onClick={onNext}></i>
-              <div className="cursor-pointer text-gray-400 hover:text-white transition-colors" onClick={handleClose}>
-                <i className="fas fa-times text-xl"></i>
-              </div>
-            </div>
+          {/* Right: Controls */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onLike(String(currentTrack.id), currentTrack.type);
+              }}
+              className="text-lg hover:scale-110 transition-transform"
+            >
+              <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+            </button>
+
+            <button onClick={onPrevious} className="text-lg text-gray-400 hover:text-white">
+              <i className="fas fa-step-backward"></i>
+            </button>
+
+            <button
+              onClick={onTogglePlay}
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                isPlaying 
+                  ? 'bg-gradient-to-r from-[#F3425F] to-[#FF6B9D]' 
+                  : 'bg-gradient-to-r from-[#1877F2] to-[#2D8CFF]'
+              }`}
+            >
+              <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-0.5'} text-white`}></i>
+            </button>
+
+            <button onClick={onNext} className="text-lg text-gray-400 hover:text-white">
+              <i className="fas fa-step-forward"></i>
+            </button>
+
+            <button
+              onClick={handleClose}
+              className="text-lg text-gray-400 hover:text-red-500 ml-2"
+            >
+              <i className="fas fa-times"></i>
+            </button>
           </div>
         </div>
       )}
 
-      {!expanded && (
-        <div className="flex items-center justify-between px-4 h-full bg-[#141414] border-t border-[#333] relative">
-          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gray-800">
-            <div className="h-full bg-[#1877F2]" style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}></div>
-          </div>
-
-          <div className="flex items-center flex-1 overflow-hidden" onClick={() => setExpanded(true)}>
-            <div className="w-12 h-12 relative group cursor-pointer mr-3">
-              <img src={currentTrack.cover} alt="Cover" className={`w-full h-full object-cover rounded-lg border border-[#333] ${isPlaying ? 'animate-pulse' : ''}`} />
-            </div>
-
-            <div className="flex-1 cursor-pointer overflow-hidden">
-              <h4 className="text-white font-bold text-[16px] truncate">{currentTrack.title}</h4>
-              {/* ✅ FIXED: Show artist profile photo and verification badge in mini player */}
-              <div className="flex items-center gap-2 mt-1">
-                {displayUser && profilePicture ? (
-                  <>
-                    <img 
-                      src={profilePicture} 
-                      className="w-4 h-4 rounded-full object-cover border border-white/20"
-                      alt=""
-                    />
-                    <span className="text-gray-400 text-[14px] truncate flex items-center gap-1">
-                      {displayUser.name}
-                      {(displayUser as any)?.isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-gray-400 text-[14px] truncate flex items-center gap-1">
-                    {currentTrack.artist}
-                    {(currentTrack as any).isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <i className="fas fa-step-backward text-gray-400 cursor-pointer hover:text-white text-lg" onClick={onPrevious}></i>
-            <div className="w-10 h-10 bg-[#1877F2] rounded-full flex items-center justify-center text-white cursor-pointer hover:scale-105 transition-transform shadow-lg" onClick={onTogglePlay}>
-              <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-0.5'} text-sm`}></i>
-            </div>
-            <i className="fas fa-step-forward text-gray-400 cursor-pointer hover:text-white text-lg" onClick={onNext}></i>
-            <div className="cursor-pointer text-gray-400 hover:text-red-500 ml-2" onClick={handleClose}>
-              <i className="fas fa-times text-lg"></i>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Add CSS for custom animations */}
+      <style>{`
+        @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .animate-spin-slow {
+          animation: spin-slow 20s linear infinite;
+        }
+      `}</style>
     </div>
   );
 };
@@ -591,8 +770,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
   const coverInputRef = useRef<HTMLInputElement>(null);
   const trackInputRef = useRef<HTMLInputElement>(null);
 
-  const defaultCover =
-    'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
+  const defaultCover = DEFAULT_MUSIC_COVER;
 
   const handleAddTrack = () => {
     if (!tempTrackTitle || !tempTrackFile) {
@@ -608,7 +786,6 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
   // Upload file to R2 using /api/upload (expects field name "file")
   const uploadToR2 = async (file: File) => {
     const fd = new FormData();
-    // IMPORTANT: upload.ts expects multipart field name: "file"
     fd.append("file", file);
 
     const up = await apiForm<{ success: boolean; url: string; key: string }>(
@@ -635,7 +812,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
 
       if (type === "music") {
         // ✅ FIXED: Use default cover if none uploaded
-        const finalCoverUrl = coverUrl || DEFAULT_SONG_COVER;
+        const finalCoverUrl = coverUrl || DEFAULT_MUSIC_COVER;
         
         // 3) Save metadata to DB (JSON) -> /api/songs
         const payload = {
@@ -712,7 +889,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
         const audioUrl = await uploadToR2(t.file);
 
         // 2) if track has a cover URL (external), use it; else shared coverUrl; else default
-        const coverUrl = t.cover?.trim() ? t.cover.trim() : (sharedCoverUrl || DEFAULT_SONG_COVER);
+        const coverUrl = t.cover?.trim() ? t.cover.trim() : (sharedCoverUrl || DEFAULT_MUSIC_COVER);
 
         // 3) create song in DB
         const payload = {
@@ -934,7 +1111,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
                       <div key={idx} className="flex items-center justify-between p-3 bg-[#1A1A1A] rounded border border-[#333]">
                         <div className="flex items-center gap-3">
                           <span className="text-[#666] font-mono">{idx + 1}</span>
-                          <img src={t.cover || coverPreview || DEFAULT_SONG_COVER} className="w-8 h-8 rounded object-cover" alt="" />
+                          <img src={t.cover || coverPreview || DEFAULT_MUSIC_COVER} className="w-8 h-8 rounded object-cover" alt="" />
                           <div>
                             <span className="text-white font-semibold block">{t.title}</span>
                             <span className="text-[#666] text-xs">{t.artist}</span>
@@ -1358,11 +1535,16 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
   // ✅ FIXED: Record play count when track is played with smart fallback
   const handlePlayTrackFromSong = useCallback((song: Song) => {
+    // ✅ Get uploader profile from users list
     const uploaderProfile = users.find((u) => u.id === song.uploaderId);
+    
+    // ✅ Use the user's actual name from profile, not just song.artist
+    const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
+    
     const audioTrack: AudioTrack = {
       id: String(song.id),
       title: song.title,
-      artist: song.artist,
+      artist: artistName, // ✅ Use actual profile name
       duration:
         typeof song.duration === 'string'
           ? (() => {
@@ -1374,23 +1556,28 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           : (song.duration as any) || 180,
       url: song.audioUrl || '',
       uploaderId: song.uploaderId || 1,
-      cover: song.cover,
+      cover: song.cover || DEFAULT_MUSIC_COVER, // ✅ Use default if no cover
       type: 'music',
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
       likesCount: Number((song.stats as any)?.likes || 0),
     } as any;
 
-    // ✅ Immediately play the track (play count will be recorded when audio actually starts via onStarted callback)
+    // ✅ Immediately play the track
     onPlayTrack(audioTrack);
   }, [users, onPlayTrack]);
 
   // ✅ FIXED: Record play count for podcasts with smart fallback
   const handlePlayTrackFromEpisode = useCallback((episode: Episode) => {
+    // ✅ Get uploader profile from users list
     const uploaderProfile = users.find((u) => u.id === episode.uploaderId);
+    
+    // ✅ Use the user's actual name from profile, not just episode.host
+    const hostName = uploaderProfile?.name || uploaderProfile?.username || episode.host || 'Unknown Host';
+    
     const audioTrack: AudioTrack = {
       id: String(episode.id),
       title: episode.title,
-      artist: episode.host || 'Podcast Host',
+      artist: hostName, // ✅ Use actual profile name
       duration:
         typeof episode.duration === 'string'
           ? (() => {
@@ -1402,13 +1589,13 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           : (episode.duration as any) || 1800,
       url: episode.audioUrl || '',
       uploaderId: episode.uploaderId || 1,
-      cover: (episode as any).thumbnail,
+      cover: (episode as any).thumbnail || DEFAULT_PODCAST_COVER, // ✅ Use default if no thumbnail
       type: 'podcast',
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
       likesCount: Number((episode.stats as any)?.likes || 0),
     } as any;
 
-    // ✅ Immediately play the track (play count will be recorded when audio actually starts via onStarted callback)
+    // ✅ Immediately play the track
     onPlayTrack(audioTrack);
   }, [users, onPlayTrack]);
 
@@ -1479,7 +1666,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       .slice(0, 5);
   }, [songs]);
 
-  // ✅ FIXED: UPDATED Dashboard stats calculations with correct totals
+  // ✅ FIXED: Dashboard stats calculations
   const dashboardStats = useMemo(() => {
     const totalPlays =
       songs.reduce((sum, s) => sum + (Number((s.stats as any)?.plays) || 0), 0) +
@@ -1507,22 +1694,13 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     return {
       totalPlays,
       totalTracks,
-
-      // likes on all content in system
       totalLikesReceived,
-
       userSongs: userSongs.length,
       userEpisodes: userEpisodes.length,
       userUploads: userSongs.length + userEpisodes.length,
-
-      // plays + likes on MY content (this is what creators care about)
       userPlays,
       userLikesReceived,
-      
-      // likes user has made (from likedTracks)
       myLikesCount: likedTracks.length,
-      
-      // ✅ ADDED: User's total plays from props
       myTotalPlays: myTotalPlays || 0,
     };
   }, [songs, episodes, currentUser, likedTracks, myTotalPlays]);
@@ -1551,7 +1729,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     } as any;
   }, [selectedArtistId, users, songs]);
 
-  // SEO schema (same style)
+  // SEO schema
   useEffect(() => {
     const schema = {
       '@context': 'https://schema.org',
@@ -1669,12 +1847,14 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
         {/* MUSIC VIEW */}
         {view === 'music' && !showLoading && (
           <div className="space-y-8">
-            {/* ✅ MODIFIED: Keep only Now Playing stats at top */}
+            {/* Now Playing Stats */}
             {currentUser && currentTrack && (
               <div className="bg-[#242526] p-4 rounded-xl border border-[#333]">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <img src={currentTrack.cover} className="w-12 h-12 rounded-lg object-cover" alt="" />
+                    <div className={`w-12 h-12 rounded-full overflow-hidden ${isPlaying ? 'animate-spin-slow' : ''}`}>
+                      <img src={currentTrack.cover} className="w-full h-full object-cover" alt="" />
+                    </div>
                     <div>
                       <p className="text-[#B0B3B8] text-xs">Now Playing</p>
                       <p className="text-lg font-bold text-white truncate max-w-xs">{currentTrack.title}</p>
@@ -1710,6 +1890,9 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
                       : null;
                     
+                    // ✅ Use actual profile name
+                    const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
+                    
                     return (
                       <div
                         key={song.id}
@@ -1717,7 +1900,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                         onClick={() => handlePlayTrackFromSong(song)}
                       >
                         <div className="relative aspect-square overflow-hidden">
-                          <img src={song.cover} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <img 
+                            src={song.cover || DEFAULT_MUSIC_COVER} 
+                            alt={song.title} 
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                          />
                           <div className="absolute top-2 left-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">🔥 {(song.stats as any)?.plays || 0}</div>
                           <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
@@ -1733,11 +1920,17 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                               <img 
                                 src={profilePicture} 
                                 className="w-4 h-4 rounded-full object-cover border border-white/20"
-                                alt=""
+                                alt="Profile"
                               />
                             ) : null}
-                            <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
-                              {song.artist}
+                            <p 
+                              className="text-[#B0B3B8] text-xs truncate flex items-center gap-1 cursor-pointer hover:underline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (song.uploaderId) handleArtistClick(song.uploaderId);
+                              }}
+                            >
+                              {artistName}
                               {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
                             </p>
                           </div>
@@ -1786,6 +1979,9 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
                       : null;
                     
+                    // ✅ Use actual profile name
+                    const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
+                    
                     return (
                       <div
                         key={song.id}
@@ -1793,7 +1989,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                         onClick={() => handlePlayTrackFromSong(song)}
                       >
                         <div className="relative aspect-square overflow-hidden">
-                          <img src={song.cover} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <img 
+                            src={song.cover || DEFAULT_MUSIC_COVER} 
+                            alt={song.title} 
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                          />
                           <div className="absolute top-2 left-2 bg-[#1877F2] text-white text-xs font-bold px-2 py-1 rounded">NEW</div>
                           <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
@@ -1809,11 +2009,17 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                               <img 
                                 src={profilePicture} 
                                 className="w-4 h-4 rounded-full object-cover border border-white/20"
-                                alt=""
+                                alt="Profile"
                               />
                             ) : null}
-                            <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
-                              {song.artist}
+                            <p 
+                              className="text-[#B0B3B8] text-xs truncate flex items-center gap-1 cursor-pointer hover:underline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (song.uploaderId) handleArtistClick(song.uploaderId);
+                              }}
+                            >
+                              {artistName}
                               {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
                             </p>
                           </div>
@@ -1860,6 +2066,9 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
                       : null;
                     
+                    // ✅ Use actual profile name
+                    const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
+                    
                     return (
                       <div
                         key={song.id}
@@ -1880,7 +2089,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                           )}
                         </div>
 
-                        <img src={song.cover} alt={song.title} className="w-12 h-12 rounded-lg object-cover" />
+                        <img 
+                          src={song.cover || DEFAULT_MUSIC_COVER} 
+                          alt={song.title} 
+                          className="w-12 h-12 rounded-lg object-cover" 
+                        />
 
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-white truncate">{song.title}</h3>
@@ -1896,10 +2109,10 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                               <img 
                                 src={profilePicture} 
                                 className="w-4 h-4 rounded-full object-cover border border-white/20"
-                                alt=""
+                                alt="Profile"
                               />
                             ) : null}
-                            <span>{song.artist}</span>
+                            <span>{artistName}</span>
                             {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
                             {(song.stats as any)?.plays > 1000 && (
                               <span className="text-xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded ml-2">🔥 {(song.stats as any).plays} plays</span>
@@ -1968,6 +2181,9 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
                       : null;
                     
+                    // ✅ Use actual profile name for host
+                    const hostName = uploaderProfile?.name || uploaderProfile?.username || episode.host || 'Host';
+                    
                     return (
                       <div
                         key={episode.id}
@@ -1979,7 +2195,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                         <div className="p-4">
                           <div className="flex items-start gap-4">
                             <div className="relative w-16 h-16 flex-shrink-0">
-                              <img src={(episode as any).thumbnail} alt={episode.title} className="w-full h-full object-cover rounded-lg" />
+                              <img 
+                                src={episode.thumbnail || DEFAULT_PODCAST_COVER} 
+                                alt={episode.title} 
+                                className="w-full h-full object-cover rounded-lg" 
+                              />
                               <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                 <i className="fas fa-play text-white"></i>
                               </div>
@@ -1992,12 +2212,19 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                                   <img 
                                     src={profilePicture} 
                                     className="w-4 h-4 rounded-full object-cover border border-white/20"
-                                    alt=""
+                                    alt="Profile"
                                   />
                                 ) : null}
-                                <p className="text-[#B0B3B8] text-sm flex items-center gap-1">
-                                  {(episode as any).host || 'Unknown Host'}
+                                <p 
+                                  className="text-[#B0B3B8] text-sm flex items-center gap-1 cursor-pointer hover:underline"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (episode.uploaderId) handleArtistClick(episode.uploaderId);
+                                  }}
+                                >
+                                  {hostName} {/* ✅ Now shows actual user name */}
                                   {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
+                                  <span className="text-xs text-gray-500 ml-1">(Host)</span>
                                 </p>
                               </div>
 
@@ -2050,7 +2277,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           </div>
         )}
 
-        {/* DASHBOARD - PROFESSIONALLY FIXED WITH REAL DATA */}
+        {/* DASHBOARD */}
         {view === 'dashboard' && currentUser && !showLoading && (
           <div className="space-y-8">
             <div className="bg-[#242526] rounded-2xl p-6">
@@ -2066,7 +2293,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 </button>
               </div>
 
-              {/* ✅ MODIFIED: Dashboard stats cards - Show myTotalPlays from props */}
+              {/* Dashboard stats cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
@@ -2126,7 +2353,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                         <tr key={item.id} className="hover:bg-[#2A2A2A]">
                           <td className="p-4">
                             <div className="flex items-center gap-3">
-                              <img src={item.cover || item.thumbnail} className="w-10 h-10 rounded object-cover" alt="" />
+                              <img src={item.cover || item.thumbnail || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" />
                               <div>
                                 <div className="font-bold text-white text-sm">{item.title}</div>
                                 <div className="text-xs text-[#888]">{item.artist || item.host}</div>
@@ -2178,7 +2405,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 <div className="space-y-3">
                   {playHistory.slice(0, 5).map((track, index) => (
                     <div key={index} className="flex items-center gap-3 p-3 hover:bg-[#2A2A2A] rounded-lg">
-                      <img src={track.cover} className="w-10 h-10 rounded object-cover" alt="" />
+                      <img src={track.cover || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" />
                       <div className="flex-1">
                         <div className="font-medium text-white text-sm">{track.title}</div>
                         <div className="text-xs text-[#888]">{track.artist}</div>
@@ -2240,7 +2467,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                               <i className="fas fa-play"></i>
                             </div>
 
-                            <img src={song.cover} className="w-10 h-10 rounded object-cover" alt="" />
+                            <img src={song.cover || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" />
 
                             <div className="flex-1">
                               <div className="font-bold text-white text-sm">{song.title}</div>
