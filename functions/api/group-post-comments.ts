@@ -1,4 +1,4 @@
-// functions/api/group-post-comments.ts
+//. functions/api/group-post-comments.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { cors, ok, bad, server } from "./_cors";
 
