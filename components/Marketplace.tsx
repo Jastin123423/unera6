@@ -35,7 +35,11 @@ const uploadToCloudflareR2 = async (file: File): Promise<string> => {
 };
 
 // --- OSM LOCATION SEARCH COMPONENT (Duplicated for standalone use in Marketplace) ---
-const LocationSearch: React.FC<{ value: string, onSelect: (val: string) => void }> = ({ value, onSelect }) => {
+const LocationSearch: React.FC<{ 
+  value: string, 
+  onSelect: (val: string) => void,
+  onCountryDetected?: (countryCode: string) => void 
+}> = ({ value, onSelect, onCountryDetected }) => {
     const [query, setQuery] = useState(value);
     const [results, setResults] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
@@ -64,6 +68,16 @@ const LocationSearch: React.FC<{ value: string, onSelect: (val: string) => void 
         searchTimeout.current = setTimeout(() => handleSearch(val), 500);
     };
 
+    const detectCountryFromLocation = (displayName: string): string | null => {
+      // Try to match country from location string
+      for (const country of MARKETPLACE_COUNTRIES) {
+        if (country.id !== 'all' && displayName.toLowerCase().includes(country.name.toLowerCase())) {
+          return country.code;
+        }
+      }
+      return null;
+    };
+
     return (
         <div className="relative w-full">
             <div className="relative">
@@ -84,9 +98,18 @@ const LocationSearch: React.FC<{ value: string, onSelect: (val: string) => void 
                             key={i} 
                             className="p-3 hover:bg-[#3A3B3C] cursor-pointer text-white text-sm border-b border-[#3E4042] last:border-0 transition-colors"
                             onClick={() => {
-                                onSelect(res.display_name);
-                                setQuery(res.display_name);
+                                const locationName = res.display_name;
+                                onSelect(locationName);
+                                setQuery(locationName);
                                 setShowResults(false);
+                                
+                                // Detect and notify about country
+                                if (onCountryDetected) {
+                                  const detectedCountryCode = detectCountryFromLocation(locationName);
+                                  if (detectedCountryCode) {
+                                    onCountryDetected(detectedCountryCode);
+                                  }
+                                }
                             }}
                         >
                             <i className="fas fa-location-dot mr-2 text-[#B0B3B8]"></i>
@@ -97,6 +120,38 @@ const LocationSearch: React.FC<{ value: string, onSelect: (val: string) => void 
             )}
         </div>
     );
+};
+
+// --- Helper function to detect country from user profile ---
+const detectCountryFromUser = (user: User | null): string => {
+  if (!user) return 'all';
+  
+  // Check nationality first
+  if (user.nationality) {
+    for (const country of MARKETPLACE_COUNTRIES) {
+      if (country.id !== 'all' && user.nationality.toLowerCase().includes(country.name.toLowerCase())) {
+        return country.code;
+      }
+    }
+  }
+  
+  // Check location field if available
+  if (user.location) {
+    for (const country of MARKETPLACE_COUNTRIES) {
+      if (country.id !== 'all' && user.location.toLowerCase().includes(country.name.toLowerCase())) {
+        return country.code;
+      }
+    }
+  }
+  
+  // Default to worldwide
+  return 'all';
+};
+
+// --- Helper function to get currency symbol for country code ---
+const getCurrencySymbolForCountry = (countryCode: string): string => {
+  const country = MARKETPLACE_COUNTRIES.find(c => c.code === countryCode);
+  return country ? country.symbol : '$';
 };
 
 // --- PRODUCT DETAIL MODAL ---
@@ -110,8 +165,18 @@ interface ProductDetailModalProps {
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, currentUser, onClose, onMessage }) => {
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     
-    const countryData = MARKETPLACE_COUNTRIES.find(c => product.address.toLowerCase().includes(c.name.toLowerCase()));
-    const symbol = countryData ? countryData.symbol : '$';
+    // Detect country from product address
+    const detectProductCountry = (address: string) => {
+      for (const country of MARKETPLACE_COUNTRIES) {
+        if (country.id !== 'all' && address.toLowerCase().includes(country.name.toLowerCase())) {
+          return country;
+        }
+      }
+      return MARKETPLACE_COUNTRIES.find(c => c.code === 'US') || MARKETPLACE_COUNTRIES[0];
+    };
+    
+    const countryData = detectProductCountry(product.address);
+    const symbol = countryData.symbol;
     const hasDiscount = !!product.discount_price;
 
     return (
@@ -190,6 +255,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                             <div className="flex items-baseline gap-3">
                                 <span className="text-[#F02849] font-bold text-3xl">{symbol}{hasDiscount ? product.discount_price?.toFixed(2) : product.main_price.toFixed(2)}</span>
                                 {hasDiscount && <span className="text-[#B0B3B8] text-lg line-through">{symbol}{product.main_price.toFixed(2)}</span>}
+                                <span className="text-[#B0B3B8] text-sm ml-auto flex items-center gap-1">
+                                  <i className="fas fa-flag"></i> {countryData.name}
+                                </span>
                             </div>
                         </div>
 
@@ -253,18 +321,37 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
     const [images, setImages] = useState<{id: number, data: string, file: File}[]>([]);
     const [isUploading, setIsUploading] = useState(false);
     
+    // ✅ ADDED: State for detected country from user profile and location
+    const [userCountry, setUserCountry] = useState<string>('all');
+    const [detectedCountry, setDetectedCountry] = useState<string>('all');
+    const [currencySymbol, setCurrencySymbol] = useState<string>('$');
+    
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Auto-detect user country for filtering if logged in
+    // Auto-detect user country for filtering and currency
     useEffect(() => {
-        if (currentUser && selectedCountry === 'all') {
-            const userCountry = MARKETPLACE_COUNTRIES.find(c => currentUser.nationality?.toLowerCase().includes(c.name.toLowerCase()));
-            if (userCountry) setSelectedCountry(userCountry.code);
-        }
         if (currentUser) {
-            setPhone(currentUser.phone || '');
+            const detected = detectCountryFromUser(currentUser);
+            setUserCountry(detected);
+            setSelectedCountry(detected);
+            setCurrencySymbol(getCurrencySymbolForCountry(detected));
+            
+            // ✅ FIXED: Set phone from user profile
+            if (currentUser.phone) {
+                setPhone(currentUser.phone);
+            }
+        } else {
+            setUserCountry('all');
+            setSelectedCountry('all');
+            setCurrencySymbol('$');
         }
     }, [currentUser]);
+
+    // Update currency symbol when detected country changes
+    useEffect(() => {
+        const countryCode = detectedCountry !== 'all' ? detectedCountry : userCountry;
+        setCurrencySymbol(getCurrencySymbolForCountry(countryCode));
+    }, [detectedCountry, userCountry]);
 
     const handleSellClick = () => {
         if (!currentUser) {
@@ -316,19 +403,21 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
             const uploadPromises = images.map(img => uploadToCloudflareR2(img.file));
             const uploadedUrls = await Promise.all(uploadPromises);
 
-            // Logic to extract country code from address if possible
-            const detectedCountry = MARKETPLACE_COUNTRIES.find(c => address.toLowerCase().includes(c.name.toLowerCase()))?.code || 'US';
+            // ✅ FIXED: Detect country from address for currency/region
+            const countryFromAddress = MARKETPLACE_COUNTRIES.find(c => 
+                address.toLowerCase().includes(c.name.toLowerCase())
+            )?.code || userCountry;
 
             const newProduct: Partial<Product> = {
                 title,
                 category,
                 description: desc,
-                country: detectedCountry,
+                country: countryFromAddress, // ✅ Use detected country
                 address,
                 main_price: parseFloat(mainPrice),
                 discount_price: discountPrice ? parseFloat(discountPrice) : null,
                 quantity: parseInt(quantity),
-                phone_number: phone,
+                phone_number: phone, // ✅ This will now persist
                 images: uploadedUrls, // Store Cloudflare R2 URLs instead of base64
                 status: 'active',
                 views: 0,
@@ -340,7 +429,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
             onCreateProduct(newProduct);
             setShowSellModal(false);
             
-            // Reset form
+            // Reset form but keep phone number for next listing
             setTitle(''); 
             setCategory(''); 
             setDesc(''); 
@@ -348,6 +437,8 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
             setDiscountPrice(''); 
             setImages([]); 
             setAddress('');
+            setQuantity('1');
+            // ✅ Keep phone number for next listing
         } catch (error: any) {
             console.error('Failed to upload product:', error);
             alert(`Failed to upload product: ${error.message}`);
@@ -377,9 +468,12 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                     <h1 className="text-xl font-bold text-[#E4E6EB]">Marketplace</h1>
                 </div>
                 <div className="flex items-center gap-3">
-                     <div className="bg-[#3A3B3C] px-3 py-1.5 rounded-full flex items-center gap-2 cursor-pointer hover:bg-[#4E4F50] transition-colors" onClick={() => setSelectedCountry('all')}>
+                    {/* Country Selector with Flag and Currency */}
+                    <div className="bg-[#3A3B3C] px-3 py-1.5 rounded-full flex items-center gap-2 cursor-pointer hover:bg-[#4E4F50] transition-colors" onClick={() => setSelectedCountry('all')}>
                         <span className="text-lg">{activeCountry.flag}</span>
-                        <span className="text-sm font-bold text-[#E4E6EB]">{activeCountry.code === 'all' ? 'Worldwide' : activeCountry.name}</span>
+                        <span className="text-sm font-bold text-[#E4E6EB]">
+                            {activeCountry.code === 'all' ? 'Worldwide' : `${activeCountry.name} (${activeCountry.symbol})`}
+                        </span>
                         <i className="fas fa-chevron-down text-[#B0B3B8] text-[10px]"></i>
                     </div>
                     <button onClick={handleSellClick} className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-5 py-2 rounded-full font-bold text-sm transition-all shadow-lg active:scale-95 flex items-center gap-2">
@@ -421,19 +515,23 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
             </div>
 
             <div className="max-w-[1400px] mx-auto px-4 mt-6">
-                {/* Dynamic Location Banner */}
-                {currentUser && (
+                {/* Dynamic Location Banner - Show user's detected country */}
+                {currentUser && userCountry !== 'all' && (
                     <div className="mb-6 p-4 bg-[#263951] rounded-2xl border border-[#2D88FF]/30 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="w-12 h-12 rounded-full bg-[#1877F2]/20 flex items-center justify-center text-[#1877F2]">
-                                <i className="fas fa-location-dot text-xl"></i>
+                                <i className="fas fa-globe-africa text-xl"></i>
                             </div>
                             <div>
-                                <h3 className="text-[#E4E6EB] font-bold">Local Findings</h3>
-                                <p className="text-[#B0B3B8] text-sm">Showing products available near <span className="text-[#1877F2] font-semibold">{currentUser.nationality || 'you'}</span></p>
+                                <h3 className="text-[#E4E6EB] font-bold">Local Marketplace</h3>
+                                <p className="text-[#B0B3B8] text-sm">
+                                    Showing products in <span className="text-[#1877F2] font-semibold">
+                                    {MARKETPLACE_COUNTRIES.find(c => c.code === userCountry)?.name || 'your region'}
+                                    </span> ({currencySymbol})
+                                </p>
                             </div>
                         </div>
-                        <button onClick={() => setSelectedCountry('all')} className="text-[#1877F2] font-bold text-sm hover:underline">Change</button>
+                        <button onClick={() => setSelectedCountry('all')} className="text-[#1877F2] font-bold text-sm hover:underline">View Worldwide</button>
                     </div>
                 )}
 
@@ -441,14 +539,16 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                 {filteredProducts.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                         {filteredProducts.map(product => {
-                            const pCountry = MARKETPLACE_COUNTRIES.find(c => product.address.toLowerCase().includes(c.name.toLowerCase()));
+                            const pCountry = MARKETPLACE_COUNTRIES.find(c => c.code === product.country);
                             const symbol = pCountry ? pCountry.symbol : '$';
+                            const flag = pCountry ? pCountry.flag : '🌍';
+                            
                             return (
                                 <div key={product.id} className="bg-[#242526] rounded-2xl overflow-hidden cursor-pointer hover:shadow-2xl hover:-translate-y-1 transition-all border border-[#3E4042] flex flex-col group" onClick={() => onViewProduct(product)}>
                                     <div className="relative aspect-square overflow-hidden bg-[#18191A]">
                                         <img src={product.images[0]} alt={product.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
                                         <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg text-[10px] font-bold text-white uppercase flex items-center gap-1">
-                                            <i className="fas fa-location-dot text-[#1877F2]"></i>
+                                            <span>{flag}</span>
                                             <span className="truncate max-w-[80px]">{product.address.split(',')[0]}</span>
                                         </div>
                                     </div>
@@ -488,7 +588,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                         <div className="p-6 border-b border-[#3E4042] flex justify-between items-center bg-[#1C1D1E] rounded-t-3xl">
                             <div>
                                 <h2 className="text-2xl font-bold text-[#E4E6EB]">Create Listing</h2>
-                                <p className="text-[#B0B3B8] text-sm">Sell to your local community</p>
+                                <p className="text-[#B0B3B8] text-sm">Sell to your local community in {currencySymbol}</p>
                             </div>
                             <button onClick={() => setShowSellModal(false)} className="w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-red-500/20 hover:text-red-500 flex items-center justify-center transition-all">
                                 <i className="fas fa-times"></i>
@@ -558,7 +658,18 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                                 <label className="block text-[#E4E6EB] font-bold flex items-center gap-2">
                                     <i className="fas fa-location-dot text-[#1877F2]"></i> Location & Contact
                                 </label>
-                                <LocationSearch value={address} onSelect={setAddress} />
+                                <div className="mb-2 flex items-center gap-2 text-sm text-[#B0B3B8]">
+                                    <i className="fas fa-info-circle text-[#1877F2]"></i>
+                                    <span>Selecting a location will auto-detect currency ({currencySymbol})</span>
+                                </div>
+                                <LocationSearch 
+                                    value={address} 
+                                    onSelect={setAddress}
+                                    onCountryDetected={(countryCode) => {
+                                        setDetectedCountry(countryCode);
+                                        setCurrencySymbol(getCurrencySymbolForCountry(countryCode));
+                                    }}
+                                />
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <input 
                                         type="tel" 
@@ -570,7 +681,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                                     />
                                     <div className="flex gap-2">
                                         <div className="relative flex-1">
-                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] font-bold">$</span>
+                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] font-bold">{currencySymbol}</span>
                                             <input 
                                                 type="number" 
                                                 className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl p-4 pl-8 text-[#E4E6EB] outline-none focus:border-[#1877F2]" 
@@ -602,6 +713,19 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                                     onChange={e => setDesc(e.target.value)}
                                     required
                                 ></textarea>
+                            </div>
+
+                            <div className="bg-[#1C1D1E] p-4 rounded-xl border border-[#3E4042]">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <i className="fas fa-map-marked-alt text-[#45BD62]"></i>
+                                    <span className="text-[#E4E6EB] font-bold">Location Details</span>
+                                </div>
+                                <p className="text-[#B0B3B8] text-sm">
+                                    Based on your profile and location selection, this product will be listed in: 
+                                    <span className="text-[#1877F2] font-semibold ml-1">
+                                        {MARKETPLACE_COUNTRIES.find(c => c.code === (detectedCountry !== 'all' ? detectedCountry : userCountry))?.name || 'your region'}
+                                    </span> with currency <span className="font-bold">{currencySymbol}</span>
+                                </p>
                             </div>
 
                             <button 
