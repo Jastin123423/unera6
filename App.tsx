@@ -18,7 +18,7 @@
 // ✅ ADDED: Modern Boomplay-style player design with rotating album art
 // ✅ ADDED: Default music cover for songs without covers
 // ✅ ADDED: Product creation with POST to backend
-// ✅ ADDED: Product normalization for consistency
+// ✅ UPDATED: Product normalization for consistency - FIXED marketplace products issue
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -384,7 +384,7 @@ const normalizeUser = (u: any): User => {
 };
 
 /**
- * ✅ ADDED: Normalize product data for consistency
+ * ✅ UPDATED: Normalize product data for consistency - FIXED marketplace products issue
  */
 const normalizeProduct = (p: any) => {
   let imgs: string[] = [];
@@ -399,7 +399,8 @@ const normalizeProduct = (p: any) => {
     seller_id: safeNumber(p?.seller_id),
     seller_name: safeString(p?.seller_name ?? p?.sellerName ?? "Seller"),
     seller_avatar: safeString(p?.seller_avatar ?? p?.sellerAvatar ?? ""),
-    images: imgs.length ? imgs : [DEFAULT_MUSIC_COVER], // optional fallback
+    // ✅ FIXED: Don't use DEFAULT_MUSIC_COVER for marketplace products
+    images: imgs.length ? imgs : [], // Empty array instead of music cover
     main_price: safeNumber(p?.main_price),
     discount_price: p?.discount_price == null ? null : safeNumber(p?.discount_price),
     quantity: safeNumber(p?.quantity, 1),
@@ -1287,8 +1288,8 @@ export default function App() {
         const updatedCurrentUser = normalizeUser({
           ...currentUser,
           followers: followData.followers,
-          following: followData.following
-        });
+              following: followData.following
+            });
         setCurrentUser(updatedCurrentUser);
         localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
       }
@@ -1336,8 +1337,25 @@ export default function App() {
 
     setStories(safeArray(s));
     setReels(safeArray(r));
-    // ✅ UPDATED: Normalize products when fetched
-    setProducts(safeArray(pr).map(normalizeProduct));
+    
+    // ✅ FIXED: Handle different API response formats for products
+    const prRaw = pr;
+    // try all common shapes
+    const prList =
+      Array.isArray(prRaw) ? prRaw :
+      Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
+      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
+      Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
+      Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
+      [];
+
+    // Debug log (remove in production)
+    console.log("API /api/products raw:", prRaw);
+    console.log("API /api/products list length:", prList.length);
+
+    // ✅ UPDATED: Normalize products with proper handling
+    setProducts(prList.map(normalizeProduct));
+    
     setGroups(safeArray(g));
     setBrands(safeArray(b));
     setEvents(safeArray(e));
@@ -2610,9 +2628,6 @@ export default function App() {
             setActiveChatUser(users.find((u) => u.id === id) || null);
             setView('home');
           }}
-          // ✅ REMOVED: These props are not accepted by ProductDetailModal
-          // onFollow={followUser}
-          // checkIsFollowing={checkIsFollowing}
         />
       )}
 
