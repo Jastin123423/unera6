@@ -88,12 +88,15 @@ const DEFAULT_PODCAST_COVER =
 function mapSongFromApi(s: any): Song {
   const plays = Number(s.plays_count ?? s.plays ?? s.stats?.plays ?? 0);
   const likes = Number(s.likes_count ?? s.likes ?? s.stats?.likes ?? 0);
+  
+  // ✅ FIX: Use default cover if none provided
+  const cover = s.cover_image_url || s.cover || DEFAULT_SONG_COVER;
 
   return {
     id: String(s.id),
     title: s.title || 'Untitled',
     artist: s.artist_name || s.artist || 'Unknown Artist',
-    cover: s.cover_image_url || s.cover || DEFAULT_SONG_COVER,
+    cover: cover,
     audioUrl: s.audio_url || s.audioUrl || '',
     duration: s.duration || s.duration_seconds || '3:00',
     uploaderId: Number(s.uploader_id ?? s.uploaderId ?? 0) || 0,
@@ -115,13 +118,16 @@ function mapSongFromApi(s: any): Song {
 function mapEpisodeFromApi(e: any): Episode {
   const plays = Number(e.plays_count ?? e.plays ?? e.stats?.plays ?? 0);
   const likes = Number(e.likes_count ?? e.likes ?? e.stats?.likes ?? 0);
+  
+  // ✅ FIX: Use default cover if none provided
+  const thumbnail = e.cover_url || e.cover_image_url || e.thumbnail || DEFAULT_PODCAST_COVER;
 
   return {
     id: String(e.id),
     title: e.title || 'Untitled',
     description: e.description || '',
     host: e.host || e.artist_name || 'Unknown Host',
-    thumbnail: e.cover_url || e.cover_image_url || DEFAULT_PODCAST_COVER,
+    thumbnail: thumbnail,
     audioUrl: e.audio_url || e.audioUrl || '',
     duration: e.duration || e.duration_seconds || '45:00',
     uploaderId: Number(e.creator_id ?? e.uploader_id ?? e.uploaderId ?? 0) || 0,
@@ -340,8 +346,12 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 
   if (!currentTrack) return null;
 
-  // ✅ Use ownerUser if provided, otherwise fallback to uploaderProfile or track artist
+  // ✅ FIXED: Use ownerUser if provided, otherwise fallback to uploaderProfile or track artist
   const displayUser = ownerUser || uploaderProfile;
+  // ✅ FIXED: Get profile picture from user object
+  const profilePicture = displayUser 
+    ? (displayUser as any).profileImage || (displayUser as any).profile_image_url 
+    : null;
 
   return (
     <div
@@ -407,7 +417,12 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
                 >
                   {displayUser ? (
                     <>
-                      <img src={(displayUser as any).profileImage || (displayUser as any).profile_image_url || currentTrack.cover} className="w-8 h-8 rounded-full border border-white/20 object-cover" alt="" />
+                      {/* ✅ FIXED: Show profile picture if available */}
+                      {profilePicture ? (
+                        <img src={profilePicture} className="w-8 h-8 rounded-full border border-white/20 object-cover" alt="" />
+                      ) : (
+                        <img src={currentTrack.cover} className="w-8 h-8 rounded-full border border-white/20 object-cover" alt="" />
+                      )}
                       <div className="flex flex-col">
                         <div className="flex items-center gap-1">
                           <span className="text-white text-[16px] font-bold">{displayUser.name}</span>
@@ -498,12 +513,12 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 
             <div className="flex-1 cursor-pointer overflow-hidden">
               <h4 className="text-white font-bold text-[16px] truncate">{currentTrack.title}</h4>
-              {/* ✅ UPDATED: Show artist profile photo and verification badge in mini player */}
+              {/* ✅ FIXED: Show artist profile photo and verification badge in mini player */}
               <div className="flex items-center gap-2 mt-1">
-                {displayUser && (
+                {displayUser && profilePicture ? (
                   <>
                     <img 
-                      src={(displayUser as any).profileImage || (displayUser as any).profile_image_url || currentTrack.cover} 
+                      src={profilePicture} 
                       className="w-4 h-4 rounded-full object-cover border border-white/20"
                       alt=""
                     />
@@ -512,8 +527,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
                       {(displayUser as any)?.isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
                     </span>
                   </>
-                )}
-                {!displayUser && (
+                ) : (
                   <span className="text-gray-400 text-[14px] truncate flex items-center gap-1">
                     {currentTrack.artist}
                     {(currentTrack as any).isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
@@ -620,13 +634,16 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
       const coverUrl = coverFile ? await uploadToR2(coverFile) : null;
 
       if (type === "music") {
+        // ✅ FIXED: Use default cover if none uploaded
+        const finalCoverUrl = coverUrl || DEFAULT_SONG_COVER;
+        
         // 3) Save metadata to DB (JSON) -> /api/songs
         const payload = {
           uploader_id: Number((currentUser as any).id),
           title: title.trim(),
           artist_name: (artist || "").trim(),
           album_name: "Single",
-          cover_image_url: coverUrl,
+          cover_image_url: finalCoverUrl,
           audio_url: audioUrl,
           duration_seconds: null,
           genre: (genre || "").trim() || null,
@@ -647,12 +664,15 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
         // { creator_id, title, description, audio_url, cover_url }
         if (!desc.trim()) return alert("Description required for podcast");
 
+        // ✅ FIXED: Use default cover if none uploaded
+        const finalCoverUrl = coverUrl || DEFAULT_PODCAST_COVER;
+        
         const payload = {
           creator_id: Number((currentUser as any).id),
           title: title.trim(),
           description: desc.trim(),
           audio_url: audioUrl,
-          cover_url: coverUrl,
+          cover_url: finalCoverUrl,
         };
 
         const res = await apiJson<any>("/api/podcasts", {
@@ -691,8 +711,8 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
         // 1) upload each track audio
         const audioUrl = await uploadToR2(t.file);
 
-        // 2) if track has a cover URL (external), use it; else shared coverUrl
-        const coverUrl = t.cover?.trim() ? t.cover.trim() : sharedCoverUrl;
+        // 2) if track has a cover URL (external), use it; else shared coverUrl; else default
+        const coverUrl = t.cover?.trim() ? t.cover.trim() : (sharedCoverUrl || DEFAULT_SONG_COVER);
 
         // 3) create song in DB
         const payload = {
@@ -714,9 +734,9 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
         if (!res.success) {
           console.error("album track create failed:", t.title, res);
           alert(`Failed uploading "${t.title}": ${res.error}`);
-              return;
-            }
-          }
+          return;
+        }
+      }
 
       alert('Album published successfully!');
       onUploaded();
@@ -799,7 +819,8 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
                   ) : (
                     <>
                       <i className="fas fa-image text-2xl text-[#666] group-hover:text-white mb-2"></i>
-                      <span className="text-[#666] text-xs group-hover:text-white">Upload Image</span>
+                      <span className="text-[#666] text-xs group-hover:text-white">Upload Image (Optional)</span>
+                      <span className="text-[#666] text-xs group-hover:text-white mt-1">Default will be used if none</span>
                     </>
                   )}
 
@@ -913,7 +934,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
                       <div key={idx} className="flex items-center justify-between p-3 bg-[#1A1A1A] rounded border border-[#333]">
                         <div className="flex items-center gap-3">
                           <span className="text-[#666] font-mono">{idx + 1}</span>
-                          <img src={t.cover || coverPreview || defaultCover} className="w-8 h-8 rounded object-cover" alt="" />
+                          <img src={t.cover || coverPreview || DEFAULT_SONG_COVER} className="w-8 h-8 rounded object-cover" alt="" />
                           <div>
                             <span className="text-white font-semibold block">{t.title}</span>
                             <span className="text-[#666] text-xs">{t.artist}</span>
@@ -1684,6 +1705,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 {trendingSongs.length > 0 ? (
                   trendingSongs.map((song) => {
                     const isLiked = isTrackLiked(String(song.id), 'music');
+                    const uploaderProfile = users.find((u) => u.id === song.uploaderId);
+                    const profilePicture = uploaderProfile 
+                      ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
+                      : null;
+                    
                     return (
                       <div
                         key={song.id}
@@ -1702,10 +1728,19 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
                         <div className="p-3">
                           <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
-                          <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
-                            {song.artist}
-                            {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            {profilePicture ? (
+                              <img 
+                                src={profilePicture} 
+                                className="w-4 h-4 rounded-full object-cover border border-white/20"
+                                alt=""
+                              />
+                            ) : null}
+                            <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
+                              {song.artist}
+                              {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
+                            </p>
+                          </div>
                           <div className="flex justify-between items-center mt-2">
                             <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
                             <button
@@ -1746,6 +1781,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 {recentSongs.length > 0 ? (
                   recentSongs.map((song) => {
                     const isLiked = isTrackLiked(String(song.id), 'music');
+                    const uploaderProfile = users.find((u) => u.id === song.uploaderId);
+                    const profilePicture = uploaderProfile 
+                      ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
+                      : null;
+                    
                     return (
                       <div
                         key={song.id}
@@ -1764,10 +1804,19 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
                         <div className="p-3">
                           <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
-                          <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
-                            {song.artist}
-                            {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            {profilePicture ? (
+                              <img 
+                                src={profilePicture} 
+                                className="w-4 h-4 rounded-full object-cover border border-white/20"
+                                alt=""
+                              />
+                            ) : null}
+                            <p className="text-[#B0B3B8] text-xs truncate flex items-center gap-1">
+                              {song.artist}
+                              {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
+                            </p>
+                          </div>
                           <div className="flex justify-between items-center mt-2">
                             <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
                             <button
@@ -1806,6 +1855,10 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       currentTrack.type === 'music' && 
                       String(currentTrack.id) === String(song.id);
                     const isLiked = isTrackLiked(String(song.id), 'music');
+                    const uploaderProfile = users.find((u) => u.id === song.uploaderId);
+                    const profilePicture = uploaderProfile 
+                      ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
+                      : null;
                     
                     return (
                       <div
@@ -1833,14 +1886,21 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                           <h3 className="font-semibold text-white truncate">{song.title}</h3>
 
                           <div
-                            className="flex items-center gap-1 text-[#B0B3B8] text-sm cursor-pointer hover:underline"
+                            className="flex items-center gap-2 text-[#B0B3B8] text-sm cursor-pointer hover:underline"
                             onClick={(e) => {
                               e.stopPropagation();
                               if (song.uploaderId) handleArtistClick(song.uploaderId);
                             }}
                           >
+                            {profilePicture ? (
+                              <img 
+                                src={profilePicture} 
+                                className="w-4 h-4 rounded-full object-cover border border-white/20"
+                                alt=""
+                              />
+                            ) : null}
                             <span>{song.artist}</span>
-                            {users.find((u) => u.id === song.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
+                            {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
                             {(song.stats as any)?.plays > 1000 && (
                               <span className="text-xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded ml-2">🔥 {(song.stats as any).plays} plays</span>
                             )}
@@ -1890,7 +1950,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           </div>
         )}
 
-        {/* PODCAST VIEW */}
+        {/* PODCAST VIEW - ✅ FIXED: Show podcast owner profile */}
         {view === 'podcasts' && !showLoading && (
           <div className="space-y-8">
             <div className="bg-[#242526] rounded-2xl p-6">
@@ -1903,6 +1963,10 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       currentTrack.type === 'podcast' && 
                       String(currentTrack.id) === String(episode.id);
                     const isLiked = isTrackLiked(String(episode.id), 'podcast');
+                    const uploaderProfile = users.find((u) => u.id === episode.uploaderId);
+                    const profilePicture = uploaderProfile 
+                      ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
+                      : null;
                     
                     return (
                       <div
@@ -1923,10 +1987,19 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
                             <div className="flex-1 min-w-0">
                               <h3 className="font-bold text-white line-clamp-2">{episode.title}</h3>
-                              <p className="text-[#B0B3B8] text-sm mt-1 flex items-center gap-1">
-                                {(episode as any).host || 'Unknown Host'}
-                                {users.find((u) => u.id === episode.uploaderId)?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                              </p>
+                              <div className="flex items-center gap-2 mt-1">
+                                {profilePicture ? (
+                                  <img 
+                                    src={profilePicture} 
+                                    className="w-4 h-4 rounded-full object-cover border border-white/20"
+                                    alt=""
+                                  />
+                                ) : null}
+                                <p className="text-[#B0B3B8] text-sm flex items-center gap-1">
+                                  {(episode as any).host || 'Unknown Host'}
+                                  {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
+                                </p>
+                              </div>
 
                               <div className="flex items-center justify-between mt-3">
                                 <span className="text-[#B0B3B8] text-xs">{(episode as any).duration || '45:00'}</span>
@@ -1993,7 +2066,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 </button>
               </div>
 
-              {/* ✅ MODIFIED: Dashboard stats cards */}
+              {/* ✅ MODIFIED: Dashboard stats cards - Show myTotalPlays from props */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
@@ -2021,7 +2094,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-[#B0B3B8] text-sm">My Total Plays</p>
-                      <p className="text-2xl font-bold text-white">{dashboardStats.myTotalPlays.toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-white">{myTotalPlays.toLocaleString()}</p>
                     </div>
                     <i className="fas fa-play-circle text-[#F7B928] text-xl"></i>
                   </div>
