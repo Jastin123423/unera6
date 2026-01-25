@@ -11,7 +11,8 @@
 // ✅ UPDATED: User total plays tracking + better play count logic
 // ✅ ADDED: Track owner info + verified badge support
 // ✅ UPDATED: Like sync between MusicSystem and GlobalAudioPlayer
-// ✅ FIXED: Profile photo display in GlobalAudioPlayer
+// ✅ ADDED: Professional music player state management with play history
+// ✅ ADDED: Track plays count synchronization
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -599,6 +600,53 @@ const createFallbackUser = (): User => {
   };
 };
 
+// ===== MUSIC PLAYER API HELPERS =====
+const authHeaders = () => {
+  const token = localStorage.getItem('unera_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+async function safeJson(res: Response) {
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) return res.json();
+  const txt = await res.text();
+  try { return JSON.parse(txt); } catch { return { raw: txt }; }
+}
+
+async function apiPost(endpoint: string, body?: any) {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: body ? JSON.stringify(body) : '{}',
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.error || data?.message || `API ${res.status}`);
+  return data?.data ?? data;
+}
+
+// record play (same fallback strategy you used in MusicSystem.tsx)
+async function recordPlay(track: AudioTrack, userId: any) {
+  const id = String(track.id);
+
+  if (track.type === 'music') {
+    try {
+      return await apiPost(`/api/songs/${encodeURIComponent(id)}/play`, { user_id: userId ?? null });
+    } catch {
+      return await apiPost(`/api/song-plays`, { song_id: id, user_id: userId ?? null });
+    }
+  }
+
+  if (track.type === 'podcast') {
+    try {
+      return await apiPost(`/api/podcasts/${encodeURIComponent(id)}/play`, { user_id: userId ?? null });
+    } catch {
+      return await apiPost(`/api/podcast-episode-plays`, { episode_id: id, user_id: userId ?? null });
+    }
+  }
+
+  return null;
+}
+
 export default function App() {
   useLanguage();
 
@@ -642,9 +690,6 @@ export default function App() {
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
 
-  const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
-  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
-
   const [activeSharePost, setActiveSharePost] = useState<any>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
@@ -655,107 +700,64 @@ export default function App() {
   // ✅ ADDED: Hashtag filtering state for Facebook-like feed filtering
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
 
-  // ✅ ADDED: User total plays state
-  const [myTotalPlays, setMyTotalPlays] = useState<number>(0);
+  // ===== MUSIC PLAYER (GLOBAL) STATE =====
+  const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+
+  // play history (for dashboard + next/previous)
+  const [playHistory, setPlayHistory] = useState<AudioTrack[]>([]);
+
+  // liked tracks in format "music:ID" or "podcast:ID"
+  const [likedTracks, setLikedTracks] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('unera_liked_tracks') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  // plays map for current track UI (player can show total plays)
+  const [trackPlays, setTrackPlays] = useState<Record<string, number>>({});
+
+  // optional "my plays" counter (dashboard)
+  const [myTotalPlays, setMyTotalPlays] = useState<number>(() => {
+    const v = Number(localStorage.getItem('unera_my_total_plays') || 0);
+    return Number.isFinite(v) ? v : 0;
+  });
   const [playsLoading, setPlaysLoading] = useState(false);
 
-  // ✅ ADDED: Liked tracks state (source of truth for likes)
-  const [likedTracks, setLikedTracks] = useState<string[]>([]);
-
   // ✅ ADDED: Play count tracking ref
-  const lastPlayedKeyRef = useRef<string>("");
+  const lastPlayedKeyRef = useRef<string>('');
 
-  /** ---------- ✅ IMPROVED: Helper to resolve track owner ---------- */
+  // Persist liked tracks and total plays
+  useEffect(() => {
+    localStorage.setItem('unera_liked_tracks', JSON.stringify(likedTracks));
+  }, [likedTracks]);
+
+  useEffect(() => {
+    localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
+  }, [myTotalPlays]);
+
+  /** ---------- ✅ ADDED: Helper to resolve track owner ---------- */
   const resolveTrackOwner = useCallback((track: any): User | null => {
     if (!track) return null;
 
-    // ✅ DEBUG: Log to see what track data we have
-    console.log('🔍 Resolving track owner for:', {
-      trackId: track.id,
-      trackTitle: track.title,
-      uploaderId: track.uploaderId,
-      userId: track.user_id,
-      artist: track.artist,
-      type: track.type
-    });
+    // try common fields
+    const ownerId =
+      safeNumber(track.user_id ?? track.owner_user_id ?? track.artist_user_id ?? track.creator_id ?? 0, 0);
 
-    // ✅ First priority: Check if track has an uploaderProfile embedded
-    if (track.uploaderProfile && track.uploaderProfile.id) {
-      console.log('✅ Found embedded uploaderProfile:', track.uploaderProfile);
-      return normalizeUser(track.uploaderProfile);
+    if (ownerId) {
+      const found = users.find((u) => Number(u.id) === Number(ownerId));
+      if (found) return found;
     }
 
-    // ✅ Second priority: Check if track has user data embedded
-    if (track.user && track.user.id) {
-      console.log('✅ Found embedded user:', track.user);
-      return normalizeUser(track.user);
+    // fallback: if track has embedded owner fields
+    if (track?.owner && (track.owner.id || track.owner.user_id)) {
+      return normalizeUser(track.owner);
     }
 
-    // ✅ Third priority: Try to get uploaderId from various possible fields
-    const uploaderId = 
-      safeNumber(
-        track.uploaderId ?? 
-        track.user_id ?? 
-        track.owner_user_id ?? 
-        track.artist_user_id ?? 
-        track.creator_id ?? 
-        track.userId ?? 
-        0, 
-        0
-      );
-
-    console.log('📋 Extracted uploaderId:', uploaderId);
-
-    if (uploaderId && uploaderId > 0) {
-      const found = users.find((u) => Number(u.id) === Number(uploaderId));
-      if (found) {
-        console.log('✅ Found user in users list:', found.name);
-        return found;
-      } else {
-        console.log('❌ User not found in users list for id:', uploaderId);
-        console.log('Available users:', users.map(u => ({ id: u.id, name: u.name })));
-      }
-    }
-
-    // ✅ Fourth priority: Try to find by artist name
-    if (track.artist) {
-      console.log('🔍 Searching by artist name:', track.artist);
-      const found = users.find((u) => 
-        u.name?.toLowerCase().includes(track.artist.toLowerCase()) ||
-        u.username?.toLowerCase().includes(track.artist.toLowerCase())
-      );
-      if (found) {
-        console.log('✅ Found user by artist name:', found.name);
-        return found;
-      }
-    }
-
-    // ✅ Fifth priority: If current track is playing and we have currentUser, maybe it's them
-    if (currentAudioTrack && currentAudioTrack.id === track.id && currentUser) {
-      console.log('✅ Using current user as fallback');
-      return currentUser;
-    }
-
-    console.log('❌ No owner found for track');
-    
-    // ✅ Ultimate fallback: Create a minimal user from track info
-    return {
-      id: uploaderId || 0,
-      name: track.artist || 'Artist',
-      username: track.artist?.toLowerCase().replace(/\s+/g, '') || 'artist',
-      email: '',
-      profile_image_url: generateProfilePictureUrl(track.artist || 'Artist', uploaderId || track.id),
-      cover_image_url: '',
-      followers: [],
-      following: [],
-      is_verified: false,
-      role: 'user',
-      is_online: false,
-      location: '',
-      bio: '',
-      created_at: null,
-    } as User;
-  }, [users, currentAudioTrack, currentUser]);
+    return null;
+  }, [users]);
 
   /** ---------- ✅ ADDED: Fetch user total plays ---------- */
   const fetchMyTotalPlays = useCallback(async (userId: number) => {
@@ -796,45 +798,10 @@ export default function App() {
     }
   }, [currentUser?.id, fetchMyTotalPlays]);
 
-  /** ---------- ✅ UPDATED: Handle audio started callback (records play ONLY when audio truly starts) ---------- */
-  const handleAudioStarted = useCallback(async (track: AudioTrack) => {
-    if (!track) return;
-
-    const trackKey = `${track.type}:${track.id}`;
-    if (lastPlayedKeyRef.current === trackKey) return;
-    lastPlayedKeyRef.current = trackKey;
-
-    // ✅ Optimistic: only logged-in user's total plays
-    if (currentUser?.id) {
-      setMyTotalPlays((p) => p + 1);
-    }
-
-    try {
-      if (track.type === "music") {
-        await fetch("/api/song-plays", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ song_id: track.id, user_id: currentUser?.id ?? null }),
-        });
-      } else {
-        await fetch("/api/podcast-episode-plays", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ episode_id: track.id, user_id: currentUser?.id ?? null }),
-        });
-      }
-    } catch {
-      // rollback optimistic increment if needed
-      if (currentUser?.id) setMyTotalPlays((p) => Math.max(0, p - 1));
-    }
-  }, [currentUser?.id]);
-
-  /** ---------- ✅ UPDATED: playTrack with toggle for same track ---------- */
-  const playTrack = useCallback((track: AudioTrack | null) => {
-    if (!track) return;
-
+  /** ---------- ✅ CORE PLAYER ACTIONS ---------- */
+  const onPlayTrack = useCallback((track: AudioTrack) => {
     setCurrentAudioTrack((prev) => {
-      const prevKey = prev ? `${prev.type}:${prev.id}` : "";
+      const prevKey = prev ? `${prev.type}:${prev.id}` : '';
       const nextKey = `${track.type}:${track.id}`;
 
       if (prevKey === nextKey) {
@@ -844,23 +811,92 @@ export default function App() {
       }
 
       // new track -> force play
-      lastPlayedKeyRef.current = ""; // allow count for new track when it starts
+      lastPlayedKeyRef.current = ''; // allow count for new track when it starts
       setIsAudioPlaying(true);
       return track;
     });
+
+    // store history (no duplicates back-to-back)
+    setPlayHistory(prev => {
+      const last = prev[0];
+      if (last && last.type === track.type && String(last.id) === String(track.id)) return prev;
+      return [track, ...prev].slice(0, 50);
+    });
   }, []);
 
-  /** ---------- ✅ ADDED: Handler for MusicSystem like sync ---------- */
+  const onTogglePlay = useCallback(() => {
+    setIsAudioPlaying(p => !p);
+  }, []);
+
+  const onClosePlayer = useCallback(() => {
+    setIsAudioPlaying(false);
+    setCurrentAudioTrack(null);
+  }, []);
+
+  const onNext = useCallback(() => {
+    // playHistory[0] is current-ish; next is index 1 (simple behavior)
+    setPlayHistory(prev => {
+      if (prev.length < 2) return prev;
+      const next = prev[1];
+      setCurrentAudioTrack(next);
+      setIsAudioPlaying(true);
+      return [next, ...prev.filter((_, i) => i !== 1)].slice(0, 50);
+    });
+  }, []);
+
+  const onPrevious = useCallback(() => {
+    // "Previous" = go back to second item if exists (simple behavior)
+    setPlayHistory(prev => {
+      if (prev.length < 2) return prev;
+      const prevTrack = prev[1];
+      setCurrentAudioTrack(prevTrack);
+      setIsAudioPlaying(true);
+      return [prevTrack, ...prev.filter((_, i) => i !== 1)].slice(0, 50);
+    });
+  }, []);
+
+  /** ---------- ✅ IMPLEMENT onStarted (the MOST IMPORTANT part) ---------- */
+  const onStarted = useCallback(async (track: AudioTrack) => {
+    try {
+      setPlaysLoading(true);
+
+      const userId = (currentUser as any)?.id ?? null;
+
+      // optimistic "my plays"
+      if (userId) setMyTotalPlays(p => p + 1);
+
+      const res = await recordPlay(track, userId);
+
+      // backend might return plays_count / plays / etc
+      const newPlays = Number(res?.plays_count ?? res?.plays ?? res?.count ?? 0);
+
+      const key = `${track.type}:${String(track.id)}`;
+      if (Number.isFinite(newPlays) && newPlays > 0) {
+        setTrackPlays(prev => ({ ...prev, [key]: newPlays }));
+      } else {
+        // fallback: increment local track plays
+        setTrackPlays(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
+      }
+    } catch (e) {
+      // don't crash UI if play endpoint fails
+      const key = `${track.type}:${String(track.id)}`;
+      setTrackPlays(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
+    } finally {
+      setPlaysLoading(false);
+    }
+  }, [currentUser]);
+
+  /** ---------- ✅ LIKES SYNC HANDLER (used by MusicSystem) ---------- */
   const handleMusicSystemLikeSync = useCallback((key: string, liked: boolean) => {
     setLikedTracks(prev => {
-      const exists = prev.includes(key);
-      if (liked && !exists) return [...prev, key];
-      if (!liked && exists) return prev.filter(x => x !== key);
+      const has = prev.includes(key);
+      if (liked && !has) return [...prev, key];
+      if (!liked && has) return prev.filter(x => x !== key);
       return prev;
     });
   }, []);
 
-  /** ---------- ✅ ADDED: Compute isLiked for GlobalAudioPlayer ---------- */
+  /** ---------- ✅ COMPUTE IS LIKED FOR GLOBAL AUDIO PLAYER ---------- */
   const isPlayerLiked = useMemo(() => {
     if (!currentAudioTrack) return false;
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
@@ -878,11 +914,11 @@ export default function App() {
   );
 
   /** ---------- ADMIN ROLE GUARDS (PROFESSIONALLY FIXED) ---------- */
-  const roleOf = (u: any) => String(u?.role || "").trim().toLowerCase();
-  const isAdmin = (u: any) => roleOf(u) === "admin";
-  const isModerator = (u: any) => roleOf(u) === "moderator";
+  const roleOf = (u: any) => String(u?.role || '').trim().toLowerCase();
+  const isAdmin = (u: any) => roleOf(u) === 'admin';
+  const isModerator = (u: any) => roleOf(u) === 'moderator';
 
-  const requireAdmin = useCallback((action = "This action") => {
+  const requireAdmin = useCallback((action = 'This action') => {
     if (!requireAuth(action)) return false;
     if (!isAdmin(currentUser)) {
       setLoginError(`${action} requires admin.`);
@@ -891,7 +927,7 @@ export default function App() {
     return true;
   }, [requireAuth, currentUser]);
 
-  const requireModOrAdmin = useCallback((action = "This action") => {
+  const requireModOrAdmin = useCallback((action = 'This action') => {
     if (!requireAuth(action)) return false;
     if (!(isAdmin(currentUser) || isModerator(currentUser))) {
       setLoginError(`${action} requires moderator or admin.`);
@@ -1257,7 +1293,7 @@ export default function App() {
   /** ---------- ADMIN API ACTIONS (ADDED) ---------- */
   const verifyUser = useCallback(
     async (userId: number) => {
-      if (!requireAdmin("Verify user")) return;
+      if (!requireAdmin('Verify user')) return;
 
       // optimistic toggle
       setUsers((prev) =>
@@ -1267,33 +1303,33 @@ export default function App() {
       );
 
       try {
-        await apiFetch("/api/admin/users/verify", {
-          method: "POST",
+        await apiFetch('/api/admin/users/verify', {
+          method: 'POST',
           body: JSON.stringify({ user_id: Number(userId) }),
         });
 
         await fetchUsersList();
       } catch (e: any) {
         await fetchUsersList(); // rollback by refetch
-        setLoginError(e?.message || "Verify failed");
+        setLoginError(e?.message || 'Verify failed');
       }
     },
     [requireAdmin, fetchUsersList]
   );
 
   const suspendUser = useCallback(
-    async (userId: number, duration: "24h" | "5d" | "30d" | "manual") => {
-      if (!requireModOrAdmin("Suspend user")) return;
+    async (userId: number, duration: '24h' | '5d' | '30d' | 'manual') => {
+      if (!requireModOrAdmin('Suspend user')) return;
 
       try {
-        await apiFetch("/api/admin/users/suspend", {
-          method: "POST",
+        await apiFetch('/api/admin/users/suspend', {
+          method: 'POST',
           body: JSON.stringify({ user_id: Number(userId), duration }),
         });
 
         await fetchUsersList();
       } catch (e: any) {
-        setLoginError(e?.message || "Suspend failed");
+        setLoginError(e?.message || 'Suspend failed');
       }
     },
     [requireModOrAdmin, fetchUsersList]
@@ -1301,14 +1337,14 @@ export default function App() {
 
   const deleteUserAccount = useCallback(
     async (userId: number) => {
-      if (!requireAdmin("Delete account")) return;
+      if (!requireAdmin('Delete account')) return;
 
       // optimistic remove
       setUsers((prev) => prev.filter((u: any) => Number(u.id) !== Number(userId)));
 
       try {
-        await apiFetch("/api/admin/users/delete", {
-          method: "DELETE",
+        await apiFetch('/api/admin/users/delete', {
+          method: 'DELETE',
           body: JSON.stringify({ user_id: Number(userId) }),
         });
 
@@ -1316,25 +1352,25 @@ export default function App() {
         fetchPostsForHome(currentUser).catch(() => {});
       } catch (e: any) {
         await fetchUsersList(); // rollback
-        setLoginError(e?.message || "Delete failed");
+        setLoginError(e?.message || 'Delete failed');
       }
     },
     [requireAdmin, fetchUsersList, fetchPostsForHome, currentUser]
   );
 
   const setModeratorRole = useCallback(
-    async (userId: number, role: "moderator" | "user") => {
-      if (!requireAdmin("Change user role")) return;
+    async (userId: number, role: 'moderator' | 'user') => {
+      if (!requireAdmin('Change user role')) return;
 
       try {
-        await apiFetch("/api/admin/users/role", {
-          method: "POST",
+        await apiFetch('/api/admin/users/role', {
+          method: 'POST',
           body: JSON.stringify({ user_id: Number(userId), role }),
         });
 
         await fetchUsersList();
       } catch (e: any) {
-        setLoginError(e?.message || "Role change failed");
+        setLoginError(e?.message || 'Role change failed');
       }
     },
     [requireAdmin, fetchUsersList]
@@ -1487,8 +1523,8 @@ export default function App() {
     if (!currentUser) return;
 
     await fetch(`/api/comments/${commentId}/like`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: currentUser.id }),
     });
   };
@@ -1506,6 +1542,8 @@ export default function App() {
     setActiveHashtag(null); // ✅ Clear hashtag filter on logout
     setLikedTracks([]); // ✅ Clear liked tracks on logout
     setMyTotalPlays(0); // ✅ Clear total plays on logout
+    setPlayHistory([]); // ✅ Clear play history on logout
+    setTrackPlays({}); // ✅ Clear track plays on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
   };
@@ -1650,7 +1688,7 @@ export default function App() {
           body: JSON.stringify({ type, user_id: meId }),
         });
 
-        if (data?.success && ("reactions_count" in data || "my_reaction" in data)) {
+        if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
           const serverMy = data.my_reaction ?? null;
           const serverCount = safeNumber(data.reactions_count, 0);
 
@@ -1722,7 +1760,7 @@ export default function App() {
 
         try {
           await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
-            method: "POST",
+            method: 'POST',
             body: JSON.stringify({ destination }),
           });
         } catch (error) {
@@ -2013,23 +2051,6 @@ export default function App() {
   const isLoading = false;
   if (isLoading) return <ProfessionalLoader />;
 
-  // ✅ DEBUG: Log current audio track to see what data we have
-  useEffect(() => {
-    if (currentAudioTrack) {
-      console.log('🎵 Current Audio Track:', {
-        id: currentAudioTrack.id,
-        title: currentAudioTrack.title,
-        artist: currentAudioTrack.artist,
-        uploaderId: currentAudioTrack.uploaderId,
-        type: currentAudioTrack.type,
-        trackData: currentAudioTrack
-      });
-      
-      const owner = resolveTrackOwner(currentAudioTrack);
-      console.log('👤 Resolved Owner:', owner);
-    }
-  }, [currentAudioTrack, resolveTrackOwner]);
-
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
       <Header
@@ -2135,16 +2156,8 @@ export default function App() {
                         setActiveReelId(p.id);
                         setView('reels');
                       }}
-                      // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
-                      onPlayAudioTrack={(trackData) => {
-                        const author = getPostAuthor(post);
-                        const audioTrack: AudioTrack = {
-                          ...trackData,
-                          uploaderId: postAuthorId,
-                          uploaderProfile: author, // ✅ Pass user profile data
-                        };
-                        playTrack(audioTrack);
-                      }}
+                      // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+                      onPlayAudioTrack={onPlayTrack}
                       groups={groups}
                       brands={brands}
                       chats={chats}
@@ -2196,14 +2209,8 @@ export default function App() {
               initialReelId={activeReelId}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
-              onPlayAudioTrack={(trackData) => {
-                const audioTrack: AudioTrack = {
-                  ...trackData,
-                  uploaderProfile: users.find(u => u.id === trackData.uploaderId), // ✅ Pass user profile
-                };
-                playTrack(audioTrack);
-              }}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+              onPlayAudioTrack={onPlayTrack}
             />
           )}
 
@@ -2237,14 +2244,8 @@ export default function App() {
               onDeleteGroupPost={() => requireAuth('Deleting posts')}
               onRemoveMember={() => requireAuth('Removing members')}
               onUpdateGroupSettings={() => requireAuth('Updating settings')}
-              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
-              onPlayAudioTrack={(trackData) => {
-                const audioTrack: AudioTrack = {
-                  ...trackData,
-                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
-                };
-                playTrack(audioTrack);
-              }}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+              onPlayAudioTrack={onPlayTrack}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
             />
@@ -2271,14 +2272,8 @@ export default function App() {
                 setCommentPostSnapshot(found);
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
-              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
-              onPlayAudioTrack={(trackData) => {
-                const audioTrack: AudioTrack = {
-                  ...trackData,
-                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
-                };
-                playTrack(audioTrack);
-              }}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+              onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
             />
@@ -2287,18 +2282,12 @@ export default function App() {
           {view === 'music' && (
             <MusicSystem
               currentUser={currentUser}
-              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
-              onPlayTrack={(trackData) => {
-                const audioTrack: AudioTrack = {
-                  ...trackData,
-                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
-                };
-                playTrack(audioTrack);
-              }}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+              onPlayTrack={onPlayTrack}
               onProfileClick={(id) => openProfile(id)}
               likedTracks={likedTracks}
               onToggleLike={handleMusicSystemLikeSync}
-              playHistory={[]}
+              playHistory={playHistory}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
               // ✅ ADDED: Pass additional props for MusicSystem
@@ -2363,14 +2352,8 @@ export default function App() {
               onViewImage={setFullScreenImage}
               onOpenComments={(id) => onOpenComments(id)}
               onVideoClick={() => {}}
-              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
-              onPlayAudioTrack={(trackData) => {
-                const audioTrack: AudioTrack = {
-                  ...trackData,
-                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
-                };
-                playTrack(audioTrack);
-              }}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+              onPlayAudioTrack={onPlayTrack}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
             />
@@ -2413,20 +2396,14 @@ export default function App() {
                 setActiveReelId((p as any).id);
                 setView('reels');
               }}
-              // ✅ UPDATED: Pass uploaderProfile to ensure profile photo shows
-              onPlayAudioTrack={(trackData) => {
-                const audioTrack: AudioTrack = {
-                  ...trackData,
-                  uploaderProfile: users.find(u => u.id === trackData.uploaderId),
-                };
-                playTrack(audioTrack);
-              }}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+              onPlayAudioTrack={onPlayTrack}
               onCreateStoryClick={handleCreateStoryFromProfile}
               // ✅ PROFESSIONALLY FIXED: Pass admin handlers with correct prop types
               onVerifyUser={(id) => verifyUser(id)}
               onRestrictUser={(id, duration) => suspendUser(id, duration)}
               onDeleteUser={(id) => deleteUserAccount(id)}
-              onMakeModerator={(id, make) => setModeratorRole(id, make ? "moderator" : "user")}
+              onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
               // ✅ ADDED: Pass follow status to UserProfile
               isFollowing={checkIsFollowing(Number(profileUser.id))}
               followLoading={followLoading[Number(profileUser.id)] || false}
@@ -2538,29 +2515,33 @@ export default function App() {
         />
       )}
 
+      {/* ✅ MOUNT THE GLOBAL AUDIO PLAYER ONCE */}
       {currentAudioTrack && (
         <GlobalAudioPlayer
           currentTrack={currentAudioTrack}
           isPlaying={isAudioPlaying}
-          // ✅ FIXED: Use functional update for stable toggle
-          onTogglePlay={() => setIsAudioPlaying((p) => !p)}
-          onNext={() => {}}
-          onPrevious={() => {}}
-          // ✅ FIXED: Close must also stop playing
-          onClose={() => {
-            setCurrentAudioTrack(null);
-            setIsAudioPlaying(false);
+          onTogglePlay={onTogglePlay}
+          onNext={onNext}
+          onPrevious={onPrevious}
+          onClose={onClosePlayer}
+          onDownload={(id) => {
+            // optional download logic
+            console.log('Download track:', id);
           }}
-          onDownload={() => {}}
-          onLike={() => requireAuth('Liking')}
+          onLike={(id, type) => {
+            // Delegate to MusicSystem UI (or implement direct endpoints here)
+            const k = `${type}:${String(id)}`;
+            const nextLiked = !likedTracks.includes(k);
+            handleMusicSystemLikeSync(k, nextLiked);
+          }}
           onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
           isLiked={isPlayerLiked}
           // ✅ ADDED: Pass owner info + total plays
           ownerUser={resolveTrackOwner(currentAudioTrack)}
-          totalPlays={currentUser?.id ? myTotalPlays : 0}
+          totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
           totalPlaysLoading={playsLoading}
           // ✅ ADDED: onStarted callback
-          onStarted={handleAudioStarted}
+          onStarted={onStarted}
         />
       )}
 
