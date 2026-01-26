@@ -44,6 +44,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         p.user_id,
         p.content,
 
+        /* single media (compat) */
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
           WHEN length(p.media_url) > 300 THEN NULL
@@ -56,15 +57,27 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE p.media_type
         END AS media_type,
 
+        /* ✅ multi media (JSON strings) */
+        CASE
+          WHEN p.media_urls LIKE 'data:%' THEN NULL
+          WHEN length(p.media_urls) > 5000 THEN NULL
+          ELSE p.media_urls
+        END AS media_urls,
+
+        CASE
+          WHEN length(p.media_types) > 5000 THEN NULL
+          ELSE p.media_types
+        END AS media_types,
+
         p.visibility,
         p.created_at,
         p.views,
         p.shares,
 
-        -- ✅ reactions count
+        /* reactions count */
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
 
-        -- ✅ viewer reaction (safe if viewerId=0)
+        /* viewer reaction (safe if viewerId=0) */
         (SELECT pr.type
            FROM post_reactions pr
           WHERE pr.post_id = p.id
@@ -72,13 +85,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           LIMIT 1
         ) AS my_reaction,
 
-        -- ✅ author fields (helps profile posts render consistently)
+        /* author fields */
         COALESCE(u.username, 'user') AS username,
+        COALESCE(u.username, 'User') AS name,
+
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
           ELSE u.profile_image_url
         END AS profile_image_url,
+
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role
 
@@ -89,7 +105,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ✅ Bind order: viewerId for my_reaction, then userId, then limit
+    // Bind order: viewerId for my_reaction, then userId, then limit
     const { results } = await env.DB.prepare(q).bind(viewerId || 0, userId, limit).all();
 
     return json({
