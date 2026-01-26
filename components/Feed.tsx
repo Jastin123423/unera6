@@ -950,48 +950,46 @@ export const ShareBottomSheet: React.FC<{
 
   if (!isOpen) return null;
 
-  if (activeFlow === 'feed' && currentUser) {
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-          <div className="flex items-center gap-4">
-            <i
-              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-              onClick={() => setActiveFlow('sheet')}
-            ></i>
-            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
-          </div>
-          <button
-            onClick={() => handleShareAction('feed')}
-            className="text-[#1877F2] font-bold text-[17px]"
-          >
-            POST
-          </button>
-        </div>
-        <div className="flex-1 p-4">
-          <div className="flex items-center gap-3 mb-4">
-            <img
-              src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
-              alt=""
-              className="w-12 h-12 rounded-full object-cover"
-            />
-            <div>
-              <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
-              <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
-                <option>🌍 Public</option>
-                <option>👥 Friends</option>
-                <option>🔒 Only me</option>
-              </option>
-            </div>
-          </div>
-          <textarea
-            className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
-            placeholder="Write something..."
-          />
+  if {activeFlow === 'feed' && currentUser && (
+  <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+    <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+      <div className="flex items-center gap-4">
+        <i
+          className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+          onClick={() => setActiveFlow('sheet')}
+        ></i>
+        <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
+      </div>
+      <button
+        onClick={() => handleShareAction('feed')}
+        className="text-[#1877F2] font-bold text-[17px]"
+      >
+        POST
+      </button>
+    </div>
+    <div className="flex-1 p-4">
+      <div className="flex items-center gap-3 mb-4">
+        <img
+          src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+          alt=""
+          className="w-12 h-12 rounded-full object-cover"
+        />
+        <div>
+          <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
+          <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
+            <option>🌍 Public</option>
+            <option>👥 Friends</option>
+            <option>🔒 Only me</option>
+          </select>
         </div>
       </div>
-    );
-  }
+      <textarea
+        className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
+        placeholder="Write something..."
+      />
+    </div>
+  </div>
+)}
 
   if (activeFlow === 'groups' && currentUser) {
     return (
