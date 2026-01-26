@@ -1,4 +1,4 @@
-Here App.tsx 
+
 
 // App.tsx - COMPLETE PROFESSIONAL FIX for Groups Blank Screen
 
@@ -316,7 +316,7 @@ const generateInitials = (name: string): string => {
     if (w.length >= 2) return w.substring(0, 2).toUpperCase();
     return (w.charAt(0) + w.charAt(0)).toUpperCase();
   }
-  return words[0].charAt(0).toUpperCase() + words[1].charAt(0).toUpperCase();
+  return words[0.charAt(0).toUpperCase() + words[1].charAt(0).toUpperCase();
 };
 
 const generateProfilePictureUrl = (name: string, identifier: string | number): string => {
