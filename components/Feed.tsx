@@ -1,6 +1,3 @@
-
-
-
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   User,
@@ -1817,7 +1814,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * CREATE POST MODAL
+ * ✅ UPDATED: CREATE POST MODAL WITH MULTIPLE IMAGE SUPPORT
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -1826,7 +1823,7 @@ export const CreatePostModal: React.FC<{
   onClose: () => void;
   onCreatePost: (
     text: string,
-    file: File | null,
+    files: File[], // ✅ CHANGED: Accept array of files
     meta?: {
       type?: 'text' | 'image' | 'video';
       visibility?: string;
@@ -1841,8 +1838,10 @@ export const CreatePostModal: React.FC<{
 }> = ({ currentUser, users, onClose, onCreatePost }) => {
   const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  
+  // ✅ CHANGED: Single file -> array of files
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
   const [type, setType] = useState<'text' | 'image' | 'video'>('text');
 
   const [visibility] = useState<'Public' | 'Friends'>('Public');
@@ -1865,22 +1864,40 @@ export const CreatePostModal: React.FC<{
     setLinkPreview(getLinkPreview(text));
   }, [text]);
 
+  // ✅ CHANGED: Clean up ALL preview URLs
   useEffect(() => {
     return () => {
-      if (preview) URL.revokeObjectURL(preview);
+      previews.forEach((p) => URL.revokeObjectURL(p));
     };
-  }, [preview]);
+  }, [previews]);
 
+  // ✅ UPDATED: Handle multiple file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const list = Array.from(e.target.files || []);
+    if (list.length === 0) return;
 
-    setFile(f);
-    const url = URL.createObjectURL(f);
-    setPreview(url);
-    setType(f.type.startsWith('image') ? 'image' : 'video');
+    const images = list.filter((f) => f.type.startsWith('image/'));
+    const videos = list.filter((f) => f.type.startsWith('video/'));
+
+    // Rule (simple + safe): allow multiple images OR one video (not both)
+    if (videos.length > 0) {
+      const v = videos[0];
+      setFiles([v]);
+      setPreviews([URL.createObjectURL(v)]);
+      setType('video');
+    } else {
+      setFiles(images.slice(0, 9)); // Limit to 9 images
+      setPreviews(images.slice(0, 9).map((f) => URL.createObjectURL(f)));
+      setType('image');
+    }
+
     setActiveBackground('');
     setView('main');
+
+    // reset input so selecting same files again still triggers change
+    if (e.target) {
+      e.target.value = '';
+    }
   };
 
   const handleLocationSearch = async (q: string) => {
@@ -1906,13 +1923,15 @@ export const CreatePostModal: React.FC<{
     searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
   };
 
-  const canPost = !!text.trim() || !!file || !!activeBackground;
+  // ✅ CHANGED: Can post if text OR files OR background
+  const canPost = !!text.trim() || files.length > 0 || !!activeBackground;
 
   const submit = () => {
     if (!canPost) return;
 
-    onCreatePost(text, file, {
-      type: file ? type : 'text',
+    // ✅ CHANGED: Pass array of files instead of single file
+    onCreatePost(text, files, {
+      type: files.length ? type : 'text',
       visibility,
       location: location || undefined,
       feeling: feeling || undefined,
@@ -2192,7 +2211,7 @@ export const CreatePostModal: React.FC<{
             />
           </div>
 
-          {linkPreview && !file && !activeBackground && (
+          {linkPreview && files.length === 0 && !activeBackground && (
             <div
               className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
               onClick={() => window.open(linkPreview.url, '_blank')}
@@ -2206,7 +2225,38 @@ export const CreatePostModal: React.FC<{
             </div>
           )}
 
-          {!preview && (
+          {/* ✅ UPDATED: Show multiple image previews */}
+          {previews.length > 0 && (
+            <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
+              <div
+                onClick={() => {
+                  setFiles([]);
+                  setPreviews([]);
+                  setType('text');
+                }}
+                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
+              >
+                <i className="fas fa-times text-white"></i>
+              </div>
+
+              {type === 'video' ? (
+                <video src={previews[0]} controls className="w-full h-auto max-h-[400px] bg-black" />
+              ) : (
+                <div className={`grid ${previews.length === 1 ? 'grid-cols-1' : 'grid-cols-3'} gap-1 bg-black`}>
+                  {previews.slice(0, 9).map((src, i) => (
+                    <img 
+                      key={i} 
+                      src={src} 
+                      className={`${previews.length === 1 ? 'w-full h-auto max-h-[400px] object-contain' : 'w-full h-28 object-cover'}`} 
+                      alt="" 
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {previews.length === 0 && (
             <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
               <div
                 className={`w-8 h-8 rounded-lg cursor-pointer border-2 bg-[#3A3B3C] flex items-center justify-center flex-shrink-0 ${
@@ -2231,27 +2281,6 @@ export const CreatePostModal: React.FC<{
               ))}
             </div>
           )}
-
-          {preview && (
-            <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
-              <div
-                onClick={() => {
-                  setFile(null);
-                  setPreview(null);
-                  setType('text');
-                }}
-                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
-              >
-                <i className="fas fa-times text-white"></i>
-              </div>
-
-              {type === 'image' ? (
-                <img src={preview} alt="preview" className="w-full h-auto max-h-[400px] object-contain bg-black" />
-              ) : (
-                <video src={preview} controls className="w-full h-auto max-h-[400px] bg-black" />
-              )}
-            </div>
-          )}
         </div>
 
         <div className="border-t border-[#3E4042]">
@@ -2273,7 +2302,15 @@ export const CreatePostModal: React.FC<{
         </button>
       </div>
 
-      <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileChange} />
+      {/* ✅ UPDATED: Input with multiple attribute */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        className="hidden" 
+        accept="image/*,video/*" 
+        multiple
+        onChange={handleFileChange} 
+      />
       <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
     </div>
   );
@@ -2289,6 +2326,7 @@ const commentsCache = new Map<number, {
 /**
  * =========================
  * ✅ PROFESSIONALLY UPDATED: FULL POST VIEW - FULL SCREEN, CLEAN COMMENT DESIGN
+ * WITH FIXED IMAGE WIDTH TO MATCH FEED IMAGES
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -2596,6 +2634,12 @@ export const CommentsSheet: React.FC<{
 
   const mediaInfo = getMediaTypeInfo(p);
 
+  // ✅ Get media list for multiple images support in Full Post View
+  const mediaList = useMemo(() => {
+    const list = getPostMediaList(p);
+    return list.filter((x) => x.kind === 'image');
+  }, [p]);
+
   return (
     <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
       {/* ✅ FULL-SCREEN HEADER */}
@@ -2689,23 +2733,54 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ✅ UPDATED: Media Full Width with multiple images support */}
-          {p.media_url && (
-            <div className="mb-4 rounded-lg overflow-hidden">
-              {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
-                <img
-                  src={String(p.media_url)}
-                  alt=""
-                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
-                  loading="lazy"
+          {/* ✅ PROFESSIONAL FIX: Media Full Width - MATCHES FEED IMAGES */}
+          {mediaList.length > 0 && (
+            <div className="mb-4">
+              {mediaList.length > 1 ? (
+                // ✅ Multiple images: Use MediaGrid component
+                <MediaGrid
+                  media={mediaList.map((m) => ({ url: m.url }))}
+                  onOpen={(url, index) => {
+                    // You can add full screen viewer here if needed
+                    console.log('Open image:', url, index);
+                  }}
                 />
               ) : (
-                <video
-                  src={String(p.media_url)}
-                  controls
-                  playsInline
-                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
-                />
+                // ✅ Single image: Full width like feed
+                <div className="w-full bg-black">
+                  <img
+                    src={mediaList[0].url}
+                    alt=""
+                    className="w-full h-auto max-h-[70vh] object-contain"
+                    loading="lazy"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Fallback for single media_url */}
+          {mediaList.length === 0 && p.media_url && (
+            <div className="mb-4">
+              {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
+                // ✅ FIXED: Remove rounded-lg and use w-full without side gaps
+                <div className="w-full bg-black">
+                  <img
+                    src={String(p.media_url)}
+                    alt=""
+                    className="w-full h-auto max-h-[70vh] object-contain"
+                    loading="lazy"
+                  />
+                </div>
+              ) : (
+                <div className="w-full bg-black">
+                  <video
+                    src={String(p.media_url)}
+                    controls
+                    playsInline
+                    className="w-full h-auto max-h-[70vh] object-contain bg-black"
+                  />
+                </div>
               )}
             </div>
           )}
