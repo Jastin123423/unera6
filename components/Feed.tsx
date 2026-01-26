@@ -311,6 +311,22 @@ const reactionStyles = `
 
 /**
  * =========================
+ * ✅ GLOBAL STYLES FIX - Mount once only
+ * =========================
+ */
+let reactionStyleMounted = false;
+
+const ensureReactionStyles = () => {
+  if (reactionStyleMounted) return;
+  reactionStyleMounted = true;
+  const styleTag = document.createElement('style');
+  styleTag.textContent = reactionStyles;
+  styleTag.setAttribute('data-reaction-styles', '1');
+  document.head.appendChild(styleTag);
+};
+
+/**
+ * =========================
  * ✅ UPDATED: ExpandableRichText Component for Show More/Show Less
  * Now opens Full Post View instead of inline expand
  * =========================
@@ -462,15 +478,9 @@ export const ReactionButton: React.FC<{
   const longPressTimerRef = useRef<any>(null);
   const dockRef = useRef<HTMLDivElement>(null);
 
-  // Add styles on mount
+  // ✅ FIXED: Mount styles once globally
   useEffect(() => {
-    const styleTag = document.createElement('style');
-    styleTag.textContent = reactionStyles;
-    document.head.appendChild(styleTag);
-    
-    return () => {
-      document.head.removeChild(styleTag);
-    };
+    ensureReactionStyles();
   }, []);
 
   // Enhanced reaction config with 25+ emojis
@@ -727,7 +737,7 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
       const info = getMediaTypeInfo(post);
       if (info.isVideo) out.push({ url: single, kind: 'video' });
       else if (info.isImage) out.push({ url: single, kind: 'image' });
-      else if (info.isAudio) out.push({ url: single, kind: 'video' }); // ignore audio for grid
+      // ✅ FIXED: Ignore audio for grid - don't add it
     }
   }
 
@@ -852,7 +862,7 @@ const MediaGrid: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: SHARE BOTTOM SHEET WITH REAL SHARE COUNT
+ * ✅ FIXED: SHARE BOTTOM SHEET WITH CORRECT RETURN STRUCTURE
  * =========================
  */
 export const ShareBottomSheet: React.FC<{
@@ -909,6 +919,7 @@ export const ShareBottomSheet: React.FC<{
     }, 200);
   };
 
+  // ✅ UPDATED: Standardized destination strings
   const handleShareAction = async (destination: string) => {
     if (!currentUser) {
       alert('Please login to share.');
@@ -919,7 +930,7 @@ export const ShareBottomSheet: React.FC<{
       const payload = {
         post_id: post.id,
         user_id: currentUser.id,
-        destination,
+        destination, // ✅ Now consistent: 'feed', 'group', 'message'
         shared_at: new Date().toISOString(),
       };
 
@@ -929,10 +940,15 @@ export const ShareBottomSheet: React.FC<{
       });
 
       if (onShareComplete) {
+        const nextShares = safeNumber(
+          response?.shares ?? response?.share_count, 
+          safeNumber(post.shares || 0, 0) + 1
+        );
+        
         onShareComplete(destination, { 
           success: true, 
           data: response,
-          shares: response?.shares || response?.share_count || (post.shares || 0) + 1
+          shares: nextShares
         });
       }
 
@@ -948,48 +964,61 @@ export const ShareBottomSheet: React.FC<{
     }
   };
 
+  // ✅ FIXED: Multi-image preview URL
+  const previewUrl = useMemo(() => {
+    return (
+      (Array.isArray(post?.media_urls) && post.media_urls[0]) ||
+      (Array.isArray(post?.images) && post.images[0]) ||
+      post?.media_url ||
+      ''
+    );
+  }, [post]);
+
+  // ✅ FIXED: Early returns for different flows
   if (!isOpen) return null;
 
-   {activeFlow === 'feed' && currentUser && (
-  <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-    <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-      <div className="flex items-center gap-4">
-        <i
-          className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-          onClick={() => setActiveFlow('sheet')}
-        ></i>
-        <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
-      </div>
-      <button
-        onClick={() => handleShareAction('feed')}
-        className="text-[#1877F2] font-bold text-[17px]"
-      >
-        POST
-      </button>
-    </div>
-    <div className="flex-1 p-4">
-      <div className="flex items-center gap-3 mb-4">
-        <img
-          src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
-          alt=""
-          className="w-12 h-12 rounded-full object-cover"
-        />
-        <div>
-          <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
-          <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
-            <option>🌍 Public</option>
-            <option>👥 Friends</option>
-            <option>🔒 Only me</option>
-          </select>
+  if (activeFlow === 'feed' && currentUser) {
+    return (
+      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+          <div className="flex items-center gap-4">
+            <i
+              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+              onClick={() => setActiveFlow('sheet')}
+            ></i>
+            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
+          </div>
+          <button
+            onClick={() => handleShareAction('feed')} // ✅ Consistent: 'feed'
+            className="text-[#1877F2] font-bold text-[17px]"
+          >
+            POST
+          </button>
+        </div>
+        <div className="flex-1 p-4">
+          <div className="flex items-center gap-3 mb-4">
+            <img
+              src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+              alt=""
+              className="w-12 h-12 rounded-full object-cover"
+            />
+            <div>
+              <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
+              <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
+                <option>🌍 Public</option>
+                <option>👥 Friends</option>
+                <option>🔒 Only me</option>
+              </select>
+            </div>
+          </div>
+          <textarea
+            className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
+            placeholder="Write something..."
+          />
         </div>
       </div>
-      <textarea
-        className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
-        placeholder="Write something..."
-      />
-    </div>
-  </div>
-)}
+    );
+  }
 
   if (activeFlow === 'groups' && currentUser) {
     return (
@@ -1003,7 +1032,7 @@ export const ShareBottomSheet: React.FC<{
             <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to Groups & Brands</h3>
           </div>
           <button
-            onClick={() => handleShareAction('groups')}
+            onClick={() => handleShareAction('group')} // ✅ Consistent: 'group'
             className="text-[#1877F2] font-bold text-[17px]"
           >
             SHARE
@@ -1038,7 +1067,7 @@ export const ShareBottomSheet: React.FC<{
                   </div>
                 </div>
                 <button 
-                  onClick={() => handleShareAction('group')}
+                  onClick={() => handleShareAction('group')} // ✅ Consistent: 'group'
                   className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
                 >
                   Share
@@ -1094,7 +1123,7 @@ export const ShareBottomSheet: React.FC<{
                   </div>
                 </div>
                 <button 
-                  onClick={() => handleShareAction('message')}
+                  onClick={() => handleShareAction('message')} // ✅ Consistent: 'message'
                   className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
                 >
                   Send
@@ -1129,10 +1158,11 @@ export const ShareBottomSheet: React.FC<{
 
           {post && (
             <div className="flex items-start gap-3 mb-4 p-3 bg-[#3A3B3C] rounded-xl">
-              {post.media_url && (
+              {/* ✅ FIXED: Use previewUrl for multi-image support */}
+              {previewUrl && (
                 <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
                   <img 
-                    src={post.media_url} 
+                    src={previewUrl} 
                     alt="Post" 
                     className="w-full h-full object-cover"
                   />
@@ -1454,10 +1484,13 @@ export const Post: React.FC<{
     }
   }, [p.comment_count, p.comments, p.shares, p.shares_count, commentCount, shareCount]);
 
+  // ✅ FIXED: Share count update with safeNumber
   const handleShareComplete = (destination: string, data?: any) => {
-    if (data?.success && typeof data.shares === 'number') {
-      setShareCount(data.shares);
-      onShare(postId, data.shares);
+    const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
+    
+    if (data?.success && Number.isFinite(nextShares)) {
+      setShareCount(nextShares);
+      onShare(postId, nextShares);
     }
     setShowShareSheet(false);
   };
