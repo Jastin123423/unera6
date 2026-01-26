@@ -311,7 +311,8 @@ const reactionStyles = `
 
 /**
  * =========================
- * ✅ ADDED: ExpandableRichText Component for Show More/Show Less
+ * ✅ UPDATED: ExpandableRichText Component for Show More/Show Less
+ * Now opens Full Post View instead of inline expand
  * =========================
  */
 const ExpandableRichText: React.FC<{
@@ -321,17 +322,27 @@ const ExpandableRichText: React.FC<{
   onHashtagClick?: (tag: string) => void;
   maxWords?: number;
   fontSizePx?: number;
-}> = ({ text, users, onProfileClick, onHashtagClick, maxWords = 25, fontSizePx = 21 }) => {
-  const [expanded, setExpanded] = useState(false);
 
+  // ✅ NEW: when user taps "See more" open full post sheet
+  onSeeMore?: () => void;
+
+  // ✅ OPTIONAL: if true, render full text (for Full Post View)
+  forceExpanded?: boolean;
+}> = ({
+  text,
+  users,
+  onProfileClick,
+  onHashtagClick,
+  maxWords = 25,
+  fontSizePx = 21,
+  onSeeMore,
+  forceExpanded = false,
+}) => {
   const words = (text || '').trim().split(/\s+/).filter(Boolean);
   const isLong = words.length > maxWords;
 
-  const shownText = !isLong
-    ? text
-    : expanded
-      ? text
-      : words.slice(0, maxWords).join(' ') + '…';
+  const shownText =
+    forceExpanded || !isLong ? text : words.slice(0, maxWords).join(' ') + '…';
 
   return (
     <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed">
@@ -342,16 +353,17 @@ const ExpandableRichText: React.FC<{
         onHashtagClick={onHashtagClick}
       />
 
-      {isLong && (
+      {/* ✅ Feed behavior: "See more" opens full post view */}
+      {isLong && !forceExpanded && (
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            setExpanded((v) => !v);
+            onSeeMore?.();
           }}
           className="ml-2 font-bold text-[#1877F2] hover:underline"
         >
-          {expanded ? 'Show less' : 'Show more'}
+          See more
         </button>
       )}
     </div>
@@ -1330,7 +1342,7 @@ export const Post: React.FC<{
             )}
         </div>
 
-        {/* ✅ UPDATED: Use ExpandableRichText for post description */}
+        {/* ✅ UPDATED: Use ExpandableRichText for post description with onSeeMore prop */}
         {p.content && (
           <div className="px-3 md:px-4 pb-2">
             <ExpandableRichText
@@ -1340,6 +1352,7 @@ export const Post: React.FC<{
               onHashtagClick={onHashtagClick}
               maxWords={25}
               fontSizePx={21}
+              onSeeMore={() => onOpenComments(Number(postId))} // ✅ open Full Post
             />
           </div>
         )}
@@ -2048,7 +2061,7 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ FIXED: COMMENTS SHEET WITH PROPER REPLY ALIGNMENT AND FACEBOOK-LIKE BEHAVIOR
+ * ✅ UPDATED: COMMENTS SHEET NOW UPGRADED TO FULL POST VIEW
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -2344,142 +2357,244 @@ export const CommentsSheet: React.FC<{
     return () => window.removeEventListener('focus', handleFocus);
   }, [postId]);
 
+  const mediaInfo = getMediaTypeInfo(p);
+
   return (
     <div className="fixed inset-0 z-[200] flex flex-col justify-end md:items-center md:justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose}></div>
 
       <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
-        <div className="p-3 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
-          <h3 className="font-bold text-[#E4E6EB]">
-            Comments ({formatCount(comments.length)})
-          </h3>
-          <i className="fas fa-times text-[#B0B3B8] cursor-pointer text-xl" onClick={onClose}></i>
-        </div>
+        {/* ✅ A) Facebook-style header with back button */}
+        <div className="p-3 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="w-9 h-9 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
+              onClick={onClose}
+              aria-label="Back"
+            >
+              <i className="fas fa-arrow-left text-[#E4E6EB]"></i>
+            </button>
+            <div className="text-[#E4E6EB] font-bold text-[17px]">Post</div>
+          </div>
 
-        {/* Reply indicator */}
-        {replyTo && (
-          <div className="p-3 bg-[#3A3B3C] border-b border-[#3E4042] flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-[#B0B3B8] text-sm">Replying to</span>
-              {/* ✅ UPDATED: Show real name instead of "User" */}
-              <span className="text-[#1877F2] font-medium">
-                {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
-              </span>
+          <div className="flex items-center gap-3">
+            <div className="text-[#B0B3B8] text-[13px]">
+              {formatCount(comments.length)} comments
             </div>
             <button
-              onClick={() => setReplyTo(null)}
-              className="text-[#B0B3B8] hover:text-[#E4E6EB]"
+              type="button"
+              className="text-[#1877F2] font-bold text-[14px] hover:underline"
+              onClick={onClose}
             >
-              <i className="fas fa-times"></i>
+              See less
             </button>
           </div>
-        )}
-
-        {/* ✅ UPDATED: Emoji picker with 200+ emojis */}
-        {showEmojiPicker && (
-          <div className="border-b border-[#3E4042] p-2 overflow-x-auto scrollbar-hide">
-            <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
-              {QUICK_EMOJIS.map(emoji => (
-                <button
-                  key={emoji}
-                  onClick={() => addEmoji(emoji)}
-                  className="text-2xl hover:scale-125 transition-transform p-1"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {comments.length === 0 ? (
-            <div className="text-[#B0B3B8] text-center py-6">
-              No comments yet.
-              <p className="text-sm mt-2">Be the first to comment!</p>
-            </div>
-          ) : (
-            comments.map((c) => {
-              const a = resolveAuthor(c);
-              const isReply = !!c.parent_comment_id;
-              
-              return (
-                <div 
-                  key={String(c.id)} 
-                  className={`flex gap-2 animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
-                >
-                  {/* ✅ ADDED: Thread line for replies */}
-                  {isReply && (
-                    <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
-                  )}
-                  
-                  <img
-                    src={a.image}
-                    className="w-8 h-8 rounded-full object-cover cursor-pointer flex-shrink-0"
-                    alt=""
-                    onClick={() => a.uid && onProfileClick(a.uid)}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className={`bg-[#3A3B3C] px-4 py-2 rounded-2xl ${isReply ? 'max-w-[92%]' : ''}`}>
-                      <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
-                        <span
-                          className="cursor-pointer hover:underline truncate max-w-[150px]"
-                          onClick={() => a.uid && onProfileClick(a.uid)}
-                          title={a.name}
-                        >
-                          {a.name}
-                        </span>
-                        <span className="text-[12px] font-normal text-[#B0B3B8]">
-                          • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
-                        </span>
-                      </p>
-                      {/* ✅ UPDATED: Use RichText component for mentions and hashtags */}
-                      <div className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
-                        <RichText
-                          text={String(c.text || '')}
-                          users={users}
-                          onProfileClick={onProfileClick}
-                          onHashtagClick={onHashtagClick}
-                        />
-                      </div>
-                    </div>
-                    
-                    {/* Comment actions */}
-                    <div className="flex items-center gap-4 mt-1 px-1">
-                      <button
-                        onClick={() => handleLikeComment(c)}
-                        className={`text-xs ${c.liked_by_me ? 'text-[#1877F2] font-bold' : 'text-[#B0B3B8]'}`}
-                      >
-                        {c.liked_by_me ? 'Liked' : 'Like'}
-                      </button>
-                      <button
-                        onClick={() => {
-                          // ✅ UPDATED: Store author info when tapping Reply
-                          const target = getReplyLabel(c);
-                          setReplyTo({
-                            ...c,
-                            _reply_author: target, // store resolved author
-                          });
-                          inputRef.current?.focus();
-                          setShowEmojiPicker(false); // Close emoji picker when replying
-                        }}
-                        className="text-xs text-[#B0B3B8] hover:text-[#E4E6EB]"
-                      >
-                        Reply
-                      </button>
-                      {c.likes_count > 0 && (
-                        <span className="text-xs text-[#B0B3B8]">
-                          {formatCount(c.likes_count)} like{c.likes_count !== 1 ? 's' : ''}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
         </div>
 
+        {/* ✅ B) FULL POST VIEW: post content + media before comments */}
+        <div className="overflow-y-auto flex-1">
+          <div className="border-b border-[#3E4042]">
+            <div className="p-4">
+              {/* author row */}
+              <div className="flex items-center gap-3">
+                <img
+                  src={
+                    (p.author?.profile_image_url || p.profile_image_url) ||
+                    'https://ui-avatars.com/api/?name=User'
+                  }
+                  className="w-11 h-11 rounded-full object-cover border border-[#3E4042]"
+                  alt=""
+                />
+                <div className="min-w-0">
+                  <div className="text-[#E4E6EB] font-bold text-[16px] truncate">
+                    {p.author?.name || p.name || p.username || 'User'}
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
+                    <span>{formatRelativeTime(p.created_at)}</span>
+                    <span>•</span>
+                    <i className="fas fa-globe-americas text-[12px]"></i>
+                  </div>
+                </div>
+              </div>
+
+              {/* full text (NOT truncated) */}
+              {p.content && (
+                <div className="mt-3">
+                  <ExpandableRichText
+                    text={String(p.content)}
+                    users={users}
+                    onProfileClick={onProfileClick}
+                    onHashtagClick={onHashtagClick}
+                    fontSizePx={21}
+                    forceExpanded={true}   // ✅ full text in full view
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* media full width */}
+            {p.media_url && (
+              <div className="bg-black">
+                {/* image */}
+                {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
+                  <img
+                    src={String(p.media_url)}
+                    alt=""
+                    className="w-full h-auto max-h-[650px] object-contain"
+                    loading="lazy"
+                  />
+                ) : (
+                  /* video */
+                  <video
+                    src={String(p.media_url)}
+                    controls
+                    playsInline
+                    className="w-full max-h-[650px] object-contain"
+                  />
+                )}
+              </div>
+            )}
+
+            {/* counts row */}
+            <div className="px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[13px]">
+              <div className="flex items-center gap-2">
+                {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
+              </div>
+              <div className="flex items-center gap-3">
+                <span>{formatCount(comments.length)} comments</span>
+                {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Reply indicator */}
+          {replyTo && (
+            <div className="p-3 bg-[#3A3B3C] border-b border-[#3E4042] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-[#B0B3B8] text-sm">Replying to</span>
+                {/* ✅ UPDATED: Show real name instead of "User" */}
+                <span className="text-[#1877F2] font-medium">
+                  {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
+                </span>
+              </div>
+              <button
+                onClick={() => setReplyTo(null)}
+                className="text-[#B0B3B8] hover:text-[#E4E6EB]"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+          )}
+
+          {/* ✅ UPDATED: Emoji picker with 200+ emojis */}
+          {showEmojiPicker && (
+            <div className="border-b border-[#3E4042] p-2 overflow-x-auto scrollbar-hide">
+              <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
+                {QUICK_EMOJIS.map(emoji => (
+                  <button
+                    key={emoji}
+                    onClick={() => addEmoji(emoji)}
+                    className="text-2xl hover:scale-125 transition-transform p-1"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Comments section */}
+          <div className="p-4 space-y-4">
+            {comments.length === 0 ? (
+              <div className="text-[#B0B3B8] text-center py-6">
+                No comments yet.
+                <p className="text-sm mt-2">Be the first to comment!</p>
+              </div>
+            ) : (
+              comments.map((c) => {
+                const a = resolveAuthor(c);
+                const isReply = !!c.parent_comment_id;
+                
+                return (
+                  <div 
+                    key={String(c.id)} 
+                    className={`flex gap-2 animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
+                  >
+                    {/* ✅ ADDED: Thread line for replies */}
+                    {isReply && (
+                      <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
+                    )}
+                    
+                    <img
+                      src={a.image}
+                      className="w-8 h-8 rounded-full object-cover cursor-pointer flex-shrink-0"
+                      alt=""
+                      onClick={() => a.uid && onProfileClick(a.uid)}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className={`bg-[#3A3B3C] px-4 py-2 rounded-2xl ${isReply ? 'max-w-[92%]' : ''}`}>
+                        <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
+                          <span
+                            className="cursor-pointer hover:underline truncate max-w-[150px]"
+                            onClick={() => a.uid && onProfileClick(a.uid)}
+                            title={a.name}
+                          >
+                            {a.name}
+                          </span>
+                          <span className="text-[12px] font-normal text-[#B0B3B8]">
+                            • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
+                          </span>
+                        </p>
+                        {/* ✅ UPDATED: Use RichText component for mentions and hashtags */}
+                        <div className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
+                          <RichText
+                            text={String(c.text || '')}
+                            users={users}
+                            onProfileClick={onProfileClick}
+                            onHashtagClick={onHashtagClick}
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Comment actions */}
+                      <div className="flex items-center gap-4 mt-1 px-1">
+                        <button
+                          onClick={() => handleLikeComment(c)}
+                          className={`text-xs ${c.liked_by_me ? 'text-[#1877F2] font-bold' : 'text-[#B0B3B8]'}`}
+                        >
+                          {c.liked_by_me ? 'Liked' : 'Like'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            // ✅ UPDATED: Store author info when tapping Reply
+                            const target = getReplyLabel(c);
+                            setReplyTo({
+                              ...c,
+                              _reply_author: target, // store resolved author
+                            });
+                            inputRef.current?.focus();
+                            setShowEmojiPicker(false); // Close emoji picker when replying
+                          }}
+                          className="text-xs text-[#B0B3B8] hover:text-[#E4E6EB]"
+                        >
+                          Reply
+                        </button>
+                        {c.likes_count > 0 && (
+                          <span className="text-xs text-[#B0B3B8]">
+                            {formatCount(c.likes_count)} like{c.likes_count !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* ✅ D) Keep your sticky modern comment input (already good) */}
         <form className="p-3 border-t border-[#3E4042] flex gap-2 items-center" onSubmit={handleSubmit}>
           <button
             type="button"
