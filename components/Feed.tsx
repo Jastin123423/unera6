@@ -865,7 +865,9 @@ export const ShareBottomSheet: React.FC<{
   brands?: Brand[];
   chats?: any[];
   onShareComplete?: (destination: string, data?: any) => void;
-}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete }) => {
+  onFollow?: (id: number) => void;
+  checkIsFollowing?: (id: number) => boolean;
+}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete, onFollow, checkIsFollowing }) => {
   const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>('sheet');
   const [isAnimating, setIsAnimating] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -948,48 +950,48 @@ export const ShareBottomSheet: React.FC<{
     }
   };
 
-  if (!isOpen) return null;
-
- {activeFlow === 'feed' && currentUser && (
-  <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-    <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-      <div className="flex items-center gap-4">
-        <i
-          className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-          onClick={() => setActiveFlow('sheet')}
-        ></i>
-        <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
-      </div>
-      <button
-        onClick={() => handleShareAction('feed')}
-        className="text-[#1877F2] font-bold text-[17px]"
-      >
-        POST
-      </button>
-    </div>
-    <div className="flex-1 p-4">
-      <div className="flex items-center gap-3 mb-4">
-        <img
-          src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
-          alt=""
-          className="w-12 h-12 rounded-full object-cover"
-        />
-        <div>
-          <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
-          <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
-            <option>🌍 Public</option>
-            <option>👥 Friends</option>
-            <option>🔒 Only me</option>
-          </select>
+  if (activeFlow === 'feed' && currentUser) {
+    return (
+      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+          <div className="flex items-center gap-4">
+            <i
+              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+              onClick={() => setActiveFlow('sheet')}
+            ></i>
+            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
+          </div>
+          <button
+            onClick={() => handleShareAction('feed')}
+            className="text-[#1877F2] font-bold text-[17px]"
+          >
+            POST
+          </button>
+        </div>
+        <div className="flex-1 p-4">
+          <div className="flex items-center gap-3 mb-4">
+            <img
+              src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+              alt=""
+              className="w-12 h-12 rounded-full object-cover"
+            />
+            <div>
+              <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
+              <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
+                <option>🌍 Public</option>
+                <option>👥 Friends</option>
+                <option>🔒 Only me</option>
+              </select>
+            </div>
+          </div>
+          <textarea
+            className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
+            placeholder="Write something..."
+          />
         </div>
       </div>
-      <textarea
-        className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
-        placeholder="Write something..."
-      />
-    </div>
-  </div>
-)}
+    );
+  }
 
   if (activeFlow === 'groups' && currentUser) {
     return (
@@ -1325,7 +1327,7 @@ export const ShareBottomSheet: React.FC<{
 /**
  * =========================
  * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS, API FORMAT SUPPORT,
- * MULTIPLE IMAGES, AND FOLLOW BUTTON
+ * MULTIPLE IMAGES, AND FOLLOW BUTTON (WITH STABLE FOLLOW STATE)
  * =========================
  */
 export const Post: React.FC<{
@@ -1345,7 +1347,7 @@ export const Post: React.FC<{
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
-  // ✅ ADDED: Follow button props
+  // ✅ ADDED: Follow button props with stable state
   isFollowing?: boolean;
   onFollow?: (id: number) => void;
   followLoading?: boolean;
@@ -1435,6 +1437,17 @@ export const Post: React.FC<{
     }
     return count.toString();
   };
+
+  // ✅ FIXED: Stable follow state to prevent UI shaking
+  const stableFollowRef = useRef<boolean>(isFollowing);
+  useEffect(() => {
+    // Only update the stable reference when NOT loading
+    if (!followLoading) {
+      stableFollowRef.current = isFollowing;
+    }
+  }, [isFollowing, followLoading]);
+  
+  const stableIsFollowing = followLoading ? stableFollowRef.current : isFollowing;
 
   // ✅ Sync counts with post updates
   useEffect(() => {
@@ -1526,14 +1539,14 @@ export const Post: React.FC<{
               onClick={handleFollowClick}
               disabled={followLoading}
               className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                isFollowing 
+                stableIsFollowing 
                   ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                   : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
               } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
               {followLoading ? (
                 <i className="fas fa-spinner fa-spin"></i>
-              ) : isFollowing ? (
+              ) : stableIsFollowing ? (
                 'Following'
               ) : (
                 'Follow'
@@ -1814,7 +1827,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * CREATE POST MODAL
+ * ✅ UPDATED: CREATE POST MODAL WITH MULTI-IMAGE SUPPORT
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -1823,7 +1836,7 @@ export const CreatePostModal: React.FC<{
   onClose: () => void;
   onCreatePost: (
     text: string,
-    file: File | null,
+    files: File[], // ✅ CHANGED: Single file → array of files
     meta?: {
       type?: 'text' | 'image' | 'video';
       visibility?: string;
@@ -1838,8 +1851,8 @@ export const CreatePostModal: React.FC<{
 }> = ({ currentUser, users, onClose, onCreatePost }) => {
   const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]); // ✅ CHANGED: Single file → array
+  const [previews, setPreviews] = useState<string[]>([]); // ✅ CHANGED: Single preview → array
   const [type, setType] = useState<'text' | 'image' | 'video'>('text');
 
   const [visibility] = useState<'Public' | 'Friends'>('Public');
@@ -1862,22 +1875,40 @@ export const CreatePostModal: React.FC<{
     setLinkPreview(getLinkPreview(text));
   }, [text]);
 
+  // ✅ UPDATED: Cleanup effect for multiple previews
   useEffect(() => {
     return () => {
-      if (preview) URL.revokeObjectURL(preview);
+      previews.forEach((p) => URL.revokeObjectURL(p));
     };
-  }, [preview]);
+  }, [previews]);
 
+  // ✅ UPDATED: Handle multiple file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const picked = Array.from(e.target.files || []);
+    if (!picked.length) return;
 
-    setFile(f);
-    const url = URL.createObjectURL(f);
-    setPreview(url);
-    setType(f.type.startsWith('image') ? 'image' : 'video');
+    // Facebook logic: allow multiple images, but if any video is selected, treat as single video.
+    const hasVideo = picked.some((f) => f.type.startsWith('video/'));
+    if (hasVideo) {
+      const v = picked.find((f) => f.type.startsWith('video/'))!;
+      setFiles([v]);
+      const url = URL.createObjectURL(v);
+      setPreviews([url]);
+      setType('video');
+    } else {
+      setFiles(picked);
+      const urls = picked.map((f) => URL.createObjectURL(f));
+      setPreviews(urls);
+      setType('image');
+    }
+
     setActiveBackground('');
     setView('main');
+
+    // allow picking same files again
+    if (e.target) {
+      e.target.value = '';
+    }
   };
 
   const handleLocationSearch = async (q: string) => {
@@ -1903,13 +1934,14 @@ export const CreatePostModal: React.FC<{
     searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
   };
 
-  const canPost = !!text.trim() || !!file || !!activeBackground;
+  // ✅ UPDATED: Check if can post with multiple files
+  const canPost = !!text.trim() || files.length > 0 || !!activeBackground;
 
   const submit = () => {
     if (!canPost) return;
 
-    onCreatePost(text, file, {
-      type: file ? type : 'text',
+    onCreatePost(text, files, { // ✅ CHANGED: Pass files array instead of single file
+      type: files.length ? type : 'text',
       visibility,
       location: location || undefined,
       feeling: feeling || undefined,
@@ -2189,7 +2221,7 @@ export const CreatePostModal: React.FC<{
             />
           </div>
 
-          {linkPreview && !file && !activeBackground && (
+          {linkPreview && files.length === 0 && !activeBackground && (
             <div
               className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
               onClick={() => window.open(linkPreview.url, '_blank')}
@@ -2203,7 +2235,39 @@ export const CreatePostModal: React.FC<{
             </div>
           )}
 
-          {!preview && (
+          {/* ✅ UPDATED: Multi-file preview */}
+          {previews.length > 0 && (
+            <div className="relative mb-4 border border-[#3E4042] overflow-hidden rounded-xl">
+              <div
+                onClick={() => {
+                  setFiles([]);
+                  previews.forEach((p) => URL.revokeObjectURL(p));
+                  setPreviews([]);
+                  setType('text');
+                }}
+                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
+              >
+                <i className="fas fa-times text-white"></i>
+              </div>
+
+              {/* ✅ Full width, no side gaps */}
+              {type === 'video' ? (
+                <video src={previews[0]} controls className="w-full h-auto max-h-[420px] bg-black object-contain" />
+              ) : previews.length === 1 ? (
+                <img src={previews[0]} alt="preview" className="w-full h-auto max-h-[420px] bg-black object-contain" />
+              ) : (
+                // Reuse MediaGrid for multiple image previews
+                <MediaGrid
+                  media={previews.map((url) => ({ url }))}
+                  onOpen={(url) => {
+                    // optional: open the big preview if you want
+                  }}
+                />
+              )}
+            </div>
+          )}
+
+          {previews.length === 0 && (
             <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
               <div
                 className={`w-8 h-8 rounded-lg cursor-pointer border-2 bg-[#3A3B3C] flex items-center justify-center flex-shrink-0 ${
@@ -2228,27 +2292,6 @@ export const CreatePostModal: React.FC<{
               ))}
             </div>
           )}
-
-          {preview && (
-            <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
-              <div
-                onClick={() => {
-                  setFile(null);
-                  setPreview(null);
-                  setType('text');
-                }}
-                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
-              >
-                <i className="fas fa-times text-white"></i>
-              </div>
-
-              {type === 'image' ? (
-                <img src={preview} alt="preview" className="w-full h-auto max-h-[400px] object-contain bg-black" />
-              ) : (
-                <video src={preview} controls className="w-full h-auto max-h-[400px] bg-black" />
-              )}
-            </div>
-          )}
         </div>
 
         <div className="border-t border-[#3E4042]">
@@ -2270,8 +2313,23 @@ export const CreatePostModal: React.FC<{
         </button>
       </div>
 
-      <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileChange} />
-      <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
+      {/* ✅ UPDATED: File inputs with multiple attribute */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        accept="image/*,video/*"
+        multiple
+        onChange={handleFileChange}
+      />
+      <input
+        type="file"
+        ref={cameraInputRef}
+        className="hidden"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileChange}
+      />
     </div>
   );
 };
@@ -2298,7 +2356,7 @@ export const CommentsSheet: React.FC<{
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
   onHashtagClick?: (tag: string) => void;
-  // ✅ ADDED: Follow button props for comments
+  // ✅ ADDED: Follow button props for comments with stable state
   onFollow?: (id: number) => void;
   checkIsFollowing?: (id: number) => boolean;
 }> = ({ 
@@ -2325,6 +2383,9 @@ export const CommentsSheet: React.FC<{
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
+  // ✅ FIXED: Stable follow state map to prevent UI shaking
+  const followStableMap = useRef<Map<number, boolean>>(new Map());
+  
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
 
@@ -2348,6 +2409,22 @@ export const CommentsSheet: React.FC<{
 
     return { uid, name, image };
   };
+
+  // ✅ ADDED: Stable check for following status
+  const stableCheckFollowing = useCallback((uid: number): boolean => {
+    if (!checkIsFollowing) return false;
+    
+    const latest = checkIsFollowing(uid);
+    
+    // Initialize if not in map
+    if (!followStableMap.current.has(uid)) {
+      followStableMap.current.set(uid, latest);
+    }
+    
+    // Only update map when we're confident about the state (not during rapid changes)
+    // This prevents UI flickering
+    return followStableMap.current.get(uid) || false;
+  }, [checkIsFollowing]);
 
   const getReplyLabel = (comment: any) => {
     const a = resolveAuthor(comment);
@@ -2416,11 +2493,15 @@ export const CommentsSheet: React.FC<{
     }
   };
 
-  // ✅ ADDED: Handle follow click in comments
+  // ✅ ADDED: Handle follow click in comments with stable state
   const handleFollowClick = (e: React.MouseEvent, userId: number) => {
     e.stopPropagation();
     e.preventDefault();
     if (onFollow && userId && userId !== safeUserId(currentUser)) {
+      // Update stable map immediately for responsive UI
+      const currentFollowing = stableCheckFollowing(userId);
+      followStableMap.current.set(userId, !currentFollowing);
+      
       onFollow(userId);
     }
   };
@@ -2592,6 +2673,8 @@ export const CommentsSheet: React.FC<{
   }, [postId]);
 
   const mediaInfo = getMediaTypeInfo(p);
+  // ✅ Get media list for multi-image support
+  const fullMedia = getPostMediaList(p).filter((m) => m.kind === 'image');
 
   return (
     <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
@@ -2660,12 +2743,12 @@ export const CommentsSheet: React.FC<{
                   <button
                     onClick={(e) => handleFollowClick(e, safeUserId(p.author))}
                     className={`px-3 py-1 text-sm font-semibold rounded-lg transition-all duration-200 ${
-                      checkIsFollowing && checkIsFollowing(safeUserId(p.author))
+                      stableCheckFollowing(safeUserId(p.author))
                         ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                         : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
                     }`}
                   >
-                    {checkIsFollowing && checkIsFollowing(safeUserId(p.author)) ? 'Following' : 'Follow'}
+                    {stableCheckFollowing(safeUserId(p.author)) ? 'Following' : 'Follow'}
                   </button>
                 )}
               </div>
@@ -2686,26 +2769,35 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ✅ UPDATED: Media Full Width with multiple images support */}
-          {p.media_url && (
-            <div className="mb-4 rounded-lg overflow-hidden">
-              {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
-                <img
-                  src={String(p.media_url)}
-                  alt=""
-                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
-                  loading="lazy"
-                />
-              ) : (
-                <video
-                  src={String(p.media_url)}
-                  controls
-                  playsInline
-                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
-                />
-              )}
+          {/* ✅ UPDATED: Media Full Width with multiple images support - EDGE TO EDGE */}
+          {fullMedia.length > 1 ? (
+            <div className="-mx-4 mb-4 border-y border-[#3E4042] bg-black">
+              <MediaGrid
+                media={fullMedia.map((m) => ({ url: m.url }))}
+                onOpen={(url) => {
+                  // Handle image click if needed
+                }}
+              />
             </div>
-          )}
+          ) : mediaInfo.mediaUrl && mediaInfo.isImage ? (
+            <div className="-mx-4 mb-4 border-y border-[#3E4042] bg-black">
+              <img
+                src={mediaInfo.mediaUrl}
+                alt=""
+                className="w-full h-auto max-h-[70vh] object-contain"
+                loading="lazy"
+              />
+            </div>
+          ) : mediaInfo.mediaUrl && mediaInfo.isVideo ? (
+            <div className="-mx-4 mb-4 border-y border-[#3E4042] bg-black">
+              <video
+                src={mediaInfo.mediaUrl}
+                controls
+                playsInline
+                className="w-full h-auto max-h-[70vh] object-contain"
+              />
+            </div>
+          ) : null}
 
           {/* Counts */}
           <div className="flex items-center justify-between text-[#B0B3B8] text-[14px] pt-3 border-t border-[#3E4042]">
@@ -2768,7 +2860,7 @@ export const CommentsSheet: React.FC<{
                 const a = resolveAuthor(c);
                 const isReply = !!c.parent_comment_id;
                 const isCurrentUserComment = a.uid === safeUserId(currentUser);
-                const isFollowing = checkIsFollowing ? checkIsFollowing(a.uid) : false;
+                const isFollowing = stableCheckFollowing(a.uid);
                 
                 return (
                   <div 
