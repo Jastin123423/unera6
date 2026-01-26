@@ -1,4 +1,4 @@
-// Groups.tsx - Professional Version with Multi-image, See More/Less, and Post View Support
+// Groups.tsx - Updated with local getPostMediaList implementation
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { User, Group, Event, Post as PostType, ReactionType } from '../types';
@@ -6,13 +6,71 @@ import {
   Post, 
   CommentsSheet,
   formatRelativeTime,
-  getPostMediaList,
   MediaGrid,
   ExpandableRichText,
   ReactionButton,
   ShareBottomSheet
 } from './Feed';
 import { CreateEventModal } from './Events';
+
+// ✅ ADD LOCAL IMPLEMENTATION OF getPostMediaList
+type NormalizedMedia = { url: string; kind: 'image' | 'video' };
+
+const getPostMediaList = (post: any): NormalizedMedia[] => {
+  const out: NormalizedMedia[] = [];
+
+  // 1) arrays: media_urls, images
+  const arrUrls: any[] = Array.isArray(post?.media_urls)
+    ? post.media_urls
+    : Array.isArray(post?.images)
+      ? post.images
+      : [];
+
+  for (const u of arrUrls) {
+    const url = String(u || '').trim();
+    if (!url) continue;
+    out.push({ url, kind: 'image' });
+  }
+
+  // 2) array of objects: media: [{url,type}]
+  const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
+  for (const m of arrMedia) {
+    const url = String(m?.url || m?.media_url || '').trim();
+    if (!url) continue;
+
+    const type = String(m?.type || m?.media_type || '').toLowerCase();
+    const clean = url.split('?')[0].split('#')[0];
+    const ext = clean.split('.').pop()?.toLowerCase() || '';
+
+    const isVideo =
+      type.startsWith('video') ||
+      ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
+
+    out.push({ url, kind: isVideo ? 'video' : 'image' });
+  }
+
+  // 3) fallback to single media_url if present (only if no list)
+  if (out.length === 0) {
+    const single = String(post?.media_url || '').trim();
+    if (single) {
+      const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
+      const ext = single.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase() || '';
+      
+      const isVideo =
+        mediaTypeRaw.startsWith('video') ||
+        ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
+      
+      if (isVideo) {
+        out.push({ url: single, kind: 'video' });
+      } else {
+        out.push({ url: single, kind: 'image' });
+      }
+    }
+  }
+
+  // keep only valid
+  return out.filter((x) => x.url);
+};
 
 interface GroupSettingsModalProps {
   group: Group;
