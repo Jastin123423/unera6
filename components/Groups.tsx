@@ -1,4 +1,4 @@
-// Groups.tsx - Updated with local getPostMediaList implementation
+// Groups.tsx - Fixed version with all required components locally implemented
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { User, Group, Event, Post as PostType, ReactionType } from '../types';
@@ -6,14 +6,13 @@ import {
   Post, 
   CommentsSheet,
   formatRelativeTime,
-  MediaGrid,
-  ExpandableRichText,
   ReactionButton,
-  ShareBottomSheet
+  ShareBottomSheet,
+  RichText
 } from './Feed';
 import { CreateEventModal } from './Events';
 
-// ✅ ADD LOCAL IMPLEMENTATION OF getPostMediaList
+// ✅ LOCAL IMPLEMENTATION: getPostMediaList
 type NormalizedMedia = { url: string; kind: 'image' | 'video' };
 
 const getPostMediaList = (post: any): NormalizedMedia[] => {
@@ -70,6 +69,169 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
 
   // keep only valid
   return out.filter((x) => x.url);
+};
+
+// ✅ LOCAL IMPLEMENTATION: ExpandableRichText
+const ExpandableRichText: React.FC<{
+  text: string;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+  maxWords?: number;
+  fontSizePx?: number;
+  onSeeMore?: () => void;
+  forceExpanded?: boolean;
+}> = ({
+  text,
+  users,
+  onProfileClick,
+  onHashtagClick,
+  maxWords = 25,
+  fontSizePx = 21,
+  onSeeMore,
+  forceExpanded = false,
+}) => {
+  const words = (text || '').trim().split(/\s+/).filter(Boolean);
+  const isLong = words.length > maxWords;
+
+  const shownText =
+    forceExpanded || !isLong ? text : words.slice(0, maxWords).join(' ') + '…';
+
+  return (
+    <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed">
+      <RichText
+        text={shownText}
+        users={users}
+        onProfileClick={onProfileClick}
+        onHashtagClick={onHashtagClick}
+      />
+
+      {/* ✅ Feed behavior: "See more" opens full post view */}
+      {isLong && !forceExpanded && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSeeMore?.();
+          }}
+          className="ml-2 font-bold text-[#1877F2] hover:underline"
+        >
+          See more
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ✅ LOCAL IMPLEMENTATION: MediaGrid
+const MediaGrid: React.FC<{
+  media: { url: string }[];
+  onOpen: (url: string, index: number) => void;
+}> = ({ media, onOpen }) => {
+  const total = media.length;
+  const show = total <= 4 ? media : media.slice(0, 4);
+  const extra = total - 4;
+
+  // Small helper tile
+  const Tile = ({
+    url,
+    index,
+    className,
+    showOverlay,
+  }: {
+    url: string;
+    index: number;
+    className: string;
+    showOverlay?: boolean;
+  }) => (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(url, index);
+      }}
+      className={`relative overflow-hidden ${className}`}
+      style={{ borderRadius: 0 }} // ✅ no inner rounding; card handles rounding with overflow-hidden
+    >
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        className="w-full h-full object-cover"
+        onError={(e) => {
+          // hide broken tile cleanly
+          (e.currentTarget as HTMLImageElement).style.display = 'none';
+        }}
+      />
+
+      {showOverlay && extra > 0 && (
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+          <span className="text-white font-black text-3xl">+{extra}</span>
+        </div>
+      )}
+    </button>
+  );
+
+  // ✅ 1 image: full width normal (still grid-friendly)
+  if (total === 1) {
+    return (
+      <div className="w-full bg-black">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(show[0].url, 0);
+          }}
+          className="w-full block"
+        >
+          <img
+            src={show[0].url}
+            alt=""
+            loading="lazy"
+            className="w-full h-auto max-h-[650px] object-contain"
+          />
+        </button>
+      </div>
+    );
+  }
+
+  // ✅ 2 images: two columns
+  if (total === 2) {
+    return (
+      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+        <Tile url={show[0].url} index={0} className="h-[320px] w-full" />
+        <Tile url={show[1].url} index={1} className="h-[320px] w-full" />
+      </div>
+    );
+  }
+
+  // ✅ 3 images: left big, right 2 stacked
+  if (total === 3) {
+    return (
+      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+        <Tile url={show[0].url} index={0} className="h-[420px] w-full" />
+        <div className="grid grid-rows-2 gap-[2px] h-[420px]">
+          <Tile url={show[1].url} index={1} className="w-full h-full" />
+          <Tile url={show[2].url} index={2} className="w-full h-full" />
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ 4 or 5+ images: 2x2 grid, overlay +N on 4th tile when extra exists
+  return (
+    <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+      <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
+      <Tile url={show[1].url} index={1} className="h-[260px] w-full" />
+      <Tile url={show[2].url} index={2} className="h-[260px] w-full" />
+      <Tile
+        url={show[3].url}
+        index={3}
+        className="h-[260px] w-full"
+        showOverlay={extra > 0}
+      />
+    </div>
+  );
 };
 
 interface GroupSettingsModalProps {
