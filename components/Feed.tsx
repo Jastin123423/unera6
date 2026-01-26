@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   User,
@@ -139,7 +138,7 @@ export const formatRelativeTime = (dateInput: any): string => {
   if (days < 7) return days === 1 ? '1 day' : `${days} days`;
 
   const weeks = Math.floor(days / 7);
-  if (weeks < 4) return weeks === 1 ? '1 week' : `${weeks} weeks`;
+  if (weeks < 4) return weeks === 1 ? '1 week' : `${weeks} weeks';
 
   const months = Math.floor(days / 30);
   if (months < 12) return months === 1 ? '1 month' : `${months} months`;
@@ -738,18 +737,24 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
 
 /**
  * =========================
- * ✅ NEW: MediaGrid Component for Multiple Images (Facebook Collage Rules)
+ * ✅ NEW: Facebook-style MediaGrid Component for Multiple Images
  * =========================
  */
 const MediaGrid: React.FC<{
-  media: { url: string }[];
+  media: { url: string; kind: 'image' | 'video' }[];
   onOpen: (url: string, index: number) => void;
-}> = ({ media, onOpen }) => {
+  // ✅ ADDED: fullWidth prop for full post view
+  fullWidth?: boolean;
+}> = ({ media, onOpen, fullWidth = false }) => {
   const total = media.length;
   const show = total <= 4 ? media : media.slice(0, 4);
   const extra = total - 4;
 
-  // Small helper tile
+  // ✅ Facebook-like border styling
+  const gridGap = '1px'; // Facebook uses 1px gaps
+  const borderColor = '#000'; // Black borders for modern look
+
+  // ✅ Small helper tile
   const Tile = ({
     url,
     index,
@@ -767,8 +772,11 @@ const MediaGrid: React.FC<{
         e.stopPropagation();
         onOpen(url, index);
       }}
-      className={`relative overflow-hidden ${className}`}
-      style={{ borderRadius: 0 }} // ✅ no inner rounding; card handles rounding with overflow-hidden
+      className={`relative overflow-hidden bg-black ${className}`}
+      style={{ 
+        border: `1px solid ${borderColor}`,
+        margin: `-${gridGap}` // Compensate for negative margins
+      }}
     >
       <img
         src={url}
@@ -789,10 +797,10 @@ const MediaGrid: React.FC<{
     </button>
   );
 
-  // ✅ 1 image: full width normal (still grid-friendly)
+  // ✅ Single image: full width (normal)
   if (total === 1) {
     return (
-      <div className="w-full bg-black">
+      <div className="w-full bg-black" style={{ border: `1px solid ${borderColor}` }}>
         <button
           type="button"
           onClick={(e) => {
@@ -812,10 +820,176 @@ const MediaGrid: React.FC<{
     );
   }
 
+  // ✅ 2 images: two columns with equal height
+  if (total === 2) {
+    return (
+      <div 
+        className="w-full grid grid-cols-2" 
+        style={{ 
+          gap: gridGap,
+          border: `1px solid ${borderColor}`,
+          backgroundColor: borderColor
+        }}
+      >
+        <Tile 
+          url={show[0].url} 
+          index={0} 
+          className="h-[320px] w-full" 
+        />
+        <Tile 
+          url={show[1].url} 
+          index={1} 
+          className="h-[320px] w-full" 
+        />
+      </div>
+    );
+  }
+
+  // ✅ 3 images: left big, right 2 stacked
+  if (total === 3) {
+    return (
+      <div 
+        className="w-full grid grid-cols-2" 
+        style={{ 
+          gap: gridGap,
+          border: `1px solid ${borderColor}`,
+          backgroundColor: borderColor
+        }}
+      >
+        <Tile 
+          url={show[0].url} 
+          index={0} 
+          className="h-[420px] w-full" 
+        />
+        <div 
+          className="grid grid-rows-2" 
+          style={{ gap: gridGap }}
+        >
+          <Tile 
+            url={show[1].url} 
+            index={1} 
+            className="w-full h-full" 
+          />
+          <Tile 
+            url={show[2].url} 
+            index={2} 
+            className="w-full h-full" 
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ 4 or 5+ images: 2×2 grid
+  return (
+    <div 
+      className="w-full grid grid-cols-2" 
+      style={{ 
+        gap: gridGap,
+        border: `1px solid ${borderColor}`,
+        backgroundColor: borderColor
+      }}
+    >
+      <Tile 
+        url={show[0].url} 
+        index={0} 
+        className="h-[260px] w-full" 
+      />
+      <Tile 
+        url={show[1].url} 
+        index={1} 
+        className="h-[260px] w-full" 
+      />
+      <Tile 
+        url={show[2].url} 
+        index={2} 
+        className="h-[260px] w-full" 
+      />
+      <Tile
+        url={show[3].url}
+        index={3}
+        className="h-[260px] w-full"
+        showOverlay={extra > 0}
+      />
+    </div>
+  );
+};
+
+/**
+ * =========================
+ * ✅ NEW: FullWidthMediaGrid Component for Comments Sheet (No Borders)
+ * =========================
+ */
+const FullWidthMediaGrid: React.FC<{
+  media: { url: string; kind: 'image' | 'video' }[];
+  onOpen: (url: string, index: number) => void;
+}> = ({ media, onOpen }) => {
+  const total = media.length;
+  const show = total <= 4 ? media : media.slice(0, 4);
+  const extra = total - 4;
+
+  const Tile = ({
+    url,
+    index,
+    className,
+    showOverlay,
+  }: {
+    url: string;
+    index: number;
+    className: string;
+    showOverlay?: boolean;
+  }) => (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(url, index);
+      }}
+      className={`relative overflow-hidden bg-black ${className}`}
+    >
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        className="w-full h-full object-cover"
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.display = 'none';
+        }}
+      />
+
+      {showOverlay && extra > 0 && (
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+          <span className="text-white font-black text-3xl">+{extra}</span>
+        </div>
+      )}
+    </button>
+  );
+
+  // ✅ Single image: full width, no container
+  if (total === 1) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(show[0].url, 0);
+        }}
+        className="w-full block bg-black"
+      >
+        <img
+          src={show[0].url}
+          alt=""
+          loading="lazy"
+          className="w-full h-auto max-h-[70vh] object-contain"
+        />
+      </button>
+    );
+  }
+
   // ✅ 2 images: two columns
   if (total === 2) {
     return (
-      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+      <div className="w-full grid grid-cols-2 gap-[1px] bg-black">
         <Tile url={show[0].url} index={0} className="h-[320px] w-full" />
         <Tile url={show[1].url} index={1} className="h-[320px] w-full" />
       </div>
@@ -825,9 +999,9 @@ const MediaGrid: React.FC<{
   // ✅ 3 images: left big, right 2 stacked
   if (total === 3) {
     return (
-      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+      <div className="w-full grid grid-cols-2 gap-[1px] bg-black">
         <Tile url={show[0].url} index={0} className="h-[420px] w-full" />
-        <div className="grid grid-rows-2 gap-[2px] h-[420px]">
+        <div className="grid grid-rows-2 gap-[1px] h-[420px]">
           <Tile url={show[1].url} index={1} className="w-full h-full" />
           <Tile url={show[2].url} index={2} className="w-full h-full" />
         </div>
@@ -835,9 +1009,9 @@ const MediaGrid: React.FC<{
     );
   }
 
-  // ✅ 4 or 5+ images: 2x2 grid, overlay +N on 4th tile when extra exists
+  // ✅ 4 or 5+ images: 2×2 grid
   return (
-    <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+    <div className="w-full grid grid-cols-2 gap-[1px] bg-black">
       <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
       <Tile url={show[1].url} index={1} className="h-[260px] w-full" />
       <Tile url={show[2].url} index={2} className="h-[260px] w-full" />
@@ -1325,8 +1499,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS, API FORMAT SUPPORT,
- * MULTIPLE IMAGES, AND FOLLOW BUTTON
+ * ✅ UPDATED: POST CARD WITH MULTI-IMAGE SUPPORT
  * =========================
  */
 export const Post: React.FC<{
@@ -1338,7 +1511,7 @@ export const Post: React.FC<{
   onReact: (id: number, type: ReactionType) => void;
   onShare: (id: number, newShareCount: number) => void;
   onDelete?: (id: number) => void;
-  onViewImage: (url: string) => void;
+  onViewImage: (url: string, index: number) => void; // ✅ UPDATED: Added index
   onOpenComments: (id: number) => void;
   onVideoClick: (p: PostType) => void;
   onPlayAudioTrack?: (t: AudioTrack) => void;
@@ -1376,7 +1549,6 @@ export const Post: React.FC<{
   const a: any = author as any;
 
   // ✅ ENHANCED REACTION LOGIC WITH DUAL API SUPPORT
-  // Support both myReaction/my_reaction and likesCount/reactionsCount
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
     (p as any).likesCount ?? 
@@ -1387,7 +1559,6 @@ export const Post: React.FC<{
 
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
   
-  // Final calculation with priority: explicit fields > reactions array
   const finalMyReaction: ReactionType | undefined =
     myReaction ||
     (currentUser && reactionsArr
@@ -1420,12 +1591,22 @@ export const Post: React.FC<{
 
   const mediaInfo = getMediaTypeInfo(p);
 
-  // ✅ NEW: Use getPostMediaList for multiple images
+  // ✅ UPDATED: Use getPostMediaList for multiple images
   const mediaList = useMemo(() => {
-    // normalize all possible inputs
     const list = getPostMediaList(p);
-    // for now focus on images only for grid (facebook collage)
-    return list.filter((x) => x.kind === 'image');
+    // Separate images and videos
+    const images = list.filter((x) => x.kind === 'image');
+    const videos = list.filter((x) => x.kind === 'video');
+    
+    // For now, only handle images in the grid
+    // Videos will be handled separately
+    return images;
+  }, [p]);
+
+  // ✅ Check if there are videos
+  const videoList = useMemo(() => {
+    const list = getPostMediaList(p);
+    return list.filter((x) => x.kind === 'video');
   }, [p]);
 
   const formatCount = (count: number): string => {
@@ -1470,6 +1651,11 @@ export const Post: React.FC<{
     if (onFollow && a.id) {
       onFollow(safeUserId(a));
     }
+  };
+
+  // ✅ UPDATED: Handle image click with index
+  const handleImageClick = (url: string, index: number) => {
+    onViewImage(url, index);
   };
 
   return (
@@ -1521,7 +1707,7 @@ export const Post: React.FC<{
             </div>
           </div>
 
-          {/* ✅ ADDED: Follow Button on right side (only if not current user and onFollow is provided) */}
+          {/* ✅ ADDED: Follow Button on right side */}
           {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
             <button
               onClick={handleFollowClick}
@@ -1573,7 +1759,7 @@ export const Post: React.FC<{
           </div>
         )}
 
-        {p.link_preview && !mediaInfo.mediaUrl && (
+        {p.link_preview && !mediaInfo.mediaUrl && mediaList.length === 0 && (
           <div
             className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
             onClick={() => window.open(p.link_preview.url, '_blank')}
@@ -1597,7 +1783,7 @@ export const Post: React.FC<{
           </div>
         )}
 
-        {p.background && !mediaInfo.mediaUrl && (
+        {p.background && mediaList.length === 0 && videoList.length === 0 && (
           <div
             className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
             style={{ background: p.background, backgroundSize: 'cover' }}
@@ -1606,46 +1792,49 @@ export const Post: React.FC<{
           </div>
         )}
 
-        {/* ✅ UPDATED: FACEBOOK-LIKE MULTI IMAGE GRID (FULL WIDTH) */}
+        {/* ✅ UPDATED: FACEBOOK-LIKE MULTI IMAGE GRID */}
         {!p.background && mediaList.length > 1 && (
-          <MediaGrid
-            media={mediaList.map((m) => ({ url: m.url }))}
-            onOpen={(url, index) => onViewImage(url)}
-          />
+          <div className="mx-3 md:mx-4 mb-3">
+            <MediaGrid
+              media={mediaList}
+              onOpen={handleImageClick}
+            />
+          </div>
         )}
 
-        {/* ✅ SINGLE IMAGE (existing behavior, still full width) */}
-        {!p.background && mediaList.length <= 1 && mediaInfo.mediaUrl && mediaInfo.isImage && (
+        {/* ✅ SINGLE IMAGE (if only one image exists) */}
+        {!p.background && mediaList.length === 1 && (
           <div
-            className="cursor-pointer bg-black"
-            onClick={() => onViewImage(mediaInfo.mediaUrl)}
+            className="cursor-pointer bg-black mx-3 md:mx-4 mb-3 rounded-lg overflow-hidden"
+            onClick={() => handleImageClick(mediaList[0].url, 0)}
           >
             <img
-              src={mediaInfo.mediaUrl}
+              src={mediaList[0].url}
               alt=""
               className="w-full h-auto max-h-[600px] object-contain"
               loading="lazy"
               onError={(e) => {
-                console.error('Failed to load image:', mediaInfo.mediaUrl);
+                console.error('Failed to load image:', mediaList[0].url);
                 e.currentTarget.style.display = 'none';
               }}
             />
           </div>
         )}
 
-        {mediaInfo.mediaUrl && mediaInfo.isVideo && (
+        {/* ✅ HANDLE SINGLE VIDEO (if only video exists) */}
+        {!p.background && videoList.length > 0 && mediaList.length === 0 && (
           <div
-            className="cursor-pointer relative h-[500px] bg-black"
+            className="cursor-pointer relative h-[500px] bg-black mx-3 md:mx-4 mb-3 rounded-lg overflow-hidden"
             onClick={() => onVideoClick(post)}
           >
             <video
-              src={mediaInfo.mediaUrl}
+              src={videoList[0].url}
               className="w-full h-full object-cover"
               preload="metadata"
               playsInline
               muted
               onError={(e) => {
-                console.error('Failed to load video:', mediaInfo.mediaUrl);
+                console.error('Failed to load video:', videoList[0].url);
                 e.currentTarget.style.display = 'none';
               }}
             />
@@ -1815,7 +2004,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * CREATE POST MODAL
+ * CREATE POST MODAL (Will be updated in App.tsx for multi-image support)
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -2287,6 +2476,7 @@ const commentsCache = new Map<number, {
 /**
  * =========================
  * ✅ PROFESSIONALLY UPDATED: FULL POST VIEW - FULL SCREEN, CLEAN COMMENT DESIGN
+ * WITH FULL WIDTH IMAGES (NO CONTAINERS)
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -2456,6 +2646,12 @@ export const CommentsSheet: React.FC<{
     }
   };
 
+  // ✅ Get media list for the post
+  const mediaList = useMemo(() => {
+    const list = getPostMediaList(p);
+    return list.filter((x) => x.kind === 'image');
+  }, [p]);
+
   // Initialize comments when sheet opens
   useEffect(() => {
     const initializeComments = async () => {
@@ -2592,8 +2788,6 @@ export const CommentsSheet: React.FC<{
     return () => window.removeEventListener('focus', handleFocus);
   }, [postId]);
 
-  const mediaInfo = getMediaTypeInfo(p);
-
   return (
     <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
       {/* ✅ FULL-SCREEN HEADER */}
@@ -2687,24 +2881,44 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ✅ UPDATED: Media Full Width with multiple images support */}
-          {p.media_url && (
-            <div className="mb-4 rounded-lg overflow-hidden">
-              {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
-                <img
-                  src={String(p.media_url)}
-                  alt=""
-                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
-                  loading="lazy"
-                />
-              ) : (
-                <video
-                  src={String(p.media_url)}
-                  controls
-                  playsInline
-                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
-                />
-              )}
+          {/* ✅ UPDATED: Media Full Width with multiple images support - NO CONTAINERS */}
+          {mediaList.length > 0 && (
+            <div className="mb-4">
+              <FullWidthMediaGrid
+                media={mediaList}
+                onOpen={(url, index) => {
+                  // You can implement a lightbox here
+                  console.log('Open image', url, 'at index', index);
+                }}
+              />
+            </div>
+          )}
+
+          {/* ✅ Single video (if exists) */}
+          {p.media_url && !mediaList.length && 
+           (String(p.media_type || '').startsWith('video') || 
+            /\.(mp4|webm|mov|m4v)$/i.test(String(p.media_url))) && (
+            <div className="mb-4">
+              <video
+                src={String(p.media_url)}
+                controls
+                playsInline
+                className="w-full h-auto max-h-[70vh] object-contain bg-black"
+              />
+            </div>
+          )}
+
+          {/* ✅ Single image (if exists) */}
+          {p.media_url && !mediaList.length && 
+           (String(p.media_type || '').startsWith('image') || 
+            /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url))) && (
+            <div className="mb-4">
+              <img
+                src={String(p.media_url)}
+                alt=""
+                className="w-full h-auto max-h-[70vh] object-contain bg-black"
+                loading="lazy"
+              />
             </div>
           )}
 
