@@ -1,6 +1,4 @@
-It's like multiple images posting is not implemented please check for me another thing I want Follow buttons not to always load api since sometimes they read follow then Following after loading api, I want it to catch to only read following if oledy following not to shake, this should apply to all buttons on homepage feeds and in comments. Another thing I want post image in post preview on top of comments to remain Full width as it appears on homepage feeds not to reduce in size and add frem 
 
-Here Feed.tsx 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   User,
