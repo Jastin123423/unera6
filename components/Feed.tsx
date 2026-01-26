@@ -951,7 +951,7 @@ export const ShareBottomSheet: React.FC<{
 
   if (!isOpen) return null;
 
-  if {activeFlow === 'feed' && currentUser && (
+   {activeFlow === 'feed' && currentUser && (
   <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
     <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
       <div className="flex items-center gap-4">
