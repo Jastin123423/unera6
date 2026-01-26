@@ -1,4 +1,6 @@
+It's like multiple images posting is not implemented please check for me another thing I want Follow buttons not to always load api since sometimes they read follow then Following after loading api, I want it to catch to only read following if oledy following not to shake, this should apply to all buttons on homepage feeds and in comments. Another thing I want post image in post preview on top of comments to remain Full width as it appears on homepage feeds not to reduce in size and add frem 
 
+Here Feed.tsx 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   User,
@@ -683,6 +685,176 @@ const getMediaTypeInfo = (post: any) => {
 
 /**
  * =========================
+ * ✅ NEW: getPostMediaList Helper for Multiple Images Support
+ * =========================
+ */
+type NormalizedMedia = { url: string; kind: 'image' | 'video' };
+
+const getPostMediaList = (post: any): NormalizedMedia[] => {
+  const out: NormalizedMedia[] = [];
+
+  // 1) arrays: media_urls, images
+  const arrUrls: any[] = Array.isArray(post?.media_urls)
+    ? post.media_urls
+    : Array.isArray(post?.images)
+      ? post.images
+      : [];
+
+  for (const u of arrUrls) {
+    const url = String(u || '').trim();
+    if (!url) continue;
+    out.push({ url, kind: 'image' });
+  }
+
+  // 2) array of objects: media: [{url,type}]
+  const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
+  for (const m of arrMedia) {
+    const url = String(m?.url || m?.media_url || '').trim();
+    if (!url) continue;
+
+    const type = String(m?.type || m?.media_type || '').toLowerCase();
+    const clean = url.split('?')[0].split('#')[0];
+    const ext = clean.split('.').pop()?.toLowerCase() || '';
+
+    const isVideo =
+      type.startsWith('video') ||
+      ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
+
+    out.push({ url, kind: isVideo ? 'video' : 'image' });
+  }
+
+  // 3) fallback to single media_url if present (only if no list)
+  if (out.length === 0) {
+    const single = String(post?.media_url || '').trim();
+    if (single) {
+      const info = getMediaTypeInfo(post);
+      if (info.isVideo) out.push({ url: single, kind: 'video' });
+      else if (info.isImage) out.push({ url: single, kind: 'image' });
+      else if (info.isAudio) out.push({ url: single, kind: 'video' }); // ignore audio for grid
+    }
+  }
+
+  // keep only valid
+  return out.filter((x) => x.url);
+};
+
+/**
+ * =========================
+ * ✅ NEW: MediaGrid Component for Multiple Images (Facebook Collage Rules)
+ * =========================
+ */
+const MediaGrid: React.FC<{
+  media: { url: string }[];
+  onOpen: (url: string, index: number) => void;
+}> = ({ media, onOpen }) => {
+  const total = media.length;
+  const show = total <= 4 ? media : media.slice(0, 4);
+  const extra = total - 4;
+
+  // Small helper tile
+  const Tile = ({
+    url,
+    index,
+    className,
+    showOverlay,
+  }: {
+    url: string;
+    index: number;
+    className: string;
+    showOverlay?: boolean;
+  }) => (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(url, index);
+      }}
+      className={`relative overflow-hidden ${className}`}
+      style={{ borderRadius: 0 }} // ✅ no inner rounding; card handles rounding with overflow-hidden
+    >
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        className="w-full h-full object-cover"
+        onError={(e) => {
+          // hide broken tile cleanly
+          (e.currentTarget as HTMLImageElement).style.display = 'none';
+        }}
+      />
+
+      {showOverlay && extra > 0 && (
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+          <span className="text-white font-black text-3xl">+{extra}</span>
+        </div>
+      )}
+    </button>
+  );
+
+  // ✅ 1 image: full width normal (still grid-friendly)
+  if (total === 1) {
+    return (
+      <div className="w-full bg-black">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(show[0].url, 0);
+          }}
+          className="w-full block"
+        >
+          <img
+            src={show[0].url}
+            alt=""
+            loading="lazy"
+            className="w-full h-auto max-h-[650px] object-contain"
+          />
+        </button>
+      </div>
+    );
+  }
+
+  // ✅ 2 images: two columns
+  if (total === 2) {
+    return (
+      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+        <Tile url={show[0].url} index={0} className="h-[320px] w-full" />
+        <Tile url={show[1].url} index={1} className="h-[320px] w-full" />
+      </div>
+    );
+  }
+
+  // ✅ 3 images: left big, right 2 stacked
+  if (total === 3) {
+    return (
+      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+        <Tile url={show[0].url} index={0} className="h-[420px] w-full" />
+        <div className="grid grid-rows-2 gap-[2px] h-[420px]">
+          <Tile url={show[1].url} index={1} className="w-full h-full" />
+          <Tile url={show[2].url} index={2} className="w-full h-full" />
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ 4 or 5+ images: 2x2 grid, overlay +N on 4th tile when extra exists
+  return (
+    <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+      <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
+      <Tile url={show[1].url} index={1} className="h-[260px] w-full" />
+      <Tile url={show[2].url} index={2} className="h-[260px] w-full" />
+      <Tile
+        url={show[3].url}
+        index={3}
+        className="h-[260px] w-full"
+        showOverlay={extra > 0}
+      />
+    </div>
+  );
+};
+
+/**
+ * =========================
  * ✅ UPDATED: SHARE BOTTOM SHEET WITH REAL SHARE COUNT
  * =========================
  */
@@ -781,48 +953,46 @@ export const ShareBottomSheet: React.FC<{
 
   if (!isOpen) return null;
 
-  if (activeFlow === 'feed' && currentUser) {
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-          <div className="flex items-center gap-4">
-            <i
-              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-              onClick={() => setActiveFlow('sheet')}
-            ></i>
-            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
-          </div>
-          <button
-            onClick={() => handleShareAction('feed')}
-            className="text-[#1877F2] font-bold text-[17px]"
-          >
-            POST
-          </button>
-        </div>
-        <div className="flex-1 p-4">
-          <div className="flex items-center gap-3 mb-4">
-            <img
-              src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
-              alt=""
-              className="w-12 h-12 rounded-full object-cover"
-            />
-            <div>
-              <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
-              <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
-                <option>🌍 Public</option>
-                <option>👥 Friends</option>
-                <option>🔒 Only me</option>
-              </select>
-            </div>
-          </div>
-          <textarea
-            className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
-            placeholder="Write something..."
-          />
+  if {activeFlow === 'feed' && currentUser && (
+  <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+    <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+      <div className="flex items-center gap-4">
+        <i
+          className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+          onClick={() => setActiveFlow('sheet')}
+        ></i>
+        <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
+      </div>
+      <button
+        onClick={() => handleShareAction('feed')}
+        className="text-[#1877F2] font-bold text-[17px]"
+      >
+        POST
+      </button>
+    </div>
+    <div className="flex-1 p-4">
+      <div className="flex items-center gap-3 mb-4">
+        <img
+          src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+          alt=""
+          className="w-12 h-12 rounded-full object-cover"
+        />
+        <div>
+          <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
+          <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
+            <option>🌍 Public</option>
+            <option>👥 Friends</option>
+            <option>🔒 Only me</option>
+          </select>
         </div>
       </div>
-    );
-  }
+      <textarea
+        className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
+        placeholder="Write something..."
+      />
+    </div>
+  </div>
+)}
 
   if (activeFlow === 'groups' && currentUser) {
     return (
@@ -1157,7 +1327,8 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS & API FORMAT SUPPORT
+ * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS, API FORMAT SUPPORT,
+ * MULTIPLE IMAGES, AND FOLLOW BUTTON
  * =========================
  */
 export const Post: React.FC<{
@@ -1177,6 +1348,10 @@ export const Post: React.FC<{
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
+  // ✅ ADDED: Follow button props
+  isFollowing?: boolean;
+  onFollow?: (id: number) => void;
+  followLoading?: boolean;
 }> = ({
   post,
   author,
@@ -1194,6 +1369,10 @@ export const Post: React.FC<{
   groups = [],
   brands = [],
   chats = [],
+  // ✅ NEW: Follow button props
+  isFollowing = false,
+  onFollow,
+  followLoading = false,
 }) => {
   const p: any = post as any;
   const a: any = author as any;
@@ -1243,6 +1422,14 @@ export const Post: React.FC<{
 
   const mediaInfo = getMediaTypeInfo(p);
 
+  // ✅ NEW: Use getPostMediaList for multiple images
+  const mediaList = useMemo(() => {
+    // normalize all possible inputs
+    const list = getPostMediaList(p);
+    // for now focus on images only for grid (facebook collage)
+    return list.filter((x) => x.kind === 'image');
+  }, [p]);
+
   const formatCount = (count: number): string => {
     if (count >= 1000000) {
       return `${(count / 1000000).toFixed(1)}M`;
@@ -1276,6 +1463,15 @@ export const Post: React.FC<{
       onShare(postId, data.shares);
     }
     setShowShareSheet(false);
+  };
+
+  // ✅ ADDED: Handle follow click
+  const handleFollowClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (onFollow && a.id) {
+      onFollow(safeUserId(a));
+    }
   };
 
   return (
@@ -1326,6 +1522,27 @@ export const Post: React.FC<{
               </div>
             </div>
           </div>
+
+          {/* ✅ ADDED: Follow Button on right side (only if not current user and onFollow is provided) */}
+          {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
+            <button
+              onClick={handleFollowClick}
+              disabled={followLoading}
+              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                isFollowing 
+                  ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+                  : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+              } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+            >
+              {followLoading ? (
+                <i className="fas fa-spinner fa-spin"></i>
+              ) : isFollowing ? (
+                'Following'
+              ) : (
+                'Follow'
+              )}
+            </button>
+          )}
 
           {onDelete &&
             currentUser &&
@@ -1391,7 +1608,16 @@ export const Post: React.FC<{
           </div>
         )}
 
-        {mediaInfo.mediaUrl && mediaInfo.isImage && !p.background && (
+        {/* ✅ UPDATED: FACEBOOK-LIKE MULTI IMAGE GRID (FULL WIDTH) */}
+        {!p.background && mediaList.length > 1 && (
+          <MediaGrid
+            media={mediaList.map((m) => ({ url: m.url }))}
+            onOpen={(url, index) => onViewImage(url)}
+          />
+        )}
+
+        {/* ✅ SINGLE IMAGE (existing behavior, still full width) */}
+        {!p.background && mediaList.length <= 1 && mediaInfo.mediaUrl && mediaInfo.isImage && (
           <div
             className="cursor-pointer bg-black"
             onClick={() => onViewImage(mediaInfo.mediaUrl)}
@@ -1865,7 +2091,7 @@ export const CreatePostModal: React.FC<{
               <div className="text-center py-10">
                 <i className="fas fa-map-marked-alt text-4xl text-[#3A3B3C] mb-4"></i>
                 <p className="text-[#B0B3B8]">No matching locations found.</p>
-            </div>
+              </div>
             ) : (
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
@@ -2075,7 +2301,22 @@ export const CommentsSheet: React.FC<{
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
   onHashtagClick?: (tag: string) => void;
-}> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick, onHashtagClick }) => {
+  // ✅ ADDED: Follow button props for comments
+  onFollow?: (id: number) => void;
+  checkIsFollowing?: (id: number) => boolean;
+}> = ({ 
+  post, 
+  currentUser, 
+  users, 
+  onClose, 
+  onComment, 
+  onLikeComment, 
+  getCommentAuthor, 
+  onProfileClick, 
+  onHashtagClick,
+  onFollow,
+  checkIsFollowing 
+}) => {
   const p: any = post as any;
   const postId = safePostId(p);
   
@@ -2175,6 +2416,15 @@ export const CommentsSheet: React.FC<{
             } 
           : c
       ));
+    }
+  };
+
+  // ✅ ADDED: Handle follow click in comments
+  const handleFollowClick = (e: React.MouseEvent, userId: number) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (onFollow && userId && userId !== safeUserId(currentUser)) {
+      onFollow(userId);
     }
   };
 
@@ -2395,14 +2645,32 @@ export const CommentsSheet: React.FC<{
               onClick={() => p.author?.id && onProfileClick(p.author.id)}
             />
             <div className="flex-1 min-w-0">
-              <div className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
-                onClick={() => p.author?.id && onProfileClick(p.author.id)}>
-                {p.author?.name || p.name || p.username || 'User'}
-              </div>
-              <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
-                <span>{formatRelativeTime(p.created_at)}</span>
-                <span>•</span>
-                <i className="fas fa-globe-americas text-[12px]"></i>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
+                    onClick={() => p.author?.id && onProfileClick(p.author.id)}>
+                    {p.author?.name || p.name || p.username || 'User'}
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
+                    <span>{formatRelativeTime(p.created_at)}</span>
+                    <span>•</span>
+                    <i className="fas fa-globe-americas text-[12px]"></i>
+                  </div>
+                </div>
+                
+                {/* ✅ ADDED: Follow button in full post view */}
+                {onFollow && currentUser && p.author?.id && safeUserId(p.author) !== safeUserId(currentUser) && (
+                  <button
+                    onClick={(e) => handleFollowClick(e, safeUserId(p.author))}
+                    className={`px-3 py-1 text-sm font-semibold rounded-lg transition-all duration-200 ${
+                      checkIsFollowing && checkIsFollowing(safeUserId(p.author))
+                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                    }`}
+                  >
+                    {checkIsFollowing && checkIsFollowing(safeUserId(p.author)) ? 'Following' : 'Follow'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -2421,7 +2689,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* Media Full Width */}
+          {/* ✅ UPDATED: Media Full Width with multiple images support */}
           {p.media_url && (
             <div className="mb-4 rounded-lg overflow-hidden">
               {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
@@ -2502,6 +2770,8 @@ export const CommentsSheet: React.FC<{
               {comments.map((c) => {
                 const a = resolveAuthor(c);
                 const isReply = !!c.parent_comment_id;
+                const isCurrentUserComment = a.uid === safeUserId(currentUser);
+                const isFollowing = checkIsFollowing ? checkIsFollowing(a.uid) : false;
                 
                 return (
                   <div 
@@ -2525,21 +2795,37 @@ export const CommentsSheet: React.FC<{
                       <div className="flex-1 min-w-0">
                         {/* Comment Header - NO CONTAINER */}
                         <div className="mb-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span
-                              className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
-                              onClick={() => a.uid && onProfileClick(a.uid)}
-                            >
-                              {a.name}
-                            </span>
-                            <span className="text-[#B0B3B8] text-[12px]">
-                              • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
-                            </span>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
+                                onClick={() => a.uid && onProfileClick(a.uid)}
+                              >
+                                {a.name}
+                              </span>
+                              <span className="text-[#B0B3B8] text-[12px]">
+                                • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
+                              </span>
+                            </div>
+                            
+                            {/* ✅ ADDED: Follow button in comments */}
+                            {onFollow && currentUser && a.uid && !isCurrentUserComment && (
+                              <button
+                                onClick={(e) => handleFollowClick(e, a.uid)}
+                                className={`px-2 py-0.5 text-xs font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                                  isFollowing 
+                                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+                                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                                }`}
+                              >
+                                {isFollowing ? 'Following' : 'Follow'}
+                              </button>
+                            )}
                           </div>
                         </div>
                         
-                        {/* Comment Text - NO CONTAINER */}
-                        <div className="text-[#E4E6EB] text-[15px] whitespace-pre-wrap break-words mb-2">
+                        {/* ✅ UPDATED: Comment Text - NO CONTAINER, BOLD NAMES */}
+                        <div className="text-[#E4E6EB] text-[18px] font-bold whitespace-pre-wrap break-words mb-2">
                           <RichText
                             text={String(c.text || '')}
                             users={users}
