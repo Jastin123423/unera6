@@ -1,10 +1,9 @@
- 
-
-// App.tsx - COMPLETE PROFESSIONAL FIX for Groups Blank Screen
+// App.tsx - COMPLETE PROFESSIONAL FIX for Groups Blank Screen + Multi-Image Posts
 
 // (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
 // ADMIN INTEGRATION ADDED - PROFESSIONALLY FIXED
+// ✅ UPDATED: Multi-image post support with media_urls + media_types arrays
 // ✅ FIXED: Immediate reaction updates with my_reaction field
 // ✅ UPDATED: Added viewerId to profile posts fetch and preserved reaction data
 // ✅ FIXED: Follow buttons reading and sending real data from API backend
@@ -331,12 +330,28 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 };
 
 /**
- * Normalize raw D1 rows to UI-safe PostType shape.
- * ✅ UPDATED: Preserve my_reaction and reactions_count fields
+ * ✅ UPDATED: Normalize raw D1 rows to UI-safe PostType shape with multi-media support
+ * ✅ ADDED: Support for media_urls + media_types arrays
  */
 const normalizePost = (p: any): PostType => {
-  const mediaType = p?.media_type ?? p?.mediaType ?? null;
-  const mediaUrl = p?.media_url ?? p?.mediaUrl ?? null;
+  // ✅ multi media support (new)
+  const mediaUrls =
+    Array.isArray(p?.media_urls) ? p.media_urls :
+    typeof p?.media_urls === "string" ? (() => { try { return JSON.parse(p.media_urls); } catch { return []; } })() :
+    Array.isArray(p?.mediaUrls) ? p.mediaUrls :
+    typeof p?.mediaUrls === "string" ? (() => { try { return JSON.parse(p.mediaUrls); } catch { return []; } })() :
+    [];
+
+  const mediaTypes =
+    Array.isArray(p?.media_types) ? p.media_types :
+    typeof p?.media_types === "string" ? (() => { try { return JSON.parse(p.media_types); } catch { return []; } })() :
+    Array.isArray(p?.mediaTypes) ? p.mediaTypes :
+    typeof p?.mediaTypes === "string" ? (() => { try { return JSON.parse(p.mediaTypes); } catch { return []; } })() :
+    [];
+
+  // ✅ backward compatible single media
+  const mediaType = p?.media_type ?? p?.mediaType ?? (mediaTypes[0] ?? null);
+  const mediaUrl = p?.media_url ?? p?.mediaUrl ?? (mediaUrls[0] ?? null);
 
   const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
 
@@ -345,8 +360,15 @@ const normalizePost = (p: any): PostType => {
     id: resolvedId,
     user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
     content: safeString(p?.content),
+
+    // ✅ keep old fields (backward compatibility)
     media_url: mediaUrl,
     media_type: mediaType,
+
+    // ✅ new fields (Feed.tsx will use these)
+    media_urls: mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : []),
+    media_types: mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : []),
+
     reactions: safeArray(p?.reactions),
     comments: safeArray(p?.comments),
     shares: safeNumber(p?.shares),
@@ -355,10 +377,11 @@ const normalizePost = (p: any): PostType => {
     type:
       p?.type ??
       (() => {
-        if (!mediaType) return 'post';
-        if (mediaType.startsWith('image/')) return 'image';
-        if (mediaType.startsWith('video/')) return 'video';
-        if (mediaType.startsWith('audio/')) return 'audio';
+        const t = mediaType || mediaTypes[0] || null;
+        if (!t) return 'post';
+        if (t.startsWith('image/')) return 'image';
+        if (t.startsWith('video/')) return 'video';
+        if (t.startsWith('audio/')) return 'audio';
         return 'post';
       })(),
     created_at: p?.created_at ?? new Date().toISOString(),
@@ -1348,8 +1371,8 @@ export default function App() {
         const updatedCurrentUser = normalizeUser({
           ...currentUser,
           followers: followData.followers,
-              following: followData.following
-            });
+          following: followData.following
+        });
         setCurrentUser(updatedCurrentUser);
         localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
       }
@@ -2081,11 +2104,11 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
-  /** ---------- API actions ---------- */
+  /** ✅ UPDATED: API actions - createPost with multi-file support ---------- */
   const createPost = useCallback(
     async (
       text: string,
-      file: File | null,
+      files: File[] | File | null, // ✅ Changed from File | null to File[] | File | null
       meta?: {
         type?: 'text' | 'image' | 'video';
         visibility?: string;
@@ -2099,27 +2122,41 @@ export default function App() {
       if (!requireAuth('Creating posts')) return;
 
       const trimmed = (text || '').trim();
-      if (!trimmed && !file && !meta?.background) return;
+      if (!trimmed && !files && !meta?.background) return;
 
-      let media_url: string | null = null;
-      let media_type: string | null = null;
+      // ✅ Convert input to array
+      const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
 
-      if (file) {
+      let media_urls: string[] = [];
+      let media_types: string[] = [];
+
+      if (list.length) {
         try {
-          const uploadResult = await uploadToCloudflareR2(file);
-          media_url = uploadResult.url;
-          media_type = uploadResult.type;
+          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
+          media_urls = ups.map((u) => u.url).filter(Boolean);
+          media_types = ups.map((u) => u.type).filter(Boolean);
         } catch (error: any) {
-          setLoginError(`Failed to upload file: ${error.message}`);
+          setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
           return;
         }
       }
 
+      // backward compatibility (keep old fields too)
+      const media_url = media_urls[0] ?? null;
+      const media_type = media_types[0] ?? null;
+
       const payload: any = {
         user_id: currentUser!.id,
         content: trimmed,
+
+        // ✅ keep single (backward compatible)
         media_url,
         media_type,
+
+        // ✅ add multi
+        media_urls: media_urls.length ? media_urls : undefined,
+        media_types: media_types.length ? media_types : undefined,
+
         visibility: meta?.visibility ?? 'public',
         location: meta?.location,
         feeling: meta?.feeling,
@@ -2127,10 +2164,11 @@ export default function App() {
         background: meta?.background,
         link_preview: meta?.linkPreview,
         type: (() => {
-          if (!media_type) return meta?.type || 'text';
-          if (media_type.startsWith('image/')) return 'image';
-          if (media_type.startsWith('video/')) return 'video';
-          if (media_type.startsWith('audio/')) return 'audio';
+          const t = media_type || media_types[0] || null;
+          if (!t) return meta?.type || 'text';
+          if (t.startsWith('image/')) return 'image';
+          if (t.startsWith('video/')) return 'video';
+          if (t.startsWith('audio/')) return 'audio';
           return meta?.type || 'text';
         })(),
       };
@@ -2139,6 +2177,10 @@ export default function App() {
 
       const newPostRaw =
         data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
+
+      // ✅ ensure arrays exist immediately
+      (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
+      (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
 
       const normalized = normalizePost(newPostRaw);
 
@@ -2989,7 +3031,8 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           onClose={() => setShowCreatePostModal(false)}
-          onCreatePost={(text: string, file: File | null, meta?: any) => createPost(text, file, meta)}
+          // ✅ UPDATED: Accept File[] from Feed.tsx when it's updated
+          onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
         />
       )}
 
