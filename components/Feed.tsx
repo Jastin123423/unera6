@@ -2061,7 +2061,7 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ UPDATED: COMMENTS SHEET NOW UPGRADED TO FULL POST VIEW
+ * ✅ PROFESSIONALLY UPDATED: FULL POST VIEW - FULL SCREEN, CLEAN COMMENT DESIGN
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -2073,7 +2073,6 @@ export const CommentsSheet: React.FC<{
   onLikeComment?: (commentId: number) => void;
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
-  // ✅ ADDED: onHashtagClick prop for B)
   onHashtagClick?: (tag: string) => void;
 }> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick, onHashtagClick }) => {
   const p: any = post as any;
@@ -2085,6 +2084,7 @@ export const CommentsSheet: React.FC<{
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
@@ -2110,12 +2110,10 @@ export const CommentsSheet: React.FC<{
     return { uid, name, image };
   };
 
-  // ✅ FIXED: Helper to get clean reply name with proper username fallback
   const getReplyLabel = (comment: any) => {
     const a = resolveAuthor(comment);
     const uid = a.uid;
     
-    // ✅ FIXED: Find user in users list to get username
     const user = users.find((x: any) => Number(x?.id) === uid);
     const username = String(
       comment?.author_username ?? 
@@ -2124,7 +2122,7 @@ export const CommentsSheet: React.FC<{
       ''
     ).trim();
     
-    const display = username ? `@${username}` : a.name; // e.g. "@JohnBeda" or "John Beda"
+    const display = username ? `@${username}` : a.name;
     return { ...a, username, display };
   };
 
@@ -2161,14 +2159,12 @@ export const CommentsSheet: React.FC<{
     }
 
     try {
-      // ✅ UPDATED: Use apiFetch instead of direct fetch
       await apiFetch(`/api/comments/${comment.id}/like`, {
         method: 'POST',
         body: JSON.stringify({ user_id: safeUserId(currentUser) }),
       });
     } catch (error) {
       console.error('Failed to like comment:', error);
-      // Revert optimistic update
       setComments(prev => prev.map(c => 
         c.id === comment.id 
           ? { 
@@ -2190,7 +2186,6 @@ export const CommentsSheet: React.FC<{
     abortControllerRef.current = new AbortController();
     
     try {
-      // ✅ UPDATED: Send viewerId when fetching comments
       const viewerId = safeUserId(currentUser);
       const data = await apiFetch(`/api/posts/${postId}/comments?viewerId=${viewerId}`);
       const arr = Array.isArray(data) ? data : data?.comments || [];
@@ -2215,14 +2210,12 @@ export const CommentsSheet: React.FC<{
   // Initialize comments when sheet opens
   useEffect(() => {
     const initializeComments = async () => {
-      // Show cached comments immediately
       const cached = commentsCache.get(postId);
       if (cached) {
         const sorted = sortComments(cached.data);
         setComments(sorted);
       }
       
-      // Also check if post has inline comments
       const postComments = Array.isArray(p.comments) ? p.comments : [];
       if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
         const sorted = sortComments(postComments);
@@ -2234,7 +2227,6 @@ export const CommentsSheet: React.FC<{
         });
       }
       
-      // Silent background fetch
       fetchCommentsSilently();
     };
 
@@ -2247,7 +2239,6 @@ export const CommentsSheet: React.FC<{
     };
   }, [postId, p.comments]);
 
-  // ✅ FIXED: CORRECT sortComments function that handles string IDs properly
   const idKey = (v: any) => String(v ?? '').trim();
 
   const sortComments = (list: any[]) => {
@@ -2263,7 +2254,6 @@ export const CommentsSheet: React.FC<{
       repliesByParent.get(pid)!.push(c);
     });
     
-    // optional: keep oldest-first (Facebook)
     repliesByParent.forEach((arr) => {
       arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     });
@@ -2284,8 +2274,7 @@ export const CommentsSheet: React.FC<{
     const t = text.trim();
     if (!t) return;
 
-    // ✅ ADDED: Auto-prefix the reply text like Facebook: `@JohnBeda: ...`
-    const replyDisplay = replyTo?._reply_author?.display; // e.g. "@JohnBeda"
+    const replyDisplay = replyTo?._reply_author?.display;
     const prefix = replyDisplay ? `${replyDisplay}: ` : '';
     const finalText = replyTo && !t.startsWith(prefix) ? prefix + t : t;
 
@@ -2293,7 +2282,7 @@ export const CommentsSheet: React.FC<{
       id: `tmp-${Date.now()}`,
       post_id: postId,
       user_id: safeUserId(currentUser),
-      text: finalText, // ✅ Use finalText instead of t
+      text: finalText,
       parent_comment_id: replyTo?.id || null,
       created_at: new Date().toISOString(),
       replies_count: 0,
@@ -2303,9 +2292,8 @@ export const CommentsSheet: React.FC<{
 
     setText('');
     setReplyTo(null);
-    setShowEmojiPicker(false); // ✅ Close emoji picker when submitting
+    setShowEmojiPicker(false);
 
-    // IMMEDIATE optimistic update
     setComments(prev => {
       const next = [...prev, optimisticComment];
       const allComments = commentsCache.get(postId)?.data || [];
@@ -2318,15 +2306,14 @@ export const CommentsSheet: React.FC<{
     });
 
     if (onComment) {
-      onComment(postId, finalText); // ✅ Use finalText instead of t
+      onComment(postId, finalText);
     }
 
-    // Silent background POST
     try {
       await apiFetch(`/api/posts/${postId}/comment`, {
         method: 'POST',
         body: JSON.stringify({
-          text: finalText, // ✅ Use finalText instead of t
+          text: finalText,
           user_id: safeUserId(currentUser),
           parent_comment_id: replyTo?.id || null,
         }),
@@ -2344,7 +2331,6 @@ export const CommentsSheet: React.FC<{
     inputRef.current?.focus();
   };
 
-  // Refresh comments when sheet is focused
   useEffect(() => {
     const handleFocus = () => {
       const cached = commentsCache.get(postId);
@@ -2360,136 +2346,136 @@ export const CommentsSheet: React.FC<{
   const mediaInfo = getMediaTypeInfo(p);
 
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col justify-end md:items-center md:justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose}></div>
+    <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
+      {/* ✅ FULL-SCREEN HEADER */}
+      <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+            onClick={onClose}
+            aria-label="Back"
+          >
+            <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+          </button>
+          <div className="text-[#E4E6EB] font-bold text-[20px]">Post</div>
+        </div>
 
-      <div className="bg-[#242526] w-full md:w-[600px] md:h-[80vh] z-20 animate-slide-up flex flex-col h-[70vh] shadow-2xl overflow-hidden border border-[#3E4042]">
-        {/* ✅ A) Facebook-style header with back button */}
-        <div className="p-3 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="w-9 h-9 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
-              onClick={onClose}
-              aria-label="Back"
-            >
-              <i className="fas fa-arrow-left text-[#E4E6EB]"></i>
-            </button>
-            <div className="text-[#E4E6EB] font-bold text-[17px]">Post</div>
+        <div className="flex items-center gap-4">
+          <div className="text-[#B0B3B8] text-[14px]">
+            {formatCount(comments.length)} comments
+          </div>
+          <button
+            type="button"
+            className="text-[#1877F2] font-bold text-[15px] hover:underline"
+            onClick={onClose}
+          >
+            See less
+          </button>
+        </div>
+      </div>
+
+      {/* ✅ FULL-SCREEN SCROLLABLE CONTENT */}
+      <div 
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto scroll-smooth"
+      >
+        {/* ✅ FULL POST CONTENT - NO CONTAINERS */}
+        <div className="p-4 border-b border-[#3E4042]">
+          {/* Author */}
+          <div className="flex items-center gap-3 mb-4">
+            <img
+              src={
+                (p.author?.profile_image_url || p.profile_image_url) ||
+                'https://ui-avatars.com/api/?name=User'
+              }
+              className="w-12 h-12 rounded-full object-cover border border-[#3E4042] cursor-pointer"
+              alt=""
+              onClick={() => p.author?.id && onProfileClick(p.author.id)}
+            />
+            <div className="flex-1 min-w-0">
+              <div className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
+                onClick={() => p.author?.id && onProfileClick(p.author.id)}>
+                {p.author?.name || p.name || p.username || 'User'}
+              </div>
+              <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
+                <span>{formatRelativeTime(p.created_at)}</span>
+                <span>•</span>
+                <i className="fas fa-globe-americas text-[12px]"></i>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="text-[#B0B3B8] text-[13px]">
-              {formatCount(comments.length)} comments
+          {/* Full Text */}
+          {p.content && (
+            <div className="mb-4">
+              <ExpandableRichText
+                text={String(p.content)}
+                users={users}
+                onProfileClick={onProfileClick}
+                onHashtagClick={onHashtagClick}
+                fontSizePx={21}
+                forceExpanded={true}
+              />
             </div>
-            <button
-              type="button"
-              className="text-[#1877F2] font-bold text-[14px] hover:underline"
-              onClick={onClose}
-            >
-              See less
-            </button>
+          )}
+
+          {/* Media Full Width */}
+          {p.media_url && (
+            <div className="mb-4 rounded-lg overflow-hidden">
+              {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
+                <img
+                  src={String(p.media_url)}
+                  alt=""
+                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
+                  loading="lazy"
+                />
+              ) : (
+                <video
+                  src={String(p.media_url)}
+                  controls
+                  playsInline
+                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
+                />
+              )}
+            </div>
+          )}
+
+          {/* Counts */}
+          <div className="flex items-center justify-between text-[#B0B3B8] text-[14px] pt-3 border-t border-[#3E4042]">
+            <div className="flex items-center gap-2">
+              {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
+            </div>
+            <div className="flex items-center gap-4">
+              <span>{formatCount(comments.length)} comments</span>
+              {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
+            </div>
           </div>
         </div>
 
-        {/* ✅ B) FULL POST VIEW: post content + media before comments */}
-        <div className="overflow-y-auto flex-1">
-          <div className="border-b border-[#3E4042]">
-            <div className="p-4">
-              {/* author row */}
-              <div className="flex items-center gap-3">
-                <img
-                  src={
-                    (p.author?.profile_image_url || p.profile_image_url) ||
-                    'https://ui-avatars.com/api/?name=User'
-                  }
-                  className="w-11 h-11 rounded-full object-cover border border-[#3E4042]"
-                  alt=""
-                />
-                <div className="min-w-0">
-                  <div className="text-[#E4E6EB] font-bold text-[16px] truncate">
-                    {p.author?.name || p.name || p.username || 'User'}
-                  </div>
-                  <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
-                    <span>{formatRelativeTime(p.created_at)}</span>
-                    <span>•</span>
-                    <i className="fas fa-globe-americas text-[12px]"></i>
-                  </div>
-                </div>
-              </div>
-
-              {/* full text (NOT truncated) */}
-              {p.content && (
-                <div className="mt-3">
-                  <ExpandableRichText
-                    text={String(p.content)}
-                    users={users}
-                    onProfileClick={onProfileClick}
-                    onHashtagClick={onHashtagClick}
-                    fontSizePx={21}
-                    forceExpanded={true}   // ✅ full text in full view
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* media full width */}
-            {p.media_url && (
-              <div className="bg-black">
-                {/* image */}
-                {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
-                  <img
-                    src={String(p.media_url)}
-                    alt=""
-                    className="w-full h-auto max-h-[650px] object-contain"
-                    loading="lazy"
-                  />
-                ) : (
-                  /* video */
-                  <video
-                    src={String(p.media_url)}
-                    controls
-                    playsInline
-                    className="w-full max-h-[650px] object-contain"
-                  />
-                )}
-              </div>
-            )}
-
-            {/* counts row */}
-            <div className="px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[13px]">
-              <div className="flex items-center gap-2">
-                {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
-              </div>
-              <div className="flex items-center gap-3">
-                <span>{formatCount(comments.length)} comments</span>
-                {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
-              </div>
-            </div>
-          </div>
-
-          {/* Reply indicator */}
+        {/* ✅ CLEAN COMMENTS SECTION - NO CONTAINERS */}
+        <div className="p-4">
+          {/* Reply Indicator */}
           {replyTo && (
-            <div className="p-3 bg-[#3A3B3C] border-b border-[#3E4042] flex items-center justify-between">
+            <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-[#B0B3B8] text-sm">Replying to</span>
-                {/* ✅ UPDATED: Show real name instead of "User" */}
                 <span className="text-[#1877F2] font-medium">
                   {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
                 </span>
               </div>
               <button
                 onClick={() => setReplyTo(null)}
-                className="text-[#B0B3B8] hover:text-[#E4E6EB]"
+                className="text-[#B0B3B8] hover:text-[#E4E6EB] text-lg"
               >
                 <i className="fas fa-times"></i>
               </button>
             </div>
           )}
 
-          {/* ✅ UPDATED: Emoji picker with 200+ emojis */}
+          {/* Emoji Picker */}
           {showEmojiPicker && (
-            <div className="border-b border-[#3E4042] p-2 overflow-x-auto scrollbar-hide">
+            <div className="mb-4 p-3 border border-[#3E4042] rounded-lg">
               <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
                 {QUICK_EMOJIS.map(emoji => (
                   <button
@@ -2504,50 +2490,55 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* Comments section */}
-          <div className="p-4 space-y-4">
-            {comments.length === 0 ? (
-              <div className="text-[#B0B3B8] text-center py-6">
-                No comments yet.
-                <p className="text-sm mt-2">Be the first to comment!</p>
-              </div>
-            ) : (
-              comments.map((c) => {
+          {/* Comments List */}
+          {comments.length === 0 ? (
+            <div className="text-center py-10">
+              <div className="text-[#B0B3B8] text-lg mb-2">No comments yet</div>
+              <p className="text-[#B0B3B8] text-sm">Be the first to comment!</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {comments.map((c) => {
                 const a = resolveAuthor(c);
                 const isReply = !!c.parent_comment_id;
                 
                 return (
                   <div 
                     key={String(c.id)} 
-                    className={`flex gap-2 animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
+                    className={`animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
                   >
-                    {/* ✅ ADDED: Thread line for replies */}
+                    {/* Reply Indicator Line */}
                     {isReply && (
                       <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
                     )}
                     
-                    <img
-                      src={a.image}
-                      className="w-8 h-8 rounded-full object-cover cursor-pointer flex-shrink-0"
-                      alt=""
-                      onClick={() => a.uid && onProfileClick(a.uid)}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className={`bg-[#3A3B3C] px-4 py-2 rounded-2xl ${isReply ? 'max-w-[92%]' : ''}`}>
-                        <p className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
-                          <span
-                            className="cursor-pointer hover:underline truncate max-w-[150px]"
-                            onClick={() => a.uid && onProfileClick(a.uid)}
-                            title={a.name}
-                          >
-                            {a.name}
-                          </span>
-                          <span className="text-[12px] font-normal text-[#B0B3B8]">
-                            • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
-                          </span>
-                        </p>
-                        {/* ✅ UPDATED: Use RichText component for mentions and hashtags */}
-                        <div className="text-white text-[15px] whitespace-pre-wrap break-words mt-1">
+                    <div className="flex gap-3">
+                      {/* Profile Image */}
+                      <img
+                        src={a.image}
+                        className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
+                        alt=""
+                        onClick={() => a.uid && onProfileClick(a.uid)}
+                      />
+                      
+                      <div className="flex-1 min-w-0">
+                        {/* Comment Header - NO CONTAINER */}
+                        <div className="mb-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
+                              onClick={() => a.uid && onProfileClick(a.uid)}
+                            >
+                              {a.name}
+                            </span>
+                            <span className="text-[#B0B3B8] text-[12px]">
+                              • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* Comment Text - NO CONTAINER */}
+                        <div className="text-[#E4E6EB] text-[15px] whitespace-pre-wrap break-words mb-2">
                           <RichText
                             text={String(c.text || '')}
                             users={users}
@@ -2555,66 +2546,69 @@ export const CommentsSheet: React.FC<{
                             onHashtagClick={onHashtagClick}
                           />
                         </div>
-                      </div>
-                      
-                      {/* Comment actions */}
-                      <div className="flex items-center gap-4 mt-1 px-1">
-                        <button
-                          onClick={() => handleLikeComment(c)}
-                          className={`text-xs ${c.liked_by_me ? 'text-[#1877F2] font-bold' : 'text-[#B0B3B8]'}`}
-                        >
-                          {c.liked_by_me ? 'Liked' : 'Like'}
-                        </button>
-                        <button
-                          onClick={() => {
-                            // ✅ UPDATED: Store author info when tapping Reply
-                            const target = getReplyLabel(c);
-                            setReplyTo({
-                              ...c,
-                              _reply_author: target, // store resolved author
-                            });
-                            inputRef.current?.focus();
-                            setShowEmojiPicker(false); // Close emoji picker when replying
-                          }}
-                          className="text-xs text-[#B0B3B8] hover:text-[#E4E6EB]"
-                        >
-                          Reply
-                        </button>
-                        {c.likes_count > 0 && (
-                          <span className="text-xs text-[#B0B3B8]">
-                            {formatCount(c.likes_count)} like{c.likes_count !== 1 ? 's' : ''}
-                          </span>
-                        )}
+                        
+                        {/* Comment Actions */}
+                        <div className="flex items-center gap-4">
+                          <button
+                            onClick={() => handleLikeComment(c)}
+                            className={`text-[13px] ${c.liked_by_me ? 'text-[#1877F2] font-semibold' : 'text-[#B0B3B8] hover:text-[#E4E6EB]'}`}
+                          >
+                            {c.liked_by_me ? 'Liked' : 'Like'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const target = getReplyLabel(c);
+                              setReplyTo({
+                                ...c,
+                                _reply_author: target,
+                              });
+                              inputRef.current?.focus();
+                              setShowEmojiPicker(false);
+                            }}
+                            className="text-[13px] text-[#B0B3B8] hover:text-[#E4E6EB]"
+                          >
+                            Reply
+                          </button>
+                          {c.likes_count > 0 && (
+                            <span className="text-[13px] text-[#B0B3B8]">
+                              {formatCount(c.likes_count)} like{c.likes_count !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 );
-              })
-            )}
-          </div>
+              })}
+            </div>
+          )}
         </div>
+      </div>
 
-        {/* ✅ D) Keep your sticky modern comment input (already good) */}
-        <form className="p-3 border-t border-[#3E4042] flex gap-2 items-center" onSubmit={handleSubmit}>
+      {/* ✅ STICKY COMMENT INPUT */}
+      <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
+        <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
           <button
             type="button"
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="text-[#B0B3B8] hover:text-[#E4E6EB] text-xl p-2"
+            className="text-[#B0B3B8] hover:text-[#E4E6EB] text-2xl p-1 transition-colors"
           >
             😀
           </button>
-          <input
-            ref={inputRef}
-            type="text"
-            className="bg-[#3A3B3C] text-white flex-1 rounded-full px-4 py-2 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
-            placeholder={replyTo ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...` : "Write a comment..."}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            autoFocus
-          />
+          <div className="flex-1 relative">
+            <input
+              ref={inputRef}
+              type="text"
+              className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[15px]"
+              placeholder={replyTo ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...` : "Write a comment..."}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              autoFocus
+            />
+          </div>
           <button 
             type="submit" 
-            className="text-[#1877F2] font-bold disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-3"
+            className="text-[#1877F2] font-bold text-[15px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
             disabled={!text.trim()}
           >
             Post
