@@ -88,8 +88,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // ✅ IMPORTANT: NO u.name / u.full_name / u.display_name used here at all.
-    // We return "name" as username (safe everywhere).
+    // ✅ Includes multi-media fields (media_urls/media_types)
     const baseSelect = `
       SELECT
         p.id,
@@ -107,6 +106,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           WHEN length(p.media_url) > 300 THEN NULL
           ELSE p.media_type
         END AS media_type,
+
+        /* ✅ Multi media JSON strings */
+        CASE
+          WHEN p.media_urls LIKE 'data:%' THEN NULL
+          WHEN length(p.media_urls) > 5000 THEN NULL
+          ELSE p.media_urls
+        END AS media_urls,
+
+        CASE
+          WHEN length(p.media_types) > 5000 THEN NULL
+          ELSE p.media_types
+        END AS media_types,
 
         p.visibility,
         p.created_at,
@@ -171,7 +182,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const merged = Array.from(map.values());
 
-    // ✅ nextCursor should be the OLDEST returned row (pagination correctness)
+    // nextCursor = oldest returned row
     const oldest = merged.reduce((acc: any, cur: any) => {
       if (!acc) return cur;
       return String(cur.created_at) < String(acc.created_at) ? cur : acc;
