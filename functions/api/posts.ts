@@ -1,9 +1,9 @@
 // functions/api/posts.ts
-// NOTE: No @cloudflare/workers-types import (prevents Pages publish "internal error")
+import type { PagesFunction } from '@cloudflare/workers-types';
 
-type Env = { DB: any };
+type Env = { DB: D1Database };
 
-const corsHeaders: Record<string, string> = {
+const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
@@ -21,32 +21,32 @@ const safeNumber = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const safeArrayStrings = (v: any): string[] => {
-  if (Array.isArray(v)) return v.map(String).filter(Boolean);
-
-  if (typeof v === "string" && v.trim()) {
-    try {
-      const parsed = JSON.parse(v);
-      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-    } catch {}
-  }
-  return [];
-};
-
-const isValidHttpUrl = (value: any) => {
-  if (typeof value !== "string" || !value.trim()) return false;
+const isHttpUrl = (v: any) => {
+  if (typeof v !== "string") return false;
   try {
-    const u = new URL(value);
+    const u = new URL(v);
     return u.protocol === "http:" || u.protocol === "https:";
   } catch {
     return false;
   }
 };
 
-export const onRequestOptions = async () =>
+const normalizeStringArray = (v: any): string[] => {
+  if (Array.isArray(v)) return v.map((x) => String(x || "").trim()).filter(Boolean);
+  if (typeof v === "string") {
+    // allow JSON string
+    try {
+      const parsed = JSON.parse(v);
+      if (Array.isArray(parsed)) return parsed.map((x) => String(x || "").trim()).filter(Boolean);
+    } catch {}
+  }
+  return [];
+};
+
+export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: corsHeaders });
 
-export const onRequestPost = async ({ request, env }: { request: Request; env: Env }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env.DB) return json({ error: "D1 binding missing. Set Pages D1 binding name to DB." }, 500);
 
@@ -57,62 +57,85 @@ export const onRequestPost = async ({ request, env }: { request: Request; env: E
 
     const content = safeString(body.content).trim();
 
-    // single (backward compatible)
-    const singleUrl = body.media_url ?? null;
-    const singleType = body.media_type ?? null;
+    // single media (backward compatible)
+    const media_url = body.media_url ?? null;
+    const media_type = body.media_type ?? null;
 
-    // multi (new)
-    let media_urls = safeArrayStrings(body.media_urls);
-    let media_types = safeArrayStrings(body.media_types);
+    // multi media (new)
+    const media_urls_arr = normalizeStringArray(body.media_urls);
+    const media_types_arr = normalizeStringArray(body.media_types);
 
-    // if only single was sent, convert
-    if (!media_urls.length && typeof singleUrl === "string" && singleUrl.trim()) media_urls = [singleUrl.trim()];
-    if (!media_types.length && typeof singleType === "string" && singleType.trim()) media_types = [singleType.trim()];
+    // Validate and filter multi URLs
+    const filtered_urls = media_urls_arr
+      .filter((u) => !u.startsWith("data:"))
+      .filter((u) => isHttpUrl(u));
 
-    // keep single as first item for older UI
-    const media_url = media_urls.length ? media_urls[0] : (singleUrl ?? null);
-    const media_type = media_types.length ? media_types[0] : (singleType ?? null);
+    // Keep types aligned (best-effort)
+    const filtered_types: string[] = [];
+    for (let i = 0; i < filtered_urls.length; i++) {
+      const t = String(media_types_arr[i] || "").trim();
+      filtered_types.push(t || "");
+    }
 
-    if (!content && !media_url) return json({ error: "content or media_url/media_urls is required" }, 400);
+    // If multi provided but single missing, set single = first (compat)
+    const final_media_url =
+      typeof media_url === "string" && media_url.trim().length > 0
+        ? media_url
+        : (filtered_urls[0] ?? null);
 
-    // block base64 anywhere
-    const allUrls = media_urls.length ? media_urls : (media_url ? [String(media_url)] : []);
-    if (allUrls.some((u) => typeof u === "string" && u.startsWith("data:"))) {
+    const final_media_type =
+      typeof media_type === "string" && media_type.trim().length > 0
+        ? media_type
+        : (filtered_types[0] ?? null);
+
+    // ✅ Required: content OR any media
+    const hasSingle = typeof final_media_url === "string" && final_media_url.trim().length > 0;
+    const hasMulti = filtered_urls.length > 0;
+
+    if (!content && !hasSingle && !hasMulti) {
+      return json({ error: "content or media_url or media_urls is required" }, 400);
+    }
+
+    // ✅ BLOCK base64 uploads
+    if (typeof final_media_url === "string" && final_media_url.startsWith("data:")) {
       return json(
-        { error: "Media upload not supported in base64.", message: "Upload to R2 and store https URLs." },
+        {
+          error: "Media upload not supported in base64.",
+          message: "Upload to R2/Cloudflare Images and store a normal https URL in media_url/media_urls.",
+        },
         413
       );
     }
 
-    // validate URLs
-    for (const u of allUrls) {
-      if (!isValidHttpUrl(u)) return json({ error: "All media URLs must be valid http/https URLs" }, 400);
+    // Optional: only allow normal URLs if media_url exists
+    if (typeof final_media_url === "string" && final_media_url.length > 0) {
+      if (!isHttpUrl(final_media_url)) {
+        return json({ error: "media_url must be a valid http/https URL" }, 400);
+      }
     }
 
-    // align lengths (pad types)
-    if (media_urls.length && media_types.length !== media_urls.length) {
-      const fixed: string[] = [];
-      for (let i = 0; i < media_urls.length; i++) fixed.push(media_types[i] ? String(media_types[i]) : "");
-      media_types = fixed;
-    }
+    // store arrays as JSON text in D1
+    const media_urls_json = filtered_urls.length ? JSON.stringify(filtered_urls) : null;
+    const media_types_json = filtered_urls.length ? JSON.stringify(filtered_types) : null;
 
-    const media_urls_json = media_urls.length ? JSON.stringify(media_urls) : null;
-    const media_types_json = media_types.length ? JSON.stringify(media_types) : null;
-
-    // IMPORTANT: make sure you added these columns in D1:
-    // ALTER TABLE posts ADD COLUMN media_urls TEXT;
-    // ALTER TABLE posts ADD COLUMN media_types TEXT;
-
+    // ✅ Insert includes multi fields (requires columns exist in D1)
     const result = await env.DB.prepare(
       `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types)
        VALUES (?, ?, ?, ?, ?, ?)`
     )
-      .bind(user_id, content || null, media_url, media_type, media_urls_json, media_types_json)
+      .bind(
+        user_id,
+        content || null,
+        final_media_url,
+        final_media_type,
+        media_urls_json,
+        media_types_json
+      )
       .run();
 
-    const post_id = result?.meta?.last_row_id;
+    const post_id = result.meta?.last_row_id;
 
-    // Keep response simple (safer)
+    // Return a post object (helps UI show immediately)
     return json(
       {
         success: true,
@@ -120,12 +143,15 @@ export const onRequestPost = async ({ request, env }: { request: Request; env: E
         post: {
           id: post_id,
           user_id,
-          content: content || null,
-          media_url,
-          media_type,
-          media_urls: media_urls_json,
-          media_types: media_types_json,
+          content: content || "",
+          media_url: final_media_url,
+          media_type: final_media_type,
+          media_urls: media_urls_json,   // returned as JSON string (App normalizer supports it)
+          media_types: media_types_json, // returned as JSON string
+          visibility: body.visibility ?? "public",
           created_at: new Date().toISOString(),
+          views: 0,
+          shares: 0,
         },
       },
       201
@@ -135,7 +161,7 @@ export const onRequestPost = async ({ request, env }: { request: Request; env: E
   }
 };
 
-export const onRequestGet = async ({ request, env }: { request: Request; env: Env }) => {
+export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env.DB) return json({ error: "D1 binding missing. Set Pages D1 binding name to DB." }, 500);
 
@@ -143,12 +169,7 @@ export const onRequestGet = async ({ request, env }: { request: Request; env: En
     const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 50)));
 
     const { results } = await env.DB
-      .prepare(
-        `SELECT id, user_id, content, media_url, media_type, media_urls, media_types, created_at
-         FROM posts
-         ORDER BY created_at DESC
-         LIMIT ?`
-      )
+      .prepare("SELECT * FROM posts ORDER BY created_at DESC LIMIT ?")
       .bind(limit)
       .all();
 
