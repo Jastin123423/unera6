@@ -81,7 +81,7 @@ const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
 
 /**
  * =========================
- * ✅ FIXED: TIMEZONE-SAFE RELATIVE TIME FORMATTER
+ * TIMEZONE-SAFE RELATIVE TIME FORMATTER
  * =========================
  */
 const toDateSafe = (input: any): Date | null => {
@@ -225,60 +225,18 @@ const FEELINGS = [
   'Relaxed',
 ];
 
-// ✅ UPDATED: Increased emojis to 25+ with most lovely emojis
 const QUICK_EMOJIS = [
   '😀', '😂', '😍', '🥰', '😘', '😊', '😉', '😇', '🥳', '😎',
   '🤩', '😋', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔',
   '😐', '😑', '😶', '🙄', '😏', '😒', '😞', '😔', '😟', '😕',
   '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤',
-  '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰',
-  '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑',
-  '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤',
-  '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕',
-  '🤑', '🤠', '😈', '👿', '👹', '👺', '🤡', '💩', '👻', '💀',
-  '☠️', '👽', '👾', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼',
-  '😽', '🙀', '😿', '😾', '👋', '🤚', '🖐️', '✋', '🖖', '👌',
-  '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕',
-  '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌',
-  '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🦾', '🦵',
-  '🦿', '🦶', '👣', '👂', '🦻', '👃', '🧠', '🦷', '🦴', '👀',
-  '👁️', '👅', '👄', '💋', '🩸', '💘', '💝', '💖', '💗', '💓',
-  '💞', '💕', '💟', '❣️', '💔', '❤️', '🧡', '💛', '💚', '💙',
-  '💜', '🖤', '🤍', '🤎', '💯', '💢', '💥', '💫', '💦', '💨',
-  '🕳️', '💣', '💬', '👁️‍🗨️', '🗨️', '🗯️', '💭', '💤', '🔴', '🟠',
-  '🟡', '🟢', '🔵', '🟣', '🟤', '⚫', '⚪', '🟥', '🟧', '🟨',
-  '🟩', '🟦', '🟪', '🟫', '⬛', '⬜', '◼️', '◻️', '◾', '◽',
-  '▪️', '▫️', '🔶', '🔷', '🔸', '🔹', '🔺', '🔻', '💠', '🔘',
-  '🔳', '🔲', '🎵', '🎶', '🎼', '🎤', '🎧', '🎷', '🎸', '🎹',
-  '🎺', '🎻', '🥁', '📱', '📲', '☎️', '📞', '📟', '📠', '🔋',
-  '🔌', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '🖲️', '💽', '💾', '💿',
-  '📀', '🎥', '🎞️', '📽️', '🎬', '📺', '📷', '📸', '📹', '📼',
-  '🔍', '🔎', '🕯️', '💡', '🔦', '🏮', '📔', '📕', '📖', '📗',
-  '📘', '📙', '📚', '📓', '📒', '📃', '📜', '📄', '📰', '🗞️',
-  '📑', '🔖', '🏷️', '💰', '💴', '💵', '💶', '💷', '💸', '💳',
-  '🧾', '💎', '⚖️', '🦯', '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🔩',
-  '⚙️', '🧱', '⛓️', '🧲', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️',
-  '⚔️', '🛡️', '🚬', '⚰️', '⚱️', '🏺', '🔮', '📿', '🧿', '💈',
-  '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬',
-  '🦠', '🧫', '🧪', '🌡️', '🧹', '🧺', '🧻', '🚽', '🚰', '🚿',
-  '🛁', '🧼', '🪒', '🧽', '🧴', '🛎️', '🔑', '🗝️', '🚪', '🪑',
-  '🛋️', '🛏️', '🧸', '🖼️', '🛍️', '🛒', '🎁', '🎈', '🎏', '🎀',
-  '🎊', '🎉', '🎎', '🏮', '🎐', '🧧', '✉️', '📩', '📨', '📧',
-  '💌', '📥', '📤', '📦', '🏷️', '📪', '📫', '📬', '📭', '📮',
-  '📯', '📜', '📃', '📄', '📑', '🧾', '📊', '📈', '📉', '🗒️',
-  '🗓️', '📆', '📅', '🗑️', '📇', '📋', '📁', '📂', '🗂️', '🗄️',
-  '📒', '📓', '📔', '📕', '📖', '📗', '📘', '📙', '📚', '📖',
-  '🔖', '🧷', '🔗', '📎', '🖇️', '📏', '📐', '✂️', '🗃️', '🗳️',
-  '🖋️', '🖊️', '🖌️', '🖍️', '📝', '✏️', '🔍', '🔎', '🔏', '🔐',
-  '🔒', '🔓'
 ];
 
 /**
  * =========================
- * ✅ ENHANCED FACEBOOK-STYLE REACTION DOCK WITH 25+ EMOJIS
+ * REACTION STYLES
  * =========================
  */
-// Add these styles to your global CSS or create a style tag
 const reactionStyles = `
   @keyframes popFloat {
     0% { transform: translateY(6px) scale(0.9); opacity: 0; }
@@ -311,8 +269,7 @@ const reactionStyles = `
 
 /**
  * =========================
- * ✅ UPDATED: ExpandableRichText Component for Show More/Show Less
- * Now opens Full Post View instead of inline expand
+ * EXPANDABLE RICH TEXT COMPONENT
  * =========================
  */
 const ExpandableRichText: React.FC<{
@@ -322,11 +279,7 @@ const ExpandableRichText: React.FC<{
   onHashtagClick?: (tag: string) => void;
   maxWords?: number;
   fontSizePx?: number;
-
-  // ✅ NEW: when user taps "See more" open full post sheet
   onSeeMore?: () => void;
-
-  // ✅ OPTIONAL: if true, render full text (for Full Post View)
   forceExpanded?: boolean;
 }> = ({
   text,
@@ -353,7 +306,6 @@ const ExpandableRichText: React.FC<{
         onHashtagClick={onHashtagClick}
       />
 
-      {/* ✅ Feed behavior: "See more" opens full post view */}
       {isLong && !forceExpanded && (
         <button
           type="button"
@@ -372,7 +324,7 @@ const ExpandableRichText: React.FC<{
 
 /**
  * =========================
- * RICH TEXT (hashtags + mentions)
+ * RICH TEXT COMPONENT
  * =========================
  */
 export const RichText = ({
@@ -445,7 +397,7 @@ export const RichText = ({
 
 /**
  * =========================
- * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON - CLICK SHOWS EMOJIS WITHOUT AUTO-ADDING FIRST
+ * REACTION BUTTON COMPONENT
  * =========================
  */
 export const ReactionButton: React.FC<{
@@ -462,7 +414,6 @@ export const ReactionButton: React.FC<{
   const longPressTimerRef = useRef<any>(null);
   const dockRef = useRef<HTMLDivElement>(null);
 
-  // Add styles on mount
   useEffect(() => {
     const styleTag = document.createElement('style');
     styleTag.textContent = reactionStyles;
@@ -473,7 +424,6 @@ export const ReactionButton: React.FC<{
     };
   }, []);
 
-  // Enhanced reaction config with 25+ emojis
   const reactionConfig = [
     { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
     { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
@@ -483,23 +433,6 @@ export const ReactionButton: React.FC<{
     { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
     { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
     { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
-    { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
-    { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
-    { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
-    { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
-    { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
-    { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
-    { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
-    { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
-    { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
-    { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
-    { type: 'unicorn', icon: '🦄', color: '#E040FB', label: 'Unicorn' },
-    { type: 'rainbow', icon: '🌈', color: '#00E676', label: 'Rainbow' },
-    { type: 'money', icon: '💰', color: '#4CAF50', label: 'Money' },
-    { type: 'muscle', icon: '💪', color: '#FF5722', label: 'Muscle' },
-    { type: 'brain', icon: '🧠', color: '#9C27B0', label: 'Brain' },
-    { type: 'lightning', icon: '⚡', color: '#FFEB3B', label: 'Lightning' },
-    { type: 'gem', icon: '💎', color: '#00BCD4', label: 'Gem' },
   ] as const;
 
   const handleMouseEnter = () => {
@@ -513,7 +446,6 @@ export const ReactionButton: React.FC<{
     setShowPreview(false);
   };
 
-  // Handle long press on mobile
   const handleTouchStart = () => {
     if (isGuest) return;
     longPressTimerRef.current = setTimeout(() => {
@@ -530,16 +462,13 @@ export const ReactionButton: React.FC<{
     setTimeout(() => setShowPreview(false), 300);
   };
 
-  // ✅ UPDATED: Click only shows emojis, doesn't auto-add first one
   const handleClick = () => {
     if (isGuest) return alert('Please login to react.');
     if (currentUserReactions) {
-      // If already reacted, clicking removes reaction
       setIsAnimating(true);
-      onReact(currentUserReactions); // This will toggle off the current reaction
+      onReact(currentUserReactions);
       setTimeout(() => setIsAnimating(false), 300);
     } else {
-      // If not reacted, show emoji dock
       setShowDock(!showDock);
     }
   };
@@ -571,7 +500,6 @@ export const ReactionButton: React.FC<{
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
     >
-      {/* Preview emoji on long press */}
       {showPreview && (
         <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
           <div className="text-3xl">
@@ -580,7 +508,6 @@ export const ReactionButton: React.FC<{
         </div>
       )}
 
-      {/* Enhanced reaction dock with 25+ emojis */}
       {showDock && (
         <div 
           ref={dockRef}
@@ -638,7 +565,7 @@ export const ReactionButton: React.FC<{
 
 /**
  * =========================
- * ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
+ * MEDIA TYPE DETECTION
  * =========================
  */
 const getMediaTypeInfo = (post: any) => {
@@ -646,25 +573,21 @@ const getMediaTypeInfo = (post: any) => {
   const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
   const typeRaw = String(post?.type || '').toLowerCase();
 
-  // Extract file extension from URL
   const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
   const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
 
-  // Check if it's an image
   const isImage =
     typeRaw === 'image' ||
     mediaTypeRaw === 'image' ||
     mediaTypeRaw.startsWith('image/') ||
     ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
 
-  // Check if it's a video
   const isVideo =
     typeRaw === 'video' ||
     mediaTypeRaw === 'video' ||
     mediaTypeRaw.startsWith('video/') ||
     ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
 
-  // Check if it's audio
   const isAudio =
     typeRaw === 'audio' ||
     mediaTypeRaw.startsWith('audio/') ||
@@ -682,7 +605,7 @@ const getMediaTypeInfo = (post: any) => {
 
 /**
  * =========================
- * ✅ NEW: getPostMediaList Helper for Multiple Images Support
+ * GET POST MEDIA LIST
  * =========================
  */
 type NormalizedMedia = { url: string; kind: 'image' | 'video' };
@@ -690,7 +613,6 @@ type NormalizedMedia = { url: string; kind: 'image' | 'video' };
 const getPostMediaList = (post: any): NormalizedMedia[] => {
   const out: NormalizedMedia[] = [];
 
-  // 1) arrays: media_urls, images
   const arrUrls: any[] = Array.isArray(post?.media_urls)
     ? post.media_urls
     : Array.isArray(post?.images)
@@ -703,7 +625,6 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
     out.push({ url, kind: 'image' });
   }
 
-  // 2) array of objects: media: [{url,type}]
   const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
   for (const m of arrMedia) {
     const url = String(m?.url || m?.media_url || '').trim();
@@ -720,24 +641,22 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
     out.push({ url, kind: isVideo ? 'video' : 'image' });
   }
 
-  // 3) fallback to single media_url if present (only if no list)
   if (out.length === 0) {
     const single = String(post?.media_url || '').trim();
     if (single) {
       const info = getMediaTypeInfo(post);
       if (info.isVideo) out.push({ url: single, kind: 'video' });
       else if (info.isImage) out.push({ url: single, kind: 'image' });
-      else if (info.isAudio) out.push({ url: single, kind: 'video' }); // ignore audio for grid
+      else if (info.isAudio) out.push({ url: single, kind: 'video' });
     }
   }
 
-  // keep only valid
   return out.filter((x) => x.url);
 };
 
 /**
  * =========================
- * ✅ NEW: MediaGrid Component for Multiple Images (Facebook Collage Rules)
+ * MEDIA GRID COMPONENT
  * =========================
  */
 const MediaGrid: React.FC<{
@@ -748,7 +667,6 @@ const MediaGrid: React.FC<{
   const show = total <= 4 ? media : media.slice(0, 4);
   const extra = total - 4;
 
-  // Small helper tile
   const Tile = ({
     url,
     index,
@@ -767,7 +685,7 @@ const MediaGrid: React.FC<{
         onOpen(url, index);
       }}
       className={`relative overflow-hidden ${className}`}
-      style={{ borderRadius: 0 }} // ✅ no inner rounding; card handles rounding with overflow-hidden
+      style={{ borderRadius: 0 }}
     >
       <img
         src={url}
@@ -775,7 +693,6 @@ const MediaGrid: React.FC<{
         loading="lazy"
         className="w-full h-full object-cover"
         onError={(e) => {
-          // hide broken tile cleanly
           (e.currentTarget as HTMLImageElement).style.display = 'none';
         }}
       />
@@ -788,7 +705,6 @@ const MediaGrid: React.FC<{
     </button>
   );
 
-  // ✅ 1 image: full width normal (still grid-friendly)
   if (total === 1) {
     return (
       <div className="w-full bg-black">
@@ -811,7 +727,6 @@ const MediaGrid: React.FC<{
     );
   }
 
-  // ✅ 2 images: two columns
   if (total === 2) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
@@ -821,7 +736,6 @@ const MediaGrid: React.FC<{
     );
   }
 
-  // ✅ 3 images: left big, right 2 stacked
   if (total === 3) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
@@ -834,7 +748,6 @@ const MediaGrid: React.FC<{
     );
   }
 
-  // ✅ 4 or 5+ images: 2x2 grid, overlay +N on 4th tile when extra exists
   return (
     <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
       <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
@@ -852,7 +765,7 @@ const MediaGrid: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: SHARE BOTTOM SHEET WITH REAL SHARE COUNT
+ * SHARE BOTTOM SHEET COMPONENT
  * =========================
  */
 export const ShareBottomSheet: React.FC<{
@@ -865,9 +778,7 @@ export const ShareBottomSheet: React.FC<{
   brands?: Brand[];
   chats?: any[];
   onShareComplete?: (destination: string, data?: any) => void;
-  onFollow?: (id: number) => void;
-  checkIsFollowing?: (id: number) => boolean;
-}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete, onFollow, checkIsFollowing }) => {
+}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete }) => {
   const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>('sheet');
   const [isAnimating, setIsAnimating] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -950,6 +861,7 @@ export const ShareBottomSheet: React.FC<{
     }
   };
 
+  // Render feed flow
   if (activeFlow === 'feed' && currentUser) {
     return (
       <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
@@ -993,6 +905,7 @@ export const ShareBottomSheet: React.FC<{
     );
   }
 
+  // Render groups flow
   if (activeFlow === 'groups' && currentUser) {
     return (
       <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
@@ -1053,6 +966,7 @@ export const ShareBottomSheet: React.FC<{
     );
   }
 
+  // Render messages flow
   if (activeFlow === 'messages' && currentUser) {
     return (
       <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
@@ -1108,6 +1022,7 @@ export const ShareBottomSheet: React.FC<{
     );
   }
 
+  // Main sheet view
   return (
     <>
       <div
@@ -1326,8 +1241,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS, API FORMAT SUPPORT,
- * MULTIPLE IMAGES, AND FOLLOW BUTTON (WITH STABLE FOLLOW STATE)
+ * POST COMPONENT
  * =========================
  */
 export const Post: React.FC<{
@@ -1347,7 +1261,6 @@ export const Post: React.FC<{
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
-  // ✅ ADDED: Follow button props with stable state
   isFollowing?: boolean;
   onFollow?: (id: number) => void;
   followLoading?: boolean;
@@ -1368,7 +1281,6 @@ export const Post: React.FC<{
   groups = [],
   brands = [],
   chats = [],
-  // ✅ NEW: Follow button props
   isFollowing = false,
   onFollow,
   followLoading = false,
@@ -1376,8 +1288,6 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
-  // ✅ ENHANCED REACTION LOGIC WITH DUAL API SUPPORT
-  // Support both myReaction/my_reaction and likesCount/reactionsCount
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
     (p as any).likesCount ?? 
@@ -1388,7 +1298,6 @@ export const Post: React.FC<{
 
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
   
-  // Final calculation with priority: explicit fields > reactions array
   const finalMyReaction: ReactionType | undefined =
     myReaction ||
     (currentUser && reactionsArr
@@ -1402,14 +1311,12 @@ export const Post: React.FC<{
         ? reactionsArr.length
         : 0;
   
-  // ✅ INSTANT COMMENT COUNT UPDATES
   const [commentCount, setCommentCount] = useState(() => {
     if (typeof p.comment_count === 'number') return p.comment_count;
     if (Array.isArray(p.comments)) return p.comments.length;
     return 0;
   });
 
-  // ✅ INSTANT SHARE COUNT
   const [shareCount, setShareCount] = useState(() => {
     return safeNumber(p.shares ?? p.shares_count, 0);
   });
@@ -1421,11 +1328,8 @@ export const Post: React.FC<{
 
   const mediaInfo = getMediaTypeInfo(p);
 
-  // ✅ NEW: Use getPostMediaList for multiple images
   const mediaList = useMemo(() => {
-    // normalize all possible inputs
     const list = getPostMediaList(p);
-    // for now focus on images only for grid (facebook collage)
     return list.filter((x) => x.kind === 'image');
   }, [p]);
 
@@ -1438,10 +1342,8 @@ export const Post: React.FC<{
     return count.toString();
   };
 
-  // ✅ FIXED: Stable follow state to prevent UI shaking
   const stableFollowRef = useRef<boolean>(isFollowing);
   useEffect(() => {
-    // Only update the stable reference when NOT loading
     if (!followLoading) {
       stableFollowRef.current = isFollowing;
     }
@@ -1449,7 +1351,6 @@ export const Post: React.FC<{
   
   const stableIsFollowing = followLoading ? stableFollowRef.current : isFollowing;
 
-  // ✅ Sync counts with post updates
   useEffect(() => {
     const newCommentCount = typeof p.comment_count === 'number' 
       ? p.comment_count 
@@ -1475,7 +1376,6 @@ export const Post: React.FC<{
     setShowShareSheet(false);
   };
 
-  // ✅ ADDED: Handle follow click
   const handleFollowClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -1533,7 +1433,6 @@ export const Post: React.FC<{
             </div>
           </div>
 
-          {/* ✅ ADDED: Follow Button on right side (only if not current user and onFollow is provided) */}
           {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
             <button
               onClick={handleFollowClick}
@@ -1570,7 +1469,6 @@ export const Post: React.FC<{
             )}
         </div>
 
-        {/* ✅ UPDATED: Use ExpandableRichText for post description with onSeeMore prop */}
         {p.content && (
           <div className="px-3 md:px-4 pb-2">
             <ExpandableRichText
@@ -1580,7 +1478,7 @@ export const Post: React.FC<{
               onHashtagClick={onHashtagClick}
               maxWords={25}
               fontSizePx={21}
-              onSeeMore={() => onOpenComments(Number(postId))} // ✅ open Full Post
+              onSeeMore={() => onOpenComments(Number(postId))}
             />
           </div>
         )}
@@ -1618,7 +1516,6 @@ export const Post: React.FC<{
           </div>
         )}
 
-        {/* ✅ UPDATED: FACEBOOK-LIKE MULTI IMAGE GRID (FULL WIDTH) */}
         {!p.background && mediaList.length > 1 && (
           <MediaGrid
             media={mediaList.map((m) => ({ url: m.url }))}
@@ -1626,7 +1523,6 @@ export const Post: React.FC<{
           />
         )}
 
-        {/* ✅ SINGLE IMAGE (existing behavior, still full width) */}
         {!p.background && mediaList.length <= 1 && mediaInfo.mediaUrl && mediaInfo.isImage && (
           <div
             className="cursor-pointer bg-black"
@@ -1696,13 +1592,11 @@ export const Post: React.FC<{
 
         <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
           <div className="flex items-center gap-1.5">
-            {/* ✅ UPDATED: Use finalReactionCount with dual API support */}
             {finalReactionCount > 0 && (
               <span className="hover:underline">{formatCount(finalReactionCount)} Reactions</span>
             )}
           </div>
           <div className="flex gap-4">
-            {/* ✅ INSTANT COMMENT COUNT BOTH PLACES */}
             <span
               className="hover:underline cursor-pointer"
               onClick={() => onOpenComments(Number(postId))}
@@ -1718,7 +1612,6 @@ export const Post: React.FC<{
         </div>
 
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          {/* ✅ UPDATED: Enhanced ReactionButton with 25+ emojis & long-press */}
           <ReactionButton
             currentUserReactions={finalMyReaction}
             reactionCount={finalReactionCount}
@@ -1827,7 +1720,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: CREATE POST MODAL WITH MULTI-IMAGE SUPPORT
+ * CREATE POST MODAL WITH MULTI-IMAGE SUPPORT
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -1836,7 +1729,7 @@ export const CreatePostModal: React.FC<{
   onClose: () => void;
   onCreatePost: (
     text: string,
-    files: File[], // ✅ CHANGED: Single file → array of files
+    files: File[],
     meta?: {
       type?: 'text' | 'image' | 'video';
       visibility?: string;
@@ -1851,8 +1744,8 @@ export const CreatePostModal: React.FC<{
 }> = ({ currentUser, users, onClose, onCreatePost }) => {
   const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
-  const [files, setFiles] = useState<File[]>([]); // ✅ CHANGED: Single file → array
-  const [previews, setPreviews] = useState<string[]>([]); // ✅ CHANGED: Single preview → array
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
   const [type, setType] = useState<'text' | 'image' | 'video'>('text');
 
   const [visibility] = useState<'Public' | 'Friends'>('Public');
@@ -1875,19 +1768,16 @@ export const CreatePostModal: React.FC<{
     setLinkPreview(getLinkPreview(text));
   }, [text]);
 
-  // ✅ UPDATED: Cleanup effect for multiple previews
   useEffect(() => {
     return () => {
       previews.forEach((p) => URL.revokeObjectURL(p));
     };
   }, [previews]);
 
-  // ✅ UPDATED: Handle multiple file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files || []);
     if (!picked.length) return;
 
-    // Facebook logic: allow multiple images, but if any video is selected, treat as single video.
     const hasVideo = picked.some((f) => f.type.startsWith('video/'));
     if (hasVideo) {
       const v = picked.find((f) => f.type.startsWith('video/'))!;
@@ -1905,7 +1795,6 @@ export const CreatePostModal: React.FC<{
     setActiveBackground('');
     setView('main');
 
-    // allow picking same files again
     if (e.target) {
       e.target.value = '';
     }
@@ -1934,13 +1823,12 @@ export const CreatePostModal: React.FC<{
     searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
   };
 
-  // ✅ UPDATED: Check if can post with multiple files
   const canPost = !!text.trim() || files.length > 0 || !!activeBackground;
 
   const submit = () => {
     if (!canPost) return;
 
-    onCreatePost(text, files, { // ✅ CHANGED: Pass files array instead of single file
+    onCreatePost(text, files, {
       type: files.length ? type : 'text',
       visibility,
       location: location || undefined,
@@ -2235,7 +2123,6 @@ export const CreatePostModal: React.FC<{
             </div>
           )}
 
-          {/* ✅ UPDATED: Multi-file preview */}
           {previews.length > 0 && (
             <div className="relative mb-4 border border-[#3E4042] overflow-hidden rounded-xl">
               <div
@@ -2250,13 +2137,11 @@ export const CreatePostModal: React.FC<{
                 <i className="fas fa-times text-white"></i>
               </div>
 
-              {/* ✅ Full width, no side gaps */}
               {type === 'video' ? (
                 <video src={previews[0]} controls className="w-full h-auto max-h-[420px] bg-black object-contain" />
               ) : previews.length === 1 ? (
                 <img src={previews[0]} alt="preview" className="w-full h-auto max-h-[420px] bg-black object-contain" />
               ) : (
-                // Reuse MediaGrid for multiple image previews
                 <MediaGrid
                   media={previews.map((url) => ({ url }))}
                   onOpen={(url) => {
@@ -2313,7 +2198,6 @@ export const CreatePostModal: React.FC<{
         </button>
       </div>
 
-      {/* ✅ UPDATED: File inputs with multiple attribute */}
       <input
         type="file"
         ref={fileInputRef}
@@ -2343,7 +2227,7 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ PROFESSIONALLY UPDATED: FULL POST VIEW - FULL SCREEN, CLEAN COMMENT DESIGN
+ * COMMENTS SHEET COMPONENT
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -2356,7 +2240,6 @@ export const CommentsSheet: React.FC<{
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
   onHashtagClick?: (tag: string) => void;
-  // ✅ ADDED: Follow button props for comments with stable state
   onFollow?: (id: number) => void;
   checkIsFollowing?: (id: number) => boolean;
 }> = ({ 
@@ -2383,7 +2266,6 @@ export const CommentsSheet: React.FC<{
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
-  // ✅ FIXED: Stable follow state map to prevent UI shaking
   const followStableMap = useRef<Map<number, boolean>>(new Map());
   
   const resolveAuthor = (c: any) => {
@@ -2410,19 +2292,15 @@ export const CommentsSheet: React.FC<{
     return { uid, name, image };
   };
 
-  // ✅ ADDED: Stable check for following status
   const stableCheckFollowing = useCallback((uid: number): boolean => {
     if (!checkIsFollowing) return false;
     
     const latest = checkIsFollowing(uid);
     
-    // Initialize if not in map
     if (!followStableMap.current.has(uid)) {
       followStableMap.current.set(uid, latest);
     }
     
-    // Only update map when we're confident about the state (not during rapid changes)
-    // This prevents UI flickering
     return followStableMap.current.get(uid) || false;
   }, [checkIsFollowing]);
 
@@ -2451,7 +2329,6 @@ export const CommentsSheet: React.FC<{
     return count.toString();
   };
 
-  // ✅ Optimistic comment like
   const handleLikeComment = async (comment: any) => {
     if (!currentUser) return;
 
@@ -2493,12 +2370,10 @@ export const CommentsSheet: React.FC<{
     }
   };
 
-  // ✅ ADDED: Handle follow click in comments with stable state
   const handleFollowClick = (e: React.MouseEvent, userId: number) => {
     e.stopPropagation();
     e.preventDefault();
     if (onFollow && userId && userId !== safeUserId(currentUser)) {
-      // Update stable map immediately for responsive UI
       const currentFollowing = stableCheckFollowing(userId);
       followStableMap.current.set(userId, !currentFollowing);
       
@@ -2506,7 +2381,6 @@ export const CommentsSheet: React.FC<{
     }
   };
 
-  // Silent background fetch for comments
   const fetchCommentsSilently = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -2536,7 +2410,6 @@ export const CommentsSheet: React.FC<{
     }
   };
 
-  // Initialize comments when sheet opens
   useEffect(() => {
     const initializeComments = async () => {
       const cached = commentsCache.get(postId);
@@ -2673,12 +2546,10 @@ export const CommentsSheet: React.FC<{
   }, [postId]);
 
   const mediaInfo = getMediaTypeInfo(p);
-  // ✅ Get media list for multi-image support
   const fullMedia = getPostMediaList(p).filter((m) => m.kind === 'image');
 
   return (
     <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
-      {/* ✅ FULL-SCREEN HEADER */}
       <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
         <div className="flex items-center gap-3">
           <button
@@ -2706,14 +2577,11 @@ export const CommentsSheet: React.FC<{
         </div>
       </div>
 
-      {/* ✅ FULL-SCREEN SCROLLABLE CONTENT */}
       <div 
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto scroll-smooth"
       >
-        {/* ✅ FULL POST CONTENT - NO CONTAINERS */}
         <div className="p-4 border-b border-[#3E4042]">
-          {/* Author */}
           <div className="flex items-center gap-3 mb-4">
             <img
               src={
@@ -2738,7 +2606,6 @@ export const CommentsSheet: React.FC<{
                   </div>
                 </div>
                 
-                {/* ✅ ADDED: Follow button in full post view */}
                 {onFollow && currentUser && p.author?.id && safeUserId(p.author) !== safeUserId(currentUser) && (
                   <button
                     onClick={(e) => handleFollowClick(e, safeUserId(p.author))}
@@ -2755,7 +2622,6 @@ export const CommentsSheet: React.FC<{
             </div>
           </div>
 
-          {/* Full Text */}
           {p.content && (
             <div className="mb-4">
               <ExpandableRichText
@@ -2769,7 +2635,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ✅ UPDATED: Media Full Width with multiple images support - EDGE TO EDGE */}
           {fullMedia.length > 1 ? (
             <div className="-mx-4 mb-4 border-y border-[#3E4042] bg-black">
               <MediaGrid
@@ -2799,7 +2664,6 @@ export const CommentsSheet: React.FC<{
             </div>
           ) : null}
 
-          {/* Counts */}
           <div className="flex items-center justify-between text-[#B0B3B8] text-[14px] pt-3 border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
@@ -2811,9 +2675,7 @@ export const CommentsSheet: React.FC<{
           </div>
         </div>
 
-        {/* ✅ CLEAN COMMENTS SECTION - NO CONTAINERS */}
         <div className="p-4">
-          {/* Reply Indicator */}
           {replyTo && (
             <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -2831,7 +2693,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* Emoji Picker */}
           {showEmojiPicker && (
             <div className="mb-4 p-3 border border-[#3E4042] rounded-lg">
               <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
@@ -2848,7 +2709,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* Comments List */}
           {comments.length === 0 ? (
             <div className="text-center py-10">
               <div className="text-[#B0B3B8] text-lg mb-2">No comments yet</div>
@@ -2867,13 +2727,11 @@ export const CommentsSheet: React.FC<{
                     key={String(c.id)} 
                     className={`animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
                   >
-                    {/* Reply Indicator Line */}
                     {isReply && (
                       <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
                     )}
                     
                     <div className="flex gap-3">
-                      {/* Profile Image */}
                       <img
                         src={a.image}
                         className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
@@ -2882,7 +2740,6 @@ export const CommentsSheet: React.FC<{
                       />
                       
                       <div className="flex-1 min-w-0">
-                        {/* Comment Header - NO CONTAINER */}
                         <div className="mb-1">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -2897,7 +2754,6 @@ export const CommentsSheet: React.FC<{
                               </span>
                             </div>
                             
-                            {/* ✅ ADDED: Follow button in comments */}
                             {onFollow && currentUser && a.uid && !isCurrentUserComment && (
                               <button
                                 onClick={(e) => handleFollowClick(e, a.uid)}
@@ -2913,7 +2769,6 @@ export const CommentsSheet: React.FC<{
                           </div>
                         </div>
                         
-                        {/* ✅ UPDATED: Comment Text - NO CONTAINER, BOLD NAMES */}
                         <div className="text-[#E4E6EB] text-[18px] font-bold whitespace-pre-wrap break-words mb-2">
                           <RichText
                             text={String(c.text || '')}
@@ -2923,7 +2778,6 @@ export const CommentsSheet: React.FC<{
                           />
                         </div>
                         
-                        {/* Comment Actions */}
                         <div className="flex items-center gap-4">
                           <button
                             onClick={() => handleLikeComment(c)}
@@ -2961,7 +2815,6 @@ export const CommentsSheet: React.FC<{
         </div>
       </div>
 
-      {/* ✅ STICKY COMMENT INPUT */}
       <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
         <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
           <button
