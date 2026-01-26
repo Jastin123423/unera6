@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
+import MediaGrid from './MediaGrid'; // ✅ ADDED: Import MediaGrid component
 
 /**
  * =========================
@@ -81,7 +82,7 @@ const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
 
 /**
  * =========================
- * TIMEZONE-SAFE RELATIVE TIME FORMATTER
+ * ✅ FIXED: TIMEZONE-SAFE RELATIVE TIME FORMATTER
  * =========================
  */
 const toDateSafe = (input: any): Date | null => {
@@ -225,18 +226,60 @@ const FEELINGS = [
   'Relaxed',
 ];
 
+// ✅ UPDATED: Increased emojis to 25+ with most lovely emojis
 const QUICK_EMOJIS = [
   '😀', '😂', '😍', '🥰', '😘', '😊', '😉', '😇', '🥳', '😎',
   '🤩', '😋', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔',
   '😐', '😑', '😶', '🙄', '😏', '😒', '😞', '😔', '😟', '😕',
   '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤',
+  '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰',
+  '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑',
+  '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤',
+  '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕',
+  '🤑', '🤠', '😈', '👿', '👹', '👺', '🤡', '💩', '👻', '💀',
+  '☠️', '👽', '👾', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼',
+  '😽', '🙀', '😿', '😾', '👋', '🤚', '🖐️', '✋', '🖖', '👌',
+  '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕',
+  '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌',
+  '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🦾', '🦵',
+  '🦿', '🦶', '👣', '👂', '🦻', '👃', '🧠', '🦷', '🦴', '👀',
+  '👁️', '👅', '👄', '💋', '🩸', '💘', '💝', '💖', '💗', '💓',
+  '💞', '💕', '💟', '❣️', '💔', '❤️', '🧡', '💛', '💚', '💙',
+  '💜', '🖤', '🤍', '🤎', '💯', '💢', '💥', '💫', '💦', '💨',
+  '🕳️', '💣', '💬', '👁️‍🗨️', '🗨️', '🗯️', '💭', '💤', '🔴', '🟠',
+  '🟡', '🟢', '🔵', '🟣', '🟤', '⚫', '⚪', '🟥', '🟧', '🟨',
+  '🟩', '🟦', '🟪', '🟫', '⬛', '⬜', '◼️', '◻️', '◾', '◽',
+  '▪️', '▫️', '🔶', '🔷', '🔸', '🔹', '🔺', '🔻', '💠', '🔘',
+  '🔳', '🔲', '🎵', '🎶', '🎼', '🎤', '🎧', '🎷', '🎸', '🎹',
+  '🎺', '🎻', '🥁', '📱', '📲', '☎️', '📞', '📟', '📠', '🔋',
+  '🔌', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '🖲️', '💽', '💾', '💿',
+  '📀', '🎥', '🎞️', '📽️', '🎬', '📺', '📷', '📸', '📹', '📼',
+  '🔍', '🔎', '🕯️', '💡', '🔦', '🏮', '📔', '📕', '📖', '📗',
+  '📘', '📙', '📚', '📓', '📒', '📃', '📜', '📄', '📰', '🗞️',
+  '📑', '🔖', '🏷️', '💰', '💴', '💵', '💶', '💷', '💸', '💳',
+  '🧾', '💎', '⚖️', '🦯', '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🔩',
+  '⚙️', '🧱', '⛓️', '🧲', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️',
+  '⚔️', '🛡️', '🚬', '⚰️', '⚱️', '🏺', '🔮', '📿', '🧿', '💈',
+  '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬',
+  '🦠', '🧫', '🧪', '🌡️', '🧹', '🧺', '🧻', '🚽', '🚰', '🚿',
+  '🛁', '🧼', '🪒', '🧽', '🧴', '🛎️', '🔑', '🗝️', '🚪', '🪑',
+  '🛋️', '🛏️', '🧸', '🖼️', '🛍️', '🛒', '🎁', '🎈', '🎏', '🎀',
+  '🎊', '🎉', '🎎', '🏮', '🎐', '🧧', '✉️', '📩', '📨', '📧',
+  '💌', '📥', '📤', '📦', '🏷️', '📪', '📫', '📬', '📭', '📮',
+  '📯', '📜', '📃', '📄', '📑', '🧾', '📊', '📈', '📉', '🗒️',
+  '🗓️', '📆', '📅', '🗑️', '📇', '📋', '📁', '📂', '🗂️', '🗄️',
+  '📒', '📓', '📔', '📕', '📖', '📗', '📘', '📙', '📚', '📖',
+  '🔖', '🧷', '🔗', '📎', '🖇️', '📏', '📐', '✂️', '🗃️', '🗳️',
+  '🖋️', '🖊️', '🖌️', '🖍️', '📝', '✏️', '🔍', '🔎', '🔏', '🔐',
+  '🔒', '🔓'
 ];
 
 /**
  * =========================
- * REACTION STYLES
+ * ✅ ENHANCED FACEBOOK-STYLE REACTION DOCK WITH 25+ EMOJIS
  * =========================
  */
+// Add these styles to your global CSS or create a style tag
 const reactionStyles = `
   @keyframes popFloat {
     0% { transform: translateY(6px) scale(0.9); opacity: 0; }
@@ -269,7 +312,8 @@ const reactionStyles = `
 
 /**
  * =========================
- * EXPANDABLE RICH TEXT COMPONENT
+ * ✅ UPDATED: ExpandableRichText Component for Show More/Show Less
+ * Now opens Full Post View instead of inline expand
  * =========================
  */
 const ExpandableRichText: React.FC<{
@@ -279,7 +323,11 @@ const ExpandableRichText: React.FC<{
   onHashtagClick?: (tag: string) => void;
   maxWords?: number;
   fontSizePx?: number;
+
+  // ✅ NEW: when user taps "See more" open full post sheet
   onSeeMore?: () => void;
+
+  // ✅ OPTIONAL: if true, render full text (for Full Post View)
   forceExpanded?: boolean;
 }> = ({
   text,
@@ -306,6 +354,7 @@ const ExpandableRichText: React.FC<{
         onHashtagClick={onHashtagClick}
       />
 
+      {/* ✅ Feed behavior: "See more" opens full post view */}
       {isLong && !forceExpanded && (
         <button
           type="button"
@@ -324,7 +373,7 @@ const ExpandableRichText: React.FC<{
 
 /**
  * =========================
- * RICH TEXT COMPONENT
+ * RICH TEXT (hashtags + mentions)
  * =========================
  */
 export const RichText = ({
@@ -397,7 +446,7 @@ export const RichText = ({
 
 /**
  * =========================
- * REACTION BUTTON COMPONENT
+ * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON - CLICK SHOWS EMOJIS WITHOUT AUTO-ADDING FIRST
  * =========================
  */
 export const ReactionButton: React.FC<{
@@ -414,6 +463,7 @@ export const ReactionButton: React.FC<{
   const longPressTimerRef = useRef<any>(null);
   const dockRef = useRef<HTMLDivElement>(null);
 
+  // Add styles on mount
   useEffect(() => {
     const styleTag = document.createElement('style');
     styleTag.textContent = reactionStyles;
@@ -424,6 +474,7 @@ export const ReactionButton: React.FC<{
     };
   }, []);
 
+  // Enhanced reaction config with 25+ emojis
   const reactionConfig = [
     { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
     { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
@@ -433,6 +484,23 @@ export const ReactionButton: React.FC<{
     { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
     { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
     { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
+    { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
+    { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
+    { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
+    { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
+    { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
+    { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
+    { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
+    { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
+    { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
+    { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
+    { type: 'unicorn', icon: '🦄', color: '#E040FB', label: 'Unicorn' },
+    { type: 'rainbow', icon: '🌈', color: '#00E676', label: 'Rainbow' },
+    { type: 'money', icon: '💰', color: '#4CAF50', label: 'Money' },
+    { type: 'muscle', icon: '💪', color: '#FF5722', label: 'Muscle' },
+    { type: 'brain', icon: '🧠', color: '#9C27B0', label: 'Brain' },
+    { type: 'lightning', icon: '⚡', color: '#FFEB3B', label: 'Lightning' },
+    { type: 'gem', icon: '💎', color: '#00BCD4', label: 'Gem' },
   ] as const;
 
   const handleMouseEnter = () => {
@@ -446,6 +514,7 @@ export const ReactionButton: React.FC<{
     setShowPreview(false);
   };
 
+  // Handle long press on mobile
   const handleTouchStart = () => {
     if (isGuest) return;
     longPressTimerRef.current = setTimeout(() => {
@@ -462,13 +531,16 @@ export const ReactionButton: React.FC<{
     setTimeout(() => setShowPreview(false), 300);
   };
 
+  // ✅ UPDATED: Click only shows emojis, doesn't auto-add first one
   const handleClick = () => {
     if (isGuest) return alert('Please login to react.');
     if (currentUserReactions) {
+      // If already reacted, clicking removes reaction
       setIsAnimating(true);
-      onReact(currentUserReactions);
+      onReact(currentUserReactions); // This will toggle off the current reaction
       setTimeout(() => setIsAnimating(false), 300);
     } else {
+      // If not reacted, show emoji dock
       setShowDock(!showDock);
     }
   };
@@ -500,6 +572,7 @@ export const ReactionButton: React.FC<{
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
     >
+      {/* Preview emoji on long press */}
       {showPreview && (
         <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
           <div className="text-3xl">
@@ -508,6 +581,7 @@ export const ReactionButton: React.FC<{
         </div>
       )}
 
+      {/* Enhanced reaction dock with 25+ emojis */}
       {showDock && (
         <div 
           ref={dockRef}
@@ -565,7 +639,7 @@ export const ReactionButton: React.FC<{
 
 /**
  * =========================
- * MEDIA TYPE DETECTION
+ * ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
  * =========================
  */
 const getMediaTypeInfo = (post: any) => {
@@ -573,21 +647,25 @@ const getMediaTypeInfo = (post: any) => {
   const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
   const typeRaw = String(post?.type || '').toLowerCase();
 
+  // Extract file extension from URL
   const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
   const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
 
+  // Check if it's an image
   const isImage =
     typeRaw === 'image' ||
     mediaTypeRaw === 'image' ||
     mediaTypeRaw.startsWith('image/') ||
     ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
 
+  // Check if it's a video
   const isVideo =
     typeRaw === 'video' ||
     mediaTypeRaw === 'video' ||
     mediaTypeRaw.startsWith('video/') ||
     ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
 
+  // Check if it's audio
   const isAudio =
     typeRaw === 'audio' ||
     mediaTypeRaw.startsWith('audio/') ||
@@ -605,167 +683,7 @@ const getMediaTypeInfo = (post: any) => {
 
 /**
  * =========================
- * GET POST MEDIA LIST
- * =========================
- */
-type NormalizedMedia = { url: string; kind: 'image' | 'video' };
-
-const getPostMediaList = (post: any): NormalizedMedia[] => {
-  const out: NormalizedMedia[] = [];
-
-  const arrUrls: any[] = Array.isArray(post?.media_urls)
-    ? post.media_urls
-    : Array.isArray(post?.images)
-      ? post.images
-      : [];
-
-  for (const u of arrUrls) {
-    const url = String(u || '').trim();
-    if (!url) continue;
-    out.push({ url, kind: 'image' });
-  }
-
-  const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
-  for (const m of arrMedia) {
-    const url = String(m?.url || m?.media_url || '').trim();
-    if (!url) continue;
-
-    const type = String(m?.type || m?.media_type || '').toLowerCase();
-    const clean = url.split('?')[0].split('#')[0];
-    const ext = clean.split('.').pop()?.toLowerCase() || '';
-
-    const isVideo =
-      type.startsWith('video') ||
-      ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
-
-    out.push({ url, kind: isVideo ? 'video' : 'image' });
-  }
-
-  if (out.length === 0) {
-    const single = String(post?.media_url || '').trim();
-    if (single) {
-      const info = getMediaTypeInfo(post);
-      if (info.isVideo) out.push({ url: single, kind: 'video' });
-      else if (info.isImage) out.push({ url: single, kind: 'image' });
-      else if (info.isAudio) out.push({ url: single, kind: 'video' });
-    }
-  }
-
-  return out.filter((x) => x.url);
-};
-
-/**
- * =========================
- * MEDIA GRID COMPONENT
- * =========================
- */
-const MediaGrid: React.FC<{
-  media: { url: string }[];
-  onOpen: (url: string, index: number) => void;
-}> = ({ media, onOpen }) => {
-  const total = media.length;
-  const show = total <= 4 ? media : media.slice(0, 4);
-  const extra = total - 4;
-
-  const Tile = ({
-    url,
-    index,
-    className,
-    showOverlay,
-  }: {
-    url: string;
-    index: number;
-    className: string;
-    showOverlay?: boolean;
-  }) => (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(url, index);
-      }}
-      className={`relative overflow-hidden ${className}`}
-      style={{ borderRadius: 0 }}
-    >
-      <img
-        src={url}
-        alt=""
-        loading="lazy"
-        className="w-full h-full object-cover"
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = 'none';
-        }}
-      />
-
-      {showOverlay && extra > 0 && (
-        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-          <span className="text-white font-black text-3xl">+{extra}</span>
-        </div>
-      )}
-    </button>
-  );
-
-  if (total === 1) {
-    return (
-      <div className="w-full bg-black">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(show[0].url, 0);
-          }}
-          className="w-full block"
-        >
-          <img
-            src={show[0].url}
-            alt=""
-            loading="lazy"
-            className="w-full h-auto max-h-[650px] object-contain"
-          />
-        </button>
-      </div>
-    );
-  }
-
-  if (total === 2) {
-    return (
-      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[320px] w-full" />
-        <Tile url={show[1].url} index={1} className="h-[320px] w-full" />
-      </div>
-    );
-  }
-
-  if (total === 3) {
-    return (
-      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[420px] w-full" />
-        <div className="grid grid-rows-2 gap-[2px] h-[420px]">
-          <Tile url={show[1].url} index={1} className="w-full h-full" />
-          <Tile url={show[2].url} index={2} className="w-full h-full" />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-      <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
-      <Tile url={show[1].url} index={1} className="h-[260px] w-full" />
-      <Tile url={show[2].url} index={2} className="h-[260px] w-full" />
-      <Tile
-        url={show[3].url}
-        index={3}
-        className="h-[260px] w-full"
-        showOverlay={extra > 0}
-      />
-    </div>
-  );
-};
-
-/**
- * =========================
- * SHARE BOTTOM SHEET COMPONENT
+ * ✅ UPDATED: SHARE BOTTOM SHEET WITH REAL SHARE COUNT
  * =========================
  */
 export const ShareBottomSheet: React.FC<{
@@ -778,11 +696,16 @@ export const ShareBottomSheet: React.FC<{
   brands?: Brand[];
   chats?: any[];
   onShareComplete?: (destination: string, data?: any) => void;
-}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete }) => {
+  onFollow?: (userId: number) => void;
+  checkIsFollowing?: (userId: number) => boolean;
+}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete, onFollow, checkIsFollowing }) => {
   const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>('sheet');
   const [isAnimating, setIsAnimating] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  
+  // ✅ ADDED: Follow loading state management
+  const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
   useEffect(() => {
     const handleBackdropClick = (e: MouseEvent) => {
@@ -861,7 +784,18 @@ export const ShareBottomSheet: React.FC<{
     }
   };
 
-  // Render feed flow
+  // ✅ FIXED: Handle follow in ShareBottomSheet
+  const handleFollowUser = async (userId: number) => {
+    if (!onFollow) return;
+    
+    setFollowLoading(prev => ({ ...prev, [userId]: true }));
+    try {
+      await onFollow(userId);
+    } finally {
+      setFollowLoading(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
   if (activeFlow === 'feed' && currentUser) {
     return (
       <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
@@ -905,7 +839,6 @@ export const ShareBottomSheet: React.FC<{
     );
   }
 
-  // Render groups flow
   if (activeFlow === 'groups' && currentUser) {
     return (
       <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
@@ -966,7 +899,6 @@ export const ShareBottomSheet: React.FC<{
     );
   }
 
-  // Render messages flow
   if (activeFlow === 'messages' && currentUser) {
     return (
       <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
@@ -1022,7 +954,6 @@ export const ShareBottomSheet: React.FC<{
     );
   }
 
-  // Main sheet view
   return (
     <>
       <div
@@ -1202,24 +1133,38 @@ export const ShareBottomSheet: React.FC<{
                   .filter(u => u.id !== currentUser.id)
                   .slice(0, 3)
                   .map((user) => (
-                    <button
-                      key={user.id}
-                      onClick={() => {
-                        setActiveFlow('messages');
-                      }}
-                      className="flex flex-col items-center gap-2"
-                    >
-                      <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#1877F2] p-0.5">
+                    <div key={user.id} className="flex flex-col items-center gap-2">
+                      <div className="relative">
                         <img
                           src={user.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
                           alt={user.name}
-                          className="w-full h-full rounded-full object-cover"
+                          className="w-14 h-14 rounded-full object-cover cursor-pointer border-2 border-[#1877F2] p-0.5"
+                          onClick={() => setActiveFlow('messages')}
                         />
+                        {onFollow && !followLoading[user.id] && (
+                          <button
+                            onClick={() => handleFollowUser(user.id)}
+                            className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full text-xs flex items-center justify-center ${
+                              checkIsFollowing?.(user.id) 
+                                ? 'bg-[#1877F2] text-white' 
+                                : 'bg-[#3A3B3C] text-[#E4E6EB] border border-[#3E4042]'
+                            }`}
+                            disabled={followLoading[user.id]}
+                          >
+                            {followLoading[user.id] ? (
+                              <i className="fas fa-spinner fa-spin"></i>
+                            ) : checkIsFollowing?.(user.id) ? (
+                              <i className="fas fa-check"></i>
+                            ) : (
+                              <i className="fas fa-plus"></i>
+                            )}
+                          </button>
+                        )}
                       </div>
                       <span className="text-[#E4E6EB] text-xs font-medium max-w-[60px] truncate">
                         {user.name.split(' ')[0]}
                       </span>
-                    </button>
+                    </div>
                   ))}
               </div>
             </div>
@@ -1241,7 +1186,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * POST COMPONENT
+ * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS, FOLLOW BUTTON SHAKE FIX & API FORMAT SUPPORT
  * =========================
  */
 export const Post: React.FC<{
@@ -1262,7 +1207,7 @@ export const Post: React.FC<{
   brands?: Brand[];
   chats?: any[];
   isFollowing?: boolean;
-  onFollow?: (id: number) => void;
+  onFollow?: () => void;
   followLoading?: boolean;
 }> = ({
   post,
@@ -1288,6 +1233,17 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
+  // ✅ FIXED: Follow button shake prevention
+  const stableFollowRef = useRef<boolean>(isFollowing);
+  useEffect(() => {
+    // Only update when not loading to prevent UI jumping
+    if (!followLoading) stableFollowRef.current = isFollowing;
+  }, [isFollowing, followLoading]);
+
+  const stableIsFollowing = followLoading ? stableFollowRef.current : isFollowing;
+
+  // ✅ ENHANCED REACTION LOGIC WITH DUAL API SUPPORT
+  // Support both myReaction/my_reaction and likesCount/reactionsCount
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
     (p as any).likesCount ?? 
@@ -1298,6 +1254,7 @@ export const Post: React.FC<{
 
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
   
+  // Final calculation with priority: explicit fields > reactions array
   const finalMyReaction: ReactionType | undefined =
     myReaction ||
     (currentUser && reactionsArr
@@ -1311,12 +1268,14 @@ export const Post: React.FC<{
         ? reactionsArr.length
         : 0;
   
+  // ✅ INSTANT COMMENT COUNT UPDATES
   const [commentCount, setCommentCount] = useState(() => {
     if (typeof p.comment_count === 'number') return p.comment_count;
     if (Array.isArray(p.comments)) return p.comments.length;
     return 0;
   });
 
+  // ✅ INSTANT SHARE COUNT
   const [shareCount, setShareCount] = useState(() => {
     return safeNumber(p.shares ?? p.shares_count, 0);
   });
@@ -1328,11 +1287,6 @@ export const Post: React.FC<{
 
   const mediaInfo = getMediaTypeInfo(p);
 
-  const mediaList = useMemo(() => {
-    const list = getPostMediaList(p);
-    return list.filter((x) => x.kind === 'image');
-  }, [p]);
-
   const formatCount = (count: number): string => {
     if (count >= 1000000) {
       return `${(count / 1000000).toFixed(1)}M`;
@@ -1342,15 +1296,7 @@ export const Post: React.FC<{
     return count.toString();
   };
 
-  const stableFollowRef = useRef<boolean>(isFollowing);
-  useEffect(() => {
-    if (!followLoading) {
-      stableFollowRef.current = isFollowing;
-    }
-  }, [isFollowing, followLoading]);
-  
-  const stableIsFollowing = followLoading ? stableFollowRef.current : isFollowing;
-
+  // ✅ Sync counts with post updates
   useEffect(() => {
     const newCommentCount = typeof p.comment_count === 'number' 
       ? p.comment_count 
@@ -1374,14 +1320,6 @@ export const Post: React.FC<{
       onShare(postId, data.shares);
     }
     setShowShareSheet(false);
-  };
-
-  const handleFollowClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (onFollow && a.id) {
-      onFollow(safeUserId(a));
-    }
   };
 
   return (
@@ -1433,15 +1371,19 @@ export const Post: React.FC<{
             </div>
           </div>
 
-          {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
+          {/* ✅ FIXED: Follow button with stable state during loading */}
+          {onFollow && a.id && currentUser?.id !== a.id && (
             <button
-              onClick={handleFollowClick}
+              onClick={(e) => {
+                e.stopPropagation();
+                onFollow();
+              }}
               disabled={followLoading}
-              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                stableIsFollowing 
-                  ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+              className={`px-3 py-1.5 text-sm font-bold rounded-lg transition-all duration-200 ${
+                stableIsFollowing
+                  ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                   : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-              } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+              } ${followLoading ? 'opacity-80 cursor-not-allowed' : ''}`}
             >
               {followLoading ? (
                 <i className="fas fa-spinner fa-spin"></i>
@@ -1469,6 +1411,7 @@ export const Post: React.FC<{
             )}
         </div>
 
+        {/* ✅ UPDATED: Use ExpandableRichText for post description with onSeeMore prop */}
         {p.content && (
           <div className="px-3 md:px-4 pb-2">
             <ExpandableRichText
@@ -1478,7 +1421,7 @@ export const Post: React.FC<{
               onHashtagClick={onHashtagClick}
               maxWords={25}
               fontSizePx={21}
-              onSeeMore={() => onOpenComments(Number(postId))}
+              onSeeMore={() => onOpenComments(Number(postId))} // ✅ open Full Post
             />
           </div>
         )}
@@ -1516,14 +1459,7 @@ export const Post: React.FC<{
           </div>
         )}
 
-        {!p.background && mediaList.length > 1 && (
-          <MediaGrid
-            media={mediaList.map((m) => ({ url: m.url }))}
-            onOpen={(url, index) => onViewImage(url)}
-          />
-        )}
-
-        {!p.background && mediaList.length <= 1 && mediaInfo.mediaUrl && mediaInfo.isImage && (
+        {mediaInfo.mediaUrl && mediaInfo.isImage && !p.background && (
           <div
             className="cursor-pointer bg-black"
             onClick={() => onViewImage(mediaInfo.mediaUrl)}
@@ -1592,11 +1528,13 @@ export const Post: React.FC<{
 
         <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
           <div className="flex items-center gap-1.5">
+            {/* ✅ UPDATED: Use finalReactionCount with dual API support */}
             {finalReactionCount > 0 && (
               <span className="hover:underline">{formatCount(finalReactionCount)} Reactions</span>
             )}
           </div>
           <div className="flex gap-4">
+            {/* ✅ INSTANT COMMENT COUNT BOTH PLACES */}
             <span
               className="hover:underline cursor-pointer"
               onClick={() => onOpenComments(Number(postId))}
@@ -1612,6 +1550,7 @@ export const Post: React.FC<{
         </div>
 
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
+          {/* ✅ UPDATED: Enhanced ReactionButton with 25+ emojis & long-press */}
           <ReactionButton
             currentUserReactions={finalMyReaction}
             reactionCount={finalReactionCount}
@@ -1658,69 +1597,7 @@ export const Post: React.FC<{
 
 /**
  * =========================
- * CREATE POST CARD
- * =========================
- */
-export const CreatePost: React.FC<{
-  currentUser: User;
-  onProfileClick: (id: number) => void;
-  onClick: () => void;
-  onCreateEventClick?: () => void;
-}> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
-  <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
-    <div className="flex gap-2 mb-3">
-      <img
-        src={
-          (currentUser as any).profile_image_url ||
-          (currentUser as any).profileImage ||
-          (currentUser as any).avatar ||
-          'https://ui-avatars.com/api/?name=User'
-        }
-        alt=""
-        className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-        onClick={() => onProfileClick(safeUserId(currentUser))}
-      />
-      <div
-        className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
-        onClick={onClick}
-      >
-        <span className="text-[#B0B3B8] text-[17px] truncate">
-          What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
-        </span>
-      </div>
-    </div>
-
-    <div className="border-t border-[#3E4042] pt-2 flex justify-between">
-      <div
-        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-        onClick={onClick}
-      >
-        <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
-      </div>
-
-      <div
-        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-        onClick={onClick}
-      >
-        <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
-      </div>
-
-      <div
-        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-        onClick={onCreateEventClick}
-      >
-        <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
-      </div>
-    </div>
-  </div>
-);
-
-/**
- * =========================
- * CREATE POST MODAL WITH MULTI-IMAGE SUPPORT
+ * ✅ UPDATED: CREATE POST MODAL WITH MULTI-IMAGE SUPPORT
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -1729,7 +1606,7 @@ export const CreatePostModal: React.FC<{
   onClose: () => void;
   onCreatePost: (
     text: string,
-    files: File[],
+    files: File[], // ✅ CHANGED: Now accepts array of files
     meta?: {
       type?: 'text' | 'image' | 'video';
       visibility?: string;
@@ -1744,6 +1621,8 @@ export const CreatePostModal: React.FC<{
 }> = ({ currentUser, users, onClose, onCreatePost }) => {
   const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
+  
+  // ✅ CHANGED: Use arrays for multiple files/previews
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [type, setType] = useState<'text' | 'image' | 'video'>('text');
@@ -1768,16 +1647,19 @@ export const CreatePostModal: React.FC<{
     setLinkPreview(getLinkPreview(text));
   }, [text]);
 
+  // ✅ CHANGED: Cleanup all preview URLs
   useEffect(() => {
     return () => {
       previews.forEach((p) => URL.revokeObjectURL(p));
     };
   }, [previews]);
 
+  // ✅ CHANGED: Handle multiple file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files || []);
     if (!picked.length) return;
 
+    // Facebook logic: allow multiple images, but if any video is selected, treat as single video.
     const hasVideo = picked.some((f) => f.type.startsWith('video/'));
     if (hasVideo) {
       const v = picked.find((f) => f.type.startsWith('video/'))!;
@@ -1795,9 +1677,8 @@ export const CreatePostModal: React.FC<{
     setActiveBackground('');
     setView('main');
 
-    if (e.target) {
-      e.target.value = '';
-    }
+    // allow picking same files again
+    e.target.value = '';
   };
 
   const handleLocationSearch = async (q: string) => {
@@ -1823,13 +1704,14 @@ export const CreatePostModal: React.FC<{
     searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
   };
 
+  // ✅ CHANGED: Update canPost logic
   const canPost = !!text.trim() || files.length > 0 || !!activeBackground;
 
   const submit = () => {
     if (!canPost) return;
 
     onCreatePost(text, files, {
-      type: files.length ? type : 'text',
+      type: files.length > 0 ? type : 'text',
       visibility,
       location: location || undefined,
       feeling: feeling || undefined,
@@ -2008,7 +1890,7 @@ export const CreatePostModal: React.FC<{
               <div className="text-center py-10">
                 <i className="fas fa-map-marked-alt text-4xl text-[#3A3B3C] mb-4"></i>
                 <p className="text-[#B0B3B8]">No matching locations found.</p>
-              </div>
+            </div>
             ) : (
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
@@ -2123,6 +2005,7 @@ export const CreatePostModal: React.FC<{
             </div>
           )}
 
+          {/* ✅ CHANGED: Updated preview UI for multiple images */}
           {previews.length > 0 && (
             <div className="relative mb-4 border border-[#3E4042] overflow-hidden rounded-xl">
               <div
@@ -2137,11 +2020,13 @@ export const CreatePostModal: React.FC<{
                 <i className="fas fa-times text-white"></i>
               </div>
 
+              {/* ✅ Full width, no side gaps */}
               {type === 'video' ? (
                 <video src={previews[0]} controls className="w-full h-auto max-h-[420px] bg-black object-contain" />
               ) : previews.length === 1 ? (
                 <img src={previews[0]} alt="preview" className="w-full h-auto max-h-[420px] bg-black object-contain" />
               ) : (
+                // Use MediaGrid for multiple images
                 <MediaGrid
                   media={previews.map((url) => ({ url }))}
                   onOpen={(url) => {
@@ -2198,6 +2083,7 @@ export const CreatePostModal: React.FC<{
         </button>
       </div>
 
+      {/* ✅ CHANGED: Add multiple attribute to file inputs */}
       <input
         type="file"
         ref={fileInputRef}
@@ -2218,6 +2104,68 @@ export const CreatePostModal: React.FC<{
   );
 };
 
+/**
+ * =========================
+ * CREATE POST CARD
+ * =========================
+ */
+export const CreatePost: React.FC<{
+  currentUser: User;
+  onProfileClick: (id: number) => void;
+  onClick: () => void;
+  onCreateEventClick?: () => void;
+}> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
+  <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
+    <div className="flex gap-2 mb-3">
+      <img
+        src={
+          (currentUser as any).profile_image_url ||
+          (currentUser as any).profileImage ||
+          (currentUser as any).avatar ||
+          'https://ui-avatars.com/api/?name=User'
+        }
+        alt=""
+        className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+        onClick={() => onProfileClick(safeUserId(currentUser))}
+      />
+      <div
+        className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
+        onClick={onClick}
+      >
+        <span className="text-[#B0B3B8] text-[17px] truncate">
+          What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
+        </span>
+      </div>
+    </div>
+
+    <div className="border-t border-[#3E4042] pt-2 flex justify-between">
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onCreateEventClick}
+      >
+        <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
+      </div>
+    </div>
+  </div>
+);
+
 // Global comments cache
 const commentsCache = new Map<number, { 
   data: any[], 
@@ -2227,7 +2175,7 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * COMMENTS SHEET COMPONENT
+ * ✅ PROFESSIONALLY UPDATED: FULL POST VIEW - FULL SCREEN, CLEAN COMMENT DESIGN
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -2240,21 +2188,9 @@ export const CommentsSheet: React.FC<{
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
   onHashtagClick?: (tag: string) => void;
-  onFollow?: (id: number) => void;
-  checkIsFollowing?: (id: number) => boolean;
-}> = ({ 
-  post, 
-  currentUser, 
-  users, 
-  onClose, 
-  onComment, 
-  onLikeComment, 
-  getCommentAuthor, 
-  onProfileClick, 
-  onHashtagClick,
-  onFollow,
-  checkIsFollowing 
-}) => {
+  onFollow?: (userId: number) => void;
+  checkIsFollowing?: (userId: number) => boolean;
+}> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick, onHashtagClick, onFollow, checkIsFollowing }) => {
   const p: any = post as any;
   const postId = safePostId(p);
   
@@ -2266,7 +2202,31 @@ export const CommentsSheet: React.FC<{
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
-  const followStableMap = useRef<Map<number, boolean>>(new Map());
+  // ✅ ADDED: Follow loading state for CommentsSheet
+  const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
+  const followStableMap = useRef(new Map<number, boolean>());
+
+  // ✅ ADDED: Stable follow check to prevent shaking
+  const stableCheckFollowing = (uid: number) => {
+    const latest = checkIsFollowing ? checkIsFollowing(uid) : false;
+    if (!followStableMap.current.has(uid)) followStableMap.current.set(uid, latest);
+    return followStableMap.current.get(uid) || false;
+  };
+
+  // ✅ ADDED: Handle follow in CommentsSheet
+  const handleFollowUser = async (userId: number) => {
+    if (!onFollow) return;
+    
+    setFollowLoading(prev => ({ ...prev, [userId]: true }));
+    try {
+      await onFollow(userId);
+      // Update stable map after successful follow
+      const currentState = checkIsFollowing?.(userId) || false;
+      followStableMap.current.set(userId, currentState);
+    } finally {
+      setFollowLoading(prev => ({ ...prev, [userId]: false }));
+    }
+  };
   
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
@@ -2291,18 +2251,6 @@ export const CommentsSheet: React.FC<{
 
     return { uid, name, image };
   };
-
-  const stableCheckFollowing = useCallback((uid: number): boolean => {
-    if (!checkIsFollowing) return false;
-    
-    const latest = checkIsFollowing(uid);
-    
-    if (!followStableMap.current.has(uid)) {
-      followStableMap.current.set(uid, latest);
-    }
-    
-    return followStableMap.current.get(uid) || false;
-  }, [checkIsFollowing]);
 
   const getReplyLabel = (comment: any) => {
     const a = resolveAuthor(comment);
@@ -2329,6 +2277,7 @@ export const CommentsSheet: React.FC<{
     return count.toString();
   };
 
+  // ✅ Optimistic comment like
   const handleLikeComment = async (comment: any) => {
     if (!currentUser) return;
 
@@ -2370,17 +2319,7 @@ export const CommentsSheet: React.FC<{
     }
   };
 
-  const handleFollowClick = (e: React.MouseEvent, userId: number) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (onFollow && userId && userId !== safeUserId(currentUser)) {
-      const currentFollowing = stableCheckFollowing(userId);
-      followStableMap.current.set(userId, !currentFollowing);
-      
-      onFollow(userId);
-    }
-  };
-
+  // Silent background fetch for comments
   const fetchCommentsSilently = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -2410,6 +2349,7 @@ export const CommentsSheet: React.FC<{
     }
   };
 
+  // Initialize comments when sheet opens
   useEffect(() => {
     const initializeComments = async () => {
       const cached = commentsCache.get(postId);
@@ -2546,10 +2486,42 @@ export const CommentsSheet: React.FC<{
   }, [postId]);
 
   const mediaInfo = getMediaTypeInfo(p);
+  
+  // ✅ ADDED: Helper to get post media list for multi-image support
+  const getPostMediaList = (post: any) => {
+    if (!post?.media_url) return [];
+    
+    try {
+      // Try to parse if it's a JSON array
+      if (typeof post.media_url === 'string' && post.media_url.startsWith('[')) {
+        const parsed = JSON.parse(post.media_url);
+        if (Array.isArray(parsed)) {
+          return parsed.map((url: string) => ({
+            url,
+            kind: String(post?.media_type || '').startsWith('image/') ? 'image' : 'video'
+          }));
+        }
+      }
+      
+      // Single media
+      return [{
+        url: post.media_url,
+        kind: String(post?.media_type || '').startsWith('image/') ? 'image' : 'video'
+      }];
+    } catch {
+      // Fallback to single media
+      return [{
+        url: post.media_url,
+        kind: String(post?.media_type || '').startsWith('image/') ? 'image' : 'video'
+      }];
+    }
+  };
+
   const fullMedia = getPostMediaList(p).filter((m) => m.kind === 'image');
 
   return (
     <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
+      {/* ✅ FULL-SCREEN HEADER */}
       <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
         <div className="flex items-center gap-3">
           <button
@@ -2577,11 +2549,14 @@ export const CommentsSheet: React.FC<{
         </div>
       </div>
 
+      {/* ✅ FULL-SCREEN SCROLLABLE CONTENT */}
       <div 
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto scroll-smooth"
       >
+        {/* ✅ FULL POST CONTENT - NO CONTAINERS */}
         <div className="p-4 border-b border-[#3E4042]">
+          {/* Author */}
           <div className="flex items-center gap-3 mb-4">
             <img
               src={
@@ -2593,35 +2568,40 @@ export const CommentsSheet: React.FC<{
               onClick={() => p.author?.id && onProfileClick(p.author.id)}
             />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
-                    onClick={() => p.author?.id && onProfileClick(p.author.id)}>
-                    {p.author?.name || p.name || p.username || 'User'}
-                  </div>
-                  <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
-                    <span>{formatRelativeTime(p.created_at)}</span>
-                    <span>•</span>
-                    <i className="fas fa-globe-americas text-[12px]"></i>
-                  </div>
-                </div>
-                
-                {onFollow && currentUser && p.author?.id && safeUserId(p.author) !== safeUserId(currentUser) && (
-                  <button
-                    onClick={(e) => handleFollowClick(e, safeUserId(p.author))}
-                    className={`px-3 py-1 text-sm font-semibold rounded-lg transition-all duration-200 ${
-                      stableCheckFollowing(safeUserId(p.author))
-                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                    }`}
-                  >
-                    {stableCheckFollowing(safeUserId(p.author)) ? 'Following' : 'Follow'}
-                  </button>
-                )}
+              <div className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
+                onClick={() => p.author?.id && onProfileClick(p.author.id)}>
+                {p.author?.name || p.name || p.username || 'User'}
+              </div>
+              <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
+                <span>{formatRelativeTime(p.created_at)}</span>
+                <span>•</span>
+                <i className="fas fa-globe-americas text-[12px]"></i>
               </div>
             </div>
+            
+            {/* ✅ ADDED: Follow button in CommentsSheet */}
+            {onFollow && p.author?.id && currentUser?.id !== p.author.id && (
+              <button
+                onClick={() => handleFollowUser(p.author.id)}
+                disabled={followLoading[p.author.id]}
+                className={`px-3 py-1.5 text-sm font-bold rounded-lg transition-all duration-200 ${
+                  stableCheckFollowing(p.author.id)
+                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                } ${followLoading[p.author.id] ? 'opacity-80 cursor-not-allowed' : ''}`}
+              >
+                {followLoading[p.author.id] ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : stableCheckFollowing(p.author.id) ? (
+                  'Following'
+                ) : (
+                  'Follow'
+                )}
+              </button>
+            )}
           </div>
 
+          {/* Full Text */}
           {p.content && (
             <div className="mb-4">
               <ExpandableRichText
@@ -2635,13 +2615,12 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* ✅ UPDATED: Media Full Width with multi-image support */}
           {fullMedia.length > 1 ? (
             <div className="-mx-4 mb-4 border-y border-[#3E4042] bg-black">
               <MediaGrid
                 media={fullMedia.map((m) => ({ url: m.url }))}
-                onOpen={(url) => {
-                  // Handle image click if needed
-                }}
+                onOpen={(url) => { /* handle image open */ }}
               />
             </div>
           ) : mediaInfo.mediaUrl && mediaInfo.isImage ? (
@@ -2664,6 +2643,7 @@ export const CommentsSheet: React.FC<{
             </div>
           ) : null}
 
+          {/* Counts */}
           <div className="flex items-center justify-between text-[#B0B3B8] text-[14px] pt-3 border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
@@ -2675,7 +2655,9 @@ export const CommentsSheet: React.FC<{
           </div>
         </div>
 
+        {/* ✅ CLEAN COMMENTS SECTION - NO CONTAINERS */}
         <div className="p-4">
+          {/* Reply Indicator */}
           {replyTo && (
             <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -2693,6 +2675,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* Emoji Picker */}
           {showEmojiPicker && (
             <div className="mb-4 p-3 border border-[#3E4042] rounded-lg">
               <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
@@ -2709,6 +2692,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* Comments List */}
           {comments.length === 0 ? (
             <div className="text-center py-10">
               <div className="text-[#B0B3B8] text-lg mb-2">No comments yet</div>
@@ -2719,19 +2703,19 @@ export const CommentsSheet: React.FC<{
               {comments.map((c) => {
                 const a = resolveAuthor(c);
                 const isReply = !!c.parent_comment_id;
-                const isCurrentUserComment = a.uid === safeUserId(currentUser);
-                const isFollowing = stableCheckFollowing(a.uid);
                 
                 return (
                   <div 
                     key={String(c.id)} 
                     className={`animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
                   >
+                    {/* Reply Indicator Line */}
                     {isReply && (
                       <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
                     )}
                     
                     <div className="flex gap-3">
+                      {/* Profile Image */}
                       <img
                         src={a.image}
                         className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
@@ -2740,36 +2724,23 @@ export const CommentsSheet: React.FC<{
                       />
                       
                       <div className="flex-1 min-w-0">
+                        {/* Comment Header - NO CONTAINER */}
                         <div className="mb-1">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span
-                                className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
-                                onClick={() => a.uid && onProfileClick(a.uid)}
-                              >
-                                {a.name}
-                              </span>
-                              <span className="text-[#B0B3B8] text-[12px]">
-                                • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
-                              </span>
-                            </div>
-                            
-                            {onFollow && currentUser && a.uid && !isCurrentUserComment && (
-                              <button
-                                onClick={(e) => handleFollowClick(e, a.uid)}
-                                className={`px-2 py-0.5 text-xs font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                                  isFollowing 
-                                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                                }`}
-                              >
-                                {isFollowing ? 'Following' : 'Follow'}
-                              </button>
-                            )}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
+                              onClick={() => a.uid && onProfileClick(a.uid)}
+                            >
+                              {a.name}
+                            </span>
+                            <span className="text-[#B0B3B8] text-[12px]">
+                              • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
+                            </span>
                           </div>
                         </div>
                         
-                        <div className="text-[#E4E6EB] text-[18px] font-bold whitespace-pre-wrap break-words mb-2">
+                        {/* Comment Text - NO CONTAINER */}
+                        <div className="text-[#E4E6EB] text-[15px] whitespace-pre-wrap break-words mb-2">
                           <RichText
                             text={String(c.text || '')}
                             users={users}
@@ -2778,6 +2749,7 @@ export const CommentsSheet: React.FC<{
                           />
                         </div>
                         
+                        {/* Comment Actions */}
                         <div className="flex items-center gap-4">
                           <button
                             onClick={() => handleLikeComment(c)}
@@ -2806,6 +2778,27 @@ export const CommentsSheet: React.FC<{
                           )}
                         </div>
                       </div>
+                      
+                      {/* ✅ ADDED: Follow button in comment thread */}
+                      {onFollow && a.uid && currentUser?.id !== a.uid && (
+                        <button
+                          onClick={() => handleFollowUser(a.uid)}
+                          disabled={followLoading[a.uid]}
+                          className={`px-2 py-1 text-xs font-bold rounded-lg transition-all duration-200 ${
+                            stableCheckFollowing(a.uid)
+                              ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                              : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                          } ${followLoading[a.uid] ? 'opacity-80 cursor-not-allowed' : ''}`}
+                        >
+                          {followLoading[a.uid] ? (
+                            <i className="fas fa-spinner fa-spin"></i>
+                          ) : stableCheckFollowing(a.uid) ? (
+                            'Following'
+                          ) : (
+                            'Follow'
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -2815,6 +2808,7 @@ export const CommentsSheet: React.FC<{
         </div>
       </div>
 
+      {/* ✅ STICKY COMMENT INPUT */}
       <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
         <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
           <button
