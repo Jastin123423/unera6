@@ -23,6 +23,7 @@
 // ✅ UPDATED: Product normalization for consistency - FIXED marketplace products issue
 // ✅ UPDATED: Groups backend integration with real API endpoints
 // ✅ FIXED: Groups blank screen issues with ErrorBoundary and proper data normalization
+// ✅ ADDED: Multi-image posting support
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -329,10 +330,13 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 };
 
 /**
- * Normalize raw D1 rows to UI-safe PostType shape.
- * ✅ UPDATED: Preserve my_reaction and reactions_count fields
+ * ✅ UPDATED: Normalize raw D1 rows to UI-safe PostType shape with multi-image support
  */
 const normalizePost = (p: any): PostType => {
+  // Check for multiple images arrays
+  const mediaUrls = safeArray<string>(p?.media_urls ?? p?.images);
+  const hasMultipleImages = mediaUrls.length > 1;
+  
   const mediaType = p?.media_type ?? p?.mediaType ?? null;
   const mediaUrl = p?.media_url ?? p?.mediaUrl ?? null;
 
@@ -343,7 +347,11 @@ const normalizePost = (p: any): PostType => {
     id: resolvedId,
     user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
     content: safeString(p?.content),
-    media_url: mediaUrl,
+    
+    // ✅ ADDED: Support for multiple images
+    media_urls: hasMultipleImages ? mediaUrls : [],
+    media_url: hasMultipleImages ? mediaUrls[0] : mediaUrl, // First image for backward compatibility
+    
     media_type: mediaType,
     reactions: safeArray(p?.reactions),
     comments: safeArray(p?.comments),
@@ -547,25 +555,51 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 };
 
 /**
- * Fetch user's followers/following data
+ * ✅ UPDATED: Upload multiple files to Cloudflare R2
  */
-const fetchUserFollowData = async (userId: number): Promise<{ followers: number[], following: number[] }> => {
+const uploadToCloudflareR2 = async (files: File[], folder = 'posts'): Promise<{ urls: string[]; types: string[]; filenames: string[] }> => {
   try {
-    const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
+    const uploadPromises = files.map(async (file) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('filename', file.name);
+      formData.append('type', file.type);
+      formData.append('folder', folder);
+      formData.append('timestamp', Date.now().toString());
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Upload failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (!result.url) throw new Error('No URL returned from upload');
+
+      return { url: result.url, type: file.type, filename: file.name };
+    });
+
+    const results = await Promise.all(uploadPromises);
+    
     return {
-      followers: safeArray<number>(data?.followers),
-      following: safeArray<number>(data?.following)
+      urls: results.map(r => r.url),
+      types: results.map(r => r.type),
+      filenames: results.map(r => r.filename)
     };
   } catch (error) {
-    console.error('Failed to fetch follow data:', error);
-    return { followers: [], following: [] };
+    console.error('Upload failed:', error);
+    throw error;
   }
 };
 
 /**
- * Upload file to Cloudflare R2
+ * ✅ UPDATED: Upload single file (for backward compatibility)
  */
-const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
+const uploadSingleToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
   try {
     const formData = new FormData();
     formData.append('file', file);
@@ -623,6 +657,8 @@ const normalizeFeedRowToPost = (row: any): PostType => {
     user_id: safeNumber(row?.user_id),
     content: row?.content ?? '',
     created_at: row?.created_at,
+    // ✅ Handle multiple images from feed
+    media_urls: Array.isArray(row?.media_urls) ? row.media_urls : [],
     media_url: row?.media_url ?? null,
     media_type: row?.media_type ?? null,
     shares: row?.shares ?? 0,
@@ -1301,7 +1337,7 @@ export default function App() {
           return {
             ...p,
             my_reaction: p.my_reaction ?? local.my_reaction ?? local.myReaction ?? null,
-            myReaction: p.myReaction ?? p.my_reaction ?? local.myReaction ?? local.my_reaction ?? null,
+            myReaction: p.myReaction ?? p.my_reaction ?? local.my_reaction ?? local.myReaction ?? null,
             reactions: Array.isArray(p.reactions) && p.reactions.length ? p.reactions : safeArray(local.reactions),
             reactions_count: safeNumber(p.reactions_count, safeNumber(local.reactions_count, safeNumber(local.likesCount, 0))),
             reactionsCount: safeNumber(p.reactionsCount, safeNumber(local.reactionsCount, safeNumber(local.likesCount, 0))),
@@ -1524,14 +1560,32 @@ export default function App() {
   }, [currentUser, requireAuth]);
 
   /** ---------- ✅ 6) Create Group Post with media upload ---------- */
-  const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
+  const createGroupPost = useCallback(async (groupId: number, text: string, files?: File[] | null) => {
     if (!requireAuth("Posting")) return;
     const meId = Number(currentUser!.id);
 
+    let media_urls: string[] | null = null;
     let media_url: string | null = null;
-    if (file) {
-      const up = await uploadToCloudflareR2(file, "group-posts");
-      media_url = up.url;
+    let media_type: string | null = null;
+
+    if (files && files.length > 0) {
+      try {
+        if (files.length === 1) {
+          // Single file upload
+          const up = await uploadSingleToCloudflareR2(files[0], "group-posts");
+          media_url = up.url;
+          media_type = up.type;
+        } else {
+          // Multiple image upload
+          const up = await uploadToCloudflareR2(files, "group-posts");
+          media_urls = up.urls;
+          media_url = up.urls[0]; // First image for backward compatibility
+          media_type = 'image/*';
+        }
+      } catch (error) {
+        console.error('Failed to upload media:', error);
+        throw error;
+      }
     }
 
     try {
@@ -1542,6 +1596,8 @@ export default function App() {
           user_id: meId,
           content: String(text || "").trim() || null,
           media_url,
+          media_urls: media_urls || undefined,
+          media_type,
         }),
       });
     } catch (error) {
@@ -1684,7 +1740,7 @@ export default function App() {
     if (!requireAuth("Updating group image")) return;
 
     try {
-      const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
+      const uploadResult = await uploadSingleToCloudflareR2(file, `group-${type}s`);
       const imageUrl = uploadResult.url;
 
       const field = type === 'cover' ? 'cover_image' : 'profile_image';
@@ -2079,11 +2135,13 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
-  /** ---------- API actions ---------- */
+  /** 
+   * ✅ UPDATED: createPost function with multi-image support 
+   */
   const createPost = useCallback(
     async (
       text: string,
-      file: File | null,
+      files: File[] | null, // ✅ CHANGED: Accept array of files
       meta?: {
         type?: 'text' | 'image' | 'video';
         visibility?: string;
@@ -2097,18 +2155,30 @@ export default function App() {
       if (!requireAuth('Creating posts')) return;
 
       const trimmed = (text || '').trim();
-      if (!trimmed && !file && !meta?.background) return;
+      const hasFiles = files && files.length > 0;
+      
+      if (!trimmed && !hasFiles && !meta?.background) return;
 
+      let media_urls: string[] | null = null;
       let media_url: string | null = null;
       let media_type: string | null = null;
 
-      if (file) {
+      if (hasFiles && files) {
         try {
-          const uploadResult = await uploadToCloudflareR2(file);
-          media_url = uploadResult.url;
-          media_type = uploadResult.type;
+          if (files.length === 1) {
+            // ✅ Handle single file (image or video)
+            const uploadResult = await uploadSingleToCloudflareR2(files[0]);
+            media_url = uploadResult.url;
+            media_type = uploadResult.type;
+          } else {
+            // ✅ Handle multiple images
+            const uploadResult = await uploadToCloudflareR2(files);
+            media_urls = uploadResult.urls;
+            media_url = uploadResult.urls[0]; // First image for backward compatibility
+            media_type = 'image/*'; // Multiple images are all images
+          }
         } catch (error: any) {
-          setLoginError(`Failed to upload file: ${error.message}`);
+          setLoginError(`Failed to upload file(s): ${error.message}`);
           return;
         }
       }
@@ -2117,6 +2187,7 @@ export default function App() {
         user_id: currentUser!.id,
         content: trimmed,
         media_url,
+        media_urls, // ✅ ADDED: Send array of media URLs for multiple images
         media_type,
         visibility: meta?.visibility ?? 'public',
         location: meta?.location,
@@ -2136,7 +2207,13 @@ export default function App() {
       const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
 
       const newPostRaw =
-        data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
+        data?.post ?? { 
+          ...payload, 
+          post_id: data?.post_id ?? data?.id ?? Date.now(), 
+          created_at: new Date().toISOString(),
+          // ✅ Ensure media_urls is included in optimistic post
+          media_urls: media_urls || []
+        };
 
       const normalized = normalizePost(newPostRaw);
 
@@ -2508,7 +2585,7 @@ export default function App() {
       }
 
       try {
-        const uploadResult = await uploadToCloudflareR2(file, 'profiles');
+        const uploadResult = await uploadSingleToCloudflareR2(file, 'profiles');
         await updateUserDetails({ profile_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload profile image: ${error.message}`);
@@ -2529,7 +2606,7 @@ export default function App() {
       }
 
       try {
-        const uploadResult = await uploadToCloudflareR2(file, 'covers');
+        const uploadResult = await uploadSingleToCloudflareR2(file, 'covers');
         await updateUserDetails({ cover_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload cover image: ${error.message}`);
@@ -2987,7 +3064,7 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           onClose={() => setShowCreatePostModal(false)}
-          onCreatePost={(text: string, file: File | null, meta?: any) => createPost(text, file, meta)}
+          onCreatePost={(text: string, files: File[], meta?: any) => createPost(text, files, meta)} // ✅ UPDATED: Accept array of files
         />
       )}
 
