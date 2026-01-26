@@ -1,4 +1,4 @@
-//ad#ed MediaGrid 
+
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   User,
@@ -12,7 +12,6 @@ import {
 } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
-import MediaGrid from './MediaGrid'; // ✅ ADDED: Import MediaGrid component
 
 /**
  * =========================
@@ -697,16 +696,11 @@ export const ShareBottomSheet: React.FC<{
   brands?: Brand[];
   chats?: any[];
   onShareComplete?: (destination: string, data?: any) => void;
-  onFollow?: (userId: number) => void;
-  checkIsFollowing?: (userId: number) => boolean;
-}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete, onFollow, checkIsFollowing }) => {
+}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete }) => {
   const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>('sheet');
   const [isAnimating, setIsAnimating] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
-  
-  // ✅ ADDED: Follow loading state management
-  const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
   useEffect(() => {
     const handleBackdropClick = (e: MouseEvent) => {
@@ -785,17 +779,7 @@ export const ShareBottomSheet: React.FC<{
     }
   };
 
-  // ✅ FIXED: Handle follow in ShareBottomSheet
-  const handleFollowUser = async (userId: number) => {
-    if (!onFollow) return;
-    
-    setFollowLoading(prev => ({ ...prev, [userId]: true }));
-    try {
-      await onFollow(userId);
-    } finally {
-      setFollowLoading(prev => ({ ...prev, [userId]: false }));
-    }
-  };
+  if (!isOpen) return null;
 
   if (activeFlow === 'feed' && currentUser) {
     return (
@@ -1134,38 +1118,24 @@ export const ShareBottomSheet: React.FC<{
                   .filter(u => u.id !== currentUser.id)
                   .slice(0, 3)
                   .map((user) => (
-                    <div key={user.id} className="flex flex-col items-center gap-2">
-                      <div className="relative">
+                    <button
+                      key={user.id}
+                      onClick={() => {
+                        setActiveFlow('messages');
+                      }}
+                      className="flex flex-col items-center gap-2"
+                    >
+                      <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#1877F2] p-0.5">
                         <img
                           src={user.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
                           alt={user.name}
-                          className="w-14 h-14 rounded-full object-cover cursor-pointer border-2 border-[#1877F2] p-0.5"
-                          onClick={() => setActiveFlow('messages')}
+                          className="w-full h-full rounded-full object-cover"
                         />
-                        {onFollow && !followLoading[user.id] && (
-                          <button
-                            onClick={() => handleFollowUser(user.id)}
-                            className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full text-xs flex items-center justify-center ${
-                              checkIsFollowing?.(user.id) 
-                                ? 'bg-[#1877F2] text-white' 
-                                : 'bg-[#3A3B3C] text-[#E4E6EB] border border-[#3E4042]'
-                            }`}
-                            disabled={followLoading[user.id]}
-                          >
-                            {followLoading[user.id] ? (
-                              <i className="fas fa-spinner fa-spin"></i>
-                            ) : checkIsFollowing?.(user.id) ? (
-                              <i className="fas fa-check"></i>
-                            ) : (
-                              <i className="fas fa-plus"></i>
-                            )}
-                          </button>
-                        )}
                       </div>
                       <span className="text-[#E4E6EB] text-xs font-medium max-w-[60px] truncate">
                         {user.name.split(' ')[0]}
                       </span>
-                    </div>
+                    </button>
                   ))}
               </div>
             </div>
@@ -1187,7 +1157,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS, FOLLOW BUTTON SHAKE FIX & API FORMAT SUPPORT
+ * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS & API FORMAT SUPPORT
  * =========================
  */
 export const Post: React.FC<{
@@ -1207,9 +1177,6 @@ export const Post: React.FC<{
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
-  isFollowing?: boolean;
-  onFollow?: () => void;
-  followLoading?: boolean;
 }> = ({
   post,
   author,
@@ -1227,21 +1194,9 @@ export const Post: React.FC<{
   groups = [],
   brands = [],
   chats = [],
-  isFollowing = false,
-  onFollow,
-  followLoading = false,
 }) => {
   const p: any = post as any;
   const a: any = author as any;
-
-  // ✅ FIXED: Follow button shake prevention
-  const stableFollowRef = useRef<boolean>(isFollowing);
-  useEffect(() => {
-    // Only update when not loading to prevent UI jumping
-    if (!followLoading) stableFollowRef.current = isFollowing;
-  }, [isFollowing, followLoading]);
-
-  const stableIsFollowing = followLoading ? stableFollowRef.current : isFollowing;
 
   // ✅ ENHANCED REACTION LOGIC WITH DUAL API SUPPORT
   // Support both myReaction/my_reaction and likesCount/reactionsCount
@@ -1371,30 +1326,6 @@ export const Post: React.FC<{
               </div>
             </div>
           </div>
-
-          {/* ✅ FIXED: Follow button with stable state during loading */}
-          {onFollow && a.id && currentUser?.id !== a.id && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onFollow();
-              }}
-              disabled={followLoading}
-              className={`px-3 py-1.5 text-sm font-bold rounded-lg transition-all duration-200 ${
-                stableIsFollowing
-                  ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                  : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-              } ${followLoading ? 'opacity-80 cursor-not-allowed' : ''}`}
-            >
-              {followLoading ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : stableIsFollowing ? (
-                'Following'
-              ) : (
-                'Follow'
-              )}
-            </button>
-          )}
 
           {onDelete &&
             currentUser &&
@@ -1598,7 +1529,69 @@ export const Post: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: CREATE POST MODAL WITH MULTI-IMAGE SUPPORT
+ * CREATE POST CARD
+ * =========================
+ */
+export const CreatePost: React.FC<{
+  currentUser: User;
+  onProfileClick: (id: number) => void;
+  onClick: () => void;
+  onCreateEventClick?: () => void;
+}> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
+  <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
+    <div className="flex gap-2 mb-3">
+      <img
+        src={
+          (currentUser as any).profile_image_url ||
+          (currentUser as any).profileImage ||
+          (currentUser as any).avatar ||
+          'https://ui-avatars.com/api/?name=User'
+        }
+        alt=""
+        className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+        onClick={() => onProfileClick(safeUserId(currentUser))}
+      />
+      <div
+        className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
+        onClick={onClick}
+      >
+        <span className="text-[#B0B3B8] text-[17px] truncate">
+          What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
+        </span>
+      </div>
+    </div>
+
+    <div className="border-t border-[#3E4042] pt-2 flex justify-between">
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onClick}
+      >
+        <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
+      </div>
+
+      <div
+        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+        onClick={onCreateEventClick}
+      >
+        <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
+        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
+      </div>
+    </div>
+  </div>
+);
+
+/**
+ * =========================
+ * CREATE POST MODAL
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -1607,7 +1600,7 @@ export const CreatePostModal: React.FC<{
   onClose: () => void;
   onCreatePost: (
     text: string,
-    files: File[], // ✅ CHANGED: Now accepts array of files
+    file: File | null,
     meta?: {
       type?: 'text' | 'image' | 'video';
       visibility?: string;
@@ -1622,10 +1615,8 @@ export const CreatePostModal: React.FC<{
 }> = ({ currentUser, users, onClose, onCreatePost }) => {
   const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
-  
-  // ✅ CHANGED: Use arrays for multiple files/previews
-  const [files, setFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<string[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const [type, setType] = useState<'text' | 'image' | 'video'>('text');
 
   const [visibility] = useState<'Public' | 'Friends'>('Public');
@@ -1648,38 +1639,22 @@ export const CreatePostModal: React.FC<{
     setLinkPreview(getLinkPreview(text));
   }, [text]);
 
-  // ✅ CHANGED: Cleanup all preview URLs
   useEffect(() => {
     return () => {
-      previews.forEach((p) => URL.revokeObjectURL(p));
+      if (preview) URL.revokeObjectURL(preview);
     };
-  }, [previews]);
+  }, [preview]);
 
-  // ✅ CHANGED: Handle multiple file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(e.target.files || []);
-    if (!picked.length) return;
+    const f = e.target.files?.[0];
+    if (!f) return;
 
-    // Facebook logic: allow multiple images, but if any video is selected, treat as single video.
-    const hasVideo = picked.some((f) => f.type.startsWith('video/'));
-    if (hasVideo) {
-      const v = picked.find((f) => f.type.startsWith('video/'))!;
-      setFiles([v]);
-      const url = URL.createObjectURL(v);
-      setPreviews([url]);
-      setType('video');
-    } else {
-      setFiles(picked);
-      const urls = picked.map((f) => URL.createObjectURL(f));
-      setPreviews(urls);
-      setType('image');
-    }
-
+    setFile(f);
+    const url = URL.createObjectURL(f);
+    setPreview(url);
+    setType(f.type.startsWith('image') ? 'image' : 'video');
     setActiveBackground('');
     setView('main');
-
-    // allow picking same files again
-    e.target.value = '';
   };
 
   const handleLocationSearch = async (q: string) => {
@@ -1705,14 +1680,13 @@ export const CreatePostModal: React.FC<{
     searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
   };
 
-  // ✅ CHANGED: Update canPost logic
-  const canPost = !!text.trim() || files.length > 0 || !!activeBackground;
+  const canPost = !!text.trim() || !!file || !!activeBackground;
 
   const submit = () => {
     if (!canPost) return;
 
-    onCreatePost(text, files, {
-      type: files.length > 0 ? type : 'text',
+    onCreatePost(text, file, {
+      type: file ? type : 'text',
       visibility,
       location: location || undefined,
       feeling: feeling || undefined,
@@ -1992,7 +1966,7 @@ export const CreatePostModal: React.FC<{
             />
           </div>
 
-          {linkPreview && files.length === 0 && !activeBackground && (
+          {linkPreview && !file && !activeBackground && (
             <div
               className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
               onClick={() => window.open(linkPreview.url, '_blank')}
@@ -2006,39 +1980,7 @@ export const CreatePostModal: React.FC<{
             </div>
           )}
 
-          {/* ✅ CHANGED: Updated preview UI for multiple images */}
-          {previews.length > 0 && (
-            <div className="relative mb-4 border border-[#3E4042] overflow-hidden rounded-xl">
-              <div
-                onClick={() => {
-                  setFiles([]);
-                  previews.forEach((p) => URL.revokeObjectURL(p));
-                  setPreviews([]);
-                  setType('text');
-                }}
-                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
-              >
-                <i className="fas fa-times text-white"></i>
-              </div>
-
-              {/* ✅ Full width, no side gaps */}
-              {type === 'video' ? (
-                <video src={previews[0]} controls className="w-full h-auto max-h-[420px] bg-black object-contain" />
-              ) : previews.length === 1 ? (
-                <img src={previews[0]} alt="preview" className="w-full h-auto max-h-[420px] bg-black object-contain" />
-              ) : (
-                // Use MediaGrid for multiple images
-                <MediaGrid
-                  media={previews.map((url) => ({ url }))}
-                  onOpen={(url) => {
-                    // optional: open the big preview if you want
-                  }}
-                />
-              )}
-            </div>
-          )}
-
-          {previews.length === 0 && (
+          {!preview && (
             <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
               <div
                 className={`w-8 h-8 rounded-lg cursor-pointer border-2 bg-[#3A3B3C] flex items-center justify-center flex-shrink-0 ${
@@ -2063,6 +2005,27 @@ export const CreatePostModal: React.FC<{
               ))}
             </div>
           )}
+
+          {preview && (
+            <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
+              <div
+                onClick={() => {
+                  setFile(null);
+                  setPreview(null);
+                  setType('text');
+                }}
+                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
+              >
+                <i className="fas fa-times text-white"></i>
+              </div>
+
+              {type === 'image' ? (
+                <img src={preview} alt="preview" className="w-full h-auto max-h-[400px] object-contain bg-black" />
+              ) : (
+                <video src={preview} controls className="w-full h-auto max-h-[400px] bg-black" />
+              )}
+            </div>
+          )}
         </div>
 
         <div className="border-t border-[#3E4042]">
@@ -2084,88 +2047,11 @@ export const CreatePostModal: React.FC<{
         </button>
       </div>
 
-      {/* ✅ CHANGED: Add multiple attribute to file inputs */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        className="hidden"
-        accept="image/*,video/*"
-        multiple
-        onChange={handleFileChange}
-      />
-      <input
-        type="file"
-        ref={cameraInputRef}
-        className="hidden"
-        accept="image/*"
-        capture="environment"
-        onChange={handleFileChange}
-      />
+      <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileChange} />
+      <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
     </div>
   );
 };
-
-/**
- * =========================
- * CREATE POST CARD
- * =========================
- */
-export const CreatePost: React.FC<{
-  currentUser: User;
-  onProfileClick: (id: number) => void;
-  onClick: () => void;
-  onCreateEventClick?: () => void;
-}> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
-  <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
-    <div className="flex gap-2 mb-3">
-      <img
-        src={
-          (currentUser as any).profile_image_url ||
-          (currentUser as any).profileImage ||
-          (currentUser as any).avatar ||
-          'https://ui-avatars.com/api/?name=User'
-        }
-        alt=""
-        className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-        onClick={() => onProfileClick(safeUserId(currentUser))}
-      />
-      <div
-        className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
-        onClick={onClick}
-      >
-        <span className="text-[#B0B3B8] text-[17px] truncate">
-          What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
-        </span>
-      </div>
-    </div>
-
-    <div className="border-t border-[#3E4042] pt-2 flex justify-between">
-      <div
-        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-        onClick={onClick}
-      >
-        <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
-      </div>
-
-      <div
-        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-        onClick={onClick}
-      >
-        <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
-      </div>
-
-      <div
-        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-        onClick={onCreateEventClick}
-      >
-        <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
-      </div>
-    </div>
-  </div>
-);
 
 // Global comments cache
 const commentsCache = new Map<number, { 
@@ -2189,9 +2075,7 @@ export const CommentsSheet: React.FC<{
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
   onHashtagClick?: (tag: string) => void;
-  onFollow?: (userId: number) => void;
-  checkIsFollowing?: (userId: number) => boolean;
-}> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick, onHashtagClick, onFollow, checkIsFollowing }) => {
+}> = ({ post, currentUser, users, onClose, onComment, onLikeComment, getCommentAuthor, onProfileClick, onHashtagClick }) => {
   const p: any = post as any;
   const postId = safePostId(p);
   
@@ -2202,32 +2086,6 @@ export const CommentsSheet: React.FC<{
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  
-  // ✅ ADDED: Follow loading state for CommentsSheet
-  const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
-  const followStableMap = useRef(new Map<number, boolean>());
-
-  // ✅ ADDED: Stable follow check to prevent shaking
-  const stableCheckFollowing = (uid: number) => {
-    const latest = checkIsFollowing ? checkIsFollowing(uid) : false;
-    if (!followStableMap.current.has(uid)) followStableMap.current.set(uid, latest);
-    return followStableMap.current.get(uid) || false;
-  };
-
-  // ✅ ADDED: Handle follow in CommentsSheet
-  const handleFollowUser = async (userId: number) => {
-    if (!onFollow) return;
-    
-    setFollowLoading(prev => ({ ...prev, [userId]: true }));
-    try {
-      await onFollow(userId);
-      // Update stable map after successful follow
-      const currentState = checkIsFollowing?.(userId) || false;
-      followStableMap.current.set(userId, currentState);
-    } finally {
-      setFollowLoading(prev => ({ ...prev, [userId]: false }));
-    }
-  };
   
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
@@ -2487,38 +2345,6 @@ export const CommentsSheet: React.FC<{
   }, [postId]);
 
   const mediaInfo = getMediaTypeInfo(p);
-  
-  // ✅ ADDED: Helper to get post media list for multi-image support
-  const getPostMediaList = (post: any) => {
-    if (!post?.media_url) return [];
-    
-    try {
-      // Try to parse if it's a JSON array
-      if (typeof post.media_url === 'string' && post.media_url.startsWith('[')) {
-        const parsed = JSON.parse(post.media_url);
-        if (Array.isArray(parsed)) {
-          return parsed.map((url: string) => ({
-            url,
-            kind: String(post?.media_type || '').startsWith('image/') ? 'image' : 'video'
-          }));
-        }
-      }
-      
-      // Single media
-      return [{
-        url: post.media_url,
-        kind: String(post?.media_type || '').startsWith('image/') ? 'image' : 'video'
-      }];
-    } catch {
-      // Fallback to single media
-      return [{
-        url: post.media_url,
-        kind: String(post?.media_type || '').startsWith('image/') ? 'image' : 'video'
-      }];
-    }
-  };
-
-  const fullMedia = getPostMediaList(p).filter((m) => m.kind === 'image');
 
   return (
     <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
@@ -2579,27 +2405,6 @@ export const CommentsSheet: React.FC<{
                 <i className="fas fa-globe-americas text-[12px]"></i>
               </div>
             </div>
-            
-            {/* ✅ ADDED: Follow button in CommentsSheet */}
-            {onFollow && p.author?.id && currentUser?.id !== p.author.id && (
-              <button
-                onClick={() => handleFollowUser(p.author.id)}
-                disabled={followLoading[p.author.id]}
-                className={`px-3 py-1.5 text-sm font-bold rounded-lg transition-all duration-200 ${
-                  stableCheckFollowing(p.author.id)
-                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                } ${followLoading[p.author.id] ? 'opacity-80 cursor-not-allowed' : ''}`}
-              >
-                {followLoading[p.author.id] ? (
-                  <i className="fas fa-spinner fa-spin"></i>
-                ) : stableCheckFollowing(p.author.id) ? (
-                  'Following'
-                ) : (
-                  'Follow'
-                )}
-              </button>
-            )}
           </div>
 
           {/* Full Text */}
@@ -2616,33 +2421,26 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ✅ UPDATED: Media Full Width with multi-image support */}
-          {fullMedia.length > 1 ? (
-            <div className="-mx-4 mb-4 border-y border-[#3E4042] bg-black">
-              <MediaGrid
-                media={fullMedia.map((m) => ({ url: m.url }))}
-                onOpen={(url) => { /* handle image open */ }}
-              />
+          {/* Media Full Width */}
+          {p.media_url && (
+            <div className="mb-4 rounded-lg overflow-hidden">
+              {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
+                <img
+                  src={String(p.media_url)}
+                  alt=""
+                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
+                  loading="lazy"
+                />
+              ) : (
+                <video
+                  src={String(p.media_url)}
+                  controls
+                  playsInline
+                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
+                />
+              )}
             </div>
-          ) : mediaInfo.mediaUrl && mediaInfo.isImage ? (
-            <div className="-mx-4 mb-4 border-y border-[#3E4042] bg-black">
-              <img
-                src={mediaInfo.mediaUrl}
-                alt=""
-                className="w-full h-auto max-h-[70vh] object-contain"
-                loading="lazy"
-              />
-            </div>
-          ) : mediaInfo.mediaUrl && mediaInfo.isVideo ? (
-            <div className="-mx-4 mb-4 border-y border-[#3E4042] bg-black">
-              <video
-                src={mediaInfo.mediaUrl}
-                controls
-                playsInline
-                className="w-full h-auto max-h-[70vh] object-contain"
-              />
-            </div>
-          ) : null}
+          )}
 
           {/* Counts */}
           <div className="flex items-center justify-between text-[#B0B3B8] text-[14px] pt-3 border-t border-[#3E4042]">
@@ -2779,27 +2577,6 @@ export const CommentsSheet: React.FC<{
                           )}
                         </div>
                       </div>
-                      
-                      {/* ✅ ADDED: Follow button in comment thread */}
-                      {onFollow && a.uid && currentUser?.id !== a.uid && (
-                        <button
-                          onClick={() => handleFollowUser(a.uid)}
-                          disabled={followLoading[a.uid]}
-                          className={`px-2 py-1 text-xs font-bold rounded-lg transition-all duration-200 ${
-                            stableCheckFollowing(a.uid)
-                              ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                              : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                          } ${followLoading[a.uid] ? 'opacity-80 cursor-not-allowed' : ''}`}
-                        >
-                          {followLoading[a.uid] ? (
-                            <i className="fas fa-spinner fa-spin"></i>
-                          ) : stableCheckFollowing(a.uid) ? (
-                            'Following'
-                          ) : (
-                            'Follow'
-                          )}
-                        </button>
-                      )}
                     </div>
                   </div>
                 );
