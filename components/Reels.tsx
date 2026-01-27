@@ -1,5 +1,4 @@
-Do not comment anything until I paste here both Reels.tsx and App.tsx 
-Here updated Reels.tsx 
+
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
