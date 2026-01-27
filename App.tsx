@@ -822,6 +822,63 @@ async function recordPlay(track: AudioTrack, userId: any) {
   return null;
 }
 
+/** ✅ ADDED: Reels API Functions ---------- */
+const createReelApi = async (payload: any) => {
+  const res = await fetch('/api/reels', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    throw new Error(data?.error || 'Failed to create reel');
+  }
+  return data;
+};
+
+const reactToReelApi = async (reelId: number, type: ReactionType, userId: number) => {
+  const res = await fetch(`/api/reels/${reelId}/react`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, user_id: userId }),
+  });
+  
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    throw new Error(data?.error || 'Failed to react to reel');
+  }
+  return data;
+};
+
+const commentOnReelApi = async (reelId: number, text: string, userId: number) => {
+  const res = await fetch(`/api/reels/${reelId}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, user_id: userId }),
+  });
+  
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    throw new Error(data?.error || 'Failed to comment on reel');
+  }
+  return data.comment || data;
+};
+
+const shareReelApi = async (reelId: number, userId: number, destination?: string) => {
+  const res = await fetch(`/api/reels/${reelId}/share`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, destination }),
+  });
+  
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    throw new Error(data?.error || 'Failed to share reel');
+  }
+  return data;
+};
+
 export default function App() {
   useLanguage();
 
@@ -1255,7 +1312,7 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- ✅ ADDED: Create reel with API ---------- */
+  /** ---------- ✅ UPDATED: Create reel with proper backend API ---------- */
   const createReel = useCallback(async (reelData: Partial<Reel>) => {
     if (!requireAuth('Creating reels')) return;
     if (!currentUser) return;
@@ -1263,53 +1320,28 @@ export default function App() {
     setIsFeedRefreshing(true);
     
     try {
-      // Upload video if it's a blob URL
-      let videoUrl = reelData.videoUrl;
-      if (reelData.videoUrl?.startsWith('blob:')) {
-        const response = await fetch(reelData.videoUrl);
-        const blob = await response.blob();
-        const file = new File([blob], `reel-${Date.now()}.mp4`, { type: 'video/mp4' });
-        
-        const uploadResult = await uploadToCloudflareR2(file, 'reels');
-        videoUrl = uploadResult.url;
-      }
-      
-      // Upload audio if it's a blob URL
-      let audioUrl = reelData.audioUrl;
-      if (reelData.audioUrl?.startsWith('blob:')) {
-        const response = await fetch(reelData.audioUrl);
-        const blob = await response.blob();
-        const file = new File([blob], `audio-${Date.now()}.mp3`, { type: 'audio/mp3' });
-        
-        const uploadResult = await uploadToCloudflareR2(file, 'reel-audio');
-        audioUrl = uploadResult.url;
-      }
-      
+      // ✅ CRITICAL FIX: Backend expects snake_case, Reels.tsx sends camelCase
       const payload = {
         user_id: currentUser.id,
+        video_url: reelData.videoUrl,  // ✅ Already HTTPS URL from Reels.tsx fix
         caption: reelData.caption || '',
-        video_url: videoUrl,
         song_name: reelData.songName || 'Original Sound',
-        audio_url: audioUrl,
+        audio_url: reelData.audioUrl,
         audio_start: reelData.audioStart || 0,
         audio_end: reelData.audioEnd || 0,
         visibility: 'public',
       };
       
-      const data = await apiFetch('/api/reels', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      // ✅ POST to backend
+      const data = await createReelApi(payload);
       
+      // ✅ Normalize and add to reels list
       const newReel = normalizeReel(data.reel || data);
       
-      // Optimistically add to reels list
+      // ✅ Optimistically add to reels list
       setReels(prev => [newReel, ...safeArray(prev)]);
       
-      // Refresh reels list
-      fetchReels().catch(() => {});
-      
-      // Show success
+      // ✅ Show success message
       setLoginError('Reel posted successfully!');
       
     } catch (error: any) {
@@ -1319,9 +1351,9 @@ export default function App() {
       setIsFeedRefreshing(false);
       setShowCreateReelModal(false);
     }
-  }, [currentUser, requireAuth, fetchReels]);
+  }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ ADDED: React to reel ---------- */
+  /** ---------- ✅ UPDATED: React to reel with proper API ---------- */
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
     if (!currentUser) return;
@@ -1338,10 +1370,7 @@ export default function App() {
     );
 
     try {
-      await apiFetch(`/api/reels/${reelId}/react`, {
-        method: 'POST',
-        body: JSON.stringify({ type: reactionType, user_id: currentUser.id }),
-      });
+      await reactToReelApi(reelId, reactionType, currentUser.id);
       
       // Refresh reels to get accurate data
       fetchReels().catch(() => {});
@@ -1353,16 +1382,13 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchReels]);
 
-  /** ---------- ✅ ADDED: Comment on reel ---------- */
+  /** ---------- ✅ UPDATED: Comment on reel with proper API ---------- */
   const commentOnReel = useCallback(async (reelId: number, text: string) => {
     if (!requireAuth('Commenting on reels')) return;
     if (!currentUser) return;
 
     try {
-      await apiFetch(`/api/reels/${reelId}/comments`, {
-        method: 'POST',
-        body: JSON.stringify({ text, user_id: currentUser.id }),
-      });
+      await commentOnReelApi(reelId, text, currentUser.id);
       
       // Refresh reels to get updated comments
       fetchReels().catch(() => {});
@@ -1373,16 +1399,13 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchReels]);
 
-  /** ---------- ✅ ADDED: Share reel ---------- */
+  /** ---------- ✅ UPDATED: Share reel with proper API ---------- */
   const shareReel = useCallback(async (reelId: number, type: 'feed' | 'copy') => {
     if (!requireAuth('Sharing reels')) return;
     if (!currentUser) return;
 
     try {
-      await apiFetch(`/api/reels/${reelId}/share`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id, destination: type }),
-      });
+      await shareReelApi(reelId, currentUser.id, type);
       
       // Optimistic update - increment share count
       setReels(prev => 
@@ -2989,6 +3012,7 @@ export default function App() {
               onUseSound={useSoundFromReel}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
+              initialReelId={activeReelId} // ✅ ADDED: Pass initialReelId for clicking from feed
             />
           )}
 
