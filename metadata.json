@@ -1,7 +1,12 @@
 {
-  "name": "Copy of Copy of Copy of UNERA Social Network 1",
+  "name": "unera6",
   "description": "A fully functional social network application with feed, reels, stories, chat, and multi-language support.",
   "requestFramePermissions": [
     "geolocation"
+  
+  "description": "A fully functional social network application with feed, reels, stories, chat, and multi-language support.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
   ]
 }
