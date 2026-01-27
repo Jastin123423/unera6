@@ -24,6 +24,7 @@
 // ✅ UPDATED: Product normalization for consistency - FIXED marketplace products issue
 // ✅ UPDATED: Groups backend integration with real API endpoints
 // ✅ FIXED: Groups blank screen issues with ErrorBoundary and proper data normalization
+// ✅ ADDED: Reels API integration with Camera Studio and professional filters
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -441,6 +442,29 @@ const normalizeUser = (u: any): User => {
   } as any;
 };
 
+/** ✅ ADDED: Normalize reel data ---------- */
+const normalizeReel = (r: any): Reel => {
+  const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
+  const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
+  
+  return {
+    ...r,
+    id: resolvedId,
+    userId: userId,
+    videoUrl: r?.video_url ?? r?.videoUrl ?? '',
+    caption: r?.caption ?? '',
+    songName: r?.song_name ?? r?.songName ?? '',
+    audioUrl: r?.audio_url ?? r?.audioUrl,
+    audioStart: safeNumber(r?.audio_start ?? r?.audioStart ?? 0),
+    audioEnd: safeNumber(r?.audio_end ?? r?.audioEnd ?? 0),
+    reactions: safeArray(r?.reactions),
+    comments: safeArray(r?.comments),
+    shares: safeNumber(r?.shares ?? 0),
+    views: safeNumber(r?.views ?? 0),
+    created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
+  } as any;
+};
+
 /**
  * ✅ UPDATED: Normalize product data for consistency - FIXED marketplace products issue
  */
@@ -524,6 +548,35 @@ const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meI
     reactions_count: nextCount,
     reactionsCount: nextCount,
     likesCount: nextCount,
+  };
+};
+
+/** ---------- ✅ ADDED: Optimistic reel reaction helper ---------- */
+const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType, meId: number) => {
+  if (Number(r?.id) !== Number(reelId)) return r;
+
+  const reactions = safeArray<any>(r?.reactions);
+  const hasLiked = reactions.some((reaction: any) => 
+    Number(reaction?.userId ?? reaction?.user_id) === Number(meId) && reaction?.type === type
+  );
+
+  let newReactions = [...reactions];
+  
+  if (hasLiked) {
+    // Remove reaction
+    newReactions = newReactions.filter((reaction: any) => 
+      !(Number(reaction?.userId ?? reaction?.user_id) === Number(meId) && reaction?.type === type)
+    );
+  } else {
+    // Add reaction
+    newReactions.push({ userId: meId, user_id: meId, type });
+  }
+
+  return {
+    ...r,
+    reactions: newReactions,
+    likesCount: newReactions.length,
+    reactions_count: newReactions.length,
   };
 };
 
@@ -1189,6 +1242,176 @@ export default function App() {
     }
   }, []);
 
+  /** ---------- Fetch reels ---------- */
+  const fetchReels = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/reels');
+      const reelsList = safeArray(data?.reels ?? data);
+      const normalizedReels = reelsList.map(normalizeReel);
+      setReels(normalizedReels);
+    } catch (error) {
+      console.error('Failed to fetch reels:', error);
+      setReels([]);
+    }
+  }, []);
+
+  /** ---------- ✅ ADDED: Create reel with API ---------- */
+  const createReel = useCallback(async (reelData: Partial<Reel>) => {
+    if (!requireAuth('Creating reels')) return;
+    if (!currentUser) return;
+
+    setIsFeedRefreshing(true);
+    
+    try {
+      // Upload video if it's a blob URL
+      let videoUrl = reelData.videoUrl;
+      if (reelData.videoUrl?.startsWith('blob:')) {
+        const response = await fetch(reelData.videoUrl);
+        const blob = await response.blob();
+        const file = new File([blob], `reel-${Date.now()}.mp4`, { type: 'video/mp4' });
+        
+        const uploadResult = await uploadToCloudflareR2(file, 'reels');
+        videoUrl = uploadResult.url;
+      }
+      
+      // Upload audio if it's a blob URL
+      let audioUrl = reelData.audioUrl;
+      if (reelData.audioUrl?.startsWith('blob:')) {
+        const response = await fetch(reelData.audioUrl);
+        const blob = await response.blob();
+        const file = new File([blob], `audio-${Date.now()}.mp3`, { type: 'audio/mp3' });
+        
+        const uploadResult = await uploadToCloudflareR2(file, 'reel-audio');
+        audioUrl = uploadResult.url;
+      }
+      
+      const payload = {
+        user_id: currentUser.id,
+        caption: reelData.caption || '',
+        video_url: videoUrl,
+        song_name: reelData.songName || 'Original Sound',
+        audio_url: audioUrl,
+        audio_start: reelData.audioStart || 0,
+        audio_end: reelData.audioEnd || 0,
+        visibility: 'public',
+      };
+      
+      const data = await apiFetch('/api/reels', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      
+      const newReel = normalizeReel(data.reel || data);
+      
+      // Optimistically add to reels list
+      setReels(prev => [newReel, ...safeArray(prev)]);
+      
+      // Refresh reels list
+      fetchReels().catch(() => {});
+      
+      // Show success
+      setLoginError('Reel posted successfully!');
+      
+    } catch (error: any) {
+      console.error('Failed to create reel:', error);
+      setLoginError(error?.message || 'Failed to create reel');
+    } finally {
+      setIsFeedRefreshing(false);
+      setShowCreateReelModal(false);
+    }
+  }, [currentUser, requireAuth, fetchReels]);
+
+  /** ---------- ✅ ADDED: React to reel ---------- */
+  const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
+    if (!requireAuth('Reacting to reels')) return;
+    if (!currentUser) return;
+
+    const reactionType = type || 'love';
+    
+    // Optimistic update
+    setReels(prev => 
+      safeArray(prev).map(reel => 
+        reel.id === reelId 
+          ? applyOptimisticReelReaction(reel, reelId, reactionType, currentUser.id)
+          : reel
+      )
+    );
+
+    try {
+      await apiFetch(`/api/reels/${reelId}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ type: reactionType, user_id: currentUser.id }),
+      });
+      
+      // Refresh reels to get accurate data
+      fetchReels().catch(() => {});
+      
+    } catch (error) {
+      console.error('Failed to react to reel:', error);
+      // Refresh reels to revert optimistic update
+      fetchReels().catch(() => {});
+    }
+  }, [currentUser, requireAuth, fetchReels]);
+
+  /** ---------- ✅ ADDED: Comment on reel ---------- */
+  const commentOnReel = useCallback(async (reelId: number, text: string) => {
+    if (!requireAuth('Commenting on reels')) return;
+    if (!currentUser) return;
+
+    try {
+      await apiFetch(`/api/reels/${reelId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ text, user_id: currentUser.id }),
+      });
+      
+      // Refresh reels to get updated comments
+      fetchReels().catch(() => {});
+      
+    } catch (error) {
+      console.error('Failed to comment on reel:', error);
+      setLoginError('Failed to post comment');
+    }
+  }, [currentUser, requireAuth, fetchReels]);
+
+  /** ---------- ✅ ADDED: Share reel ---------- */
+  const shareReel = useCallback(async (reelId: number, type: 'feed' | 'copy') => {
+    if (!requireAuth('Sharing reels')) return;
+    if (!currentUser) return;
+
+    try {
+      await apiFetch(`/api/reels/${reelId}/share`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id, destination: type }),
+      });
+      
+      // Optimistic update - increment share count
+      setReels(prev => 
+        safeArray(prev).map(reel => 
+          reel.id === reelId 
+            ? { ...reel, shares: (reel.shares || 0) + 1 }
+            : reel
+        )
+      );
+      
+      if (type === 'copy') {
+        // Copy link to clipboard
+        const reelLink = `${window.location.origin}/reels/${reelId}`;
+        navigator.clipboard.writeText(reelLink).then(() => {
+          setLoginError('Link copied to clipboard!');
+        });
+      }
+      
+    } catch (error) {
+      console.error('Failed to share reel:', error);
+      setLoginError('Failed to share');
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ ADDED: Use sound from reel ---------- */
+  const useSoundFromReel = useCallback((sound: any) => {
+    setShowCreateReelModal(true);
+  }, []);
+
   /** ---------- Fetch posts (Facebook-like freshness) ---------- */
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
@@ -1403,16 +1626,16 @@ export default function App() {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
     scheduleSilentRefreshRef.current = setTimeout(() => {
       fetchPostsForHome(currentUser).catch(() => {});
+      fetchReels().catch(() => {});
     }, 8000);
-  }, [currentUser, fetchPostsForHome]);
+  }, [currentUser, fetchPostsForHome, fetchReels]);
 
   // ==================== GROUPS BACKEND INTEGRATIONS ====================
 
   /** ---------- ✅ FIXED: Fetch groups correctly with normalization ---------- */
   const fetchOtherData = useCallback(async () => {
-    const [s, r, pr, g, b, e, c] = await Promise.all([
+    const [s, pr, g, b, e, c] = await Promise.all([
       apiFetch('/api/stories').catch(() => []),
-      apiFetch('/api/reels').catch(() => []),
       apiFetch('/api/products').catch(() => []),
       apiFetch('/api/groups').catch(() => []),
       apiFetch('/api/brands').catch(() => []),
@@ -1421,7 +1644,6 @@ export default function App() {
     ]);
 
     setStories(safeArray(s));
-    setReels(safeArray(r));
     
     // ✅ FIXED: Handle different API response formats for products
     const prRaw = pr;
@@ -1724,9 +1946,9 @@ export default function App() {
   /** ---------- One fetch pipeline ---------- */
   const fetchData = useCallback(
     async (viewer: User | null) => {
-      await Promise.all([fetchUsersList(), fetchPostsForHome(viewer), fetchOtherData()]);
+      await Promise.all([fetchUsersList(), fetchPostsForHome(viewer), fetchOtherData(), fetchReels()]);
     },
-    [fetchUsersList, fetchPostsForHome, fetchOtherData]
+    [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels]
   );
 
   /** ---------- ✅ FIXED: Restore session + initial load with auth hydration ---------- */
@@ -1786,6 +2008,7 @@ export default function App() {
           sessionStorage.removeItem(FEED_SESSION_KEY);
         } catch {}
         fetchPostsForHome(currentUser).catch(() => {});
+        fetchReels().catch(() => {});
       }
     };
 
@@ -1799,7 +2022,7 @@ export default function App() {
       events.forEach((e) => window.removeEventListener(e, markActive as any));
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [currentUser, fetchPostsForHome]);
+  }, [currentUser, fetchPostsForHome, fetchReels]);
 
   /** ---------- Smart Polling ---------- */
   useEffect(() => {
@@ -1813,6 +2036,7 @@ export default function App() {
       if (document.visibilityState !== 'visible') return;
       if (activeCommentsPostId != null) return;
       await fetchPostsForHome(currentUser).catch(() => {});
+      await fetchReels().catch(() => {});
     };
 
     const t = setInterval(tick, 30000);
@@ -1820,7 +2044,7 @@ export default function App() {
       stopped = true;
       clearInterval(t);
     };
-  }, [currentUser, fetchPostsForHome, activeCommentsPostId]);
+  }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsPostId]);
 
   /** ---------- ADMIN API ACTIONS (ADDED) ---------- */
   const verifyUser = useCallback(
@@ -1995,11 +2219,12 @@ export default function App() {
 
       setView('home');
       await fetchPostsForHome(normalized);
+      await fetchReels();
 
     } catch (error: any) {
       setLoginError(error?.message || 'Registration failed');
     }
-  }, [fetchPostsForHome]);
+  }, [fetchPostsForHome, fetchReels]);
 
   /** ---------- Login (PROFESSIONALLY FIXED) ---------- */
   const handleLogin = async (email: string, password: string) => {
@@ -2045,6 +2270,7 @@ export default function App() {
       setView('home');
 
       await fetchPostsForHome(finalUser);
+      await fetchReels();
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -2071,13 +2297,17 @@ export default function App() {
     setCurrentUser(null);
     setSelectedUserId(null);
     setProfilePosts([]);
+    setReels([]);
     setActiveHashtag(null); // ✅ Clear hashtag filter on logout
     setLikedTracks([]); // ✅ Clear liked tracks on logout
     setMyTotalPlays(0); // ✅ Clear total plays on logout
     setPlayHistory([]); // ✅ Clear play history on logout
     setTrackPlays({}); // ✅ Clear track plays on logout
+    setCurrentAudioTrack(null); // ✅ Clear current audio track
+    setIsAudioPlaying(false); // ✅ Stop audio playback
     setView('home');
     fetchPostsForHome(null).catch(() => {});
+    fetchReels().catch(() => {});
   };
 
   /** ---------- Navigation ---------- */
@@ -2103,6 +2333,15 @@ export default function App() {
     }
     window.scrollTo(0, 0);
   };
+
+  /** ✅ SIMPLIFIED & RELIABLE: Check if current user is following a specific user ---------- */
+  const checkIsFollowing = useCallback((targetUserId: number): boolean => {
+    if (!currentUser || !targetUserId) return false;
+    
+    // Direct check of current user's following array
+    const myFollowing = safeArray<number>((currentUser as any).following);
+    return myFollowing.includes(Number(targetUserId));
+  }, [currentUser]);
 
   /** ✅ UPDATED: API actions - createPost with multi-file support ---------- */
   const createPost = useCallback(
@@ -2512,15 +2751,6 @@ export default function App() {
     [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
   );
 
-  /** ✅ SIMPLIFIED & RELIABLE: Check if current user is following a specific user ---------- */
-  const checkIsFollowing = useCallback((targetUserId: number): boolean => {
-    if (!currentUser || !targetUserId) return false;
-    
-    // Direct check of current user's following array
-    const myFollowing = safeArray<number>((currentUser as any).following);
-    return myFollowing.includes(Number(targetUserId));
-  }, [currentUser]);
-
   const updateUserDetails = useCallback(
     async (data: Partial<User>) => {
       if (!requireAuth('Updating profile')) return;
@@ -2752,16 +2982,13 @@ export default function App() {
                 if (!requireAuth('Creating reels')) return;
                 setShowCreateReelModal(true);
               }}
-              onReact={() => requireAuth('Reacting')}
-              onComment={() => requireAuth('Commenting')}
-              onShare={(post: any) => handleOpenShareSheet(post)}
-              onFollow={(id: number) => followUser(id)}
-              getCommentAuthor={(id) => users.find((u) => u.id === id)}
-              initialReelId={activeReelId}
+              onReact={reactToReel}
+              onComment={commentOnReel}
+              onShare={shareReel}
+              onFollow={followUser}
+              onUseSound={useSoundFromReel}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
-              onPlayAudioTrack={onPlayTrack}
             />
           )}
 
@@ -3076,6 +3303,15 @@ export default function App() {
         />
       )}
 
+      {/* ✅ CREATE REEL MODAL */}
+      {showCreateReelModal && currentUser && (
+        <CreateReelModal
+          currentUser={currentUser}
+          onClose={() => setShowCreateReelModal(false)}
+          onCreate={createReel}
+        />
+      )}
+
       {/* ✅ MOUNT THE GLOBAL AUDIO PLAYER ONCE */}
       {currentAudioTrack && (
         <GlobalAudioPlayer
@@ -3110,10 +3346,6 @@ export default function App() {
 
       {showCreateStoryModal && currentUser && (
         <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
-      )}
-
-      {showCreateReelModal && currentUser && (
-        <CreateReelModal currentUser={currentUser} onClose={() => setShowCreateReelModal(false)} onCreate={() => {}} />
       )}
     </div>
   );
