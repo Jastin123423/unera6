@@ -1,6 +1,7 @@
-
-
 // App.tsx - COMPLETE PROFESSIONAL FIX for Groups Blank Screen + Multi-Image Posts
+// ✅ UPDATED: Make App.tsx the single place that uploads to R2
+// ✅ ADDED: ensureR2Url helper to handle File/Blob/blob URL conversion
+// ✅ UPDATED: createReel function to always use real R2 URLs
 
 // (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
@@ -674,6 +675,40 @@ const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url
   }
 };
 
+/** ✅ ADDED: Helper to ensure R2 URL ---------- */
+const ensureR2Url = async (input: any, folder: string, fallbackName: string) => {
+  if (!input) return '';
+
+  // already a real URL
+  if (typeof input === 'string' && (input.startsWith('http://') || input.startsWith('https://'))) {
+    return input;
+  }
+
+  // blob URL -> fetch -> upload to R2
+  if (typeof input === 'string' && input.startsWith('blob:')) {
+    const res = await fetch(input);
+    const blob = await res.blob();
+    const file = new File([blob], fallbackName, { type: blob.type || 'application/octet-stream' });
+    const up = await uploadToCloudflareR2(file, folder);
+    return up.url;
+  }
+
+  // File -> upload to R2
+  if (typeof File !== 'undefined' && input instanceof File) {
+    const up = await uploadToCloudflareR2(input, folder);
+    return up.url;
+  }
+
+  // Blob -> convert to File -> upload
+  if (typeof Blob !== 'undefined' && input instanceof Blob) {
+    const file = new File([input], fallbackName, { type: input.type || 'application/octet-stream' });
+    const up = await uploadToCloudflareR2(file, folder);
+    return up.url;
+  }
+
+  return '';
+};
+
 type View =
   | 'home'
   | 'reels'
@@ -1257,7 +1292,7 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- ✅ ADDED: Create reel with API ---------- */
+  /** ---------- ✅ UPDATED: Create reel with ensureR2Url helper ---------- */
   const createReel = useCallback(async (reelData: Partial<Reel>) => {
     if (!requireAuth('Creating reels')) return;
     if (!currentUser) return;
@@ -1265,34 +1300,30 @@ export default function App() {
     setIsFeedRefreshing(true);
     
     try {
-      // Upload video if it's a blob URL
-      let videoUrl = reelData.videoUrl;
-      if (reelData.videoUrl?.startsWith('blob:')) {
-        const response = await fetch(reelData.videoUrl);
-        const blob = await response.blob();
-        const file = new File([blob], `reel-${Date.now()}.mp4`, { type: 'video/mp4' });
-        
-        const uploadResult = await uploadToCloudflareR2(file, 'reels');
-        videoUrl = uploadResult.url;
+      // ✅ Use ensureR2Url to handle File/Blob/blob URL conversion
+      const videoUrl = await ensureR2Url(
+        (reelData as any).videoFile ?? reelData.videoUrl,
+        'reels',
+        `reel-${Date.now()}.mp4`
+      );
+
+      const audioUrl = await ensureR2Url(
+        (reelData as any).audioFile ?? reelData.audioUrl,
+        'reel-audio',
+        `audio-${Date.now()}.mp3`
+      );
+
+      // ✅ IMPORTANT: never post to backend without a real URL
+      if (!videoUrl || !videoUrl.startsWith('http')) {
+        throw new Error('Reel video upload failed (no valid R2 URL).');
       }
-      
-      // Upload audio if it's a blob URL
-      let audioUrl = reelData.audioUrl;
-      if (reelData.audioUrl?.startsWith('blob:')) {
-        const response = await fetch(reelData.audioUrl);
-        const blob = await response.blob();
-        const file = new File([blob], `audio-${Date.now()}.mp3`, { type: 'audio/mp3' });
-        
-        const uploadResult = await uploadToCloudflareR2(file, 'reel-audio');
-        audioUrl = uploadResult.url;
-      }
-      
+
       const payload = {
         user_id: currentUser.id,
         caption: reelData.caption || '',
-        video_url: videoUrl,
+        video_url: videoUrl,        // ✅ always real URL now
         song_name: reelData.songName || 'Original Sound',
-        audio_url: audioUrl,
+        audio_url: audioUrl || '',  // optional
         audio_start: reelData.audioStart || 0,
         audio_end: reelData.audioEnd || 0,
         visibility: 'public',
