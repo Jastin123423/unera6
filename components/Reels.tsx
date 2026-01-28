@@ -1,173 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
-import { MOCK_SONGS } from '../constants';
 
 const formatCount = (num: number): string => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
     return num.toString();
-};
-
-// --- API HELPER FUNCTIONS ---
-const apiFetch = async (url: string, options: RequestInit = {}) => {
-    const headers: HeadersInit = {
-        'Accept': 'application/json',
-        ...(options.headers || {}),
-    };
-
-    if (!(options.body instanceof FormData)) {
-        headers['Content-Type'] = 'application/json';
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    try {
-        const res = await fetch(url, {
-            ...options,
-            headers,
-            signal: controller.signal,
-        });
-
-        const contentType = res.headers.get('content-type') || '';
-        let data: any = null;
-
-        try {
-            if (contentType.includes('application/json')) data = await res.json();
-            else {
-                const text = await res.text();
-                try {
-                    data = JSON.parse(text);
-                } catch {
-                    data = { error: text };
-                }
-            }
-        } catch (e: any) {
-            data = { error: e?.message || 'Failed to parse response' };
-        }
-
-        if (!res.ok) {
-            const msg = data?.error || data?.message || `HTTP ${res.status}`;
-            throw new Error(msg);
-        }
-
-        return data;
-    } finally {
-        clearTimeout(timeoutId);
-    }
-};
-
-// Upload file to Cloudflare R2 (same as App.tsx)
-const uploadToCloudflareR2 = async (file: File, folder = 'reels'): Promise<{ url: string; type: string; filename: string }> => {
-    try {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('filename', file.name);
-        formData.append('type', file.type);
-        formData.append('folder', folder);
-        formData.append('timestamp', Date.now().toString());
-
-        const response = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData,
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `Upload failed: ${response.status}`);
-        }
-
-        const result = await response.json();
-        if (!result.url) throw new Error('No URL returned from upload');
-
-        return { url: result.url, type: file.type, filename: file.name };
-    } catch (error) {
-        console.error('Upload failed:', error);
-        throw error;
-    }
-};
-
-// Normalize reel data (compatible with App.tsx)
-const normalizeReel = (r: any): Reel => {
-    return {
-        ...r,
-        id: Number(r?.id ?? r?.reel_id ?? 0),
-        userId: Number(r?.user_id ?? r?.userId ?? 0),
-        videoUrl: r?.video_url ?? r?.videoUrl ?? '',
-        caption: r?.caption ?? '',
-        songName: r?.song_name ?? r?.songName ?? '',
-        audioUrl: r?.audio_url ?? r?.audioUrl,
-        audioStart: Number(r?.audio_start ?? r?.audioStart ?? 0),
-        audioEnd: Number(r?.audio_end ?? r?.audioEnd ?? 0),
-        reactions: Array.isArray(r?.reactions) ? r.reactions : [],
-        comments: Array.isArray(r?.comments) ? r.comments : [],
-        shares: Number(r?.shares ?? 0),
-        views: Number(r?.views ?? 0),
-        created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
-    };
-};
-
-// Create reel API
-const createReelApi = async (reelData: {
-    caption: string;
-    videoUrl: string;
-    songName?: string;
-    audioUrl?: string;
-    audioStart?: number;
-    audioEnd?: number;
-    visibility?: 'public' | 'friends' | 'private';
-    location?: string;
-}, currentUserId: number): Promise<Reel> => {
-    try {
-        const payload = {
-            user_id: currentUserId,
-            caption: reelData.caption,
-            video_url: reelData.videoUrl,
-            song_name: reelData.songName || 'Original Sound',
-            audio_url: reelData.audioUrl,
-            audio_start: reelData.audioStart || 0,
-            audio_end: reelData.audioEnd || 0,
-            visibility: reelData.visibility || 'public',
-            location: reelData.location,
-        };
-        
-        const data = await apiFetch('/api/reels', {
-            method: 'POST',
-            body: JSON.stringify(payload),
-        });
-        
-        return normalizeReel(data.reel || data);
-    } catch (error) {
-        console.error('Failed to create reel:', error);
-        throw error;
-    }
-};
-
-// React to reel API
-const reactToReelApi = async (reelId: number, type: ReactionType, userId: number) => {
-    const data = await apiFetch(`/api/reels/${reelId}/react`, {
-        method: 'POST',
-        body: JSON.stringify({ type, user_id: userId }),
-    });
-    return data;
-};
-
-// Comment on reel API
-const commentOnReelApi = async (reelId: number, text: string, userId: number) => {
-    const data = await apiFetch(`/api/reels/${reelId}/comments`, {
-        method: 'POST',
-        body: JSON.stringify({ text, user_id: userId }),
-    });
-    return data.comment || data;
-};
-
-// Share reel API
-const shareReelApi = async (reelId: number, userId: number, destination?: string) => {
-    const data = await apiFetch(`/api/reels/${reelId}/share`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: userId, destination }),
-    });
-    return data;
 };
 
 // --- PROFESSIONAL BEAUTY FILTERS ---
@@ -187,7 +24,7 @@ const CameraStudio: React.FC<{
 }> = ({ onCapture, onClose, selectedSound }) => {
     const [isRecording, setIsRecording] = useState(false);
     const [activeEffect, setActiveEffect] = useState(EFFECTS[0]);
-    const [amplifierLevel, setAmplifierLevel] = useState(2.0); // 200% boost
+    const [amplifierLevel, setAmplifierLevel] = useState(2.0);
     const [recordingTime, setRecordingTime] = useState(0);
     const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
     const [cameraError, setCameraError] = useState<string | null>(null);
@@ -232,7 +69,6 @@ const CameraStudio: React.FC<{
             
             streamRef.current = rawStream;
 
-            // 1. SETUP AUDIO AMPLIFICATION
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             audioContextRef.current = new AudioContextClass();
             const source = audioContextRef.current.createMediaStreamSource(rawStream);
@@ -243,7 +79,6 @@ const CameraStudio: React.FC<{
             source.connect(gainNode);
             gainNode.connect(destination);
 
-            // 2. SETUP VIDEO PREVIEW
             if (videoRef.current) {
                 videoRef.current.srcObject = rawStream;
                 videoRef.current.onloadedmetadata = () => {
@@ -255,10 +90,8 @@ const CameraStudio: React.FC<{
                 };
             }
 
-            // 3. CAPTURE CANVAS STREAM (30fps)
             const canvasStream = (canvasRef.current as any).captureStream(30);
             
-            // 4. MIX PROCESSED VIDEO & AMPLIFIED AUDIO
             const finalStream = new MediaStream([
                 canvasStream.getVideoTracks()[0],
                 destination.stream.getAudioTracks()[0]
@@ -312,7 +145,6 @@ const CameraStudio: React.FC<{
         } else {
             const stream = processedStreamRef.current;
             
-            // CRITICAL FIX: Ensure MediaStream is active before starting
             if (!stream || !(stream instanceof MediaStream) || !stream.active) {
                 alert("Preparing camera... Please try again in a second.");
                 return;
@@ -383,7 +215,6 @@ const CameraStudio: React.FC<{
                 
                 {!cameraError && (
                     <div className="absolute inset-0 z-10 flex flex-col pointer-events-none">
-                        {/* Control Header */}
                         <div className="p-6 flex justify-between items-start pointer-events-auto">
                             <button onClick={onClose} className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/10 active:scale-90 transition-transform">
                                 <i className="fas fa-times text-lg"></i>
@@ -399,7 +230,6 @@ const CameraStudio: React.FC<{
                             </button>
                         </div>
 
-                        {/* Effects Panel */}
                         <div className="mt-auto mb-36 ml-auto p-4 flex flex-col gap-6 pointer-events-auto">
                             <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => setAmplifierLevel(prev => prev >= 4.0 ? 1.0 : prev + 1.0)}>
                                 <div className={`w-12 h-12 rounded-2xl bg-black/40 backdrop-blur-md flex items-center justify-center border transition-all ${amplifierLevel > 1.0 ? 'text-[#1877F2] border-[#1877F2] shadow-[0_0_15px_rgba(24,119,242,0.3)]' : 'text-white border-white/10'}`}>
@@ -413,7 +243,6 @@ const CameraStudio: React.FC<{
                 
                 {!cameraError && (
                     <>
-                        {/* Professional Horizontal Filters */}
                         <div className="absolute bottom-32 left-0 right-0 z-20 flex gap-4 overflow-x-auto px-6 scrollbar-hide py-2 pointer-events-auto">
                             {EFFECTS.map(effect => (
                                 <button 
@@ -429,7 +258,6 @@ const CameraStudio: React.FC<{
                             ))}
                         </div>
 
-                        {/* Professional Recording Trigger */}
                         <div className="absolute bottom-8 left-0 right-0 flex justify-center items-center gap-12 px-8 z-30 pointer-events-auto">
                             <button className="w-12 h-12 rounded-full bg-black/40 flex items-center justify-center text-white border border-white/10 active:scale-90 transition-transform">
                                 <i className="fas fa-bolt text-sm"></i>
@@ -615,9 +443,10 @@ const AudioTrimmer: React.FC<{
 export const CreateReelModal: React.FC<{ 
     currentUser: User, 
     onClose: () => void, 
-    onCreate: (data: Partial<Reel>) => void,
-    initialSound?: { name: string, url?: string, start?: number, end?: number } | null
-}> = ({ currentUser, onClose, onCreate, initialSound }) => {
+    onCreate: (data: Partial<Reel> & { videoFile?: File | Blob; audioFile?: File | Blob }) => void,
+    initialSound?: { name: string, url?: string, start?: number, end?: number } | null,
+    songs: Song[]; // ✅ Now receives songs from UNERA Music
+}> = ({ currentUser, onClose, onCreate, initialSound, songs }) => {
     const [mediaPreview, setMediaPreview] = useState<string | null>(null);
     const [caption, setCaption] = useState('');
     const [isUploading, setIsUploading] = useState(false);
@@ -632,23 +461,21 @@ export const CreateReelModal: React.FC<{
     const [isStudioPlaying, setIsStudioPlaying] = useState(false);
     const [musicSearch, setMusicSearch] = useState('');
     
-    // ✅ ADDED: videoFile state to store the actual File object
-    const [videoFile, setVideoFile] = useState<File | null>(null);
-    
-    // ✅ ADDED: audioFile state to store the actual File object
-    const [audioFile, setAudioFile] = useState<File | null>(null);
+    // ✅ Store actual files/blobs instead of just URLs
+    const [selectedVideoFile, setSelectedVideoFile] = useState<File | Blob | null>(null);
+    const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
     
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const audioUploadRef = useRef<HTMLInputElement>(null);
 
     const filteredSongs = useMemo(() => {
-        if (!musicSearch.trim()) return MOCK_SONGS;
-        return MOCK_SONGS.filter(s => 
+        if (!musicSearch.trim()) return songs;
+        return songs.filter(s => 
             s.title.toLowerCase().includes(musicSearch.toLowerCase()) || 
             s.artist.toLowerCase().includes(musicSearch.toLowerCase())
         );
-    }, [musicSearch]);
+    }, [musicSearch, songs]); // ✅ Now uses songs prop instead of MOCK_SONGS
 
     // Studio Player Controller
     useEffect(() => {
@@ -682,9 +509,9 @@ export const CreateReelModal: React.FC<{
     const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files?.[0]) {
             const file = e.target.files[0];
+            setSelectedAudioFile(file); // ✅ Store real audio file
             const url = URL.createObjectURL(file);
             setSelectedAudio({ url, name: file.name.split('.')[0] });
-            setAudioFile(file); // ✅ Store the File object
             setAudioStart(0);
             setAudioEnd(0);
             setIsMusicPickerOpen(false);
@@ -693,51 +520,34 @@ export const CreateReelModal: React.FC<{
     };
 
     const handleUpload = async () => {
-        if (!mediaPreview || !videoFile) return;
+        if (!selectedVideoFile) return;
         setIsUploading(true);
         
         try {
-            // ✅ ADDED: Debug logging to see what we're sending
-            console.log("VIDEO FILE:", videoFile, videoFile?.name, videoFile?.type, videoFile?.size);
-            console.log("AUDIO FILE:", audioFile, audioFile?.name, audioFile?.type, audioFile?.size);
-            
-            // ✅ EXACT FORMAT App.tsx expects - passing actual File objects
+            // ✅ Pass actual files to App.tsx for upload
             onCreate({
-                videoFile,           // ✅ File (required) - This is what App.tsx needs
-                videoUrl: mediaPreview,      // string (blob or https) - For preview
-                caption: caption,            // string
-                songName: selectedAudio?.name || 'Original Sound', // string
-                audioFile,           // ✅ File (optional) - Actual audio file
-                audioUrl: selectedAudio?.url, // string | undefined
-                audioStart,                  // number
-                audioEnd,                    // number
+                caption: caption.trim(),
+                songName: selectedAudio?.name || 'Original Sound',
+                audioUrl: selectedAudio?.url, // Keep URL for preview
+                audioStart,
+                audioEnd,
+                videoFile: selectedVideoFile, // ✅ REAL file/blob for App.tsx to upload
+                audioFile: selectedAudioFile || undefined, // ✅ REAL audio file if uploaded
             });
             
         } catch (error) {
             console.error('Failed to create reel:', error);
         } finally {
             setIsUploading(false);
-            // ✅ Don't clear videoFile until after successful upload
             onClose();
         }
     };
 
-    // ✅ UPDATED: Handle file selection - store both preview and File object
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files?.[0]) {
-            const file = e.target.files[0];
-            setVideoFile(file); // ✅ Store the File object
-            setMediaPreview(URL.createObjectURL(file));
-            setIsStudioPlaying(true);
-        }
-    };
-
-    // ✅ UPDATED: Handle camera capture - convert Blob to File
-    const handleCameraCapture = (blob: Blob) => {
-        const file = new File([blob], `recording-${Date.now()}.mp4`, { type: blob.type });
-        setVideoFile(file); // ✅ Store the File object
-        setMediaPreview(URL.createObjectURL(file));
-        setIsCameraOpen(false);
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setSelectedVideoFile(file); // ✅ Store real file
+        setMediaPreview(URL.createObjectURL(file)); // Preview only
         setIsStudioPlaying(true);
     };
 
@@ -746,7 +556,12 @@ export const CreateReelModal: React.FC<{
             {isCameraOpen && (
                 <CameraStudio 
                     selectedSound={selectedAudio} 
-                    onCapture={handleCameraCapture} // ✅ Updated to use new handler
+                    onCapture={(blob) => { 
+                        setSelectedVideoFile(blob); // ✅ Store real blob
+                        setMediaPreview(URL.createObjectURL(blob)); // Preview only
+                        setIsCameraOpen(false); 
+                        setIsStudioPlaying(true);
+                    }} 
                     onClose={() => setIsCameraOpen(false)} 
                 />
             )}
@@ -782,7 +597,7 @@ export const CreateReelModal: React.FC<{
                 <div className="flex flex-col items-center">
                     <span className="text-[10px] font-black uppercase tracking-[5px] text-[#1877F2]">UNERA PRO</span>
                 </div>
-                <button onClick={handleUpload} disabled={!mediaPreview || !videoFile || isUploading} className="bg-[#1877F2] text-white px-7 py-2.5 rounded-2xl font-black text-xs shadow-xl active:scale-95 transition-all disabled:opacity-30 disabled:grayscale">
+                <button onClick={handleUpload} disabled={!selectedVideoFile || isUploading} className="bg-[#1877F2] text-white px-7 py-2.5 rounded-2xl font-black text-xs shadow-xl active:scale-95 transition-all disabled:opacity-30 disabled:grayscale">
                     {isUploading ? 'Sending...' : 'Publish'}
                 </button>
             </div>
@@ -803,7 +618,12 @@ export const CreateReelModal: React.FC<{
                             <span className="text-[10px] font-black uppercase text-white/70 tracking-widest">Trim</span>
                         </button>
                     )}
-                    <button onClick={() => { setMediaPreview(null); setVideoFile(null); setVideoFile(null); }} className="flex flex-col items-center gap-2">
+                    <button onClick={() => {
+                        setMediaPreview(null);
+                        setSelectedVideoFile(null);
+                        setSelectedAudio(null);
+                        setSelectedAudioFile(null);
+                    }} className="flex flex-col items-center gap-2">
                         <div className="w-14 h-14 rounded-3xl bg-red-600/20 border-2 border-red-600/30 text-red-500 flex items-center justify-center backdrop-blur-2xl">
                             <i className="fas fa-trash-alt text-xl"></i>
                         </div>
@@ -834,15 +654,7 @@ export const CreateReelModal: React.FC<{
                     </div>
 
                     {/* OPTION 2: IMPORT MOBILE */}
-                    <input 
-                        type="file" 
-                        id="video-input-mobile" 
-                        className="hidden" 
-                        accept="video/*" 
-                        onChange={handleFileSelect} 
-                        // ✅ ADDED: capture attribute for mobile
-                        capture="environment"
-                    />
+                    <input type="file" id="video-input-mobile" className="hidden" accept="video/*" onChange={handleFileSelect} />
                     <label htmlFor="video-input-mobile" className="w-full max-w-[340px] bg-white/5 border border-white/10 rounded-[32px] py-8 flex items-center justify-center gap-5 cursor-pointer active:scale-95 transition-all hover:bg-white/10 group">
                         <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center group-hover:bg-[#1877F2]/20 transition-colors">
                             <i className="fas fa-cloud-upload-alt text-2xl text-[#B0B3B8] group-hover:text-[#1877F2]"></i>
@@ -877,7 +689,7 @@ export const CreateReelModal: React.FC<{
                 <div className="fixed inset-0 z-[700] bg-[#0A0A0A] flex flex-col animate-slide-up">
                     <div className="h-16 px-6 flex items-center justify-between border-b border-white/5 bg-[#121212] shrink-0">
                         <button onClick={() => setIsMusicPickerOpen(false)} className="text-[#B0B3B8] font-black uppercase text-[11px] tracking-widest px-4 py-2 rounded-xl hover:bg-white/5 transition-all">Cancel</button>
-                        <h3 className="font-black text-white uppercase tracking-[6px] text-[12px]">Library</h3>
+                        <h3 className="font-black text-white uppercase tracking-[6px] text-[12px]">UNERA Music</h3>
                         <div className="w-20"></div>
                     </div>
                     
@@ -912,18 +724,14 @@ export const CreateReelModal: React.FC<{
                         <div className="h-[1px] bg-white/5 my-6"></div>
 
                         {filteredSongs.map(song => (
-                            <div 
-                                key={song.id} 
-                                onClick={() => { 
-                                    setSelectedAudio({ url: song.audioUrl, name: song.title }); 
-                                    setAudioFile(null); // ✅ Clear audio file when selecting preset song
-                                    setAudioStart(0); 
-                                    setAudioEnd(0); 
-                                    setIsMusicPickerOpen(false); 
-                                    setIsTrimmerOpen(true); 
-                                }} 
-                                className="bg-white/5 p-5 rounded-[24px] flex items-center gap-5 active:scale-95 transition-all border border-transparent hover:border-white/10 group"
-                            >
+                            <div key={song.id} onClick={() => { 
+                                setSelectedAudio({ url: song.audioUrl, name: song.title }); 
+                                setSelectedAudioFile(null); // Clear uploaded file when using library song
+                                setAudioStart(0); 
+                                setAudioEnd(0); 
+                                setIsMusicPickerOpen(false); 
+                                setIsTrimmerOpen(true); 
+                            }} className="bg-white/5 p-5 rounded-[24px] flex items-center gap-5 active:scale-95 transition-all border border-transparent hover:border-white/10 group">
                                 <div className="relative w-16 h-16 shrink-0">
                                     <img src={song.cover} className="w-full h-full rounded-2xl object-cover shadow-2xl" alt="" />
                                     <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl">
@@ -1047,7 +855,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     followLoading = {},
     initialReelId
 }) => {
-    // ✅ Debug log for sanity check
     console.log('REELS DEBUG:', {
         count: reels?.length,
         firstReel: reels?.[0],
@@ -1065,7 +872,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
     const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
 
-    // ✅ Scroll to initial reel when provided
     useEffect(() => {
         if (!initialReelId || reels.length === 0) return;
         
@@ -1081,7 +887,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         return () => clearTimeout(timer);
     }, [initialReelId, reels.length]);
 
-    // ✅ Intersection Observer for scroll detection
     useEffect(() => {
         const observer = new IntersectionObserver((entries) => {
             entries.forEach((entry) => {
@@ -1096,7 +901,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         return () => observer.disconnect();
     }, [reels]);
 
-    // ✅ Video playback control
     useEffect(() => {
         Object.keys(videoRefs.current).forEach((key) => {
             const id = Number(key);
@@ -1167,11 +971,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
                         if (!author) return null;
                         
-                        // ✅ Use checkIsFollowing from props
                         const isFollowing = checkIsFollowing(Number(author.id));
                         const isLoadingFollow = !!followLoading[Number(author.id)];
                         
-                        // ✅ Check if current user liked this reel
                         const hasLiked = reel.reactions.some(r => 
                             Number(r.userId ?? r.user_id) === Number(currentUser?.id)
                         );
@@ -1433,15 +1235,16 @@ const ReelCommentsSheet: React.FC<{
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
                                     e.preventDefault();
-                                    onAddComment(text);
+                                    onAddComment(text.trim());
                                     setText('');
                                 }
                             }}
                         />
                         <button 
                             onClick={() => { 
-                                if (text.trim()) { 
-                                    onAddComment(text); 
+                                const trimmedText = text.trim();
+                                if (trimmedText) { 
+                                    onAddComment(trimmedText); 
                                     setText(''); 
                                 }
                             }} 
