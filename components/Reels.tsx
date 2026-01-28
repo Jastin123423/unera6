@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
 import { MOCK_SONGS } from '../constants';
@@ -633,6 +632,12 @@ export const CreateReelModal: React.FC<{
     const [isStudioPlaying, setIsStudioPlaying] = useState(false);
     const [musicSearch, setMusicSearch] = useState('');
     
+    // ✅ ADDED: videoFile state to store the actual File object
+    const [videoFile, setVideoFile] = useState<File | null>(null);
+    
+    // ✅ ADDED: audioFile state to store the actual File object
+    const [audioFile, setAudioFile] = useState<File | null>(null);
+    
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const audioUploadRef = useRef<HTMLInputElement>(null);
@@ -679,6 +684,7 @@ export const CreateReelModal: React.FC<{
             const file = e.target.files[0];
             const url = URL.createObjectURL(file);
             setSelectedAudio({ url, name: file.name.split('.')[0] });
+            setAudioFile(file); // ✅ Store the File object
             setAudioStart(0);
             setAudioEnd(0);
             setIsMusicPickerOpen(false);
@@ -687,15 +693,21 @@ export const CreateReelModal: React.FC<{
     };
 
     const handleUpload = async () => {
-        if (!mediaPreview) return;
+        if (!mediaPreview || !videoFile) return;
         setIsUploading(true);
         
         try {
-            // ✅ EXACT FORMAT App.tsx expects
+            // ✅ ADDED: Debug logging to see what we're sending
+            console.log("VIDEO FILE:", videoFile, videoFile?.name, videoFile?.type, videoFile?.size);
+            console.log("AUDIO FILE:", audioFile, audioFile?.name, audioFile?.type, audioFile?.size);
+            
+            // ✅ EXACT FORMAT App.tsx expects - passing actual File objects
             onCreate({
-                videoUrl: mediaPreview,      // string (blob or https)
+                videoFile,           // ✅ File (required) - This is what App.tsx needs
+                videoUrl: mediaPreview,      // string (blob or https) - For preview
                 caption: caption,            // string
                 songName: selectedAudio?.name || 'Original Sound', // string
+                audioFile,           // ✅ File (optional) - Actual audio file
                 audioUrl: selectedAudio?.url, // string | undefined
                 audioStart,                  // number
                 audioEnd,                    // number
@@ -705,16 +717,28 @@ export const CreateReelModal: React.FC<{
             console.error('Failed to create reel:', error);
         } finally {
             setIsUploading(false);
+            // ✅ Don't clear videoFile until after successful upload
             onClose();
         }
     };
 
+    // ✅ UPDATED: Handle file selection - store both preview and File object
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files?.[0]) {
             const file = e.target.files[0];
+            setVideoFile(file); // ✅ Store the File object
             setMediaPreview(URL.createObjectURL(file));
             setIsStudioPlaying(true);
         }
+    };
+
+    // ✅ UPDATED: Handle camera capture - convert Blob to File
+    const handleCameraCapture = (blob: Blob) => {
+        const file = new File([blob], `recording-${Date.now()}.mp4`, { type: blob.type });
+        setVideoFile(file); // ✅ Store the File object
+        setMediaPreview(URL.createObjectURL(file));
+        setIsCameraOpen(false);
+        setIsStudioPlaying(true);
     };
 
     return (
@@ -722,11 +746,7 @@ export const CreateReelModal: React.FC<{
             {isCameraOpen && (
                 <CameraStudio 
                     selectedSound={selectedAudio} 
-                    onCapture={(blob) => { 
-                        setMediaPreview(URL.createObjectURL(blob)); 
-                        setIsCameraOpen(false); 
-                        setIsStudioPlaying(true);
-                    }} 
+                    onCapture={handleCameraCapture} // ✅ Updated to use new handler
                     onClose={() => setIsCameraOpen(false)} 
                 />
             )}
@@ -762,7 +782,7 @@ export const CreateReelModal: React.FC<{
                 <div className="flex flex-col items-center">
                     <span className="text-[10px] font-black uppercase tracking-[5px] text-[#1877F2]">UNERA PRO</span>
                 </div>
-                <button onClick={handleUpload} disabled={!mediaPreview || isUploading} className="bg-[#1877F2] text-white px-7 py-2.5 rounded-2xl font-black text-xs shadow-xl active:scale-95 transition-all disabled:opacity-30 disabled:grayscale">
+                <button onClick={handleUpload} disabled={!mediaPreview || !videoFile || isUploading} className="bg-[#1877F2] text-white px-7 py-2.5 rounded-2xl font-black text-xs shadow-xl active:scale-95 transition-all disabled:opacity-30 disabled:grayscale">
                     {isUploading ? 'Sending...' : 'Publish'}
                 </button>
             </div>
@@ -783,7 +803,7 @@ export const CreateReelModal: React.FC<{
                             <span className="text-[10px] font-black uppercase text-white/70 tracking-widest">Trim</span>
                         </button>
                     )}
-                    <button onClick={() => setMediaPreview(null)} className="flex flex-col items-center gap-2">
+                    <button onClick={() => { setMediaPreview(null); setVideoFile(null); setVideoFile(null); }} className="flex flex-col items-center gap-2">
                         <div className="w-14 h-14 rounded-3xl bg-red-600/20 border-2 border-red-600/30 text-red-500 flex items-center justify-center backdrop-blur-2xl">
                             <i className="fas fa-trash-alt text-xl"></i>
                         </div>
@@ -814,7 +834,15 @@ export const CreateReelModal: React.FC<{
                     </div>
 
                     {/* OPTION 2: IMPORT MOBILE */}
-                    <input type="file" id="video-input-mobile" className="hidden" accept="video/*" onChange={handleFileSelect} />
+                    <input 
+                        type="file" 
+                        id="video-input-mobile" 
+                        className="hidden" 
+                        accept="video/*" 
+                        onChange={handleFileSelect} 
+                        // ✅ ADDED: capture attribute for mobile
+                        capture="environment"
+                    />
                     <label htmlFor="video-input-mobile" className="w-full max-w-[340px] bg-white/5 border border-white/10 rounded-[32px] py-8 flex items-center justify-center gap-5 cursor-pointer active:scale-95 transition-all hover:bg-white/10 group">
                         <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center group-hover:bg-[#1877F2]/20 transition-colors">
                             <i className="fas fa-cloud-upload-alt text-2xl text-[#B0B3B8] group-hover:text-[#1877F2]"></i>
@@ -884,7 +912,18 @@ export const CreateReelModal: React.FC<{
                         <div className="h-[1px] bg-white/5 my-6"></div>
 
                         {filteredSongs.map(song => (
-                            <div key={song.id} onClick={() => { setSelectedAudio({ url: song.audioUrl, name: song.title }); setAudioStart(0); setAudioEnd(0); setIsMusicPickerOpen(false); setIsTrimmerOpen(true); }} className="bg-white/5 p-5 rounded-[24px] flex items-center gap-5 active:scale-95 transition-all border border-transparent hover:border-white/10 group">
+                            <div 
+                                key={song.id} 
+                                onClick={() => { 
+                                    setSelectedAudio({ url: song.audioUrl, name: song.title }); 
+                                    setAudioFile(null); // ✅ Clear audio file when selecting preset song
+                                    setAudioStart(0); 
+                                    setAudioEnd(0); 
+                                    setIsMusicPickerOpen(false); 
+                                    setIsTrimmerOpen(true); 
+                                }} 
+                                className="bg-white/5 p-5 rounded-[24px] flex items-center gap-5 active:scale-95 transition-all border border-transparent hover:border-white/10 group"
+                            >
                                 <div className="relative w-16 h-16 shrink-0">
                                     <img src={song.cover} className="w-full h-full rounded-2xl object-cover shadow-2xl" alt="" />
                                     <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl">
