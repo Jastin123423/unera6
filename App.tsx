@@ -2,6 +2,7 @@
 // ✅ UPDATED: Make App.tsx the single place that uploads to R2
 // ✅ ADDED: ensureR2Url helper to handle File/Blob/blob URL conversion
 // ✅ UPDATED: createReel function to always use real R2 URLs
+// ✅ ADDED: Proper reel normalization and API handling
 
 // (Facebook-like Fresh Feed + Seen Cache + Return Refresh)
 // (Unique Profile Colors & Proper Sizing)
@@ -445,28 +446,23 @@ const normalizeUser = (u: any): User => {
   } as any;
 };
 
-/** ✅ ADDED: Normalize reel data ---------- */
-const normalizeReel = (r: any): Reel => {
-  const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
-  const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
-  
-  return {
-    ...r,
-    id: resolvedId,
-    userId: userId,
-    videoUrl: r?.video_url ?? r?.videoUrl ?? '',
-    caption: r?.caption ?? '',
-    songName: r?.song_name ?? r?.songName ?? '',
-    audioUrl: r?.audio_url ?? r?.audioUrl,
-    audioStart: safeNumber(r?.audio_start ?? r?.audioStart ?? 0),
-    audioEnd: safeNumber(r?.audio_end ?? r?.audioEnd ?? 0),
-    reactions: safeArray(r?.reactions),
-    comments: safeArray(r?.comments),
-    shares: safeNumber(r?.shares ?? 0),
-    views: safeNumber(r?.views ?? 0),
-    created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
-  } as any;
-};
+/** ✅ UPDATED: Normalize reel data ---------- */
+const normalizeReel = (r: any): Reel => ({
+  ...r,
+  id: Number(r?.id ?? r?.reel_id ?? 0),
+  userId: Number(r?.user_id ?? r?.userId ?? 0),
+  videoUrl: r?.video_url ?? r?.videoUrl ?? '',
+  caption: r?.caption ?? '',
+  songName: r?.song_name ?? r?.songName ?? 'Original Sound',
+  audioUrl: r?.audio_url ?? r?.audioUrl,
+  audioStart: Number(r?.audio_start ?? r?.audioStart ?? 0),
+  audioEnd: Number(r?.audio_end ?? r?.audioEnd ?? 0),
+  shares: Number(r?.shares ?? 0),
+  views: Number(r?.views ?? 0),
+  reactions: Array.isArray(r?.reactions) ? r.reactions : [],
+  comments: Array.isArray(r?.comments) ? r.comments : [],
+  created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
+});
 
 /**
  * ✅ UPDATED: Normalize product data for consistency - FIXED marketplace products issue
@@ -646,33 +642,22 @@ const fetchUserFollowData = async (userId: number): Promise<{ followers: number[
 /**
  * Upload file to Cloudflare R2
  */
-const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('filename', file.name);
-    formData.append('type', file.type);
-    formData.append('folder', folder);
-    formData.append('timestamp', Date.now().toString());
+const uploadToCloudflareR2 = async (file: File, folder = 'reels'): Promise<{ url: string; type: string; filename: string }> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('filename', file.name);
+  formData.append('type', file.type);
+  formData.append('folder', folder);
+  formData.append('timestamp', Date.now().toString());
 
-    const response = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Upload failed: ${response.status}`);
-    }
-
-    const result = await response.json();
-    if (!result.url) throw new Error('No URL returned from upload');
-
-    return { url: result.url, type: file.type, filename: file.name };
-  } catch (error) {
-    console.error('Upload failed:', error);
-    throw error;
+  const res = await fetch('/api/upload', { method: 'POST', body: formData });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error || `Upload failed: ${res.status}`);
   }
+  const data = await res.json();
+  if (!data?.url) throw new Error('No URL returned from upload');
+  return { url: data.url, type: file.type, filename: file.name };
 };
 
 /** ✅ ADDED: Helper to ensure R2 URL ---------- */
@@ -904,6 +889,7 @@ export default function App() {
   const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
+  const [initialSound, setInitialSound] = useState<any>(null);
 
   const [activeSharePost, setActiveSharePost] = useState<any>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
@@ -1279,12 +1265,12 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- Fetch reels ---------- */
+  /** ---------- ✅ UPDATED: Fetch reels with normalization ---------- */
   const fetchReels = useCallback(async () => {
     try {
       const data = await apiFetch('/api/reels');
-      const reelsList = safeArray(data?.reels ?? data);
-      const normalizedReels = reelsList.map(normalizeReel);
+      const list = Array.isArray(data?.reels) ? data.reels : Array.isArray(data) ? data : [];
+      const normalizedReels = list.map(normalizeReel);
       setReels(normalizedReels);
     } catch (error) {
       console.error('Failed to fetch reels:', error);
@@ -1292,67 +1278,71 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- ✅ UPDATED: Create reel with ensureR2Url helper ---------- */
-  const createReel = useCallback(async (reelData: Partial<Reel>) => {
-    if (!requireAuth('Creating reels')) return;
-    if (!currentUser) return;
+  /** ---------- ✅ ADDED: Core Create Reel handler ---------- */
+  const createReelFromModal = useCallback(async (draft: any) => {
+    if (!currentUser?.id) throw new Error('Not logged in');
 
-    setIsFeedRefreshing(true);
-    
-    try {
-      // ✅ Use ensureR2Url to handle File/Blob/blob URL conversion
-      const videoUrl = await ensureR2Url(
-        (reelData as any).videoFile ?? reelData.videoUrl,
-        'reels',
-        `reel-${Date.now()}.mp4`
-      );
+    // ✅ Log what UI sends
+    console.log('CREATE REEL DRAFT:', {
+      videoUrl: draft?.videoUrl,
+      hasVideoFile: !!draft?.videoFile,
+      audioUrl: draft?.audioUrl,
+      hasAudioFile: !!draft?.audioFile,
+    });
 
-      const audioUrl = await ensureR2Url(
-        (reelData as any).audioFile ?? reelData.audioUrl,
-        'reel-audio',
-        `audio-${Date.now()}.mp3`
-      );
+    // draft expected from CreateReelModal:
+    // { videoUrl, videoFile, caption, songName, audioUrl, audioFile, audioStart, audioEnd }
+    const rawVideoUrl = String(draft?.videoUrl || '').trim();
+    if (!rawVideoUrl) throw new Error('Missing video');
 
-      // ✅ IMPORTANT: never post to backend without a real URL
-      if (!videoUrl || !videoUrl.startsWith('http')) {
-        throw new Error('Reel video upload failed (no valid R2 URL).');
+    let finalVideoUrl = rawVideoUrl;
+
+    // ✅ If it is blob: URL, upload actual file/blob is required.
+    if (rawVideoUrl.startsWith('blob:')) {
+      const videoFile: File | undefined = draft?.videoFile; // you SHOULD send this from modal
+      if (!videoFile) {
+        throw new Error('Video was not uploaded. Please reselect video (videoFile missing).');
       }
-
-      const payload = {
-        user_id: currentUser.id,
-        caption: reelData.caption || '',
-        video_url: videoUrl,        // ✅ always real URL now
-        song_name: reelData.songName || 'Original Sound',
-        audio_url: audioUrl || '',  // optional
-        audio_start: reelData.audioStart || 0,
-        audio_end: reelData.audioEnd || 0,
-        visibility: 'public',
-      };
-      
-      const data = await apiFetch('/api/reels', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      
-      const newReel = normalizeReel(data.reel || data);
-      
-      // Optimistically add to reels list
-      setReels(prev => [newReel, ...safeArray(prev)]);
-      
-      // Refresh reels list
-      fetchReels().catch(() => {});
-      
-      // Show success
-      setLoginError('Reel posted successfully!');
-      
-    } catch (error: any) {
-      console.error('Failed to create reel:', error);
-      setLoginError(error?.message || 'Failed to create reel');
-    } finally {
-      setIsFeedRefreshing(false);
-      setShowCreateReelModal(false);
+      const uploaded = await uploadToCloudflareR2(videoFile, 'reels');
+      finalVideoUrl = uploaded.url;
     }
-  }, [currentUser, requireAuth, fetchReels]);
+
+    // Optional: also upload custom audio if it is a blob url + you have audioFile
+    let finalAudioUrl: string | undefined = draft?.audioUrl;
+    if (finalAudioUrl && String(finalAudioUrl).startsWith('blob:')) {
+      const audioFile: File | undefined = draft?.audioFile;
+      if (audioFile) {
+        const uploadedAudio = await uploadToCloudflareR2(audioFile, 'reels-audio');
+        finalAudioUrl = uploadedAudio.url;
+      } else {
+        // if no file provided, just drop audio to avoid broken DB
+        finalAudioUrl = undefined;
+      }
+    }
+
+    const payload = {
+      user_id: Number(currentUser.id),
+      caption: String(draft?.caption || ''),
+      video_url: finalVideoUrl,
+      song_name: String(draft?.songName || 'Original Sound'),
+      audio_url: finalAudioUrl,
+      audio_start: Number(draft?.audioStart || 0),
+      audio_end: Number(draft?.audioEnd || 0),
+      visibility: 'public',
+    };
+
+    const res = await apiFetch('/api/reels', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    const created = normalizeReel(res?.reel || res);
+
+    // ✅ Update reels state immediately so it appears without refresh
+    setReels((prev: any[]) => [created, ...(prev || [])]);
+
+    return created;
+  }, [currentUser]);
 
   /** ---------- ✅ ADDED: React to reel ---------- */
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
@@ -1442,6 +1432,7 @@ export default function App() {
 
   /** ---------- ✅ ADDED: Use sound from reel ---------- */
   const useSoundFromReel = useCallback((sound: any) => {
+    setInitialSound(sound);
     setShowCreateReelModal(true);
   }, []);
 
@@ -2404,7 +2395,7 @@ export default function App() {
 
       if (list.length) {
         try {
-          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
+          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f, 'posts')));
           media_urls = ups.map((u) => u.url).filter(Boolean);
           media_types = ups.map((u) => u.type).filter(Boolean);
         } catch (error: any) {
@@ -3336,12 +3327,24 @@ export default function App() {
         />
       )}
 
-      {/* ✅ CREATE REEL MODAL */}
+      {/* ✅ UPDATED: CREATE REEL MODAL with new handler */}
       {showCreateReelModal && currentUser && (
         <CreateReelModal
           currentUser={currentUser}
           onClose={() => setShowCreateReelModal(false)}
-          onCreate={createReel}
+          onCreate={async (draft) => {
+            try {
+              await createReelFromModal(draft);
+              // Close modal only on success
+              setShowCreateReelModal(false);
+              setInitialSound(null);
+            } catch (e: any) {
+              console.error(e);
+              alert(e?.message || 'Failed to publish reel');
+              // Don't close modal on error - let user try again
+            }
+          }}
+          initialSound={initialSound}
         />
       )}
 
