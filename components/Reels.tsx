@@ -1,9 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
-import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
-import 'react-circular-progressbar/dist/styles.css';
 
-// --- PROFESSIONAL UPLOAD LOADER ---
+// --- PROFESSIONAL UPLOAD LOADER (CUSTOM - NO EXTERNAL DEPENDENCY) ---
 const UploadLoader: React.FC<{ 
   uploadProgress: number; 
   uploadStatus: 'uploading' | 'processing' | 'success' | 'error';
@@ -55,22 +53,48 @@ const UploadLoader: React.FC<{
     }
   };
 
+  const getProgressColor = () => {
+    switch(uploadStatus) {
+      case 'uploading': return 'from-[#1877F2] to-[#2D8CFF]';
+      case 'processing': return 'from-[#F7B928] to-[#FFD166]';
+      case 'success': return 'from-[#45BD62] to-[#6BE685]';
+      case 'error': return 'from-[#F3425F] to-[#FF6B9D]';
+      default: return 'from-[#1877F2] to-[#2D8CFF]';
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl animate-scale-in">
         <div className="flex flex-col items-center justify-center gap-6">
-          {/* Circular Progress */}
+          {/* Circular Progress - Custom SVG Implementation */}
           <div className="w-32 h-32 relative">
-            <CircularProgressbar
-              value={uploadStatus === 'success' ? 100 : uploadProgress}
-              strokeWidth={8}
-              styles={buildStyles({
-                pathColor: getColor(),
-                trailColor: 'rgba(255, 255, 255, 0.1)',
-                pathTransition: uploadStatus === 'success' ? 'none' : 'stroke-dashoffset 0.5s ease 0s',
-                pathTransitionDuration: 0.5,
-              })}
-            />
+            {/* Background Circle */}
+            <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+              {/* Background Track */}
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                fill="none"
+                stroke="rgba(255, 255, 255, 0.1)"
+                strokeWidth="8"
+                strokeLinecap="round"
+              />
+              {/* Progress Arc */}
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                fill="none"
+                stroke={getColor()}
+                strokeWidth="8"
+                strokeLinecap="round"
+                strokeDasharray={`${uploadStatus === 'success' ? 283 : (uploadProgress * 2.83)} 283`}
+                strokeDashoffset="0"
+                className="transition-all duration-500 ease-out"
+              />
+            </svg>
             
             {/* Center Icon with Glow Effect */}
             <div className="absolute inset-0 flex items-center justify-center">
@@ -108,7 +132,7 @@ const UploadLoader: React.FC<{
                 {/* Progress Bar */}
                 <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] rounded-full transition-all duration-500 ease-out"
+                    className={`h-full bg-gradient-to-r ${getProgressColor()} rounded-full transition-all duration-500 ease-out`}
                     style={{ width: `${uploadProgress}%` }}
                   />
                 </div>
@@ -1029,6 +1053,12 @@ interface SoundDetailViewProps {
 const SoundDetailView: React.FC<SoundDetailViewProps> = ({ sound, reels, onClose, onUseSound, onReelClick }) => {
   const matchingCreations = reels.filter(r => r.songName === sound.name || r.audioUrl === sound.url);
   const creationCountStr = matchingCreations.length >= 1000 ? (matchingCreations.length / 1000).toFixed(1) + 'K' : matchingCreations.length;
+
+  const formatCount = (num: number): string => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  };
 
   return (
     <div className="fixed inset-0 z-[600] bg-black flex flex-col animate-fade-in font-sans pb-20 overflow-hidden">
