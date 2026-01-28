@@ -4,6 +4,16 @@ import { MusicSystem } from './MusicSystem'; // Assume this exists
 import { API } from '../services/api'; // Assume this exists
 
 // ==================== TYPES & INTERFACES ====================
+
+// ✅ ADDED: ReelSound type for TikTok-style sound selection
+type ReelSound = {
+  songName: string;
+  audioUrl: string;
+  audioStart?: number;
+  audioEnd?: number;
+  songId?: string | number;
+};
+
 interface Sound {
   id: string | number;
   name: string;
@@ -875,6 +885,65 @@ const SoundItem: React.FC<{
   );
 };
 
+// ==================== SOUND PICKER COMPONENT ====================
+const SoundPicker: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  songs: Song[];
+  onSelect: (s: ReelSound) => void;
+}> = ({ open, onClose, songs, onSelect }) => {
+  const [q, setQ] = React.useState('');
+
+  if (!open) return null;
+
+  const filtered = songs.filter((s: any) => {
+    const t = `${s.title || ''} ${s.artist || ''}`.toLowerCase();
+    return t.includes(q.toLowerCase());
+  });
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-black/70 flex items-end">
+      <div className="w-full bg-[#242526] rounded-t-2xl p-4 max-h-[75vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-white font-semibold">Select sound</p>
+          <button onClick={onClose} className="text-[#B0B3B8]">Close</button>
+        </div>
+
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search songs…"
+          className="w-full mb-3 p-2 rounded-lg bg-[#18191A] text-white border border-[#3E4042]"
+        />
+
+        {filtered.map((song: any) => (
+          <button
+            key={song.id}
+            className="w-full text-left p-3 rounded-xl hover:bg-[#3A3B3C] mb-2"
+            onClick={() => {
+              onSelect({
+                songId: song.id,
+                songName: `${song.title || 'Unknown'}${song.artist ? ' • ' + song.artist : ''}`,
+                audioUrl: song.audio_url,
+                audioStart: 0,
+                audioEnd: 0,
+              });
+              onClose();
+            }}
+          >
+            <p className="text-white font-medium">{song.title || 'Unknown'}</p>
+            <p className="text-[#B0B3B8] text-sm">{song.artist || ''}</p>
+          </button>
+        ))}
+
+        {!filtered.length && (
+          <p className="text-[#B0B3B8] text-center py-6">No songs found.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ==================== ENHANCED CREATE REEL MODAL ====================
 export const CreateReelModal: React.FC<{ 
   currentUser: User, 
@@ -885,21 +954,22 @@ export const CreateReelModal: React.FC<{
     originalSoundId?: string | number;
   }) => Promise<void> | void,
   initialSound?: Sound | null,
-  songs: Song[];
-  soundUsages?: SoundUsage;
-}> = ({ currentUser, onClose, onCreate, initialSound, songs, soundUsages }) => {
+  songs: Song[]; // ✅ ADDED: UNERA Music songs
+  selectedSound?: ReelSound | null; // ✅ ADDED: Selected sound from App
+  onPickSound?: (sound: ReelSound | null) => void; // ✅ ADDED: Sound picker handler
+}> = ({ currentUser, onClose, onCreate, initialSound, songs, selectedSound, onPickSound }) => {
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [selectedAudio, setSelectedAudio] = useState<Sound | null>(initialSound);
-  const [audioStart, setAudioStart] = useState(initialSound?.start || 0);
-  const [audioEnd, setAudioEnd] = useState(initialSound?.end || 0);
+  const [selectedAudio, setSelectedAudio] = useState<Sound | null>(initialSound || null);
+  const [audioStart, setAudioStart] = useState(initialSound?.start || selectedSound?.audioStart || 0);
+  const [audioEnd, setAudioEnd] = useState(initialSound?.end || selectedSound?.audioEnd || 0);
   const [isMusicPickerOpen, setIsMusicPickerOpen] = useState(false);
   const [isTrimmerOpen, setIsTrimmerOpen] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isStudioPlaying, setIsStudioPlaying] = useState(false);
   const [musicSearch, setMusicSearch] = useState('');
-  const [selectedSoundId, setSelectedSoundId] = useState<string | number | null>(initialSound?.id || null);
+  const [selectedSoundId, setSelectedSoundId] = useState<string | number | null>(initialSound?.id || selectedSound?.songId || null);
   const [previewSound, setPreviewSound] = useState<Sound | null>(null);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [availableSongs, setAvailableSongs] = useState<Song[]>(songs || []);
@@ -919,6 +989,25 @@ export const CreateReelModal: React.FC<{
   const previewAudioRef = useRef<HTMLAudioElement>(null);
   const audioUploadRef = useRef<HTMLInputElement>(null);
 
+  // ✅ ADDED: Sync with selectedSound from App
+  useEffect(() => {
+    if (selectedSound) {
+      const sound: Sound = {
+        id: selectedSound.songId || `selected-${Date.now()}`,
+        name: selectedSound.songName,
+        url: selectedSound.audioUrl,
+        start: selectedSound.audioStart,
+        end: selectedSound.audioEnd,
+        creator: currentUser,
+        isOriginal: true
+      };
+      setSelectedAudio(sound);
+      setSelectedSoundId(sound.id);
+      setAudioStart(selectedSound.audioStart || 0);
+      setAudioEnd(selectedSound.audioEnd || 0);
+    }
+  }, [selectedSound, currentUser]);
+
   // Fetch UNERA Music songs
   useEffect(() => {
     const fetchUNERAMusic = async () => {
@@ -926,12 +1015,17 @@ export const CreateReelModal: React.FC<{
       
       setLoadingSongs(true);
       try {
-        // Fetch from UNERA Music API
-        const response = await fetch('/api/music/songs?limit=50&sort=popular');
-        const data = await response.json();
-        
-        if (data?.songs) {
-          setAvailableSongs(data.songs);
+        // Use songs passed from App (already fetched)
+        if (songs.length > 0) {
+          setAvailableSongs(songs);
+        } else {
+          // Fallback: fetch from UNERA Music API
+          const response = await fetch('/api/music/songs?limit=50&sort=popular');
+          const data = await response.json();
+          
+          if (data?.songs) {
+            setAvailableSongs(data.songs);
+          }
         }
       } catch (error) {
         console.error('Failed to fetch UNERA Music:', error);
@@ -977,16 +1071,16 @@ export const CreateReelModal: React.FC<{
       sounds.push({
         id: `music-${song.id}`,
         name: song.title,
-        url: song.audioUrl,
+        url: song.audio_url,
         creator: { 
           id: song.artistId,
           name: song.artist,
-          profile_image_url: song.cover 
+          profile_image_url: song.cover_url
         },
-        creationCount: soundUsages?.[`music-${song.id}`]?.count || 0,
+        creationCount: 0, // Will be populated from reels
         duration: song.duration,
         playCount: song.playCount || 0,
-        coverImage: song.cover,
+        coverImage: song.cover_url,
         isOriginal: false
       });
     });
@@ -997,23 +1091,14 @@ export const CreateReelModal: React.FC<{
         if (!sounds.find(s => s.id === sound.id)) {
           sounds.push({
             ...sound,
-            creationCount: soundUsages?.[sound.id]?.count || 0
+            creationCount: 0
           });
         }
       });
     }
 
-    // Add sounds from soundUsages
-    if (soundUsages) {
-      Object.values(soundUsages).forEach(usage => {
-        if (!sounds.find(s => s.id === usage.sound.id)) {
-          sounds.push(usage.sound);
-        }
-      });
-    }
-
     return sounds.sort((a, b) => (b.creationCount || 0) - (a.creationCount || 0));
-  }, [availableSongs, popularSounds, soundUsages]);
+  }, [availableSongs, popularSounds]);
 
   const filteredSounds = useMemo(() => {
     if (!musicSearch.trim()) return availableSounds;
@@ -1120,10 +1205,12 @@ export const CreateReelModal: React.FC<{
         await new Promise(resolve => setTimeout(resolve, 200));
       }
       
+      const sound = selectedAudio;
+      
       await Promise.resolve(onCreate({
         caption: caption.trim(),
-        songName: selectedAudio?.name || 'Original Sound',
-        audioUrl: selectedAudio?.url,
+        songName: sound?.name || 'Original Sound',
+        audioUrl: sound?.url,
         audioStart,
         audioEnd,
         videoFile: selectedVideoFile,
@@ -1168,6 +1255,17 @@ export const CreateReelModal: React.FC<{
     setAudioEnd(sound.end || sound.duration || 60);
     setIsMusicPickerOpen(false);
     setIsTrimmerOpen(true);
+    
+    // ✅ Notify parent about sound selection
+    if (onPickSound) {
+      onPickSound({
+        songName: sound.name,
+        audioUrl: sound.url,
+        audioStart: sound.start || 0,
+        audioEnd: sound.end || sound.duration || 60,
+        songId: sound.id,
+      });
+    }
   };
 
   const handleSoundPreview = (sound: Sound) => {
@@ -1178,6 +1276,32 @@ export const CreateReelModal: React.FC<{
       setPreviewSound(sound);
       setIsPreviewPlaying(true);
     }
+  };
+
+  // ✅ ADDED: Handle UNERA Music selection
+  const handleUNERAMusicSelect = (reelSound: ReelSound) => {
+    const sound: Sound = {
+      id: reelSound.songId || `unera-${Date.now()}`,
+      name: reelSound.songName,
+      url: reelSound.audioUrl,
+      start: reelSound.audioStart,
+      end: reelSound.audioEnd,
+      creator: currentUser,
+      isOriginal: false
+    };
+    
+    setSelectedAudio(sound);
+    setSelectedSoundId(sound.id);
+    setAudioStart(reelSound.audioStart || 0);
+    setAudioEnd(reelSound.audioEnd || 0);
+    
+    // ✅ Notify parent about sound selection
+    if (onPickSound) {
+      onPickSound(reelSound);
+    }
+    
+    setIsMusicPickerOpen(false);
+    setIsTrimmerOpen(true);
   };
 
   return (
@@ -1277,6 +1401,7 @@ export const CreateReelModal: React.FC<{
               setSelectedAudio(null);
               setSelectedAudioFile(null);
               setSelectedSoundId(null);
+              if (onPickSound) onPickSound(null); // ✅ Clear sound selection
             }} className="flex flex-col items-center gap-2">
               <div className="w-14 h-14 rounded-3xl bg-red-600/20 border-2 border-red-600/30 text-red-500 flex items-center justify-center backdrop-blur-2xl">
                 <i className="fas fa-trash-alt text-xl"></i>
@@ -1781,6 +1906,9 @@ interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
   currentUser: User | null;
+  songs: Song[];                 // ✅ ADDED: UNERA Music songs
+  selectedSound: ReelSound | null; // ✅ ADDED: Selected sound from App
+  onPickSound: (s: ReelSound | null) => void; // ✅ ADDED: Sound picker handler
   onProfileClick: (id: number) => void;
   onCreateReelClick: () => void;
   onReact: (reelId: number, type?: ReactionType) => void;
@@ -1798,6 +1926,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   reels, 
   users, 
   currentUser, 
+  songs, // ✅ ADDED: UNERA Music songs
+  selectedSound, // ✅ ADDED: Selected sound
+  onPickSound, // ✅ ADDED: Sound picker handler
   onProfileClick, 
   onCreateReelClick, 
   onReact, 
@@ -1817,6 +1948,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [showComments, setShowComments] = useState(false);
   const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
   const [soundDetailLoading, setSoundDetailLoading] = useState(false);
+  const [showSoundPicker, setShowSoundPicker] = useState(false); // ✅ ADDED: Sound picker state
+  
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
 
@@ -1961,6 +2094,12 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const handleUseSound = (sound: Sound) => {
     onUseSound(sound);
     setSelectedSoundData(null);
+  };
+
+  // ✅ ADDED: Handle sound selection from UNERA Music
+  const handleSoundSelect = (reelSound: ReelSound) => {
+    onPickSound(reelSound);
+    setShowSoundPicker(false);
   };
 
   return (
@@ -2178,13 +2317,42 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         />
       )}
 
-      {currentUser && !selectedSoundData && (
-        <button 
-          onClick={onCreateReelClick} 
-          className="absolute bottom-8 right-6 w-16 h-16 bg-[#1877F2] rounded-full flex items-center justify-center text-white shadow-2xl hover:scale-105 active:scale-95 transition-all z-40 border-4 border-black"
-        >
-          <i className="fas fa-plus text-3xl"></i>
-        </button>
+      {/* ✅ ADDED: Sound Picker UI */}
+      {showSoundPicker && (
+        <SoundPicker
+          open={showSoundPicker}
+          onClose={() => setShowSoundPicker(false)}
+          songs={songs}
+          onSelect={handleSoundSelect}
+        />
+      )}
+
+      {/* ✅ ADDED: Sound selection UI */}
+      {currentUser && (
+        <div className="absolute bottom-24 right-6 flex flex-col gap-3 z-40">
+          {selectedSound?.audioUrl && (
+            <div className="bg-black/80 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 max-w-[200px]">
+              <p className="text-white text-xs font-semibold truncate">
+                Using: <span className="text-[#1877F2]">{selectedSound.songName}</span>
+              </p>
+            </div>
+          )}
+          
+          <button
+            onClick={() => setShowSoundPicker(true)}
+            className="bg-[#1877F2] text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 shadow-2xl hover:bg-[#166FE5] transition-colors"
+          >
+            <i className="fas fa-music"></i>
+            Choose sound
+          </button>
+          
+          <button 
+            onClick={onCreateReelClick} 
+            className="w-16 h-16 bg-[#1877F2] rounded-full flex items-center justify-center text-white shadow-2xl hover:scale-105 active:scale-95 transition-all z-40 border-4 border-black"
+          >
+            <i className="fas fa-plus text-3xl"></i>
+          </button>
+        </div>
       )}
     </div>
   );
