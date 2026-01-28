@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
+import { MusicSystem } from './MusicSystem'; // Assume this exists
+import { API } from '../services/api'; // Assume this exists
 
 // ==================== TYPES & INTERFACES ====================
 interface Sound {
@@ -12,6 +14,9 @@ interface Sound {
   creationCount?: number;
   duration?: number;
   isOriginal?: boolean;
+  playCount?: number;
+  viewCount?: number;
+  coverImage?: string;
 }
 
 interface SoundUsage {
@@ -19,6 +24,7 @@ interface SoundUsage {
     reels: Reel[];
     count: number;
     sound: Sound;
+    totalViews: number;
   };
 }
 
@@ -281,7 +287,6 @@ const CameraStudio: React.FC<{
       setIsSoundPlaying(true);
       setSoundSyncOffset(0);
       
-      // Update sound time display
       if (soundTimerRef.current) clearInterval(soundTimerRef.current);
       soundTimerRef.current = setInterval(() => {
         if (soundRef.current) {
@@ -424,7 +429,6 @@ const CameraStudio: React.FC<{
         setIsRecording(true);
         setRecordingTime(0);
         
-        // Start selected sound if available
         if (selectedSound?.url) {
           playSound();
         }
@@ -439,7 +443,6 @@ const CameraStudio: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[600] bg-black flex flex-col font-sans overflow-hidden animate-fade-in">
-      {/* Sound indicator */}
       {selectedSound && (
         <div className="absolute top-24 left-1/2 transform -translate-x-1/2 z-30 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/20">
           <div className="flex items-center gap-2">
@@ -808,46 +811,62 @@ const SoundItem: React.FC<{
   onSelect: (sound: Sound) => void;
   onPreview: (sound: Sound) => void;
   isSelected: boolean;
-}> = ({ sound, onSelect, onPreview, isSelected }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
+  isPreviewing?: boolean;
+}> = ({ sound, onSelect, onPreview, isSelected, isPreviewing }) => {
+  const [isHovering, setIsHovering] = useState(false);
   
   const handlePreview = (e: React.MouseEvent) => {
     e.stopPropagation();
     onPreview(sound);
-    setIsPlaying(true);
-    setTimeout(() => setIsPlaying(false), 3000);
   };
 
   return (
     <div 
       onClick={() => onSelect(sound)} 
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
       className={`bg-white/5 p-5 rounded-[24px] flex items-center gap-5 active:scale-95 transition-all border-2 ${isSelected ? 'border-[#1877F2] bg-[#1877F2]/10' : 'border-transparent hover:border-white/10'} group`}
     >
       <div className="relative w-16 h-16 shrink-0">
-        {sound.creator?.profile_image_url ? (
-          <img src={sound.creator.profile_image_url} className="w-full h-full rounded-2xl object-cover shadow-2xl" alt="" />
+        {sound.coverImage || sound.creator?.profile_image_url ? (
+          <img 
+            src={sound.coverImage || sound.creator?.profile_image_url} 
+            className="w-full h-full rounded-2xl object-cover shadow-2xl" 
+            alt="" 
+          />
         ) : (
           <div className="w-full h-full rounded-2xl bg-gradient-to-br from-[#1877F2] to-[#F3425F] flex items-center justify-center shadow-2xl">
             <i className="fas fa-music text-white text-2xl"></i>
           </div>
         )}
-        <button 
-          onClick={handlePreview}
-          className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"
-        >
-          <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-white text-xl`}></i>
-        </button>
+        {(isHovering || isPreviewing) && (
+          <button 
+            onClick={handlePreview}
+            className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-2xl transition-opacity"
+          >
+            <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+              <i className={`fas ${isPreviewing ? 'fa-pause' : 'fa-play'} text-white text-lg ml-1`}></i>
+            </div>
+          </button>
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <p className="font-black text-lg truncate text-white">{sound.name}</p>
         <p className="text-white/40 text-[11px] font-bold truncate tracking-widest uppercase mt-0.5">
           {sound.creator?.name || 'Original Sound'}
         </p>
-        {sound.creationCount !== undefined && sound.creationCount > 0 && (
-          <p className="text-[#45BD62] text-[10px] font-bold uppercase tracking-widest mt-1">
-            {sound.creationCount.toLocaleString()} uses
-          </p>
-        )}
+        <div className="flex items-center gap-3 mt-1">
+          {sound.creationCount !== undefined && sound.creationCount > 0 && (
+            <span className="text-[#45BD62] text-[10px] font-bold uppercase tracking-widest">
+              {formatCount(sound.creationCount)} uses
+            </span>
+          )}
+          {sound.playCount !== undefined && sound.playCount > 0 && (
+            <span className="text-white/60 text-[10px] font-medium">
+              {formatCount(sound.playCount)} plays
+            </span>
+          )}
+        </div>
       </div>
       <div className={`w-12 h-12 rounded-full flex items-center justify-center border shadow-inner ${isSelected ? 'bg-[#1877F2] text-white border-[#1877F2]' : 'bg-white/5 text-[#1877F2] border-white/5'}`}>
         <i className={`fas ${isSelected ? 'fa-check' : 'fa-plus'}`}></i>
@@ -883,6 +902,10 @@ export const CreateReelModal: React.FC<{
   const [selectedSoundId, setSelectedSoundId] = useState<string | number | null>(initialSound?.id || null);
   const [previewSound, setPreviewSound] = useState<Sound | null>(null);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [availableSongs, setAvailableSongs] = useState<Song[]>(songs || []);
+  const [loadingSongs, setLoadingSongs] = useState(false);
+  const [popularSounds, setPopularSounds] = useState<Sound[]>([]);
+  const [loadingPopularSounds, setLoadingPopularSounds] = useState(false);
   
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState<'uploading' | 'processing' | 'success' | 'error'>('uploading');
@@ -891,27 +914,96 @@ export const CreateReelModal: React.FC<{
   const [selectedVideoFile, setSelectedVideoFile] = useState<File | Blob | null>(null);
   const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
   
-  const [availableSongs, setAvailableSongs] = useState<Song[]>(songs || []);
-  
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement>(null);
   const audioUploadRef = useRef<HTMLInputElement>(null);
 
-  const availableSounds = useMemo(() => {
-    const sounds: Sound[] = availableSongs.map(song => ({
-      id: song.id,
-      name: song.title,
-      url: song.audioUrl,
-      creator: { 
-        id: song.artistId,
-        name: song.artist,
-        profile_image_url: song.cover 
-      },
-      creationCount: soundUsages?.[song.id]?.count || 0,
-      duration: song.duration
-    }));
+  // Fetch UNERA Music songs
+  useEffect(() => {
+    const fetchUNERAMusic = async () => {
+      if (availableSongs.length > 0) return;
+      
+      setLoadingSongs(true);
+      try {
+        // Fetch from UNERA Music API
+        const response = await fetch('/api/music/songs?limit=50&sort=popular');
+        const data = await response.json();
+        
+        if (data?.songs) {
+          setAvailableSongs(data.songs);
+        }
+      } catch (error) {
+        console.error('Failed to fetch UNERA Music:', error);
+        // Fallback to local songs if available
+        if (songs.length > 0) {
+          setAvailableSongs(songs);
+        }
+      } finally {
+        setLoadingSongs(false);
+      }
+    };
 
+    fetchUNERAMusic();
+  }, [availableSongs.length, songs]);
+
+  // Fetch popular sounds from existing reels
+  useEffect(() => {
+    const fetchPopularSounds = async () => {
+      setLoadingPopularSounds(true);
+      try {
+        // Fetch sounds with most usage
+        const response = await fetch('/api/sounds/popular?limit=20');
+        const data = await response.json();
+        
+        if (data?.sounds) {
+          setPopularSounds(data.sounds);
+        }
+      } catch (error) {
+        console.error('Failed to fetch popular sounds:', error);
+      } finally {
+        setLoadingPopularSounds(false);
+      }
+    };
+
+    fetchPopularSounds();
+  }, []);
+
+  const availableSounds = useMemo(() => {
+    const sounds: Sound[] = [];
+    
+    // Add UNERA Music songs
+    availableSongs.forEach(song => {
+      sounds.push({
+        id: `music-${song.id}`,
+        name: song.title,
+        url: song.audioUrl,
+        creator: { 
+          id: song.artistId,
+          name: song.artist,
+          profile_image_url: song.cover 
+        },
+        creationCount: soundUsages?.[`music-${song.id}`]?.count || 0,
+        duration: song.duration,
+        playCount: song.playCount || 0,
+        coverImage: song.cover,
+        isOriginal: false
+      });
+    });
+
+    // Add popular sounds from existing reels
+    if (popularSounds.length > 0) {
+      popularSounds.forEach(sound => {
+        if (!sounds.find(s => s.id === sound.id)) {
+          sounds.push({
+            ...sound,
+            creationCount: soundUsages?.[sound.id]?.count || 0
+          });
+        }
+      });
+    }
+
+    // Add sounds from soundUsages
     if (soundUsages) {
       Object.values(soundUsages).forEach(usage => {
         if (!sounds.find(s => s.id === usage.sound.id)) {
@@ -921,7 +1013,7 @@ export const CreateReelModal: React.FC<{
     }
 
     return sounds.sort((a, b) => (b.creationCount || 0) - (a.creationCount || 0));
-  }, [availableSongs, soundUsages]);
+  }, [availableSongs, popularSounds, soundUsages]);
 
   const filteredSounds = useMemo(() => {
     if (!musicSearch.trim()) return availableSounds;
@@ -973,6 +1065,10 @@ export const CreateReelModal: React.FC<{
       };
       
       stopAfterDuration();
+      
+      return () => {
+        audio.pause();
+      };
     }
   }, [previewSound, isPreviewPlaying]);
 
@@ -981,19 +1077,25 @@ export const CreateReelModal: React.FC<{
       const file = e.target.files[0];
       setSelectedAudioFile(file);
       const url = URL.createObjectURL(file);
-      const newSound: Sound = {
-        id: `upload-${Date.now()}`,
-        name: file.name.split('.')[0],
-        url,
-        isOriginal: true,
-        creator: currentUser
-      };
-      setSelectedAudio(newSound);
-      setSelectedSoundId(newSound.id);
-      setAudioStart(0);
-      setAudioEnd(0);
-      setIsMusicPickerOpen(false);
-      setIsTrimmerOpen(true);
+      
+      // Get duration of uploaded audio
+      const audio = new Audio(url);
+      audio.addEventListener('loadedmetadata', () => {
+        const newSound: Sound = {
+          id: `upload-${Date.now()}`,
+          name: file.name.split('.')[0],
+          url,
+          duration: audio.duration,
+          isOriginal: true,
+          creator: currentUser
+        };
+        setSelectedAudio(newSound);
+        setSelectedSoundId(newSound.id);
+        setAudioStart(0);
+        setAudioEnd(audio.duration || 60);
+        setIsMusicPickerOpen(false);
+        setIsTrimmerOpen(true);
+      });
     }
   };
 
@@ -1012,15 +1114,11 @@ export const CreateReelModal: React.FC<{
     window.addEventListener('beforeunload', beforeUnloadHandler);
     
     try {
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 300);
+      // Simulate upload progress
+      for (let i = 0; i <= 100; i += 10) {
+        setUploadProgress(i);
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
       
       await Promise.resolve(onCreate({
         caption: caption.trim(),
@@ -1033,7 +1131,6 @@ export const CreateReelModal: React.FC<{
         originalSoundId: selectedSoundId || undefined,
       }));
       
-      clearInterval(progressInterval);
       setUploadProgress(100);
       setUploadStatus('processing');
       
@@ -1074,8 +1171,13 @@ export const CreateReelModal: React.FC<{
   };
 
   const handleSoundPreview = (sound: Sound) => {
-    setPreviewSound(sound);
-    setIsPreviewPlaying(true);
+    if (previewSound?.id === sound.id && isPreviewPlaying) {
+      setIsPreviewPlaying(false);
+      setPreviewSound(null);
+    } else {
+      setPreviewSound(sound);
+      setIsPreviewPlaying(true);
+    }
   };
 
   return (
@@ -1275,7 +1377,11 @@ export const CreateReelModal: React.FC<{
 
               <div className="h-[1px] bg-white/5 my-6"></div>
 
-              {availableSounds.length > 0 && (
+              {loadingPopularSounds ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-8 h-8 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : (
                 <>
                   <div className="mb-6">
                     <h4 className="text-white font-black text-sm uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -1283,13 +1389,14 @@ export const CreateReelModal: React.FC<{
                       Trending Sounds
                     </h4>
                     <div className="space-y-4">
-                      {availableSounds.slice(0, 5).map(sound => (
+                      {popularSounds.slice(0, 5).map(sound => (
                         <SoundItem 
                           key={sound.id} 
                           sound={sound} 
                           onSelect={handleSoundSelect}
                           onPreview={handleSoundPreview}
                           isSelected={selectedSoundId === sound.id}
+                          isPreviewing={previewSound?.id === sound.id && isPreviewPlaying}
                         />
                       ))}
                     </div>
@@ -1300,27 +1407,32 @@ export const CreateReelModal: React.FC<{
                   <div>
                     <h4 className="text-white font-black text-sm uppercase tracking-widest mb-4 flex items-center gap-2">
                       <i className="fas fa-music text-[#1877F2]"></i>
-                      All Sounds ({filteredSounds.length})
+                      UNERA Music ({loadingSongs ? 'Loading...' : filteredSounds.length})
                     </h4>
-                    <div className="space-y-4">
-                      {filteredSounds.length > 0 ? (
-                        filteredSounds.map(sound => (
+                    {loadingSongs ? (
+                      <div className="flex justify-center py-12">
+                        <div className="w-8 h-8 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    ) : filteredSounds.length > 0 ? (
+                      <div className="space-y-4">
+                        {filteredSounds.map(sound => (
                           <SoundItem 
                             key={sound.id} 
                             sound={sound} 
                             onSelect={handleSoundSelect}
                             onPreview={handleSoundPreview}
                             isSelected={selectedSoundId === sound.id}
+                            isPreviewing={previewSound?.id === sound.id && isPreviewPlaying}
                           />
-                        ))
-                      ) : (
-                        <div className="text-center py-12">
-                          <i className="fas fa-music text-4xl text-[#B0B3B8] mb-4"></i>
-                          <p className="text-white/60">No sounds found</p>
-                          {musicSearch && <p className="text-white/40 text-sm mt-2">Try a different search term</p>}
-                        </div>
-                      )}
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12">
+                        <i className="fas fa-music text-4xl text-[#B0B3B8] mb-4"></i>
+                        <p className="text-white/60">No sounds found</p>
+                        {musicSearch && <p className="text-white/40 text-sm mt-2">Try a different search term</p>}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -1352,6 +1464,14 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [relatedSounds, setRelatedSounds] = useState<Sound[]>([]);
+  const [loadingRelated, setLoadingRelated] = useState(false);
+  const [soundStats, setSoundStats] = useState({
+    totalViews: 0,
+    totalLikes: 0,
+    totalComments: 0,
+    totalShares: 0
+  });
   const audioRef = useRef<HTMLAudioElement>(null);
   const timerRef = useRef<any>(null);
   
@@ -1365,6 +1485,48 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
 
   const creationCount = soundUsages?.[sound.id?.toString()]?.count || matchingCreations.length;
   const creationCountStr = formatCount(creationCount);
+
+  // Calculate real stats from matching reels
+  useEffect(() => {
+    const stats = {
+      totalViews: 0,
+      totalLikes: 0,
+      totalComments: 0,
+      totalShares: 0
+    };
+
+    matchingCreations.forEach(reel => {
+      stats.totalViews += reel.views || 0;
+      stats.totalLikes += reel.reactions.length;
+      stats.totalComments += reel.comments.length;
+      stats.totalShares += reel.shares || 0;
+    });
+
+    setSoundStats(stats);
+  }, [matchingCreations]);
+
+  // Fetch related sounds
+  useEffect(() => {
+    const fetchRelatedSounds = async () => {
+      if (!sound.creator?.id) return;
+      
+      setLoadingRelated(true);
+      try {
+        const response = await fetch(`/api/sounds/related?creatorId=${sound.creator.id}&limit=5`);
+        const data = await response.json();
+        
+        if (data?.sounds) {
+          setRelatedSounds(data.sounds);
+        }
+      } catch (error) {
+        console.error('Failed to fetch related sounds:', error);
+      } finally {
+        setLoadingRelated(false);
+      }
+    };
+
+    fetchRelatedSounds();
+  }, [sound.creator?.id]);
 
   useEffect(() => {
     if (audioRef.current && isPlaying) {
@@ -1390,13 +1552,13 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause();
+        setIsPlaying(false);
       } else {
         audioRef.current.src = sound.url;
         audioRef.current.currentTime = sound.start || 0;
         audioRef.current.play().catch(() => {});
         setIsPlaying(true);
         
-        // Auto stop after duration or 10 seconds
         const duration = (sound.end || sound.duration || 30) - (sound.start || 0);
         setTimeout(() => {
           setIsPlaying(false);
@@ -1406,7 +1568,6 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
           }
         }, Math.min(duration * 1000, 10000));
       }
-      setIsPlaying(!isPlaying);
     }
   };
 
@@ -1414,6 +1575,10 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const calculateTotalViews = () => {
+    return matchingCreations.reduce((total, reel) => total + (reel.views || 0), 0);
   };
 
   return (
@@ -1458,7 +1623,7 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
             </p>
           </div>
           <p className="text-[#B0B3B8] font-bold text-xs uppercase tracking-[4px] mb-8">
-            {creationCountStr} VIRAL CREATIONS
+            {creationCountStr} VIRAL CREATIONS • {formatCount(calculateTotalViews())} VIEWS
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4">
@@ -1484,14 +1649,12 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
         <h4 className="text-white font-black text-sm uppercase tracking-widest mb-4">Sound Statistics</h4>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Uses</p>
-            <p className="text-white text-2xl font-black mt-2">{creationCountStr}</p>
+            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Views</p>
+            <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalViews)}</p>
           </div>
           <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Popularity</p>
-            <p className="text-white text-2xl font-black mt-2">
-              {creationCount > 1000 ? '🔥 Viral' : creationCount > 100 ? '📈 Rising' : '💎 New'}
-            </p>
+            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Likes</p>
+            <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalLikes)}</p>
           </div>
           <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
             <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Duration</p>
@@ -1506,10 +1669,47 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
         </div>
       </div>
 
+      {relatedSounds.length > 0 && (
+        <div className="px-8 py-6 border-t border-white/5">
+          <h4 className="text-white font-black text-sm uppercase tracking-widest mb-4">More from {sound.creator?.name || 'this creator'}</h4>
+          <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+            {relatedSounds.map(relatedSound => (
+              <div key={relatedSound.id} className="flex-shrink-0 w-32">
+                <div className="w-32 h-32 rounded-2xl bg-gradient-to-br from-[#1877F2]/20 to-[#F3425F]/20 border border-white/10 overflow-hidden relative group">
+                  {relatedSound.coverImage ? (
+                    <img src={relatedSound.coverImage} className="w-full h-full object-cover" alt="" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <i className="fas fa-music text-white/40 text-3xl"></i>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <i className="fas fa-play text-white text-xl"></i>
+                  </div>
+                </div>
+                <p className="text-white text-sm font-bold truncate mt-2">{relatedSound.name}</p>
+                <p className="text-white/40 text-xs">{formatCount(relatedSound.creationCount || 0)} uses</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto px-0.5 mt-4">
         <div className="px-8 mb-4">
-          <h4 className="text-white font-black text-sm uppercase tracking-widest">Latest Creations</h4>
-          <p className="text-white/40 text-xs mt-1">Videos using this sound</p>
+          <div className="flex justify-between items-center">
+            <div>
+              <h4 className="text-white font-black text-sm uppercase tracking-widest">Latest Creations</h4>
+              <p className="text-white/40 text-xs mt-1">
+                {matchingCreations.length} videos using this sound • {formatCount(soundStats.totalViews)} total views
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-[#45BD62] text-xs font-bold">
+                {formatCount(soundStats.totalViews / Math.max(matchingCreations.length, 1))} avg views per video
+              </p>
+            </div>
+          </div>
         </div>
         {matchingCreations.length > 0 ? (
           <div className="grid grid-cols-3 gap-0.5">
@@ -1564,8 +1764,8 @@ const ReelThumbnail: React.FC<{
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       <div className="absolute bottom-2 left-2 flex items-center gap-1.5 text-white text-[10px] font-black bg-black/40 px-2 py-1 rounded-lg backdrop-blur-md">
-        <i className="fas fa-play text-[8px]"></i> 
-        {formatCount(reel.shares * 20 + reel.reactions.length * 5)} 
+        <i className="fas fa-eye text-[8px]"></i> 
+        {formatCount(reel.views || 0)} 
       </div>
       <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <div className="w-8 h-8 bg-black/60 rounded-full flex items-center justify-center">
@@ -1610,20 +1810,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   initialReelId,
   soundUsages = {}
 }) => {
-  console.log('REELS DEBUG:', {
-    count: reels?.length,
-    firstReel: reels?.[0],
-    hasVideoUrl: reels?.[0]?.videoUrl,
-    hasUserId: reels?.[0]?.userId,
-    initialReelId
-  });
-
   const [activeReelId, setActiveReelId] = useState<number | null>(
     initialReelId || (reels[0]?.id || null)
   );
   const [playingReelId, setPlayingReelId] = useState<number | null>(null); 
   const [showComments, setShowComments] = useState(false);
   const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
+  const [soundDetailLoading, setSoundDetailLoading] = useState(false);
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
 
@@ -1719,7 +1912,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     });
   }, [playingReelId, reels]);
 
-  const extractSoundFromReel = (reel: Reel): Sound => {
+  const extractSoundFromReel = useCallback((reel: Reel): Sound => {
     const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
     const usageCount = reel.audioUrl ? reelsBySound[reel.audioUrl]?.length || 0 : 0;
     
@@ -1733,12 +1926,37 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       creationCount: usageCount,
       isOriginal: !reel.originalSoundId
     };
-  };
+  }, [users, reelsBySound]);
 
-  const handleSoundClick = (reel: Reel) => {
+  const handleSoundClick = useCallback(async (reel: Reel) => {
     const sound = extractSoundFromReel(reel);
-    setSelectedSoundData(sound);
-  };
+    
+    // Fetch detailed sound information
+    setSoundDetailLoading(true);
+    try {
+      const response = await fetch(`/api/sounds/${sound.id}/detail`);
+      const data = await response.json();
+      
+      if (data?.sound) {
+        // Merge fetched data with basic sound info
+        const detailedSound: Sound = {
+          ...sound,
+          ...data.sound,
+          playCount: data.sound.playCount || 0,
+          viewCount: data.sound.viewCount || 0,
+          duration: data.sound.duration || 30
+        };
+        setSelectedSoundData(detailedSound);
+      } else {
+        setSelectedSoundData(sound);
+      }
+    } catch (error) {
+      console.error('Failed to fetch sound details:', error);
+      setSelectedSoundData(sound);
+    } finally {
+      setSoundDetailLoading(false);
+    }
+  }, [extractSoundFromReel]);
 
   const handleUseSound = (sound: Sound) => {
     onUseSound(sound);
@@ -1935,7 +2153,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         />
       )}
       
-      {selectedSoundData && (
+      {soundDetailLoading && (
+        <div className="fixed inset-0 z-[599] bg-black/80 flex items-center justify-center">
+          <div className="w-16 h-16 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      )}
+      
+      {selectedSoundData && !soundDetailLoading && (
         <SoundDetailView 
           sound={selectedSoundData} 
           reels={reelsBySound[selectedSoundData.url || selectedSoundData.name] || []} 
@@ -2057,6 +2281,14 @@ const ReelCommentsSheet: React.FC<{
       </div>
     </div>
   );
+};
+
+// ==================== UTILITY FUNCTIONS ====================
+const formatCount = (num: number): string => {
+  if (!num && num !== 0) return '0';
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toLocaleString();
 };
 
 // ==================== STYLES ====================
