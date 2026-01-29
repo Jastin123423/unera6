@@ -1,4 +1,4 @@
-
+// App.tsx - Professionally Updated with Reels Integration
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -417,7 +417,7 @@ const normalizeUser = (u: any): User => {
   } as any;
 };
 
-/** ✅ ADDED: Normalize reel data ---------- */
+/** ✅ UPDATED: Normalize reel data with D1 table fields ---------- */
 const normalizeReel = (r: any): Reel => {
   const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
   const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
@@ -432,10 +432,14 @@ const normalizeReel = (r: any): Reel => {
     audioUrl: r?.audio_url ?? r?.audioUrl,
     audioStart: safeNumber(r?.audio_start ?? r?.audioStart ?? 0),
     audioEnd: safeNumber(r?.audio_end ?? r?.audioEnd ?? 0),
+    visibility: r?.visibility ?? 'public',
+    location: r?.location ?? '',
+    views: safeNumber(r?.views ?? 0),
+    shares: safeNumber(r?.shares ?? 0),
+    songId: r?.song_id ?? r?.songId ?? null,
+    soundKey: r?.sound_key ?? r?.soundKey ?? null,
     reactions: safeArray(r?.reactions),
     comments: safeArray(r?.comments),
-    shares: safeNumber(r?.shares ?? 0),
-    views: safeNumber(r?.views ?? 0),
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
   } as any;
 };
@@ -704,6 +708,7 @@ type ReelSound = {
   audioStart?: number;
   audioEnd?: number;
   songId?: string | number;
+  soundKey?: string;
 };
 
 type View =
@@ -1308,7 +1313,26 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- ✅ UPDATED: Create reel with ensureR2Url helper ---------- */
+  /** ✅ ADDED: Generate sound key based on sound type ---------- */
+  const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
+    // Use soundKey from reelData if provided
+    if (reelData.soundKey) return reelData.soundKey;
+    
+    // Generate based on songId if available
+    if (selectedReelSound?.songId) {
+      return `song:${selectedReelSound.songId}`;
+    }
+    
+    // Generate based on audioUrl if available
+    if (selectedReelSound?.audioUrl) {
+      return `original:${currentUser?.id || 'unknown'}:${Date.now()}`;
+    }
+    
+    // Default fallback
+    return 'original:none';
+  }, [currentUser]);
+
+  /** ✅ UPDATED: Create reel with proper D1 table column mapping ---------- */
   const createReel = useCallback(async (reelData: Partial<Reel> & { 
     videoFile?: File | Blob; 
     audioFile?: File | Blob;
@@ -1317,22 +1341,17 @@ export default function App() {
     if (!requireAuth('Creating reels')) return;
     if (!currentUser) return;
 
-    // ✅ ADDED: Debug logging to see what we receive
     console.log("createReel input:", reelData);
-    console.log("videoFile:", reelData.videoFile);
-    console.log("videoUrl:", (reelData as any).videoUrl);
-    console.log("caption:", reelData.caption);
-    console.log("songName:", reelData.songName);
-
+    
     setIsFeedRefreshing(true);
     
     try {
-      // ✅ Get videoFile from reelData (this should come from CreateReelModal)
+      // ✅ CRITICAL: Get videoFile from reelData (must come from CreateReelModal)
       const videoFile = reelData.videoFile;
       const audioFile = reelData.audioFile;
       
       if (!videoFile) {
-        throw new Error('No video file provided. Please select a video.');
+        throw new Error('Video was not uploaded. Please select a video [video file missing]');
       }
 
       // ✅ Use ensureR2Url to handle File/Blob/blob URL conversion
@@ -1362,16 +1381,24 @@ export default function App() {
         songId: reelData.originalSoundId,
       };
 
+      // ✅ Generate sound key for grouping
+      const soundKey = generateSoundKey(reelData, selectedReelSound);
+
+      // ✅ UPDATED: Payload matches D1 table columns
       const payload = {
         user_id: currentUser.id,
         caption: reelData.caption || '',
-        video_url: videoUrl,        // ✅ always real URL now
+        video_url: videoUrl,
         song_name: soundPayload.songName,
-        audio_url: soundPayload.audioUrl,
+        audio_url: soundPayload.audioUrl || null,
         audio_start: soundPayload.audioStart || 0,
         audio_end: soundPayload.audioEnd || 0,
-        original_sound_id: soundPayload.songId,
-        visibility: 'public',
+        song_id: soundPayload.songId || null, // ✅ Changed from original_sound_id to song_id
+        sound_key: soundKey, // ✅ Added for sound grouping
+        visibility: reelData.visibility || 'public',
+        location: reelData.location || '',
+        views: 0,
+        shares: 0,
       };
       
       console.log("Sending to API:", payload);
@@ -1402,7 +1429,7 @@ export default function App() {
       setIsFeedRefreshing(false);
       setShowCreateReelModal(false);
     }
-  }, [currentUser, requireAuth, fetchReels, selectedReelSound]);
+  }, [currentUser, requireAuth, fetchReels, selectedReelSound, generateSoundKey]);
 
   /** ---------- ✅ ADDED: React to reel ---------- */
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
@@ -1490,18 +1517,27 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ ADDED: Use sound from reel ---------- */
+  /** ✅ UPDATED: Use sound from reel with correct field mapping ---------- */
   const useSoundFromReel = useCallback((soundFromReel: any) => {
     const audioUrl = soundFromReel?.audio_url || soundFromReel?.audioUrl || '';
     const songName = soundFromReel?.song_name || soundFromReel?.songName || 'Original Sound';
+    const audioStart = safeNumber(soundFromReel?.audio_start ?? soundFromReel?.audioStart ?? 0);
+    const audioEnd = safeNumber(soundFromReel?.audio_end ?? soundFromReel?.audioEnd ?? 0);
+    
+    // Get songId from either song_id or originalSoundId fields
+    const songId = soundFromReel?.song_id ?? soundFromReel?.originalSoundId;
+    const soundKey = soundFromReel?.sound_key ?? soundFromReel?.soundKey;
 
-    setSelectedReelSound(audioUrl ? {
-      songName,
-      audioUrl,
-      audioStart: Number(soundFromReel?.audio_start ?? soundFromReel?.audioStart ?? 0),
-      audioEnd: Number(soundFromReel?.audio_end ?? soundFromReel?.audioEnd ?? 0),
-      songId: soundFromReel?.originalSoundId || soundFromReel?.songId,
-    } : null);
+    if (audioUrl) {
+      setSelectedReelSound({
+        songName,
+        audioUrl,
+        audioStart,
+        audioEnd,
+        songId,
+        soundKey
+      });
+    }
 
     setShowCreateReelModal(true);
   }, []);
