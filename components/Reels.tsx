@@ -1,1530 +1,935 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { User, Reel, ReactionType, Comment, Song } from '../types';
-import { MusicSystem } from './MusicSystem';
-import { API } from '../services/api';
+// Feed.tsx - Professionally Updated
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import {
+  User,
+  Post as PostType,
+  ReactionType,
+  Comment,
+  Group,
+  Brand,
+  AudioTrack,
+  Product,
+} from '../types';
+import { 
+  Heart, 
+  MessageCircle, 
+  Share2, 
+  MoreVertical, 
+  Play, 
+  Pause, 
+  Volume2, 
+  VolumeX,
+  X,
+  Send,
+  Image as ImageIcon,
+  Video,
+  Music,
+  Link,
+  MapPin,
+  Smile,
+  Users,
+  Globe,
+  Lock,
+  User as UserIcon,
+  ThumbsUp,
+  Heart as HeartSolid,
+  Share
+} from 'lucide-react';
 
-// ==================== TYPES & INTERFACES ====================
+// ==================== TYPE DEFINITIONS ====================
 
-type ReelSound = {
-  songName: string;
-  audioUrl: string;
-  audioStart?: number;
-  audioEnd?: number;
-  songId?: string | number;
-  soundKey?: string; // ✅ ADDED: Unique sound identifier
-};
-
-interface Sound {
-  id: string | number;
-  name: string;
-  url: string;
-  start?: number;
-  end?: number;
-  creator?: User;
-  creationCount?: number;
-  duration?: number;
-  isOriginal?: boolean;
-  playCount?: number;
-  viewCount?: number;
-  coverImage?: string;
-  soundKey?: string; // ✅ ADDED: For consistent sound identification
+interface FeedPostProps {
+  post: PostType;
+  author: User;
+  currentUser: User | null;
+  users: User[];
+  onProfileClick: (id: number) => void;
+  onReact: (postId: number, type: ReactionType) => void;
+  onShare: (post: PostType) => void;
+  onViewImage: (url: string) => void;
+  onOpenComments: (postId: number) => void;
+  onVideoClick: (post: PostType) => void;
+  onPlayAudioTrack: (track: AudioTrack) => void;
+  groups: Group[];
+  brands: Brand[];
+  chats: any[];
+  onHashtagClick?: (tag: string) => void;
+  onFollow: (userId: number) => void;
+  isFollowing: boolean;
+  followLoading: boolean;
 }
 
-interface SoundUsage {
-  [soundId: string]: {
-    reels: Reel[];
-    count: number;
-    sound: Sound;
-    totalViews: number;
-  };
+interface CreatePostProps {
+  currentUser: User;
+  onProfileClick: (id: number) => void;
+  onClick: () => void;
 }
 
-// ==================== AUDIO FOCUS MANAGER ====================
-const useAudioFocus = () => {
-  const stopAllAudio = useCallback(() => {
-    // Stop all audio elements in the document
-    document.querySelectorAll('audio').forEach(audio => {
-      try {
-        audio.pause();
-        audio.currentTime = 0;
-      } catch (error) {
-        console.warn('Failed to stop audio:', error);
-      }
-    });
-    
-    // Also stop any video elements that might have audio
-    document.querySelectorAll('video').forEach(video => {
-      try {
-        video.pause();
-        video.muted = true;
-      } catch (error) {
-        console.warn('Failed to stop video:', error);
-      }
-    });
-  }, []);
+interface CreatePostModalProps {
+  currentUser: User;
+  users: User[];
+  onClose: () => void;
+  onCreatePost: (text: string, files: File[] | File | null, meta?: any) => void;
+}
 
-  return { stopAllAudio };
+interface CommentsSheetProps {
+  post: PostType;
+  currentUser: User | null;
+  users: User[];
+  onClose: () => void;
+  onComment: () => void;
+  onLikeComment: (commentId: number) => void;
+  getCommentAuthor: (id: number) => User | undefined;
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+  onFollow: (userId: number) => void;
+  checkIsFollowing: (userId: number) => boolean;
+}
+
+interface ShareBottomSheetProps {
+  isOpen: boolean;
+  onClose: () => void;
+  post: PostType;
+  currentUser: User | null;
+  users: User[];
+  groups: Group[];
+  brands: Brand[];
+  chats: any[];
+  onShareComplete: (destination: string, data?: any) => void;
+  onFollow: (userId: number) => void;
+  checkIsFollowing: (userId: number) => boolean;
+}
+
+// ==================== UTILITY FUNCTIONS ====================
+
+const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+const safeNumber = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
 };
 
-// ==================== ENHANCED AUDIO TRIMMER ====================
-const AudioTrimmer: React.FC<{ 
-  url: string, 
-  onClose: () => void, 
-  onConfirm: (start: number, end: number) => void,
-  initialStart: number,
-  initialEnd: number,
-  soundId?: string | number;
-  soundName?: string;
-  onMountStopAll?: () => void;
-}> = ({ url, onClose, onConfirm, initialStart, initialEnd, soundId, soundName, onMountStopAll }) => {
-  const { stopAllAudio } = useAudioFocus();
-  const [start, setStart] = useState(initialStart);
-  const [end, setEnd] = useState(initialEnd > 0 ? initialEnd : Math.min(60, initialStart + 15));
-  const [duration, setDuration] = useState(1);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [activeThumb, setActiveThumb] = useState<'start' | 'end'>('start');
-  
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const playIntervalRef = useRef<any>(null);
-  
-  const MIN_WINDOW = 1; // Minimum 1 second trim window
-  const MAX_WINDOW = 60; // Maximum 60 seconds (TikTok-style)
+const formatCount = (num: number): string => {
+  if (!num && num !== 0) return '0';
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
+};
 
-  useEffect(() => {
-    // Stop all other audio when trimmer mounts
-    onMountStopAll?.();
-    stopAllAudio();
-    
-    return () => {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current);
-      }
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-    };
-  }, []);
+const formatTime = (dateString: string): string => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m`;
+  if (diffHours < 24) return `${diffHours}h`;
+  if (diffDays < 7) return `${diffDays}d`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo`;
+  return `${Math.floor(diffDays / 365)}y`;
+};
 
-    const handleTimeUpdate = () => {
-      if (!isPlaying) return;
-      
-      // Loop between start and end
-      if (audio.currentTime < start || audio.currentTime >= end) {
-        audio.currentTime = start;
-        audio.play().catch(() => {});
-      }
-      
-      setCurrentTime(audio.currentTime);
-    };
+// ==================== REACTION BUTTON COMPONENT ====================
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [isPlaying, start, end]);
-
-  useEffect(() => {
-    if (isPlaying) {
-      playIntervalRef.current = setInterval(() => {
-        if (audioRef.current) {
-          setCurrentTime(audioRef.current.currentTime);
-        }
-      }, 100);
-    } else {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current);
-      }
-    }
-    
-    return () => {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current);
-      }
-    };
-  }, [isPlaying]);
-
-  const handleLoadedMetadata = () => {
-    if (audioRef.current) {
-      const d = audioRef.current.duration;
-      setDuration(d);
-      if (initialEnd === 0 || initialEnd > d) {
-        const newEnd = Math.min(d, start + 15);
-        setEnd(newEnd);
-      }
-    }
-  };
-
-  const togglePlay = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    stopAllAudio();
-
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false);
-    } else {
-      audio.currentTime = start;
-      audio.play()
-        .then(() => setIsPlaying(true))
-        .catch(() => setIsPlaying(false));
-    }
-  };
-
-  const handleStartChange = (value: number) => {
-    const newStart = Math.min(value, end - MIN_WINDOW);
-    setStart(newStart);
-    if (audioRef.current) {
-      audioRef.current.currentTime = newStart;
-    }
-  };
-
-  const handleEndChange = (value: number) => {
-    const newEnd = Math.max(value, start + MIN_WINDOW);
-    setEnd(Math.min(newEnd, start + MAX_WINDOW));
-    if (audioRef.current) {
-      audioRef.current.currentTime = newEnd;
-    }
-  };
-
-  const handleTrackInteraction = (clientX: number) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const clickX = clientX - rect.left;
-    const clickPercent = Math.max(0, Math.min(1, clickX / rect.width));
-    const clickTime = clickPercent * duration;
-
-    const distStart = Math.abs(clickTime - start);
-    const distEnd = Math.abs(clickTime - end);
-    setActiveThumb(distStart < distEnd ? 'start' : 'end');
-  };
-
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+const ReactionButton: React.FC<{
+  type: ReactionType;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}> = ({ type, count, active, onClick }) => {
+  const icons = {
+    love: '❤️',
+    like: '👍',
+    haha: '😂',
+    wow: '😮',
+    sad: '😢',
+    angry: '😡',
   };
 
   return (
-    <div className="fixed inset-0 z-[800] bg-black/98 flex flex-col justify-end animate-fade-in font-sans">
-      <style>{`
-        .precision-slider {
-          pointer-events: none;
-          appearance: none;
-          background: transparent;
-          width: 100%;
-          position: absolute;
-          left: 0;
-          z-index: 40;
-        }
-        .precision-slider::-webkit-slider-thumb {
-          pointer-events: auto;
-          appearance: none;
-          width: 28px;
-          height: 28px;
-          border-radius: 50%;
-          background: white;
-          cursor: pointer;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-          border: 4px solid currentColor;
-        }
-        .slider-active { z-index: 50; }
-        .slider-blue::-webkit-slider-thumb { color: #1877F2; }
-        .slider-red::-webkit-slider-thumb { color: #F3425F; }
-      `}</style>
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
+        active
+          ? 'bg-red-50 text-red-600 border border-red-200'
+          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+      }`}
+    >
+      <span className="text-lg">{icons[type]}</span>
+      <span className="text-sm font-medium">{formatCount(count)}</span>
+    </button>
+  );
+};
 
-      <div className="bg-[#121212] w-full rounded-t-[40px] p-8 pb-14 border-t border-white/10 animate-slide-up shadow-2xl">
-        <div className="flex justify-between items-center mb-10">
-          <button onClick={onClose} className="text-[#B0B3B8] font-black uppercase text-[10px] tracking-widest px-4 py-2">Cancel</button>
-          <div className="text-center">
-            <h3 className="font-black text-white uppercase tracking-[4px] text-xs">Precision Sync</h3>
-            <p className="text-[9px] text-[#1877F2] font-black mt-1 uppercase tracking-tighter">Adjust Audio Window</p>
-            {soundName && (
-              <p className="text-[8px] text-white/60 font-bold mt-0.5 uppercase tracking-tight truncate max-w-[200px]">
-                {soundName}
-              </p>
+// ==================== MEDIA GALLERY COMPONENT ====================
+
+const MediaGallery: React.FC<{
+  mediaUrls: string[];
+  mediaTypes: string[];
+  onViewImage: (url: string) => void;
+  onVideoClick: (post: PostType) => void;
+  post: PostType;
+}> = ({ mediaUrls, mediaTypes, onViewImage, onVideoClick, post }) => {
+  if (!mediaUrls.length) return null;
+
+  const handleMediaClick = (index: number) => {
+    const type = mediaTypes[index];
+    const url = mediaUrls[index];
+
+    if (type?.startsWith('video/')) {
+      onVideoClick({ ...post, media_url: url, media_type: type });
+    } else if (type?.startsWith('image/')) {
+      onViewImage(url);
+    } else if (!type && url.match(/\.(mp4|mov|avi|wmv|flv|mkv|webm)$/i)) {
+      onVideoClick({ ...post, media_url: url, media_type: 'video/mp4' });
+    } else if (!type && url.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i)) {
+      onViewImage(url);
+    }
+  };
+
+  const getGridClass = () => {
+    switch (mediaUrls.length) {
+      case 1: return 'grid-cols-1';
+      case 2: return 'grid-cols-2';
+      case 3: return 'grid-cols-2';
+      case 4: return 'grid-cols-2';
+      default: return 'grid-cols-2';
+    }
+  };
+
+  const renderMediaItem = (url: string, index: number) => {
+    const type = mediaTypes[index] || '';
+    const isVideo = type.startsWith('video/') || url.match(/\.(mp4|mov|avi|wmv|flv|mkv|webm)$/i);
+    const isImage = !isVideo && (type.startsWith('image/') || url.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i));
+
+    return (
+      <div
+        key={index}
+        className={`relative overflow-hidden rounded-lg cursor-pointer transition-transform hover:scale-[1.02] ${
+          mediaUrls.length === 1 ? 'h-96' : 'h-48'
+        }`}
+        onClick={() => handleMediaClick(index)}
+      >
+        {isVideo ? (
+          <>
+            <video
+              src={url}
+              className="w-full h-full object-cover"
+              muted
+              loop
+              playsInline
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+              <div className="w-12 h-12 rounded-full bg-white/80 flex items-center justify-center">
+                <Play className="w-6 h-6 text-black ml-1" />
+              </div>
+            </div>
+            <div className="absolute bottom-2 right-2 bg-black/60 text-white px-2 py-1 rounded text-xs">
+              <Play className="w-3 h-3 inline mr-1" />
+              Video
+            </div>
+          </>
+        ) : isImage ? (
+          <img
+            src={url}
+            alt=""
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gray-100">
+            <div className="text-center p-4">
+              <Link className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+              <p className="text-sm text-gray-500">Media Preview</p>
+            </div>
+          </div>
+        )}
+
+        {mediaUrls.length > 4 && index === 3 && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <span className="text-white text-2xl font-bold">
+              +{mediaUrls.length - 3}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className={`grid ${getGridClass()} gap-2 mt-3`}>
+      {mediaUrls.slice(0, 4).map(renderMediaItem)}
+    </div>
+  );
+};
+
+// ==================== POST COMPONENT ====================
+
+export const Post: React.FC<FeedPostProps> = ({
+  post,
+  author,
+  currentUser,
+  users,
+  onProfileClick,
+  onReact,
+  onShare,
+  onViewImage,
+  onOpenComments,
+  onVideoClick,
+  onPlayAudioTrack,
+  groups,
+  brands,
+  chats,
+  onHashtagClick,
+  onFollow,
+  isFollowing,
+  followLoading = false,
+}) => {
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showReactions, setShowReactions] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Extract post data safely
+  const postId = safeNumber(post?.id);
+  const userId = safeNumber(author?.id);
+  const content = post?.content || '';
+  const createdAt = post?.created_at || new Date().toISOString();
+  
+  // Handle multi-media arrays
+  const mediaUrls = Array.isArray(post?.media_urls) ? post.media_urls : 
+                   (post?.media_url ? [post.media_url] : []);
+  const mediaTypes = Array.isArray(post?.media_types) ? post.media_types : 
+                    (post?.media_type ? [post.media_type] : []);
+
+  // Get reaction data
+  const reactions = safeArray<any>(post?.reactions);
+  const comments = safeArray<any>(post?.comments);
+  const shares = safeNumber(post?.shares);
+  
+  // Get reaction counts (multiple field support)
+  const reactionsCount = safeNumber(
+    post?.reactions_count || post?.reactionsCount || post?.likesCount || reactions.length
+  );
+  const myReaction = post?.my_reaction || post?.myReaction || null;
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMoreMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleReaction = (type: ReactionType) => {
+    if (!currentUser) {
+      // Optionally trigger login
+      return;
+    }
+    onReact(postId, type);
+    setShowReactions(false);
+  };
+
+  const handleShare = () => {
+    onShare(post);
+  };
+
+  const handleHashtagClick = (tag: string) => {
+    if (onHashtagClick) {
+      onHashtagClick(tag);
+    }
+  };
+
+  const handleAudioPlay = () => {
+    if (post.media_type?.startsWith('audio/') || post.type === 'audio') {
+      const audioTrack: AudioTrack = {
+        id: postId,
+        title: content.substring(0, 50) || 'Audio Post',
+        artist: author.name,
+        url: post.media_url || mediaUrls[0] || '',
+        type: 'music',
+        cover: author.profile_image_url,
+        duration: 0,
+      };
+      onPlayAudioTrack(audioTrack);
+    }
+  };
+
+  // Parse content for hashtags and mentions
+  const renderContent = (text: string) => {
+    const parts = text.split(/(#[a-zA-Z0-9_]+|@[a-zA-Z0-9_]+)/g);
+    
+    return parts.map((part, index) => {
+      if (part.startsWith('#')) {
+        return (
+          <span
+            key={index}
+            className="text-[#1877F2] hover:underline cursor-pointer font-medium"
+            onClick={() => handleHashtagClick(part)}
+          >
+            {part}
+          </span>
+        );
+      }
+      if (part.startsWith('@')) {
+          const username = part.substring(1);
+          const mentionedUser = users.find(u => 
+            u.username?.toLowerCase() === username.toLowerCase() || 
+            u.name?.toLowerCase().includes(username.toLowerCase())
+          );
+          
+          return (
+            <span
+              key={index}
+              className="text-[#1877F2] hover:underline cursor-pointer font-medium"
+              onClick={() => mentionedUser && onProfileClick(mentionedUser.id)}
+            >
+              {part}
+            </span>
+          );
+      }
+      return <span key={index}>{part}</span>;
+    });
+  };
+
+  const reactionCounts = reactions.reduce((acc, reaction) => {
+    acc[reaction.type] = (acc[reaction.type] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const topReactions = Object.entries(reactionCounts)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 3)
+    .map(([type]) => type as ReactionType);
+
+  return (
+    <div className="bg-[#242526] rounded-2xl shadow-xl mb-4 overflow-hidden border border-[#3E4042]">
+      {/* Post Header */}
+      <div className="p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img
+              src={author.profile_image_url}
+              alt={author.name}
+              className="w-10 h-10 rounded-full object-cover border-2 border-[#3E4042] cursor-pointer"
+              onClick={() => onProfileClick(userId)}
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <h3
+                  className="font-bold text-[#E4E6EB] hover:underline cursor-pointer"
+                  onClick={() => onProfileClick(userId)}
+                >
+                  {author.name}
+                </h3>
+                {author.is_verified && (
+                  <span className="text-[#1877F2]" title="Verified">
+                    ✓
+                  </span>
+                )}
+                {currentUser && currentUser.id !== userId && !isFollowing && (
+                  <button
+                    onClick={() => onFollow(userId)}
+                    disabled={followLoading}
+                    className="ml-2 bg-[#1877F2] text-white text-xs font-bold px-3 py-1 rounded-md hover:bg-[#166FE5] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {followLoading ? 'Following...' : 'Follow'}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-[#B0B3B8] text-sm">
+                <span>{formatTime(createdAt)}</span>
+                <span>•</span>
+                {post.visibility === 'public' && (
+                  <span className="flex items-center gap-1">
+                    <Globe className="w-3 h-3" />
+                    Public
+                  </span>
+                )}
+                {post.visibility === 'friends' && (
+                  <span className="flex items-center gap-1">
+                    <Users className="w-3 h-3" />
+                    Friends
+                  </span>
+                )}
+                {post.visibility === 'private' && (
+                  <span className="flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    Private
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setShowMoreMenu(!showMoreMenu)}
+              className="p-2 hover:bg-[#3A3B3C] rounded-full transition-colors"
+            >
+              <MoreVertical className="w-5 h-5 text-[#B0B3B8]" />
+            </button>
+
+            {showMoreMenu && (
+              <div className="absolute right-0 top-full mt-1 w-48 bg-[#3A3B3C] rounded-lg shadow-2xl border border-[#4E4F50] py-2 z-50">
+                {currentUser?.id === userId && (
+                  <>
+                    <button className="w-full text-left px-4 py-2 text-[#E4E6EB] hover:bg-[#4E4F50] text-sm">
+                      Edit Post
+                    </button>
+                    <button className="w-full text-left px-4 py-2 text-[#E4E6EB] hover:bg-[#4E4F50] text-sm">
+                      Delete Post
+                    </button>
+                    <div className="h-px bg-[#4E4F50] my-2"></div>
+                  </>
+                )}
+                <button className="w-full text-left px-4 py-2 text-[#E4E6EB] hover:bg-[#4E4F50] text-sm">
+                  Save Post
+                </button>
+                <button className="w-full text-left px-4 py-2 text-[#E4E6EB] hover:bg-[#4E4F50] text-sm">
+                  Turn on notifications
+                </button>
+                <button className="w-full text-left px-4 py-2 text-red-400 hover:bg-[#4E4F50] text-sm">
+                  Report
+                </button>
+              </div>
             )}
           </div>
-          <button onClick={() => onConfirm(start, end)} className="text-[#1877F2] font-black uppercase text-[10px] tracking-widest px-4 py-2">Done</button>
+        </div>
+      </div>
+
+      {/* Post Content */}
+      <div className="px-4 pb-3">
+        <div className="text-[#E4E6EB] whitespace-pre-wrap leading-relaxed">
+          {renderContent(content)}
         </div>
 
-        <div className="flex items-center justify-center gap-4 mb-8">
-          <button 
-            onClick={togglePlay}
-            className="w-16 h-16 rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors"
-          >
-            <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-white text-xl`}></i>
-          </button>
-          <div className="flex flex-col items-center">
-            <span className="text-white text-sm font-bold">
-              {formatDuration(currentTime)}
-            </span>
-            <span className="text-white/40 text-[9px] uppercase tracking-widest">Current</span>
-          </div>
-        </div>
-
-        <div 
-          ref={containerRef}
-          onMouseDown={(e) => handleTrackInteraction(e.clientX)}
-          onTouchStart={(e) => handleTrackInteraction(e.touches[0].clientX)}
-          className="relative h-28 w-full bg-white/5 rounded-3xl overflow-hidden px-8 border border-white/5 shadow-inner flex flex-col justify-center"
-        >
-          <div className="absolute inset-0 flex items-center gap-[2px] opacity-10 px-8 pointer-events-none">
-            {Array.from({ length: 100 }).map((_, i) => (
-              <div key={i} className="flex-1 bg-white rounded-full" style={{ height: `${15 + Math.random() * 70}%` }} />
-            ))}
-          </div>
-
-          <div 
-            className="absolute h-16 bg-[#1877F2]/10 border-x-2 border-white/30 pointer-events-none transition-all duration-75 z-10" 
-            style={{ left: `${(start / duration) * 100}%`, width: `${((end - start) / duration) * 100}%` }} 
+        {/* Media Gallery */}
+        {mediaUrls.length > 0 && (
+          <MediaGallery
+            mediaUrls={mediaUrls}
+            mediaTypes={mediaTypes}
+            onViewImage={onViewImage}
+            onVideoClick={onVideoClick}
+            post={post}
           />
+        )}
 
-          <div className="relative w-full h-1 flex items-center bg-white/10 rounded-full">
-            <input 
-              type="range" 
-              min="0" 
-              max={duration} 
-              step="0.1" 
-              value={start} 
-              onMouseDown={() => { setIsDragging(true); setActiveThumb('start'); }}
-              onMouseUp={() => setIsDragging(false)}
-              onChange={(e) => handleStartChange(parseFloat(e.target.value))}
-              className={`precision-slider slider-blue ${activeThumb === 'start' ? 'slider-active' : ''}`}
+        {/* Link Preview (if any) */}
+        {post.link_preview && (
+          <div className="mt-3 border border-[#3E4042] rounded-lg overflow-hidden">
+            <img
+              src={post.link_preview.image || ''}
+              alt=""
+              className="w-full h-48 object-cover"
             />
-            <input 
-              type="range" 
-              min="0" 
-              max={duration} 
-              step="0.1" 
-              value={end} 
-              onMouseDown={() => { setIsDragging(true); setActiveThumb('end'); }}
-              onMouseUp={() => setIsDragging(false)}
-              onChange={(e) => handleEndChange(parseFloat(e.target.value))}
-              className={`precision-slider slider-red ${activeThumb === 'end' ? 'slider-active' : ''}`}
-            />
+            <div className="p-3 bg-[#3A3B3C]">
+              <p className="text-xs text-[#B0B3B8] uppercase font-bold">
+                {post.link_preview.site_name || 'Link'}
+              </p>
+              <h4 className="text-[#E4E6EB] font-semibold mt-1">
+                {post.link_preview.title}
+              </h4>
+              <p className="text-[#B0B3B8] text-sm mt-1 line-clamp-2">
+                {post.link_preview.description}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Post Stats */}
+      <div className="px-4 pt-3 border-t border-[#3E4042]">
+        <div className="flex items-center justify-between text-[#B0B3B8] text-sm">
+          <div className="flex items-center gap-2">
+            <div className="flex -space-x-2">
+              {topReactions.map((type, index) => (
+                <div
+                  key={type}
+                  className="w-6 h-6 rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center"
+                  style={{ zIndex: 3 - index }}
+                >
+                  {type === 'love' && '❤️'}
+                  {type === 'like' && '👍'}
+                  {type === 'haha' && '😂'}
+                  {type === 'wow' && '😮'}
+                  {type === 'sad' && '😢'}
+                  {type === 'angry' && '😡'}
+                </div>
+              ))}
+            </div>
+            <span>{formatCount(reactionsCount)}</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span>{formatCount(comments.length)} comments</span>
+            <span>{formatCount(shares)} shares</span>
           </div>
         </div>
+      </div>
 
-        <div className="flex justify-center gap-4 mt-8">
-          <div className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 flex flex-col items-center">
-            <span className="text-[8px] font-black text-[#1877F2] uppercase tracking-widest">In</span>
-            <p className="text-white text-xs font-black">{start.toFixed(1)}s</p>
+      {/* Action Buttons */}
+      <div className="px-4 py-2 border-t border-[#3E4042]">
+        <div className="flex justify-between">
+          <div className="relative flex-1">
+            <button
+              onClick={() => setShowReactions(!showReactions)}
+              className={`flex items-center justify-center gap-2 flex-1 py-2.5 rounded-lg transition-colors ${
+                myReaction
+                  ? 'text-[#F3425F] hover:bg-[#3A3B3C]'
+                  : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+              }`}
+            >
+              {myReaction === 'love' ? (
+                <HeartSolid className="w-5 h-5 fill-current" />
+              ) : (
+                <ThumbsUp className="w-5 h-5" />
+              )}
+              <span className="font-semibold">
+                {myReaction === 'love' ? 'Loved' : 
+                 myReaction === 'like' ? 'Liked' : 
+                 myReaction ? myReaction.charAt(0).toUpperCase() + myReaction.slice(1) : 'Like'}
+              </span>
+            </button>
+
+            {showReactions && (
+              <div className="absolute bottom-full left-0 mb-2 bg-[#3A3B3C] rounded-full shadow-2xl border border-[#4E4F50] p-2 flex gap-1">
+                {(['love', 'like', 'haha', 'wow', 'sad', 'angry'] as ReactionType[]).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => handleReaction(type)}
+                    className="w-10 h-10 rounded-full hover:bg-[#4E4F50] flex items-center justify-center text-2xl transition-transform hover:scale-110"
+                  >
+                    {type === 'love' && '❤️'}
+                    {type === 'like' && '👍'}
+                    {type === 'haha' && '😂'}
+                    {type === 'wow' && '😮'}
+                    {type === 'sad' && '😢'}
+                    {type === 'angry' && '😡'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 flex flex-col items-center">
-            <span className="text-[8px] font-black text-red-500 uppercase tracking-widest">Out</span>
-            <p className="text-white text-xs font-black">{end.toFixed(1)}s</p>
-          </div>
-          <div className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 flex flex-col items-center">
-            <span className="text-[8px] font-black text-[#45BD62] uppercase tracking-widest">Length</span>
-            <p className="text-white text-xs font-black">{(end - start).toFixed(1)}s</p>
+
+          <button
+            onClick={() => onOpenComments(postId)}
+            className="flex items-center justify-center gap-2 flex-1 py-2.5 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors"
+          >
+            <MessageCircle className="w-5 h-5" />
+            <span className="font-semibold">Comment</span>
+          </button>
+
+          <button
+            onClick={handleShare}
+            className="flex items-center justify-center gap-2 flex-1 py-2.5 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors"
+          >
+            <Share className="w-5 h-5" />
+            <span className="font-semibold">Share</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Quick Comment Input */}
+      <div className="px-4 py-3 border-t border-[#3E4042]">
+        <div className="flex items-center gap-3">
+          <img
+            src={currentUser?.profile_image_url}
+            alt=""
+            className="w-8 h-8 rounded-full object-cover"
+          />
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              placeholder="Write a comment..."
+              className="w-full bg-[#3A3B3C] border-none rounded-full px-4 py-2.5 text-[#E4E6EB] placeholder-[#B0B3B8] focus:outline-none focus:ring-1 focus:ring-[#1877F2]"
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && commentText.trim()) {
+                  setIsSubmittingComment(true);
+                  // Simulate API call
+                  setTimeout(() => {
+                    setCommentText('');
+                    setIsSubmittingComment(false);
+                  }, 500);
+                }
+              }}
+            />
+            <button
+              onClick={() => {
+                if (commentText.trim()) {
+                  setIsSubmittingComment(true);
+                  // Simulate API call
+                  setTimeout(() => {
+                    setCommentText('');
+                    setIsSubmittingComment(false);
+                  }, 500);
+                }
+              }}
+              disabled={isSubmittingComment || !commentText.trim()}
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-[#1877F2] hover:text-[#166FE5] disabled:opacity-50"
+            >
+              <Send className="w-5 h-5" />
+            </button>
           </div>
         </div>
-
-        <audio 
-          ref={audioRef} 
-          src={url} 
-          hidden 
-          onLoadedMetadata={handleLoadedMetadata}
-        />
       </div>
     </div>
   );
 };
 
-// ==================== ENHANCED CREATE REEL MODAL ====================
-export const CreateReelModal: React.FC<{ 
-  currentUser: User, 
-  onClose: () => void, 
-  onCreate: (data: Partial<Reel> & { 
-    videoFile?: File | Blob; 
-    audioFile?: File | Blob;
-    originalSoundId?: string | number;
-    soundKey?: string;
-    songId?: string | number;
-  }) => Promise<void> | void,
-  initialSound?: Sound | null,
-  songs: Song[];
-  selectedSound?: ReelSound | null;
-  onPickSound?: (sound: ReelSound | null) => void;
-}> = ({ currentUser, onClose, onCreate, initialSound, songs, selectedSound, onPickSound }) => {
-  const { stopAllAudio } = useAudioFocus();
-  
-  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
-  const [caption, setCaption] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
-  const [selectedAudio, setSelectedAudio] = useState<Sound | null>(initialSound || null);
-  const [audioStart, setAudioStart] = useState(initialSound?.start || selectedSound?.audioStart || 0);
-  const [audioEnd, setAudioEnd] = useState(initialSound?.end || selectedSound?.audioEnd || 0);
-  const [isMusicPickerOpen, setIsMusicPickerOpen] = useState(false);
-  const [isTrimmerOpen, setIsTrimmerOpen] = useState(false);
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [isStudioPlaying, setIsStudioPlaying] = useState(false);
-  const [musicSearch, setMusicSearch] = useState('');
-  const [selectedSoundId, setSelectedSoundId] = useState<string | number | null>(initialSound?.id || selectedSound?.songId || null);
-  const [previewSound, setPreviewSound] = useState<Sound | null>(null);
-  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
-  const [availableSongs, setAvailableSongs] = useState<Song[]>(songs || []);
-  const [loadingSongs, setLoadingSongs] = useState(false);
-  const [popularSounds, setPopularSounds] = useState<Sound[]>([]);
-  const [loadingPopularSounds, setLoadingPopularSounds] = useState(false);
-  
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStatus, setUploadStatus] = useState<'uploading' | 'processing' | 'success' | 'error'>('uploading');
-  const [uploadError, setUploadError] = useState<string>('');
-  
-  const [selectedVideoFile, setSelectedVideoFile] = useState<File | Blob | null>(null);
-  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
-  
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const previewAudioRef = useRef<HTMLAudioElement>(null);
-  const audioUploadRef = useRef<HTMLInputElement>(null);
+// ==================== CREATE POST COMPONENT ====================
 
-  // Generate sound key based on sound type
-  const generateSoundKey = useCallback((sound: Sound | ReelSound | null): string => {
-    if (!sound) return 'original:none';
-    
-    if ('songId' in sound && sound.songId) {
-      return `song:${sound.songId}`;
-    }
-    
-    if ('soundKey' in sound && sound.soundKey) {
-      return sound.soundKey;
-    }
-    
-    if (selectedSoundId) {
-      return `original:${selectedSoundId}`;
-    }
-    
-    return 'original:none';
-  }, [selectedSoundId]);
+export const CreatePost: React.FC<CreatePostProps> = ({
+  currentUser,
+  onProfileClick,
+  onClick,
+}) => {
+  return (
+    <div className="bg-[#242526] rounded-2xl shadow-xl mb-4 overflow-hidden border border-[#3E4042]">
+      <div className="p-4">
+        <div className="flex items-center gap-3">
+          <img
+            src={currentUser.profile_image_url}
+            alt={currentUser.name}
+            className="w-10 h-10 rounded-full object-cover border-2 border-[#3E4042] cursor-pointer"
+            onClick={() => onProfileClick(currentUser.id)}
+          />
+          <button
+            onClick={onClick}
+            className="flex-1 bg-[#3A3B3C] hover:bg-[#4E4F50] text-left px-4 py-3 rounded-full text-[#B0B3B8] transition-colors"
+          >
+            What's on your mind, {currentUser.name.split(' ')[0]}?
+          </button>
+        </div>
 
-  useEffect(() => {
-    if (selectedSound) {
-      const sound: Sound = {
-        id: selectedSound.songId || `selected-${Date.now()}`,
-        name: selectedSound.songName,
-        url: selectedSound.audioUrl,
-        start: selectedSound.audioStart,
-        end: selectedSound.audioEnd,
-        creator: currentUser,
-        isOriginal: true,
-        soundKey: selectedSound.soundKey || generateSoundKey(selectedSound)
-      };
-      setSelectedAudio(sound);
-      setSelectedSoundId(sound.id);
-      setAudioStart(selectedSound.audioStart || 0);
-      setAudioEnd(selectedSound.audioEnd || 0);
-    }
-  }, [selectedSound, currentUser, generateSoundKey]);
+        <div className="flex justify-between mt-4 pt-3 border-t border-[#3E4042]">
+          <button className="flex items-center gap-2 flex-1 justify-center py-2 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors">
+            <Video className="w-5 h-5 text-red-500" />
+            <span className="font-semibold">Live video</span>
+          </button>
+          <button className="flex items-center gap-2 flex-1 justify-center py-2 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors">
+            <ImageIcon className="w-5 h-5 text-green-500" />
+            <span className="font-semibold">Photo/video</span>
+          </button>
+          <button className="flex items-center gap-2 flex-1 justify-center py-2 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors">
+            <Smile className="w-5 h-5 text-yellow-500" />
+            <span className="font-semibold">Feeling/activity</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
-  // Audio synchronization effect
-  useEffect(() => {
-    if (mediaPreview && selectedAudio && audioRef.current && videoRef.current) {
-      const audio = audioRef.current;
-      const video = videoRef.current;
+// ==================== CREATE POST MODAL ====================
 
-      if (isStudioPlaying) {
-        const syncAudio = () => {
-          if (!audio || !video) return;
-          
-          const expectedAudioTime = video.currentTime + audioStart;
-          
-          // Loop audio if reached end
-          if (audioEnd > 0 && expectedAudioTime >= audioEnd) {
-            video.currentTime = 0;
-            audio.currentTime = audioStart;
-            return;
-          }
-          
-          // Sync audio to video
-          if (Math.abs(audio.currentTime - expectedAudioTime) > 0.5) {
-            audio.currentTime = expectedAudioTime;
-          }
-        };
+export const CreatePostModal: React.FC<CreatePostModalProps> = ({
+  currentUser,
+  users,
+  onClose,
+  onCreatePost,
+}) => {
+  const [text, setText] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [privacy, setPrivacy] = useState<'public' | 'friends' | 'private'>('public');
+  const [feeling, setFeeling] = useState<string>('');
+  const [location, setLocation] = useState<string>('');
+  const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-        video.addEventListener('timeupdate', syncAudio);
-        if (video.paused) video.play().catch(() => {});
-        if (audio.paused) audio.play().catch(() => {});
-
-        return () => {
-          video.removeEventListener('timeupdate', syncAudio);
-        };
-      } else {
-        video.pause();
-        audio.pause();
-      }
-    }
-  }, [mediaPreview, selectedAudio, audioStart, audioEnd, isStudioPlaying]);
-
-  // Preview sound effect
-  useEffect(() => {
-    if (previewSound && previewAudioRef.current && isPreviewPlaying) {
-      const audio = previewAudioRef.current;
-      audio.src = previewSound.url;
-      audio.currentTime = previewSound.start || 0;
-      audio.play().catch(() => {});
-      
-      const stopAfterDuration = () => {
-        setTimeout(() => {
-          setIsPreviewPlaying(false);
-        }, Math.min(10000, (previewSound.duration || 30) * 1000));
-      };
-      
-      stopAfterDuration();
-      
-      return () => {
-        audio.pause();
-      };
-    }
-  }, [previewSound, isPreviewPlaying]);
-
-  const handleSoundPreview = (sound: Sound) => {
-    stopAllAudio();
-    
-    if (previewSound?.id === sound.id && isPreviewPlaying) {
-      setIsPreviewPlaying(false);
-      setPreviewSound(null);
-    } else {
-      setPreviewSound(sound);
-      setIsPreviewPlaying(true);
-    }
-  };
-
-  const handleSoundSelect = (sound: Sound) => {
-    stopAllAudio();
-    setSelectedAudio(sound);
-    setSelectedSoundId(sound.id);
-    setAudioStart(sound.start || 0);
-    setAudioEnd(sound.end || sound.duration || 60);
-    setIsMusicPickerOpen(false);
-    
-    // Notify parent about sound selection
-    if (onPickSound) {
-      onPickSound({
-        songName: sound.name,
-        audioUrl: sound.url,
-        audioStart: sound.start || 0,
-        audioEnd: sound.end || sound.duration || 60,
-        songId: sound.id,
-        soundKey: sound.soundKey || generateSoundKey(sound)
-      });
-    }
-    
-    setIsTrimmerOpen(true);
-  };
-
-  const handleUpload = async () => {
-    if (!selectedVideoFile) return;
-    
-    setIsUploading(true);
-    setUploadProgress(0);
-    setUploadStatus('uploading');
-    setUploadError('');
-    
-    const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = 'Your video is still uploading. Are you sure you want to leave?';
-    };
-    window.addEventListener('beforeunload', beforeUnloadHandler);
-    
-    try {
-      // Simulate upload progress
-      for (let i = 0; i <= 100; i += 10) {
-        setUploadProgress(i);
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-      
-      const soundKey = generateSoundKey(selectedAudio);
-      
-      await Promise.resolve(onCreate({
-        caption: caption.trim(),
-        songName: selectedAudio?.name || 'Original Sound',
-        audioUrl: selectedAudio?.url,
-        audioStart,
-        audioEnd,
-        videoFile: selectedVideoFile,
-        audioFile: selectedAudioFile || undefined,
-        originalSoundId: selectedSoundId || undefined,
-        soundKey,
-        songId: selectedSoundId || undefined,
-      }));
-      
-      setUploadProgress(100);
-      setUploadStatus('processing');
-      
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      setUploadStatus('success');
-      
-      window.removeEventListener('beforeunload', beforeUnloadHandler);
-      
-      setTimeout(() => {
-        onClose();
-      }, 2000);
-      
-    } catch (error: any) {
-      console.error('Failed to create reel:', error);
-      setUploadStatus('error');
-      setUploadError(error?.message || 'Upload failed. Please try again.');
-      window.removeEventListener('beforeunload', beforeUnloadHandler);
-      setIsUploading(false);
-    }
-  };
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setSelectedVideoFile(file);
-    setMediaPreview(URL.createObjectURL(file));
-    setIsStudioPlaying(true);
-  };
-
-  return (
-    <>
-      {(isUploading || uploadStatus === 'success' || uploadStatus === 'error') && (
-        <UploadLoader 
-          uploadProgress={uploadProgress}
-          uploadStatus={uploadStatus}
-          errorMessage={uploadError}
-        />
-      )}
-      
-      <div className="fixed inset-0 z-[500] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
-        {isCameraOpen && (
-          <CameraStudio 
-            selectedSound={selectedAudio || undefined}
-            onCapture={(blob) => { 
-              setSelectedVideoFile(blob);
-              setMediaPreview(URL.createObjectURL(blob));
-              setIsCameraOpen(false); 
-              setIsStudioPlaying(true);
-            }} 
-            onClose={() => setIsCameraOpen(false)} 
-          />
-        )}
-        
-        <div className="absolute inset-0 z-0 bg-[#050505] flex items-center justify-center">
-          {mediaPreview ? (
-            <div className="relative w-full h-full" onClick={() => setIsStudioPlaying(!isStudioPlaying)}>
-              <video ref={videoRef} src={mediaPreview} className="w-full h-full object-cover opacity-80" loop muted={!!selectedAudio} playsInline />
-              {!isStudioPlaying && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-20 h-20 bg-black/50 rounded-full flex items-center justify-center backdrop-blur-md border border-white/20 shadow-2xl">
-                    <i className="fas fa-play text-white text-3xl ml-1"></i>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center p-12 max-w-[320px] animate-fade-in">
-              <div className="w-24 h-24 bg-white/5 rounded-[40px] flex items-center justify-center mb-8 border border-white/10 mx-auto shadow-2xl">
-                <i className="fas fa-clapperboard text-4xl text-[#1877F2] animate-pulse"></i>
-              </div>
-              <h2 className="text-3xl font-black mb-3 tracking-tighter uppercase leading-none">Studio</h2>
-              <p className="text-white/50 text-[14px] font-medium leading-relaxed">Choose your production style to share with the community.</p>
-            </div>
-          )}
-          {selectedAudio && <audio ref={audioRef} src={selectedAudio.url} hidden />}
-          {previewSound && <audio ref={previewAudioRef} hidden />}
-        </div>
-
-        <div className="relative z-20 h-16 flex items-center justify-between px-6 bg-gradient-to-b from-black/90 to-transparent pt-2">
-          <button onClick={onClose} className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center border border-white/10 active:scale-90 transition-transform">
-            <i className="fas fa-times text-lg"></i>
-          </button>
-          <div className="flex flex-col items-center">
-            <span className="text-[10px] font-black uppercase tracking-[5px] text-[#1877F2]">UNERA PRO</span>
-            {selectedAudio && (
-              <span className="text-[8px] text-white/60 font-bold uppercase tracking-tight truncate max-w-[150px]">
-                Sound: {selectedAudio.name}
-              </span>
-            )}
-          </div>
-          <button 
-            onClick={handleUpload} 
-            disabled={!selectedVideoFile || isUploading} 
-            className="bg-[#1877F2] text-white px-7 py-2.5 rounded-2xl font-black text-xs shadow-xl active:scale-95 transition-all disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
-          >
-            {isUploading ? (
-              <span className="flex items-center gap-2">
-                <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                Uploading...
-              </span>
-            ) : 'Publish'}
-          </button>
-        </div>
-
-        {mediaPreview && (
-          <div className="absolute right-6 top-[25%] z-20 flex flex-col gap-6">
-            <button onClick={() => {
-              stopAllAudio();
-              setIsMusicPickerOpen(true);
-            }} className="flex flex-col items-center gap-2">
-              <div className={`w-14 h-14 rounded-3xl flex items-center justify-center backdrop-blur-2xl transition-all border-2 ${selectedAudio ? 'bg-[#1877F2] border-blue-400 shadow-[0_0_20px_rgba(24,119,242,0.4)]' : 'bg-black/40 border-white/10'}`}>
-                <i className="fas fa-music text-xl"></i>
-              </div>
-              <span className="text-[10px] font-black uppercase text-white/70 tracking-widest">Sound</span>
-            </button>
-            {selectedAudio && (
-              <button onClick={() => {
-                stopAllAudio();
-                setIsStudioPlaying(false);
-                setIsTrimmerOpen(true);
-              }} className="flex flex-col items-center gap-2 animate-fade-in">
-                <div className="w-14 h-14 rounded-3xl bg-black/40 border-2 border-white/10 flex items-center justify-center backdrop-blur-2xl">
-                  <i className="fas fa-scissors text-xl"></i>
-                </div>
-                <span className="text-[10px] font-black uppercase text-white/70 tracking-widest">Trim</span>
-              </button>
-            )}
-            <button onClick={() => {
-              stopAllAudio();
-              setMediaPreview(null);
-              setSelectedVideoFile(null);
-              setSelectedAudio(null);
-              setSelectedAudioFile(null);
-              setSelectedSoundId(null);
-              if (onPickSound) onPickSound(null);
-            }} className="flex flex-col items-center gap-2">
-              <div className="w-14 h-14 rounded-3xl bg-red-600/20 border-2 border-red-600/30 text-red-500 flex items-center justify-center backdrop-blur-2xl">
-                <i className="fas fa-trash-alt text-xl"></i>
-              </div>
-              <span className="text-[10px] font-black uppercase text-red-500/70 tracking-widest">Discard</span>
-            </button>
-          </div>
-        )}
-
-        {!mediaPreview && (
-          <div className="flex-1 flex flex-col items-center justify-center px-10 gap-8 z-10 animate-fade-in">
-            <button 
-              onClick={() => setIsCameraOpen(true)}
-              className="w-full max-w-[340px] bg-[#1877F2] rounded-[40px] p-10 flex flex-col items-center justify-center cursor-pointer shadow-[0_20px_60px_rgba(24,119,242,0.4)] active:scale-95 transition-all group overflow-hidden relative"
-            >
-              <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-20 -mt-20 blur-3xl"></div>
-              <div className="w-20 h-20 rounded-3xl bg-white/20 flex items-center justify-center mb-6 shadow-2xl group-hover:scale-110 transition-transform">
-                <i className="fas fa-video text-white text-4xl"></i>
-              </div>
-              <p className="font-black uppercase text-lg tracking-[5px] text-white">Record Live</p>
-              <p className="text-white/60 text-[11px] font-bold mt-2 uppercase tracking-[2px]">Filters + Enhanced Audio</p>
-            </button>
-
-            <div className="flex items-center gap-6 w-full max-w-[340px]">
-              <div className="h-[1px] bg-white/10 flex-1"></div>
-              <span className="text-[11px] font-black text-white/20 uppercase tracking-widest">OR</span>
-              <div className="h-[1px] bg-white/10 flex-1"></div>
-            </div>
-
-            <input type="file" id="video-input-mobile" className="hidden" accept="video/*" onChange={handleFileSelect} />
-            <label htmlFor="video-input-mobile" className="w-full max-w-[340px] bg-white/5 border border-white/10 rounded-[32px] py-8 flex items-center justify-center gap-5 cursor-pointer active:scale-95 transition-all hover:bg-white/10 group">
-              <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center group-hover:bg-[#1877F2]/20 transition-colors">
-                <i className="fas fa-cloud-upload-alt text-2xl text-[#B0B3B8] group-hover:text-[#1877F2]"></i>
-              </div>
-              <p className="font-black uppercase text-sm tracking-[3px] text-[#E4E6EB]">Upload from phone</p>
-            </label>
-          </div>
-        )}
-
-        {mediaPreview && (
-          <div className="mt-auto relative z-20 p-8 bg-gradient-to-t from-black via-black/80 to-transparent pb-16">
-            <textarea 
-              className="w-full bg-white/5 backdrop-blur-3xl border border-white/10 rounded-[32px] p-8 text-[18px] outline-none h-40 resize-none font-medium leading-relaxed shadow-inner text-white placeholder-white/20"
-              placeholder="Add a caption to your viral moment..."
-              value={caption}
-              onChange={e => setCaption(e.target.value)}
-            />
-          </div>
-        )}
-
-        {isTrimmerOpen && selectedAudio && (
-          <AudioTrimmer 
-            url={selectedAudio.url} 
-            onClose={() => setIsTrimmerOpen(false)} 
-            onConfirm={(s, e) => { 
-              setAudioStart(s); 
-              setAudioEnd(e); 
-              setIsTrimmerOpen(false); 
-              setIsStudioPlaying(true); 
-            }} 
-            initialStart={audioStart} 
-            initialEnd={audioEnd}
-            soundId={selectedSoundId || undefined}
-            soundName={selectedAudio.name}
-            onMountStopAll={stopAllAudio}
-          />
-        )}
-
-        {isMusicPickerOpen && (
-          <MusicPicker
-            songs={availableSongs}
-            popularSounds={popularSounds}
-            loadingSongs={loadingSongs}
-            loadingPopularSounds={loadingPopularSounds}
-            musicSearch={musicSearch}
-            setMusicSearch={setMusicSearch}
-            onSoundSelect={handleSoundSelect}
-            onSoundPreview={handleSoundPreview}
-            previewSound={previewSound}
-            isPreviewPlaying={isPreviewPlaying}
-            selectedSoundId={selectedSoundId}
-            audioUploadRef={audioUploadRef}
-            onAudioUpload={(file) => {
-              // Handle audio upload logic
-              const url = URL.createObjectURL(file);
-              const newSound: Sound = {
-                id: `upload-${Date.now()}`,
-                name: file.name.split('.')[0],
-                url,
-                duration: 0, // Will be set after metadata loads
-                isOriginal: true,
-                creator: currentUser,
-                soundKey: `original:upload-${Date.now()}`
-              };
-              setSelectedAudio(newSound);
-              setSelectedSoundId(newSound.id);
-              setAudioStart(0);
-              setAudioEnd(60);
-              setIsMusicPickerOpen(false);
-              setIsTrimmerOpen(true);
-            }}
-            onClose={() => setIsMusicPickerOpen(false)}
-          />
-        )}
-      </div>
-    </>
-  );
-};
-
-// ==================== TIKTOK-STYLE SOUND DETAIL VIEW ====================
-interface SoundDetailViewProps {
-  sound: Sound;
-  onClose: () => void;
-  onUseSound: (sound: Sound) => void;
-  onReelClick: (id: number) => void;
-}
-
-const SoundDetailView: React.FC<SoundDetailViewProps> = ({ 
-  sound, 
-  onClose, 
-  onUseSound, 
-  onReelClick
-}) => {
-  const { stopAllAudio } = useAudioFocus();
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [soundReels, setSoundReels] = useState<Reel[]>([]);
-  const [loadingReels, setLoadingReels] = useState(true);
-  const [soundStats, setSoundStats] = useState({
-    totalViews: 0,
-    totalLikes: 0,
-    totalComments: 0,
-    totalShares: 0,
-    totalUses: 0
-  });
-  
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const timerRef = useRef<any>(null);
-
-  // Fetch reels using this sound from API
-  useEffect(() => {
-    const fetchSoundReels = async () => {
-      setLoadingReels(true);
-      try {
-        const response = await fetch(`/api/reels/by-sound?sound_key=${encodeURIComponent(String(sound.id))}&limit=60`);
-        const data = await response.json();
-        
-        if (data?.success && data.reels) {
-          setSoundReels(data.reels);
-          
-          // Calculate stats from reels
-          const stats = {
-            totalViews: 0,
-            totalLikes: 0,
-            totalComments: 0,
-            totalShares: 0,
-            totalUses: data.reels.length
-          };
-
-          data.reels.forEach((reel: Reel) => {
-            stats.totalViews += reel.views || 0;
-            stats.totalLikes += reel.reactions?.length || 0;
-            stats.totalComments += reel.comments?.length || 0;
-            stats.totalShares += reel.shares || 0;
-          });
-
-          setSoundStats(stats);
-        }
-      } catch (error) {
-        console.error('Failed to fetch sound reels:', error);
-        setSoundReels([]);
-      } finally {
-        setLoadingReels(false);
-      }
-    };
-
-    fetchSoundReels();
-  }, [sound.id]);
-
-  useEffect(() => {
-    if (isPlaying) {
-      timerRef.current = setInterval(() => {
-        if (audioRef.current) {
-          setCurrentTime(audioRef.current.currentTime);
-        }
-      }, 100);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    }
+    const selectedFiles = Array.from(e.target.files || []);
+    const validFiles = selectedFiles.filter(file => 
+      file.type.startsWith('image/') || file.type.startsWith('video/')
+    );
     
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, [isPlaying]);
-
-  const playSoundPreview = () => {
-    if (audioRef.current) {
-      stopAllAudio();
-      
-      if (isPlaying) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        audioRef.current.src = sound.url;
-        audioRef.current.currentTime = sound.start || 0;
-        audioRef.current.play().catch(() => {});
-        setIsPlaying(true);
-        
-        const duration = (sound.end || sound.duration || 30) - (sound.start || 0);
-        setTimeout(() => {
-          setIsPlaying(false);
-          if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = sound.start || 0;
-          }
-        }, Math.min(duration * 1000, 10000));
-      }
+    if (validFiles.length > 0) {
+      setFiles(prev => [...prev, ...validFiles]);
     }
   };
 
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const formatCount = (num: number): string => {
-    if (!num && num !== 0) return '0';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toLocaleString();
-  };
+  const handleSubmit = async () => {
+    if (!text.trim() && files.length === 0) return;
 
-  return (
-    <div className="fixed inset-0 z-[600] bg-black flex flex-col animate-fade-in font-sans pb-20 overflow-hidden">
-      <div className="h-16 px-4 flex items-center justify-between border-b border-white/10 bg-black/90 backdrop-blur-xl shrink-0">
-        <button onClick={onClose} className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white active:scale-90 transition-transform">
-          <i className="fas fa-chevron-left text-sm"></i>
-        </button>
-        <h3 className="font-black text-white text-[12px] uppercase tracking-[4px]">Sound Details</h3>
-        <button className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white">
-          <i className="fas fa-share-alt text-sm"></i>
-        </button>
-      </div>
-      
-      <div className="p-8 flex flex-col md:flex-row items-center gap-10 bg-gradient-to-b from-white/10 to-transparent shrink-0">
-        <div className="relative group">
-          <div 
-            onClick={playSoundPreview}
-            className={`w-36 h-36 rounded-full bg-gradient-to-tr from-gray-950 via-gray-900 to-black shadow-[0_0_50px_rgba(0,0,0,0.9)] border-4 border-white/20 flex items-center justify-center ${isPlaying ? 'animate-spin-slow' : ''} cursor-pointer hover:scale-105 transition-transform`}
-          >
-            <div className="w-12 h-12 rounded-full bg-[#1877F2]/20 border border-white/10 flex items-center justify-center">
-              <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-[#1877F2] text-2xl ml-1`}></i>
-            </div>
-          </div>
-          <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
-            <span className="text-white text-[10px] font-bold">
-              {formatDuration(currentTime)} / {formatDuration(sound.duration || 30)}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex-1 text-center md:text-left">
-          <h2 className="text-3xl font-black text-white mb-2 leading-tight tracking-tighter">
-            {sound.name}
-          </h2>
-          <div className="flex items-center gap-2 mb-1">
-            {sound.creator?.profile_image_url && (
-              <img src={sound.creator.profile_image_url} className="w-6 h-6 rounded-full object-cover" alt="" />
-            )}
-            <p className="text-[#1877F2] font-black text-sm uppercase tracking-widest">
-              BY {sound.creator?.name || 'Original Sound'}
-            </p>
-          </div>
-          <p className="text-[#B0B3B8] font-bold text-xs uppercase tracking-[4px] mb-8">
-            {formatCount(soundStats.totalUses)} VIRAL CREATIONS • {formatCount(soundStats.totalViews)} VIEWS
-          </p>
-          
-          <div className="flex flex-col sm:flex-row gap-4">
-            <button 
-              onClick={() => onUseSound(sound)} 
-              className="bg-[#1877F2] text-white px-12 py-4 rounded-2xl font-black text-base shadow-2xl shadow-blue-500/30 active:scale-95 transition-all flex items-center justify-center gap-3 flex-1"
-            >
-              <i className="fas fa-clapperboard text-sm"></i> Use this sound
-            </button>
-            
-            <button 
-              onClick={playSoundPreview}
-              className={`px-8 py-4 rounded-2xl font-black text-base border transition-all flex items-center justify-center gap-3 ${isPlaying ? 'bg-[#45BD62]/20 text-[#45BD62] border-[#45BD62]' : 'bg-white/10 text-white border-white/20'}`}
-            >
-              <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-sm`}></i>
-              {isPlaying ? 'Playing...' : 'Preview'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="px-8 py-6 border-t border-white/5">
-        <h4 className="text-white font-black text-sm uppercase tracking-widest mb-4">Sound Statistics</h4>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Uses</p>
-            <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalUses)}</p>
-          </div>
-          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Views</p>
-            <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalViews)}</p>
-          </div>
-          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Likes</p>
-            <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalLikes)}</p>
-          </div>
-          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Duration</p>
-            <p className="text-white text-2xl font-black mt-2">{formatDuration(sound.duration || 30)}</p>
-          </div>
-          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Sound Type</p>
-            <p className="text-white text-2xl font-black mt-2">
-              {sound.isOriginal ? 'Original' : 'Shared'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-0.5 mt-4">
-        <div className="px-8 mb-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h4 className="text-white font-black text-sm uppercase tracking-widest">
-                Videos ({formatCount(soundStats.totalUses)})
-              </h4>
-              <p className="text-white/40 text-xs mt-1">
-                {soundStats.totalUses} videos using this sound • {formatCount(soundStats.totalViews)} total views
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-[#45BD62] text-xs font-bold">
-                {soundStats.totalUses > 0 ? formatCount(soundStats.totalViews / soundStats.totalUses) : 0} avg views per video
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        {loadingReels ? (
-          <div className="flex justify-center py-12">
-            <div className="w-8 h-8 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
-          </div>
-        ) : soundReels.length > 0 ? (
-          <div className="grid grid-cols-3 gap-0.5">
-            {soundReels.map((reel: Reel) => (
-              <ReelThumbnail 
-                key={reel.id} 
-                reel={reel} 
-                onClick={() => {
-                  onClose();
-                  onReelClick(reel.id);
-                }} 
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-12">
-            <i className="fas fa-music text-4xl text-[#B0B3B8] mb-4"></i>
-            <p className="text-white/60">Be the first to use this sound!</p>
-            <button 
-              onClick={() => onUseSound(sound)} 
-              className="mt-4 bg-[#1877F2] text-white px-6 py-3 rounded-xl font-bold"
-            >
-              Create First Reel
-            </button>
-          </div>
-        )}
-      </div>
-      <audio ref={audioRef} hidden />
-    </div>
-  );
-};
-
-// ==================== ENHANCED REELS FEED ====================
-interface ReelsFeedProps {
-  reels: Reel[];
-  users: User[];
-  currentUser: User | null;
-  songs: Song[];
-  selectedSound: ReelSound | null;
-  onPickSound: (s: ReelSound | null) => void;
-  onProfileClick: (id: number) => void;
-  onCreateReelClick: () => void;
-  onReact: (reelId: number, type?: ReactionType) => void;
-  onComment: (reelId: number, text: string) => void;
-  onShare: (reelId: number, type: 'feed' | 'copy') => void;
-  onFollow: (targetUserId: number) => void;
-  onUseSound: (sound: Sound) => void;
-  checkIsFollowing: (targetUserId: number) => boolean;
-  followLoading: { [key: number]: boolean };
-  initialReelId?: number | null;
-}
-
-export const ReelsFeed: React.FC<ReelsFeedProps> = ({ 
-  reels, 
-  users, 
-  currentUser, 
-  songs,
-  selectedSound,
-  onPickSound,
-  onProfileClick, 
-  onCreateReelClick, 
-  onReact, 
-  onComment, 
-  onShare, 
-  onFollow, 
-  onUseSound, 
-  checkIsFollowing,
-  followLoading = {},
-  initialReelId,
-}) => {
-  const { stopAllAudio } = useAudioFocus();
-  
-  const [activeReelId, setActiveReelId] = useState<number | null>(
-    initialReelId || (reels[0]?.id || null)
-  );
-  const [playingReelId, setPlayingReelId] = useState<number | null>(null); 
-  const [showComments, setShowComments] = useState(false);
-  const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
-  const [soundDetailLoading, setSoundDetailLoading] = useState(false);
-  
-  const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
-  const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
-
-  // Group reels by sound key
-  const reelsBySoundKey = useMemo(() => {
-    const groups: Record<string, Reel[]> = {};
-    reels.forEach((reel) => {
-      const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
-      if (!groups[soundKey]) {
-        groups[soundKey] = [];
-      }
-      groups[soundKey].push(reel);
-    });
-    return groups;
-  }, [reels]);
-
-  const extractSoundFromReel = useCallback((reel: Reel): Sound => {
-    const author = users.find((u: User) => Number(u.id) === Number((reel as any).userId));
-    const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
-    const usageCount = reelsBySoundKey[soundKey]?.length || 0;
+    setIsSubmitting(true);
     
-    return {
-      id: soundKey,
-      name: (reel as any).songName || 'Original Sound',
-      url: (reel as any).audioUrl || '',
-      start: (reel as any).audioStart || 0,
-      end: (reel as any).audioEnd || 0,
-      creator: author,
-      creationCount: usageCount,
-      isOriginal: soundKey.startsWith('original:'),
-      soundKey: soundKey
-    };
-  }, [users, reelsBySoundKey]);
-
-  const handleSoundClick = useCallback(async (reel: Reel) => {
-    stopAllAudio();
-    const sound = extractSoundFromReel(reel);
-    
-    setSoundDetailLoading(true);
     try {
-      // Fetch detailed sound information
-      const response = await fetch(`/api/sounds/detail?sound_key=${encodeURIComponent(sound.id.toString())}`);
-      const data = await response.json();
-      
-      if (data?.sound) {
-        const detailedSound: Sound = {
-          ...sound,
-          ...data.sound,
-          playCount: data.sound.playCount || 0,
-          viewCount: data.sound.viewCount || 0,
-          duration: data.sound.duration || 30
-        };
-        setSelectedSoundData(detailedSound);
-      } else {
-        setSelectedSoundData(sound);
-      }
-    } catch (error) {
-      console.error('Failed to fetch sound details:', error);
-      setSelectedSoundData(sound);
-    } finally {
-      setSoundDetailLoading(false);
-    }
-  }, [extractSoundFromReel, stopAllAudio]);
-
-  const handleUseSound = (sound: Sound) => {
-    onPickSound({
-      songName: sound.name,
-      audioUrl: sound.url,
-      audioStart: sound.start || 0,
-      audioEnd: sound.end || 0,
-      songId: sound.id?.toString().startsWith('song:') ? 
-        sound.id.toString().split(':')[1] : undefined,
-      soundKey: String(sound.id)
-    });
-    onCreateReelClick();
-  };
-
-  // Audio/Video synchronization
-  useEffect(() => {
-    Object.keys(videoRefs.current).forEach((key) => {
-      const id = Number(key);
-      const video = videoRefs.current[id];
-      const audio = audioRefs.current[id];
-      const reel = reels.find((r: Reel) => r.id === id);
-
-      if (video) {
-        if (id === playingReelId) {
-          if (video.paused) video.play().catch(() => {});
-          
-          if (audio && reel) {
-            video.muted = true;
-            const start = reel.audioStart || 0;
-            const end = reel.audioEnd || 1000000;
-            
-            const handleAudioSync = () => {
-              if (!audio || !video) return;
-              
-              const expectedAudioTime = video.currentTime + start;
-              
-              if (audio.currentTime >= end || expectedAudioTime >= end) {
-                audio.currentTime = start;
-                video.currentTime = 0;
-                return;
-              }
-              
-              const drift = Math.abs(audio.currentTime - expectedAudioTime);
-              if (drift > 0.5) {
-                audio.currentTime = expectedAudioTime;
-              }
-            };
-
-            audio.addEventListener('timeupdate', handleAudioSync);
-            if (audio.paused) audio.play().catch(() => {});
-            
-            return () => audio.removeEventListener('timeupdate', handleAudioSync);
-          } else {
-            video.muted = false;
-          }
-        } else {
-          video.pause();
-          if (audio) audio.pause();
+      await onCreatePost(
+        text,
+        files.length > 0 ? files : null,
+        {
+          visibility: privacy,
+          location: location || undefined,
+          feeling: feeling || undefined,
+          taggedUsers: taggedUsers.length > 0 ? taggedUsers : undefined,
         }
-      }
-    });
-  }, [playingReelId, reels]);
-
-  const formatCount = (num: number): string => {
-    if (!num && num !== 0) return '0';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
+      );
+      
+      // Reset form
+      setText('');
+      setFiles([]);
+      setPrivacy('public');
+      setFeeling('');
+      setLocation('');
+      setTaggedUsers([]);
+      
+      onClose();
+    } catch (error) {
+      console.error('Failed to create post:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="w-full h-[calc(100vh-56px)] flex justify-center bg-black overflow-hidden font-sans relative">
-      <div className="w-full max-w-[450px] h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide">
-        {reels.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-white p-8">
-            <div className="w-24 h-24 rounded-full bg-[#1877F2]/10 flex items-center justify-center mb-6">
-              <i className="fas fa-video text-3xl text-[#1877F2]"></i>
-            </div>
-            <h3 className="text-xl font-black mb-2">No Reels Yet</h3>
-            <p className="text-[#B0B3B8] text-sm mb-8 text-center">
-              Be the first to create a viral moment!
-            </p>
-            {currentUser && (
-              <button 
-                onClick={onCreateReelClick}
-                className="bg-[#1877F2] text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2"
-              >
-                <i className="fas fa-plus"></i>
-                Create Your First Reel
-              </button>
-            )}
-          </div>
-        ) : (
-          reels.map((reel: Reel) => {
-            const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
-            if (!author) return null;
-            
-            const isFollowing = checkIsFollowing(Number(author.id));
-            const isLoadingFollow = !!followLoading[Number(author.id)];
-            
-            const hasLiked = reel.reactions.some(r => 
-              Number(r.userId ?? r.user_id) === Number(currentUser?.id)
-            );
-
-            const sound = extractSoundFromReel(reel);
-
-            return (
-              <div 
-                key={reel.id} 
-                id={`reel-${reel.id}`}
-                data-reel-id={reel.id} 
-                className="reel-container w-full h-full snap-start relative bg-black flex items-center justify-center overflow-hidden"
-              >
-                <video 
-                  ref={el => { if (el) videoRefs.current[reel.id] = el; }} 
-                  src={reel.videoUrl} 
-                  className="w-full h-full object-cover" 
-                  loop 
-                  playsInline 
-                  onClick={() => {
-                    stopAllAudio();
-                    setPlayingReelId(playingReelId === reel.id ? null : reel.id);
-                  }}
-                />
-                {reel.audioUrl && (
-                  <audio 
-                    ref={el => { if (el) audioRefs.current[reel.id] = el; }} 
-                    src={reel.audioUrl} 
-                    loop={false} 
-                  />
-                )}
-
-                {playingReelId !== reel.id && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-20 h-20 bg-black/40 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20">
-                      <i className="fas fa-play text-white text-3xl ml-1"></i>
-                    </div>
-                  </div>
-                )}
-
-                <div className="absolute bottom-0 left-0 w-full p-4 z-20 pb-12 bg-gradient-to-t from-black/95 via-transparent to-transparent">
-                  <div className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between w-full">
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <img 
-                            src={author.profile_image_url || author.profileImage} 
-                            className="w-11 h-11 rounded-full border-2 border-white/50 object-cover cursor-pointer" 
-                            alt="" 
-                            onClick={() => onProfileClick(author.id)} 
-                          />
-                          {currentUser?.id !== author.id && !isFollowing && (
-                            <div 
-                              onClick={() => onFollow(author.id)} 
-                              className="absolute -bottom-1 -right-1 w-4.5 h-4.5 bg-[#1877F2] rounded-full flex items-center justify-center border-2 border-black text-white cursor-pointer hover:scale-110 transition-transform"
-                            >
-                              <i className="fas fa-plus text-[8px]"></i>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
-                            <span 
-                              className="text-white font-black text-[16px] drop-shadow-xl cursor-pointer hover:underline" 
-                              onClick={() => onProfileClick(author.id)}
-                            >
-                              {author.name}
-                            </span>
-                            {author.is_verified && (
-                              <i className="fas fa-check-circle text-[11px] text-[#1877F2]"></i>
-                            )}
-                            {!isFollowing && currentUser?.id !== author.id && (
-                              <button 
-                                onClick={(e) => { 
-                                  e.stopPropagation(); 
-                                  onFollow(author.id); 
-                                }} 
-                                disabled={isLoadingFollow}
-                                className="ml-2 bg-[#1877F2] text-white text-[11px] font-black px-3 py-1 rounded-md shadow-lg active:scale-95 transition-all border-none disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {isLoadingFollow ? 'Following...' : 'Follow'}
-                              </button>
-                            )}
-                          </div>
-                          {sound.creationCount && sound.creationCount > 0 && (
-                            <span className="text-[#45BD62] text-[10px] font-bold uppercase tracking-wider mt-0.5">
-                              {sound.creationCount.toLocaleString()} uses
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-5 px-1">
-                        <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => onReact(reel.id, 'love')}>
-                          <i className={`fas fa-heart text-[24px] transition-transform active:scale-150 ${hasLiked ? 'text-[#F3425F]' : 'text-white'}`}></i>
-                          <span className="text-white text-[11px] font-black">
-                            {formatCount(reel.reactions.length)}
-                          </span>
-                        </div>
-                        <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => setShowComments(true)}>
-                          <i className="fas fa-comment-dots text-[24px] text-white"></i>
-                          <span className="text-white text-[11px] font-black">
-                            {formatCount(reel.comments.length)}
-                          </span>
-                        </div>
-                        <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => onShare(reel.id, 'feed')}>
-                          <i className="fas fa-share text-[24px] text-white"></i>
-                          <span className="text-white text-[11px] font-black">
-                            {formatCount(reel.shares)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <p className="text-white text-[15px] font-medium leading-snug drop-shadow-xl line-clamp-2 max-w-[85%]">
-                      {reel.caption}
-                    </p>
-                    
-                    <div className="flex items-center justify-between w-full mt-2">
-                      <div 
-                        className="flex items-center gap-3 text-white/90 text-sm w-48 bg-white/10 backdrop-blur-xl px-4 py-2 rounded-2xl border border-white/10 cursor-pointer overflow-hidden active:scale-95 transition-all group" 
-                        onClick={() => handleSoundClick(reel)}
-                      >
-                        <i className="fas fa-music text-[10px] animate-pulse text-[#1877F2]"></i>
-                        <div className="relative flex-1 overflow-hidden whitespace-nowrap">
-                          <div className="inline-block animate-marquee-slow font-black text-[12px] tracking-tight uppercase">
-                            {reel.songName} — {author.name} Original
-                            {sound.creationCount && sound.creationCount > 0 && (
-                              <span className="text-[#45BD62] ml-2">• {sound.creationCount} uses</span>
-                            )}
-                          </div>
-                        </div>
-                        <i className="fas fa-external-link-alt text-[8px] text-white/40 group-hover:text-[#1877F2] transition-colors"></i>
-                      </div>
-
-                      <div 
-                        className={`w-11 h-11 rounded-full bg-gradient-to-tr from-gray-900 to-black flex items-center justify-center border-2 border-white/20 shadow-2xl cursor-pointer ${playingReelId === reel.id ? 'animate-spin-slow' : ''} hover:scale-110 transition-transform`} 
-                        onClick={() => handleSoundClick(reel)}
-                      >
-                        <div className="w-6 h-6 rounded-full border border-white/10 flex items-center justify-center bg-gray-800">
-                          <i className="fas fa-compact-disc text-[10px] text-white/80"></i>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {activeReelId && (
-        <ReelCommentsSheet 
-          isOpen={showComments} 
-          onClose={() => setShowComments(false)} 
-          comments={reels.find((r: any) => r.id === activeReelId)?.comments || []} 
-          users={users} 
-          currentUser={currentUser} 
-          onAddComment={(text: string) => onComment(activeReelId, text)} 
-        />
-      )}
-      
-      {soundDetailLoading && (
-        <div className="fixed inset-0 z-[599] bg-black/80 flex items-center justify-center">
-          <div className="w-16 h-16 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
-        </div>
-      )}
-      
-      {selectedSoundData && !soundDetailLoading && (
-        <SoundDetailView 
-          sound={selectedSoundData} 
-          onClose={() => setSelectedSoundData(null)}
-          onUseSound={handleUseSound}
-          onReelClick={(rid) => { 
-            const el = document.getElementById(`reel-${rid}`);
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth' });
-              setActiveReelId(rid);
-              setPlayingReelId(rid);
-            }
-            setSelectedSoundData(null);
-          }}
-        />
-      )}
-
-      {currentUser && (
-        <div className="absolute bottom-24 right-6 flex flex-col gap-3 z-40">
-          {selectedSound?.audioUrl && (
-            <div className="bg-black/80 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 max-w-[200px]">
-              <p className="text-white text-xs font-semibold truncate">
-                Using: <span className="text-[#1877F2]">{selectedSound.songName}</span>
-              </p>
-            </div>
-          )}
-          
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-[#242526] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col border border-[#3E4042]">
+        {/* Header */}
+        <div className="p-4 border-b border-[#3E4042] flex items-center justify-between">
+          <h2 className="text-xl font-bold text-[#E4E6EB]">Create Post</h2>
           <button
-            onClick={onCreateReelClick}
-            className="w-16 h-16 bg-[#1877F2] rounded-full flex items-center justify-center text-white shadow-2xl hover:scale-105 active:scale-95 transition-all z-40 border-4 border-black"
+            onClick={onClose}
+            className="p-2 hover:bg-[#3A3B3C] rounded-full transition-colors"
           >
-            <i className="fas fa-plus text-3xl"></i>
+            <X className="w-5 h-5 text-[#B0B3B8]" />
           </button>
         </div>
-      )}
-    </div>
-  );
-};
 
-// ==================== REEL THUMBNAIL COMPONENT ====================
-const ReelThumbnail: React.FC<{
-  reel: Reel;
-  onClick: () => void;
-}> = ({ reel, onClick }) => {
-  const formatCount = (num: number): string => {
-    if (!num && num !== 0) return '0';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
-  };
+        {/* User Info */}
+        <div className="p-4">
+          <div className="flex items-center gap-3">
+            <img
+              src={currentUser.profile_image_url}
+              alt={currentUser.name}
+              className="w-10 h-10 rounded-full object-cover"
+            />
+            <div>
+              <h3 className="font-bold text-[#E4E6EB]">{currentUser.name}</h3>
+              <select
+                value={privacy}
+                onChange={(e) => setPrivacy(e.target.value as any)}
+                className="text-sm text-[#B0B3B8] bg-transparent border-none focus:outline-none"
+              >
+                <option value="public" className="bg-[#242526]">
+                  <Globe className="w-3 h-3 inline mr-2" />
+                  Public
+                </option>
+                <option value="friends" className="bg-[#242526]">
+                  <Users className="w-3 h-3 inline mr-2" />
+                  Friends
+                </option>
+                <option value="private" className="bg-[#242526]">
+                  <Lock className="w-3 h-3 inline mr-2" />
+                  Only me
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
 
-  return (
-    <div 
-      onClick={onClick} 
-      className="aspect-[9/16] bg-white/5 relative cursor-pointer group overflow-hidden"
-    >
-      <video 
-        src={reel.videoUrl} 
-        className="w-full h-full object-cover group-hover:scale-110 transition-transform" 
-        muted 
-        playsInline 
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-      <div className="absolute bottom-2 left-2 flex items-center gap-1.5 text-white text-[10px] font-black bg-black/40 px-2 py-1 rounded-lg backdrop-blur-md">
-        <i className="fas fa-eye text-[8px]"></i> 
-        {formatCount(reel.views || 0)} 
-      </div>
-      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <div className="w-8 h-8 bg-black/60 rounded-full flex items-center justify-center">
-          <i className="fas fa-play text-white text-xs"></i>
+        {/* Text Input */}
+        <div className="flex-1 overflow-y-auto px-4">
+          <textarea
+            placeholder={`What's on your mind, ${currentUser.name.split(' ')[0]}?`}
+            className="w-full h-40 bg-transparent border-none text-[#E4E6EB] text-lg placeholder-[#B0B3B8] resize-none focus:outline-none"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+
+          {/* File Previews */}
+          {files.length > 0 && (
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              {files.map((file, index) => (
+                <div key={index} className="relative rounded-lg overflow-hidden">
+                  {file.type.startsWith('image/') ? (
+                    <img
+                      src={URL.createObjectURL(file)}
+                      alt=""
+                      className="w-full h-48 object-cover"
+                    />
+                  ) : (
+                    <video
+                      src={URL.createObjectURL(file)}
+                      className="w-full h-48 object-cover"
+                      muted
+                    />
+                  )}
+                  <button
+                    onClick={() => removeFile(index)}
+                    className="absolute top-2 right-2 w-8 h-8 bg-black/60 rounded-full flex items-center justify-center"
+                  >
+                    <X className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Options */}
+        <div className="p-4 border-t border-[#3E4042]">
+          <div className="bg-[#3A3B3C] rounded-lg p-4">
+            <p className="text-[#E4E6EB] font-semibold mb-2">Add to your post</p>
+            <div className="flex gap-4">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 text-[#B0B3B8] hover:text-[#E4E6EB] transition-colors"
+              >
+                <ImageIcon className="w-5 h-5" />
+                <span>Photo/Video</span>
+              </button>
+              <button className="flex items-center gap-2 text-[#B0B3B8] hover:text-[#E4E6EB] transition-colors">
+                <UserIcon className="w-5 h-5" />
+                <span>Tag people</span>
+              </button>
+              <button className="flex items-center gap-2 text-[#B0B3B8] hover:text-[#E4E6EB] transition-colors">
+                <Smile className="w-5 h-5" />
+                <span>Feeling</span>
+              </button>
+              <button className="flex items-center gap-2 text-[#B0B3B8] hover:text-[#E4E6EB] transition-colors">
+                <MapPin className="w-5 h-5" />
+                <span>Location</span>
+              </button>
+            </div>
+          </div>
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            multiple
+            accept="image/*,video/*"
+            onChange={handleFileSelect}
+          />
+        </div>
+
+        {/* Submit Button */}
+        <div className="p-4 border-t border-[#3E4042]">
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting || (!text.trim() && files.length === 0)}
+            className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? 'Posting...' : 'Post'}
+          </button>
         </div>
       </div>
     </div>
@@ -1532,90 +937,187 @@ const ReelThumbnail: React.FC<{
 };
 
 // ==================== COMMENTS SHEET ====================
-const ReelCommentsSheet: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  comments: any[];
-  users: User[];
-  currentUser: User | null;
-  onAddComment: (text: string) => void;
-}> = ({ isOpen, onClose, comments, users, currentUser, onAddComment }) => {
-  const [text, setText] = useState('');
-  
-  if (!isOpen) return null;
+
+export const CommentsSheet: React.FC<CommentsSheetProps> = ({
+  post,
+  currentUser,
+  users,
+  onClose,
+  onComment,
+  onLikeComment,
+  getCommentAuthor,
+  onProfileClick,
+  onHashtagClick,
+  onFollow,
+  checkIsFollowing,
+}) => {
+  const [commentText, setCommentText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [comments, setComments] = useState<Comment[]>(safeArray(post.comments));
+
+  const handleSubmitComment = async () => {
+    if (!commentText.trim() || !currentUser) return;
+
+    setIsSubmitting(true);
+    
+    // Simulate API call
+    setTimeout(() => {
+      const newComment: Comment = {
+        id: Date.now(),
+        user_id: currentUser.id,
+        text: commentText,
+        created_at: new Date().toISOString(),
+        likes: [],
+        replies: [],
+      };
+      
+      setComments(prev => [newComment, ...prev]);
+      setCommentText('');
+      setIsSubmitting(false);
+      onComment();
+    }, 500);
+  };
+
+  const renderContent = (text: string) => {
+    const parts = text.split(/(#[a-zA-Z0-9_]+|@[a-zA-Z0-9_]+)/g);
+    
+    return parts.map((part, index) => {
+      if (part.startsWith('#') && onHashtagClick) {
+        return (
+          <span
+            key={index}
+            className="text-[#1877F2] hover:underline cursor-pointer font-medium"
+            onClick={() => onHashtagClick(part)}
+          >
+            {part}
+          </span>
+        );
+      }
+      if (part.startsWith('@')) {
+        const username = part.substring(1);
+        const mentionedUser = users.find(u => 
+          u.username?.toLowerCase() === username.toLowerCase() || 
+          u.name?.toLowerCase().includes(username.toLowerCase())
+        );
+        
+        return (
+          <span
+            key={index}
+            className="text-[#1877F2] hover:underline cursor-pointer font-medium"
+            onClick={() => mentionedUser && onProfileClick(mentionedUser.id)}
+          >
+            {part}
+          </span>
+        );
+      }
+      return <span key={index}>{part}</span>;
+    });
+  };
 
   return (
-    <div 
-      className="fixed inset-0 z-[400] flex items-end justify-center bg-black/70 font-sans backdrop-blur-sm" 
-      onClick={onClose}
-    >
-      <div 
-        className="w-full max-w-[450px] h-[70vh] bg-[#121212] rounded-t-[40px] flex flex-col animate-slide-up border-t border-white/10 shadow-2xl" 
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="p-5 border-b border-white/5 flex justify-between items-center bg-[#181818] rounded-t-[40px]">
-          <span className="text-white font-black text-[13px] ml-4 uppercase tracking-[3px]">
-            {comments.length} Comments
-          </span>
-          <button 
-            onClick={onClose} 
-            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white active:scale-90 transition-all"
+    <div className="fixed inset-0 z-50 bg-black/70 flex flex-col">
+      {/* Header */}
+      <div className="bg-[#242526] border-b border-[#3E4042] p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-[#E4E6EB]">Comments</h2>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-[#3A3B3C] rounded-full transition-colors"
           >
-            <i className="fas fa-times text-xs"></i>
+            <X className="w-5 h-5 text-[#B0B3B8]" />
           </button>
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {comments.map((c: any) => {
-            const author = users.find((u: any) => u.id === c.userId || u.id === c.user_id);
-            return (
-              <div key={c.id} className="flex gap-4">
-                <img 
-                  src={author?.profile_image_url || author?.profileImage} 
-                  className="w-10 h-10 rounded-full object-cover border-2 border-white/5" 
-                  alt="" 
-                />
-                <div className="flex-1">
-                  <p className="text-[#1877F2] font-black text-[11px] uppercase tracking-tighter mb-0.5">
-                    {author?.name || 'User'}
-                  </p>
-                  <p className="text-[#E4E6EB] text-[15px] leading-snug font-medium">
-                    {c.text}
-                  </p>
+      </div>
+
+      {/* Comments List */}
+      <div className="flex-1 overflow-y-auto bg-[#18191A]">
+        {comments.length === 0 ? (
+          <div className="text-center py-12">
+            <MessageCircle className="w-12 h-12 text-[#B0B3B8] mx-auto mb-4" />
+            <p className="text-[#B0B3B8]">No comments yet</p>
+            <p className="text-[#B0B3B8] text-sm mt-1">Be the first to comment!</p>
+          </div>
+        ) : (
+          <div className="p-4 space-y-6">
+            {comments.map((comment) => {
+              const author = getCommentAuthor(comment.user_id);
+              if (!author) return null;
+
+              return (
+                <div key={comment.id} className="flex gap-3">
+                  <img
+                    src={author.profile_image_url}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover cursor-pointer"
+                    onClick={() => onProfileClick(author.id)}
+                  />
+                  <div className="flex-1">
+                    <div className="bg-[#3A3B3C] rounded-2xl p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4
+                          className="font-bold text-[#E4E6EB] text-sm cursor-pointer hover:underline"
+                          onClick={() => onProfileClick(author.id)}
+                        >
+                          {author.name}
+                        </h4>
+                        <span className="text-[#B0B3B8] text-xs">
+                          {formatTime(comment.created_at)}
+                        </span>
+                      </div>
+                      <p className="text-[#E4E6EB] text-sm">
+                        {renderContent(comment.text)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-4 mt-2 ml-3">
+                      <button
+                        onClick={() => onLikeComment(comment.id)}
+                        className="text-[#B0B3B8] hover:text-[#E4E6EB] text-xs font-semibold"
+                      >
+                        Like
+                      </button>
+                      <button className="text-[#B0B3B8] hover:text-[#E4E6EB] text-xs font-semibold">
+                        Reply
+                      </button>
+                      <span className="text-[#B0B3B8] text-xs">
+                        {formatCount(comment.likes?.length || 0)} likes
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <i className="far fa-heart text-[#B0B3B8] text-sm mt-1"></i>
-              </div>
-            );
-          })}
-        </div>
-        
-        <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
-          <div className="flex gap-3">
-            <input 
-              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all" 
-              placeholder="Add a professional comment..." 
-              value={text} 
-              onChange={e => setText(e.target.value)}
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Comment Input */}
+      <div className="bg-[#242526] border-t border-[#3E4042] p-4">
+        <div className="flex items-center gap-3">
+          <img
+            src={currentUser?.profile_image_url}
+            alt=""
+            className="w-10 h-10 rounded-full object-cover"
+          />
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              placeholder="Write a comment..."
+              className="w-full bg-[#3A3B3C] border-none rounded-full px-4 py-3 text-[#E4E6EB] placeholder-[#B0B3B8] focus:outline-none focus:ring-1 focus:ring-[#1877F2]"
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
+                if (e.key === 'Enter' && !e.shiftKey && commentText.trim() && !isSubmitting) {
                   e.preventDefault();
-                  onAddComment(text.trim());
-                  setText('');
+                  handleSubmitComment();
                 }
               }}
             />
-            <button 
-              onClick={() => { 
-                const trimmedText = text.trim();
-                if (trimmedText) { 
-                  onAddComment(trimmedText); 
-                  setText(''); 
-                }
-              }} 
-              className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
-              disabled={!text.trim()}
+            <button
+              onClick={handleSubmitComment}
+              disabled={isSubmitting || !commentText.trim() || !currentUser}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[#1877F2] hover:text-[#166FE5] disabled:opacity-50"
             >
-              <i className="fas fa-paper-plane text-xs"></i>
+              <Send className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -1624,901 +1126,299 @@ const ReelCommentsSheet: React.FC<{
   );
 };
 
-// ==================== SOUND PICKER COMPONENT ====================
-interface MusicPickerProps {
-  songs: Song[];
-  popularSounds: Sound[];
-  loadingSongs: boolean;
-  loadingPopularSounds: boolean;
-  musicSearch: string;
-  setMusicSearch: (search: string) => void;
-  onSoundSelect: (sound: Sound) => void;
-  onSoundPreview: (sound: Sound) => void;
-  previewSound: Sound | null;
-  isPreviewPlaying: boolean;
-  selectedSoundId: string | number | null;
-  audioUploadRef: React.RefObject<HTMLInputElement>;
-  onAudioUpload: (file: File) => void;
-  onClose: () => void;
+// ==================== SHARE BOTTOM SHEET ====================
+
+export const ShareBottomSheet: React.FC<ShareBottomSheetProps> = ({
+  isOpen,
+  onClose,
+  post,
+  currentUser,
+  users,
+  groups,
+  brands,
+  chats,
+  onShareComplete,
+  onFollow,
+  checkIsFollowing,
+}) => {
+  const [selectedDestination, setSelectedDestination] = useState<string>('');
+  const [shareMessage, setShareMessage] = useState('');
+  const [isSharing, setIsSharing] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleShare = async (destination: string) => {
+    setIsSharing(true);
+    
+    try {
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      onShareComplete(destination, { success: true });
+      onClose();
+    } catch (error) {
+      console.error('Share failed:', error);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const destinations = [
+    { id: 'feed', icon: '📝', label: 'Share to Feed', color: 'text-blue-500' },
+    { id: 'story', icon: '📖', label: 'Share to Story', color: 'text-purple-500' },
+    { id: 'messenger', icon: '💬', label: 'Send in Messenger', color: 'text-blue-400' },
+    { id: 'groups', icon: '👥', label: 'Share to Groups', color: 'text-green-500', count: groups.length },
+    { id: 'copy', icon: '🔗', label: 'Copy Link', color: 'text-gray-500' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-end">
+      <div className="w-full bg-[#242526] rounded-t-2xl max-h-[80vh] overflow-hidden flex flex-col border border-[#3E4042]">
+        {/* Header */}
+        <div className="p-4 border-b border-[#3E4042] flex items-center justify-between">
+          <h2 className="text-xl font-bold text-[#E4E6EB]">Share</h2>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-[#3A3B3C] rounded-full transition-colors"
+          >
+            <X className="w-5 h-5 text-[#B0B3B8]" />
+          </button>
+        </div>
+
+        {/* Share Options */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {/* Quick Share Options */}
+          <div className="grid grid-cols-4 gap-3 mb-6">
+            {destinations.map((dest) => (
+              <button
+                key={dest.id}
+                onClick={() => handleShare(dest.id)}
+                disabled={isSharing}
+                className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-[#3A3B3C] transition-colors disabled:opacity-50"
+              >
+                <span className="text-2xl">{dest.icon}</span>
+                <span className="text-xs text-[#E4E6EB] text-center font-medium">
+                  {dest.label}
+                </span>
+                {dest.count !== undefined && (
+                  <span className="text-xs text-[#B0B3B8]">
+                    {dest.count} groups
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Groups List */}
+          {groups.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-[#E4E6EB] font-semibold mb-3">Your Groups</h3>
+              <div className="space-y-2">
+                {groups.slice(0, 5).map((group) => (
+                  <button
+                    key={group.id}
+                    onClick={() => handleShare(`group:${group.id}`)}
+                    disabled={isSharing}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-[#3A3B3C] transition-colors disabled:opacity-50"
+                  >
+                    <img
+                      src={group.profile_image || group.cover_image}
+                      alt=""
+                      className="w-10 h-10 rounded-lg object-cover"
+                    />
+                    <div className="text-left flex-1">
+                      <p className="text-[#E4E6EB] font-medium">{group.name}</p>
+                      <p className="text-[#B0B3B8] text-sm">
+                        {group.members?.length || 0} members
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Friends List */}
+          {users.length > 0 && (
+            <div>
+              <h3 className="text-[#E4E6EB] font-semibold mb-3">Share with Friends</h3>
+              <div className="space-y-2">
+                {users.slice(0, 5).map((user) => (
+                  <button
+                    key={user.id}
+                    onClick={() => handleShare(`user:${user.id}`)}
+                    disabled={isSharing}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-[#3A3B3C] transition-colors disabled:opacity-50"
+                  >
+                    <img
+                      src={user.profile_image_url}
+                      alt=""
+                      className="w-10 h-10 rounded-full object-cover"
+                    />
+                    <div className="text-left flex-1">
+                      <p className="text-[#E4E6EB] font-medium">{user.name}</p>
+                      <div className="flex items-center gap-2">
+                        {checkIsFollowing(user.id) ? (
+                          <span className="text-xs text-[#45BD62]">Following</span>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onFollow(user.id);
+                            }}
+                            className="text-xs text-[#1877F2] hover:underline"
+                          >
+                            Follow
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Custom Message */}
+        <div className="p-4 border-t border-[#3E4042]">
+          <textarea
+            placeholder="Add a message (optional)"
+            className="w-full bg-[#3A3B3C] border-none rounded-xl px-4 py-3 text-[#E4E6EB] placeholder-[#B0B3B8] resize-none focus:outline-none focus:ring-1 focus:ring-[#1877F2]"
+            rows={2}
+            value={shareMessage}
+            onChange={(e) => setShareMessage(e.target.value)}
+          />
+          <button
+            onClick={() => handleShare('feed')}
+            disabled={isSharing}
+            className="w-full mt-3 bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-50"
+          >
+            {isSharing ? 'Sharing...' : 'Share Now'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==================== SUGGESTED PRODUCTS WIDGET ====================
+
+interface SuggestedProductsWidgetProps {
+  products: Product[];
+  currentUser: User | null;
+  onViewProduct: (product: Product) => void;
+  onSeeAll: () => void;
 }
 
-const MusicPicker: React.FC<MusicPickerProps> = ({
-  songs,
-  popularSounds,
-  loadingSongs,
-  loadingPopularSounds,
-  musicSearch,
-  setMusicSearch,
-  onSoundSelect,
-  onSoundPreview,
-  previewSound,
-  isPreviewPlaying,
-  selectedSoundId,
-  audioUploadRef,
-  onAudioUpload,
-  onClose
+export const SuggestedProductsWidget: React.FC<SuggestedProductsWidgetProps> = ({
+  products,
+  currentUser,
+  onViewProduct,
+  onSeeAll,
 }) => {
-  const availableSounds = useMemo(() => {
-    const sounds: Sound[] = [];
-    
-    songs.forEach(song => {
-      sounds.push({
-        id: `song:${song.id}`,
-        name: song.title,
-        url: song.audio_url,
-        creator: { 
-          id: song.artistId,
-          name: song.artist,
-          profile_image_url: song.cover_url
-        },
-        creationCount: 0,
-        duration: song.duration,
-        playCount: song.playCount || 0,
-        coverImage: song.cover_url,
-        isOriginal: false,
-        soundKey: `song:${song.id}`
-      });
-    });
+  const suggestedProducts = products.slice(0, 3);
 
-    if (popularSounds.length > 0) {
-      popularSounds.forEach(sound => {
-        if (!sounds.find(s => s.id === sound.id)) {
-          sounds.push({
-            ...sound,
-            creationCount: 0
-          });
-        }
-      });
-    }
-
-    return sounds.sort((a, b) => (b.creationCount || 0) - (a.creationCount || 0));
-  }, [songs, popularSounds]);
-
-  const filteredSounds = useMemo(() => {
-    if (!musicSearch.trim()) return availableSounds;
-    return availableSounds.filter(s => 
-      s.name.toLowerCase().includes(musicSearch.toLowerCase()) || 
-      s.creator?.name?.toLowerCase().includes(musicSearch.toLowerCase())
-    );
-  }, [musicSearch, availableSounds]);
-
-  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) {
-      const file = e.target.files[0];
-      onAudioUpload(file);
-    }
-  };
+  if (suggestedProducts.length === 0) return null;
 
   return (
-    <div className="fixed inset-0 z-[700] bg-[#0A0A0A] flex flex-col animate-slide-up">
-      <div className="h-16 px-6 flex items-center justify-between border-b border-white/5 bg-[#121212] shrink-0">
-        <button onClick={onClose} className="text-[#B0B3B8] font-black uppercase text-[11px] tracking-widest px-4 py-2 rounded-xl hover:bg-white/5 transition-all">Cancel</button>
-        <h3 className="font-black text-white uppercase tracking-[6px] text-[12px]">UNERA Sounds</h3>
-        <div className="w-20"></div>
-      </div>
-      
-      <div className="p-6 bg-[#121212] shrink-0">
-        <div className="relative">
-          <i className="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-white/20"></i>
-          <input 
-            type="text"
-            className="w-full bg-white/5 border border-white/5 rounded-2xl p-4 pl-12 text-white outline-none focus:ring-2 focus:ring-[#1877F2]/50 font-medium transition-all"
-            placeholder="Search UNERA Sounds..."
-            value={musicSearch}
-            onChange={(e) => setMusicSearch(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        <div 
-          onClick={() => audioUploadRef.current?.click()}
-          className="bg-gradient-to-br from-[#1877F2]/30 to-[#1877F2]/10 border border-[#1877F2]/40 p-8 rounded-[32px] flex items-center gap-6 cursor-pointer hover:from-[#1877F2]/40 transition-all active:scale-95 shadow-2xl"
-        >
-          <div className="w-16 h-16 bg-[#1877F2] rounded-2xl flex items-center justify-center shadow-2xl">
-            <i className="fas fa-plus text-white text-3xl"></i>
-          </div>
-          <div>
-            <p className="font-black text-white text-xl">Upload Custom Sound</p>
-            <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest mt-1">From your device storage</p>
-          </div>
-          <input 
-            type="file" 
-            ref={audioUploadRef} 
-            className="hidden" 
-            accept="audio/*" 
-            onChange={handleAudioUpload} 
-          />
-        </div>
-
-        <div className="h-[1px] bg-white/5 my-6"></div>
-
-        {loadingPopularSounds ? (
-          <div className="flex justify-center py-8">
-            <div className="w-8 h-8 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
-          </div>
-        ) : (
-          <>
-            <div className="mb-6">
-              <h4 className="text-white font-black text-sm uppercase tracking-widest mb-4 flex items-center gap-2">
-                <i className="fas fa-fire text-[#F3425F]"></i>
-                Trending Sounds
-              </h4>
-              <div className="space-y-4">
-                {popularSounds.slice(0, 5).map(sound => (
-                  <SoundItem 
-                    key={sound.id} 
-                    sound={sound} 
-                    onSelect={onSoundSelect}
-                    onPreview={onSoundPreview}
-                    isSelected={selectedSoundId === sound.id}
-                    isPreviewing={previewSound?.id === sound.id && isPreviewPlaying}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="h-[1px] bg-white/5 my-6"></div>
-
-            <div>
-              <h4 className="text-white font-black text-sm uppercase tracking-widest mb-4 flex items-center gap-2">
-                <i className="fas fa-music text-[#1877F2]"></i>
-                UNERA Music ({loadingSongs ? 'Loading...' : filteredSounds.length})
-              </h4>
-              {loadingSongs ? (
-                <div className="flex justify-center py-12">
-                  <div className="w-8 h-8 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
-                </div>
-              ) : filteredSounds.length > 0 ? (
-                <div className="space-y-4">
-                  {filteredSounds.map(sound => (
-                    <SoundItem 
-                      key={sound.id} 
-                      sound={sound} 
-                      onSelect={onSoundSelect}
-                      onPreview={onSoundPreview}
-                      isSelected={selectedSoundId === sound.id}
-                      isPreviewing={previewSound?.id === sound.id && isPreviewPlaying}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <i className="fas fa-music text-4xl text-[#B0B3B8] mb-4"></i>
-                  <p className="text-white/60">No sounds found</p>
-                  {musicSearch && <p className="text-white/40 text-sm mt-2">Try a different search term</p>}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ==================== SOUND ITEM COMPONENT ====================
-const SoundItem: React.FC<{
-  sound: Sound;
-  onSelect: (sound: Sound) => void;
-  onPreview: (sound: Sound) => void;
-  isSelected: boolean;
-  isPreviewing?: boolean;
-}> = ({ sound, onSelect, onPreview, isSelected, isPreviewing }) => {
-  const [isHovering, setIsHovering] = useState(false);
-  
-  const handlePreview = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onPreview(sound);
-  };
-
-  return (
-    <div 
-      onClick={() => onSelect(sound)} 
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
-      className={`bg-white/5 p-5 rounded-[24px] flex items-center gap-5 active:scale-95 transition-all border-2 ${isSelected ? 'border-[#1877F2] bg-[#1877F2]/10' : 'border-transparent hover:border-white/10'} group`}
-    >
-      <div className="relative w-16 h-16 shrink-0">
-        {sound.coverImage || sound.creator?.profile_image_url ? (
-          <img 
-            src={sound.coverImage || sound.creator?.profile_image_url} 
-            className="w-full h-full rounded-2xl object-cover shadow-2xl" 
-            alt="" 
-          />
-        ) : (
-          <div className="w-full h-full rounded-2xl bg-gradient-to-br from-[#1877F2] to-[#F3425F] flex items-center justify-center shadow-2xl">
-            <i className="fas fa-music text-white text-2xl"></i>
-          </div>
-        )}
-        {(isHovering || isPreviewing) && (
-          <button 
-            onClick={handlePreview}
-            className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-2xl transition-opacity"
+    <div className="bg-[#242526] rounded-2xl shadow-xl mb-4 overflow-hidden border border-[#3E4042]">
+      <div className="p-4 border-b border-[#3E4042]">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-[#E4E6EB]">Suggested Products</h3>
+          <button
+            onClick={onSeeAll}
+            className="text-[#1877F2] text-sm font-semibold hover:underline"
           >
-            <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-              <i className={`fas ${isPreviewing ? 'fa-pause' : 'fa-play'} text-white text-lg ml-1`}></i>
-            </div>
+            See All
           </button>
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-black text-lg truncate text-white">{sound.name}</p>
-        <p className="text-white/40 text-[11px] font-bold truncate tracking-widest uppercase mt-0.5">
-          {sound.creator?.name || 'Original Sound'}
-        </p>
-        <div className="flex items-center gap-3 mt-1">
-          {sound.creationCount !== undefined && sound.creationCount > 0 && (
-            <span className="text-[#45BD62] text-[10px] font-bold uppercase tracking-widest">
-              {sound.creationCount.toLocaleString()} uses
-            </span>
-          )}
-          {sound.playCount !== undefined && sound.playCount > 0 && (
-            <span className="text-white/60 text-[10px] font-medium">
-              {sound.playCount.toLocaleString()} plays
-            </span>
-          )}
         </div>
       </div>
-      <div className={`w-12 h-12 rounded-full flex items-center justify-center border shadow-inner ${isSelected ? 'bg-[#1877F2] text-white border-[#1877F2]' : 'bg-white/5 text-[#1877F2] border-white/5'}`}>
-        <i className={`fas ${isSelected ? 'fa-check' : 'fa-plus'}`}></i>
-      </div>
-    </div>
-  );
-};
 
-// ==================== UPLOAD LOADER ====================
-const UploadLoader: React.FC<{ 
-  uploadProgress: number; 
-  uploadStatus: 'uploading' | 'processing' | 'success' | 'error';
-  errorMessage?: string;
-}> = ({ uploadProgress, uploadStatus, errorMessage }) => {
-  const [visible, setVisible] = useState(true);
-  
-  useEffect(() => {
-    if (uploadStatus === 'success') {
-      const timer = setTimeout(() => setVisible(false), 2000);
-      return () => clearTimeout(timer);
-    }
-    if (uploadStatus === 'error') {
-      const timer = setTimeout(() => setVisible(false), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [uploadStatus]);
-  
-  if (!visible) return null;
-  
-  const getStatusText = () => {
-    switch(uploadStatus) {
-      case 'uploading': return 'Uploading your reel...';
-      case 'processing': return 'Processing video...';
-      case 'success': return 'Posted successfully!';
-      case 'error': return 'Upload failed';
-      default: return 'Uploading...';
-    }
-  };
-  
-  const getIcon = () => {
-    switch(uploadStatus) {
-      case 'uploading': return 'fas fa-cloud-upload-alt animate-pulse';
-      case 'processing': return 'fas fa-cog fa-spin';
-      case 'success': return 'fas fa-check-circle';
-      case 'error': return 'fas fa-exclamation-circle';
-      default: return 'fas fa-cloud-upload-alt';
-    }
-  };
-  
-  const getColor = () => {
-    switch(uploadStatus) {
-      case 'uploading': return '#1877F2';
-      case 'processing': return '#F7B928';
-      case 'success': return '#45BD62';
-      case 'error': return '#F3425F';
-      default: return '#1877F2';
-    }
-  };
+      <div className="p-4">
+        <div className="grid grid-cols-1 gap-4">
+          {suggestedProducts.map((product) => {
+            const images = Array.isArray(product.images) ? product.images : [];
+            const mainImage = images[0] || '';
 
-  const getProgressColor = () => {
-    switch(uploadStatus) {
-      case 'uploading': return 'from-[#1877F2] to-[#2D8CFF]';
-      case 'processing': return 'from-[#F7B928] to-[#FFD166]';
-      case 'success': return 'from-[#45BD62] to-[#6BE685]';
-      case 'error': return 'from-[#F3425F] to-[#FF6B9D]';
-      default: return 'from-[#1877F2] to-[#2D8CFF]';
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl animate-scale-in">
-        <div className="flex flex-col items-center justify-center gap-6">
-          <div className="w-32 h-32 relative">
-            <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-              <circle
-                cx="50"
-                cy="50"
-                r="45"
-                fill="none"
-                stroke="rgba(255, 255, 255, 0.1)"
-                strokeWidth="8"
-                strokeLinecap="round"
-              />
-              <circle
-                cx="50"
-                cy="50"
-                r="45"
-                fill="none"
-                stroke={getColor()}
-                strokeWidth="8"
-                strokeLinecap="round"
-                strokeDasharray={`${uploadStatus === 'success' ? 283 : (uploadProgress * 2.83)} 283`}
-                strokeDashoffset="0"
-                className="transition-all duration-500 ease-out"
-              />
-            </svg>
-            
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className={`w-20 h-20 rounded-full bg-black/50 flex items-center justify-center ${
-                uploadStatus === 'success' ? 'animate-pulse' : ''
-              }`} style={{
-                boxShadow: `0 0 30px ${getColor()}40`
-              }}>
-                <i className={`${getIcon()} text-2xl`} style={{ color: getColor() }}></i>
-              </div>
-            </div>
-            
-            {(uploadStatus === 'uploading' || uploadStatus === 'processing') && (
-              <div className="absolute inset-[-8px] rounded-full border-2 border-dashed animate-spin-slow" 
-                   style={{ borderColor: `${getColor()}40` }}></div>
-            )}
-          </div>
-          
-          <div className="text-center">
-            <h3 className="text-xl font-bold text-white mb-2 animate-fade-in">{getStatusText()}</h3>
-            <p className="text-[#B0B3B8] text-sm">
-              {uploadStatus === 'uploading' && 'Please wait while we upload your video...'}
-              {uploadStatus === 'processing' && 'Applying effects and optimizing quality...'}
-              {uploadStatus === 'success' && 'Your reel is now live on UNERA!'}
-              {uploadStatus === 'error' && errorMessage || 'Please try again'}
-            </p>
-            
-            {uploadStatus === 'uploading' && (
-              <div className="space-y-3 mt-4">
-                <p className="text-white font-bold text-lg animate-pulse">{Math.round(uploadProgress)}%</p>
-                
-                <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className={`h-full bg-gradient-to-r ${getProgressColor()} rounded-full transition-all duration-500 ease-out`}
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-                
-                <div className="flex justify-between text-xs text-[#B0B3B8]">
-                  <span>Uploading</span>
-                  <span>≈ {uploadProgress < 50 ? '30s' : '15s'}</span>
-                </div>
-              </div>
-            )}
-            
-            {uploadStatus === 'error' && (
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => window.location.reload()}
-                  className="flex-1 bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] text-white px-6 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity active:scale-95"
-                >
-                  <i className="fas fa-redo mr-2"></i> Try Again
-                </button>
-              </div>
-            )}
-            
-            {uploadStatus === 'success' && (
-              <div className="mt-6 flex items-center justify-center gap-2 text-[#45BD62] animate-bounce">
-                <i className="fas fa-check-circle text-xl"></i>
-                <span className="font-bold">Ready to view!</span>
-              </div>
-            )}
-          </div>
-          
-          {(uploadStatus === 'uploading' || uploadStatus === 'processing') && (
-            <div className="text-xs text-white/50 text-center mt-4 px-4 py-2 bg-white/5 rounded-lg">
-              <i className="fas fa-exclamation-triangle mr-2"></i>
-              Please don't close this window or navigate away
-            </div>
-          )}
-        </div>
-      </div>
-      
-      <style>{`
-        @keyframes scale-in {
-          0% { transform: scale(0.9); opacity: 0; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        .animate-scale-in {
-          animation: scale-in 0.3s ease-out;
-        }
-        @keyframes spin-slow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .animate-spin-slow {
-          animation: spin-slow 20s linear infinite;
-        }
-      `}</style>
-    </div>
-  );
-};
-
-// ==================== PROFESSIONAL BEAUTY FILTERS ====================
-const EFFECTS = [
-  { id: 'none', name: 'Original', filter: 'none' },
-  { id: 'beautify', name: 'Glamour', filter: 'brightness(1.1) contrast(1.05) saturate(1.2)' },
-  { id: 'soft', name: 'Soft Glow', filter: 'brightness(1.05) blur(0.4px) contrast(0.95)' },
-  { id: 'vintage', name: 'Vintage', filter: 'sepia(0.3) contrast(0.9) brightness(0.9)' },
-  { id: 'noir', name: 'Noir', filter: 'grayscale(1) contrast(1.2)' },
-];
-
-// ==================== ENHANCED CAMERA STUDIO WITH SOUND SYNC ====================
-const CameraStudio: React.FC<{ 
-  onCapture: (blob: Blob) => void, 
-  onClose: () => void,
-  selectedSound?: Sound;
-  onSoundSync?: (audioUrl: string, startTime: number) => void;
-}> = ({ onCapture, onClose, selectedSound, onSoundSync }) => {
-  const { stopAllAudio } = useAudioFocus();
-  
-  const [isRecording, setIsRecording] = useState(false);
-  const [activeEffect, setActiveEffect] = useState(EFFECTS[0]);
-  const [amplifierLevel, setAmplifierLevel] = useState(2.0);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isSoundPlaying, setIsSoundPlaying] = useState(false);
-  const [soundSyncOffset, setSoundSyncOffset] = useState(0);
-  const [soundStartTime, setSoundStartTime] = useState<number>(0);
-  
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const soundRef = useRef<HTMLAudioElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const processedStreamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<any>(null);
-  const soundTimerRef = useRef<any>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const requestRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    startCamera();
-    return () => {
-      stopAllAudio();
-      stopCamera();
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (soundTimerRef.current) clearInterval(soundTimerRef.current);
-      if (requestRef.current) cancelAnimationFrame(requestRef.current);
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close();
-      }
-    };
-  }, [facingMode]);
-
-  useEffect(() => {
-    if (selectedSound?.url && soundRef.current) {
-      soundRef.current.src = selectedSound.url;
-      soundRef.current.currentTime = selectedSound.start || 0;
-      setSoundStartTime(selectedSound.start || 0);
-      
-      if (isRecording && !isSoundPlaying) {
-        playSound();
-      }
-    }
-    
-    return () => {
-      if (soundRef.current) {
-        soundRef.current.pause();
-        setIsSoundPlaying(false);
-      }
-    };
-  }, [selectedSound, isRecording]);
-
-  const playSound = () => {
-    if (soundRef.current && selectedSound?.url) {
-      stopAllAudio();
-      const startTime = selectedSound.start || 0;
-      soundRef.current.currentTime = startTime;
-      soundRef.current.play().catch(() => {});
-      setIsSoundPlaying(true);
-      setSoundSyncOffset(0);
-      
-      if (soundTimerRef.current) clearInterval(soundTimerRef.current);
-      soundTimerRef.current = setInterval(() => {
-        if (soundRef.current) {
-          setSoundSyncOffset(soundRef.current.currentTime - startTime);
-        }
-      }, 100);
-    }
-  };
-
-  const stopSound = () => {
-    if (soundRef.current) {
-      soundRef.current.pause();
-      setIsSoundPlaying(false);
-      if (soundTimerRef.current) clearInterval(soundTimerRef.current);
-    }
-  };
-
-  const startCamera = async () => {
-    setCameraError(null);
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Your browser doesn't support video recording.");
-      }
-
-      const rawStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, 
-        audio: { 
-          echoCancellation: true, 
-          noiseSuppression: true,
-          autoGainControl: false
-        } 
-      });
-      
-      streamRef.current = rawStream;
-
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      audioContextRef.current = new AudioContextClass();
-      const source = audioContextRef.current.createMediaStreamSource(rawStream);
-      const gainNode = audioContextRef.current.createGain();
-      const destination = audioContextRef.current.createMediaStreamDestination();
-      
-      gainNode.gain.value = amplifierLevel;
-      source.connect(gainNode);
-      gainNode.connect(destination);
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = rawStream;
-        videoRef.current.onloadedmetadata = () => {
-          if (canvasRef.current && videoRef.current) {
-            canvasRef.current.width = videoRef.current.videoWidth;
-            canvasRef.current.height = videoRef.current.videoHeight;
-            processVideo();
-          }
-        };
-      }
-
-      const canvasStream = (canvasRef.current as any).captureStream(30);
-      
-      const finalStream = new MediaStream([
-        canvasStream.getVideoTracks()[0],
-        destination.stream.getAudioTracks()[0]
-      ]);
-      
-      processedStreamRef.current = finalStream;
-
-    } catch (err: any) {
-      console.error("Camera access failed", err);
-      let msg = "Camera access denied.";
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' || err.message?.includes('Permission')) {
-        msg = "Please allow Camera and Microphone access in your browser settings to record live videos.";
-      }
-      setCameraError(msg);
-    }
-  };
-
-  const processVideo = () => {
-    const ctx = canvasRef.current?.getContext('2d');
-    if (ctx && videoRef.current && canvasRef.current) {
-      ctx.filter = activeEffect.filter;
-      if (facingMode === 'user') {
-        ctx.save();
-        ctx.translate(canvasRef.current.width, 0);
-        ctx.scale(-1, 1);
-      }
-      ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-      if (facingMode === 'user') {
-        ctx.restore();
-      }
-      requestRef.current = requestAnimationFrame(processVideo);
-    }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) videoRef.current.srcObject = null;
-    if (requestRef.current) cancelAnimationFrame(requestRef.current);
-    stopSound();
-  };
-
-  const toggleRecording = () => {
-    if (isRecording) {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-      setIsRecording(false);
-      stopSound();
-      if (timerRef.current) clearInterval(timerRef.current);
-    } else {
-      const stream = processedStreamRef.current;
-      
-      if (!stream || !(stream instanceof MediaStream) || !stream.active) {
-        alert("Preparing camera... Please try again in a second.");
-        return;
-      }
-
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') 
-        ? 'video/webm;codecs=vp9' 
-        : MediaRecorder.isTypeSupported('video/webm') 
-          ? 'video/webm' 
-          : 'video/mp4';
-
-      try {
-        const recorder = new MediaRecorder(stream, { mimeType });
-        mediaRecorderRef.current = recorder;
-        chunksRef.current = [];
-
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) chunksRef.current.push(e.data);
-        };
-
-        recorder.onstop = () => {
-          const blob = new Blob(chunksRef.current, { type: mimeType });
-          onCapture(blob);
-        };
-
-        recorder.start(100); 
-        setIsRecording(true);
-        setRecordingTime(0);
-        
-        if (selectedSound?.url) {
-          playSound();
-        }
-        
-        timerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
-      } catch (err) {
-        console.error("Recording start failed", err);
-        alert("Recording error. Try refreshing or using a different browser.");
-      }
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[600] bg-black flex flex-col font-sans overflow-hidden animate-fade-in">
-      {selectedSound && (
-        <div className="absolute top-24 left-1/2 transform -translate-x-1/2 z-30 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/20">
-          <div className="flex items-center gap-2">
-            <i className="fas fa-music text-[#1877F2] text-sm"></i>
-            <span className="text-white text-xs font-bold truncate max-w-[200px]">
-              Using: {selectedSound.name}
-            </span>
-            {isRecording && isSoundPlaying && (
-              <div className="flex items-center gap-1 ml-2">
-                {[1, 2, 3].map((i) => (
-                  <div 
-                    key={i}
-                    className="w-1 h-4 bg-[#1877F2] rounded-full animate-equalizer"
-                    style={{ animationDelay: `${i * 0.1}s` }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-          {isRecording && isSoundPlaying && (
-            <div className="text-[#1877F2] text-[9px] font-bold mt-1 text-center">
-              {soundSyncOffset.toFixed(1)}s
-            </div>
-          )}
-        </div>
-      )}
-      
-      <div className="relative flex-1 bg-[#050505] flex items-center justify-center">
-        <canvas ref={canvasRef} className="hidden" />
-        
-        {cameraError ? (
-          <div className="p-8 text-center max-w-sm">
-            <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-              <i className="fas fa-video-slash text-red-500 text-3xl"></i>
-            </div>
-            <h3 className="text-white font-black text-xl mb-3 uppercase tracking-tight">Camera Restricted</h3>
-            <p className="text-white/60 text-sm mb-10 leading-relaxed">{cameraError}</p>
-            <div className="flex flex-col gap-3">
-              <button onClick={startCamera} className="bg-[#1877F2] text-white px-8 py-4 rounded-2xl font-black text-sm shadow-xl active:scale-95 transition-all">
-                Try Again
-              </button>
-              <button onClick={onClose} className="bg-white/5 text-white px-8 py-4 rounded-2xl font-black text-sm active:scale-95 transition-all border border-white/10">
-                Go Back
-              </button>
-            </div>
-          </div>
-        ) : (
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            muted 
-            playsInline 
-            className="w-full h-full object-cover transition-all duration-300"
-            style={{ filter: activeEffect.filter, transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
-          />
-        )}
-        
-        {!cameraError && (
-          <div className="absolute inset-0 z-10 flex flex-col pointer-events-none">
-            <div className="p-6 flex justify-between items-start pointer-events-auto">
-              <button onClick={onClose} className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/10 active:scale-90 transition-transform">
-                <i className="fas fa-times text-lg"></i>
-              </button>
-              {isRecording && (
-                <div className="bg-red-600/80 backdrop-blur-md px-4 py-1.5 rounded-full flex items-center gap-2 border border-white/20 animate-pulse">
-                  <div className="w-2 h-2 rounded-full bg-white"></div>
-                  <span className="text-white text-sm font-black tracking-widest">{Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}</span>
-                </div>
-              )}
-              <button onClick={() => setFacingMode(prev => prev === 'user' ? 'environment' : 'user')} className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/10 active:scale-90 transition-transform">
-                <i className="fas fa-sync-alt text-lg"></i>
-              </button>
-            </div>
-
-            <div className="mt-auto mb-36 ml-auto p-4 flex flex-col gap-6 pointer-events-auto">
-              <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => setAmplifierLevel(prev => prev >= 4.0 ? 1.0 : prev + 1.0)}>
-                <div className={`w-12 h-12 rounded-2xl bg-black/40 backdrop-blur-md flex items-center justify-center border transition-all ${amplifierLevel > 1.0 ? 'text-[#1877F2] border-[#1877F2] shadow-[0_0_15px_rgba(24,119,242,0.3)]' : 'text-white border-white/10'}`}>
-                  <i className="fas fa-microphone-alt text-lg"></i>
-                </div>
-                <span className="text-[9px] font-black text-white uppercase tracking-widest">{amplifierLevel === 1.0 ? 'Voice' : `${Math.round(amplifierLevel * 100)}%`}</span>
-              </div>
-              
-              {selectedSound && (
-                <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => {
-                  if (isSoundPlaying) {
-                    stopSound();
-                  } else {
-                    playSound();
-                  }
-                }}>
-                  <div className={`w-12 h-12 rounded-2xl bg-black/40 backdrop-blur-md flex items-center justify-center border transition-all ${isSoundPlaying ? 'text-[#45BD62] border-[#45BD62] shadow-[0_0_15px_rgba(69,189,98,0.3)]' : 'text-white border-white/10'}`}>
-                    <i className={`fas ${isSoundPlaying ? 'fa-pause' : 'fa-play'} text-lg`}></i>
-                  </div>
-                  <span className="text-[9px] font-black text-white uppercase tracking-widest">Sound</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        
-        {!cameraError && (
-          <>
-            <div className="absolute bottom-32 left-0 right-0 z-20 flex gap-4 overflow-x-auto px-6 scrollbar-hide py-2 pointer-events-auto">
-              {EFFECTS.map(effect => (
-                <button 
-                  key={effect.id}
-                  onClick={() => setActiveEffect(effect)}
-                  className={`flex-shrink-0 flex flex-col items-center gap-2 transition-all ${activeEffect.id === effect.id ? 'scale-110' : 'opacity-40 scale-90'}`}
-                >
-                  <div className="w-14 h-14 rounded-full border-2 border-white overflow-hidden bg-gray-900 shadow-2xl">
-                    <div className="w-full h-full" style={{ background: 'linear-gradient(45deg, #1877F2, #F3425F)', filter: effect.filter }}></div>
-                  </div>
-                  <span className="text-[10px] font-black text-white uppercase tracking-tighter whitespace-nowrap">{effect.name}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="absolute bottom-8 left-0 right-0 flex justify-center items-center gap-12 px-8 z-30 pointer-events-auto">
-              <button className="w-12 h-12 rounded-full bg-black/40 flex items-center justify-center text-white border border-white/10 active:scale-90 transition-transform">
-                <i className="fas fa-bolt text-sm"></i>
-              </button>
-              
-              <div 
-                onClick={toggleRecording}
-                className="w-24 h-24 rounded-full border-4 border-white flex items-center justify-center cursor-pointer active:scale-95 transition-all bg-white/5 backdrop-blur-sm relative"
+            return (
+              <div
+                key={product.id}
+                className="flex gap-3 p-3 rounded-lg hover:bg-[#3A3B3C] transition-colors cursor-pointer"
+                onClick={() => onViewProduct(product)}
               >
-                {isRecording ? (
-                  <div className="relative flex items-center justify-center">
-                    <div className="absolute w-14 h-14 bg-red-600 rounded-xl animate-pulse opacity-40"></div>
-                    <div className="w-10 h-10 rounded-xl bg-red-600 shadow-[0_0_20px_rgba(220,38,38,0.8)] border border-white/20"></div>
+                <div className="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0">
+                  {mainImage ? (
+                    <img
+                      src={mainImage}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                      <ImageIcon className="w-8 h-8 text-gray-500" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-[#E4E6EB] truncate">
+                    {product.title}
+                  </h4>
+                  <p className="text-[#B0B3B8] text-sm line-clamp-2">
+                    {product.description}
+                  </p>
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-[#E4E6EB]">
+                        ${product.main_price}
+                      </span>
+                      {product.discount_price && (
+                        <span className="text-sm text-[#B0B3B8] line-through">
+                          ${product.discount_price}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-[#45BD62] font-semibold">
+                      In stock
+                    </span>
                   </div>
-                ) : (
-                  <div className="w-18 h-18 rounded-full bg-red-600 shadow-[0_0_25px_rgba(220,38,38,0.5)] border-2 border-white/30"></div>
-                )}
+                </div>
               </div>
-
-              <button className="w-12 h-12 rounded-full bg-black/40 flex items-center justify-center text-white border border-white/10 active:scale-90 transition-transform">
-                <i className="fas fa-magic text-sm"></i>
-              </button>
-            </div>
-          </>
-        )}
+            );
+          })}
+        </div>
       </div>
-      <audio ref={soundRef} hidden />
     </div>
   );
 };
 
 // ==================== STYLES ====================
+
 const styles = `
-@keyframes equalizer {
-  0%, 100% { height: 4px; }
-  50% { height: 16px; }
-}
-.animate-equalizer {
-  animation: equalizer 0.5s ease-in-out infinite;
-}
-
-@keyframes marquee-slow {
-  0% { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
-}
-.animate-marquee-slow {
-  animation: marquee-slow 15s linear infinite;
-  padding-left: 100%;
-}
-
-@keyframes scale-in {
-  0% { transform: scale(0.9); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
-}
-.animate-scale-in {
-  animation: scale-in 0.3s ease-out;
-}
-
-@keyframes spin-slow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-.animate-spin-slow {
-  animation: spin-slow 20s linear infinite;
-}
-
-@keyframes slide-up {
-  0% { transform: translateY(100%); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
-}
-.animate-slide-up {
-  animation: slide-up 0.3s ease-out;
-}
-
-@keyframes fade-in {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
-}
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out;
-}
+.line-clamp-1 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+.line-clamp-2 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.line-clamp-3 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.line-clamp-4 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
 `;
 
 // Add styles to document
 if (typeof document !== 'undefined') {
-  const styleSheet = document.createElement("style");
+  const styleSheet = document.createElement('style');
   styleSheet.innerText = styles;
   document.head.appendChild(styleSheet);
 }
 
 export default {
-  CreateReelModal,
-  ReelsFeed,
-  CameraStudio,
-  AudioTrimmer,
-  SoundDetailView,
-  UploadLoader,
-  useAudioFocus
+  Post,
+  CreatePost,
+  CreatePostModal,
+  CommentsSheet,
+  ShareBottomSheet,
+  SuggestedProductsWidget,
+  MediaGallery,
+  ReactionButton,
+  formatCount,
+  formatTime,
 };
