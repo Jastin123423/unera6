@@ -6,59 +6,39 @@ const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Cache-Control": "no-store",
 };
 
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...cors, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-const toInt = (v: any, def = 0) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : def;
-};
-
-const clamp = (n: number, min: number, max: number) =>
-  Math.max(min, Math.min(max, n));
-
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
-
     const url = new URL(request.url);
     const soundKey = (url.searchParams.get("sound_key") || "").trim();
-    const limit = clamp(toInt(url.searchParams.get("limit"), 30), 1, 100);
-    const cursor = (url.searchParams.get("cursor") || "").trim(); // created_at cursor (optional)
+    const limit = Math.min(Number(url.searchParams.get("limit") || 60), 120);
 
     if (!soundKey) return json({ success: false, error: "sound_key is required" }, 400);
 
-    // Cursor pagination: created_at < cursor
-    const whereCursor = cursor ? "AND r.created_at < ?" : "";
-
-    const bindParams: any[] = cursor ? [soundKey, cursor, limit + 1] : [soundKey, limit + 1];
-
-    // ✅ IMPORTANT:
-    // This assumes you have a reels table with fields:
-    // id, user_id, caption, video_url, audio_url, audio_start, audio_end, song_name, sound_key, views, shares, created_at
-    // If your column names differ, rename them here.
     const q = `
       SELECT
         r.id,
         r.user_id,
-        r.caption,
         r.video_url,
+        r.caption,
+        r.song_name,
         r.audio_url,
         r.audio_start,
         r.audio_end,
-        r.song_name,
-        r.sound_key,
         r.views,
         r.shares,
+        r.song_id,
+        r.sound_key,
         r.created_at,
         u.username,
         u.name,
@@ -67,49 +47,43 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
       WHERE r.sound_key = ?
-      ${whereCursor}
       ORDER BY r.created_at DESC
       LIMIT ?
     `;
+    const rows = await env.DB.prepare(q).bind(soundKey, limit).all();
 
-    const res = await env.DB.prepare(q).bind(...bindParams).all();
-
-    const rows = (res?.results || []) as any[];
-    const hasMore = rows.length > limit;
-    const page = hasMore ? rows.slice(0, limit) : rows;
-
-    const nextCursor = hasMore ? page[page.length - 1]?.created_at : null;
-
-    // You can also join reactions/comments counts if you want.
-    // For now keep it light to avoid heavy query cost.
-    const reels = page.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      caption: r.caption,
+    // Map to the EXACT shape your Reels.tsx expects
+    const reels = (rows.results || []).map((r: any) => ({
+      id: Number(r.id),
+      userId: Number(r.user_id),
       videoUrl: r.video_url,
-      audioUrl: r.audio_url,
-      audioStart: r.audio_start ?? 0,
-      audioEnd: r.audio_end ?? 0,
+      caption: r.caption || "",
       songName: r.song_name || "Original Sound",
+      audioUrl: r.audio_url || "",
+      audioStart: Number(r.audio_start || 0),
+      audioEnd: Number(r.audio_end || 0),
+      views: Number(r.views || 0),
+      shares: Number(r.shares || 0),
+      songId: r.song_id ? Number(r.song_id) : null,
       soundKey: r.sound_key || "original:none",
-      views: r.views ?? 0,
-      shares: r.shares ?? 0,
-      created_at: r.created_at,
-      user: {
-        id: r.user_id,
-        username: r.username,
+      createdAt: r.created_at,
+
+      // Optional author fields (handy in UI)
+      author: {
+        id: Number(r.user_id),
+        username: r.username || "",
         name: r.name || r.username || "User",
-        profile_image_url: r.profile_image_url,
-        is_verified: r.is_verified ?? 0,
+        profile_image_url: r.profile_image_url || null,
+        is_verified: Number(r.is_verified || 0),
       },
-      // Keep empty arrays for UI consistency unless you already store them:
+
+      // IMPORTANT: your UI expects arrays
       reactions: [],
       comments: [],
     }));
 
-    return json({ success: true, soundKey, limit, cursor: cursor || null, nextCursor, hasMore, reels });
+    return json({ success: true, reels });
   } catch (e: any) {
-    console.error("reels/by-sound error:", e);
-    return json({ success: false, error: e?.message || "Server error" }, 500);
+    return json({ success: false, error: String(e?.message || e) }, 500);
   }
 };
