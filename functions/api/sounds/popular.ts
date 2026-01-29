@@ -1,15 +1,18 @@
 import type { PagesFunction } from "@cloudflare/workers-types";
+
 type Env = { DB: D1Database };
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Cache-Control": "no-store",
 };
 
 const json = (data: any, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { ...cors, "Content-Type": "application/json" } });
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
 
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
@@ -17,45 +20,50 @@ export const onRequestOptions: PagesFunction = async () =>
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
-    const limit = Math.max(1, Math.min(50, Number(url.searchParams.get("limit") || 10)));
+    const limit = Math.min(Number(url.searchParams.get("limit") || 10), 50);
 
-    // Trending: highest uses in last 7 days (change window if you want)
-    const res = await env.DB.prepare(
+    const rows = await env.DB.prepare(
       `
       SELECT
-        r.sound_key,
-        MAX(r.song_name) as name,
-        MAX(r.audio_url) as url,
-        MAX(r.audio_start) as start,
-        MAX(r.audio_end) as end,
-        COUNT(*) as creationCount,
-        COALESCE(SUM(r.views),0) as viewCount,
-        COALESCE(SUM(r.shares),0) as shareCount
-      FROM reels r
-      WHERE r.sound_key IS NOT NULL AND r.sound_key != ''
-      AND datetime(r.created_at) >= datetime('now','-7 days')
-      GROUP BY r.sound_key
-      ORDER BY creationCount DESC, viewCount DESC
+        sound_key,
+        MAX(song_name) AS song_name,
+        MAX(audio_url) AS audio_url,
+        MAX(audio_start) AS audio_start,
+        MAX(audio_end) AS audio_end,
+        MAX(song_id) AS song_id,
+        COUNT(*) AS uses,
+        COALESCE(SUM(views), 0) AS total_views
+      FROM reels
+      WHERE sound_key IS NOT NULL AND sound_key != ''
+      GROUP BY sound_key
+      ORDER BY uses DESC, total_views DESC
       LIMIT ?
       `
-    ).bind(limit).all<any>();
+    ).bind(limit).all();
 
-    const sounds = (res.results || []).map((s: any) => ({
-      id: s.sound_key,
-      soundKey: s.sound_key,
-      name: s.name || "Original Sound",
-      url: s.url || "",
-      start: s.start ?? 0,
-      end: s.end ?? 0,
-      creationCount: s.creationCount ?? 0,
-      viewCount: s.viewCount ?? 0,
-      playCount: 0,
-      isOriginal: String(s.sound_key).startsWith("original:"),
-    }));
+    const sounds = (rows.results || []).map((r: any) => {
+      const start = Number(r.audio_start || 0);
+      const end = Number(r.audio_end || 0);
+      const duration = end > start ? Math.max(1, end - start) : 30;
+
+      return {
+        id: r.sound_key,
+        soundKey: r.sound_key,
+        name: r.song_name || "Original Sound",
+        url: r.audio_url || "",
+        start,
+        end,
+        songId: r.song_id ? Number(r.song_id) : null,
+        duration,
+        creationCount: Number(r.uses || 0),
+        viewCount: Number(r.total_views || 0),
+        playCount: Number(r.total_views || 0),
+        isOriginal: String(r.sound_key).startsWith("original:"),
+      };
+    });
 
     return json({ success: true, sounds });
   } catch (e: any) {
-    console.error("sounds/popular error:", e);
-    return json({ success: false, error: e?.message || "Server error" }, 500);
+    return json({ success: false, error: String(e?.message || e) }, 500);
   }
 };
