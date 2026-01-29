@@ -1,4 +1,4 @@
-// Feed.tsx - Professionally Updated
+// Feed.tsx - Updated with Font Awesome instead of lucide-react
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   User,
@@ -10,31 +10,6 @@ import {
   AudioTrack,
   Product,
 } from '../types';
-import { 
-  Heart, 
-  MessageCircle, 
-  Share2, 
-  MoreVertical, 
-  Play, 
-  Pause, 
-  Volume2, 
-  VolumeX,
-  X,
-  Send,
-  Image as ImageIcon,
-  Video,
-  Music,
-  Link,
-  MapPin,
-  Smile,
-  Users,
-  Globe,
-  Lock,
-  User as UserIcon,
-  ThumbsUp,
-  Heart as HeartSolid,
-  Share
-} from 'lucide-react';
 
 // ==================== TYPE DEFINITIONS ====================
 
@@ -224,11 +199,11 @@ const MediaGallery: React.FC<{
             />
             <div className="absolute inset-0 flex items-center justify-center bg-black/20">
               <div className="w-12 h-12 rounded-full bg-white/80 flex items-center justify-center">
-                <Play className="w-6 h-6 text-black ml-1" />
+                <i className="fas fa-play text-black text-xl ml-1"></i>
               </div>
             </div>
             <div className="absolute bottom-2 right-2 bg-black/60 text-white px-2 py-1 rounded text-xs">
-              <Play className="w-3 h-3 inline mr-1" />
+              <i className="fas fa-play text-xs mr-1"></i>
               Video
             </div>
           </>
@@ -242,7 +217,7 @@ const MediaGallery: React.FC<{
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gray-100">
             <div className="text-center p-4">
-              <Link className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+              <i className="fas fa-link text-3xl text-gray-400 mx-auto mb-2"></i>
               <p className="text-sm text-gray-500">Media Preview</p>
             </div>
           </div>
@@ -435,7 +410,7 @@ export const Post: React.FC<FeedPostProps> = ({
                 </h3>
                 {author.is_verified && (
                   <span className="text-[#1877F2]" title="Verified">
-                    ✓
+                    <i className="fas fa-check-circle text-xs"></i>
                   </span>
                 )}
                 {currentUser && currentUser.id !== userId && !isFollowing && (
@@ -453,19 +428,19 @@ export const Post: React.FC<FeedPostProps> = ({
                 <span>•</span>
                 {post.visibility === 'public' && (
                   <span className="flex items-center gap-1">
-                    <Globe className="w-3 h-3" />
+                    <i className="fas fa-globe text-xs"></i>
                     Public
                   </span>
                 )}
                 {post.visibility === 'friends' && (
                   <span className="flex items-center gap-1">
-                    <Users className="w-3 h-3" />
+                    <i className="fas fa-users text-xs"></i>
                     Friends
                   </span>
                 )}
                 {post.visibility === 'private' && (
                   <span className="flex items-center gap-1">
-                    <Lock className="w-3 h-3" />
+                    <i className="fas fa-lock text-xs"></i>
                     Private
                   </span>
                 )}
@@ -478,7 +453,7 @@ export const Post: React.FC<FeedPostProps> = ({
               onClick={() => setShowMoreMenu(!showMoreMenu)}
               className="p-2 hover:bg-[#3A3B3C] rounded-full transition-colors"
             >
-              <MoreVertical className="w-5 h-5 text-[#B0B3B8]" />
+              <i className="fas fa-ellipsis-v text-[#B0B3B8] text-lg"></i>
             </button>
 
             {showMoreMenu && (
@@ -486,22 +461,22 @@ export const Post: React.FC<FeedPostProps> = ({
                 {currentUser?.id === userId && (
                   <>
                     <button className="w-full text-left px-4 py-2 text-[#E4E6EB] hover:bg-[#4E4F50] text-sm">
-                      Edit Post
+                      <i className="fas fa-edit mr-2"></i> Edit Post
                     </button>
                     <button className="w-full text-left px-4 py-2 text-[#E4E6EB] hover:bg-[#4E4F50] text-sm">
-                      Delete Post
+                      <i className="fas fa-trash-alt mr-2"></i> Delete Post
                     </button>
                     <div className="h-px bg-[#4E4F50] my-2"></div>
                   </>
                 )}
                 <button className="w-full text-left px-4 py-2 text-[#E4E6EB] hover:bg-[#4E4F50] text-sm">
-                  Save Post
+                  <i className="fas fa-bookmark mr-2"></i> Save Post
                 </button>
                 <button className="w-full text-left px-4 py-2 text-[#E4E6EB] hover:bg-[#4E4F50] text-sm">
-                  Turn on notifications
+                  <i className="fas fa-bell mr-2"></i> Turn on notifications
                 </button>
                 <button className="w-full text-left px-4 py-2 text-red-400 hover:bg-[#4E4F50] text-sm">
-                  Report
+                  <i className="fas fa-flag mr-2"></i> Report
                 </button>
               </div>
             )}
@@ -591,9 +566,9 @@ export const Post: React.FC<FeedPostProps> = ({
               }`}
             >
               {myReaction === 'love' ? (
-                <HeartSolid className="w-5 h-5 fill-current" />
+                <i className="fas fa-heart text-lg fill-current"></i>
               ) : (
-                <ThumbsUp className="w-5 h-5" />
+                <i className="fas fa-thumbs-up text-lg"></i>
               )}
               <span className="font-semibold">
                 {myReaction === 'love' ? 'Loved' : 
@@ -626,7 +601,7 @@ export const Post: React.FC<FeedPostProps> = ({
             onClick={() => onOpenComments(postId)}
             className="flex items-center justify-center gap-2 flex-1 py-2.5 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors"
           >
-            <MessageCircle className="w-5 h-5" />
+            <i className="fas fa-comment-dots text-lg"></i>
             <span className="font-semibold">Comment</span>
           </button>
 
@@ -634,7 +609,7 @@ export const Post: React.FC<FeedPostProps> = ({
             onClick={handleShare}
             className="flex items-center justify-center gap-2 flex-1 py-2.5 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors"
           >
-            <Share className="w-5 h-5" />
+            <i className="fas fa-share-alt text-lg"></i>
             <span className="font-semibold">Share</span>
           </button>
         </div>
@@ -680,7 +655,7 @@ export const Post: React.FC<FeedPostProps> = ({
               disabled={isSubmittingComment || !commentText.trim()}
               className="absolute right-2 top-1/2 transform -translate-y-1/2 text-[#1877F2] hover:text-[#166FE5] disabled:opacity-50"
             >
-              <Send className="w-5 h-5" />
+              <i className="fas fa-paper-plane text-lg"></i>
             </button>
           </div>
         </div>
@@ -716,15 +691,15 @@ export const CreatePost: React.FC<CreatePostProps> = ({
 
         <div className="flex justify-between mt-4 pt-3 border-t border-[#3E4042]">
           <button className="flex items-center gap-2 flex-1 justify-center py-2 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors">
-            <Video className="w-5 h-5 text-red-500" />
+            <i className="fas fa-video text-red-500 text-lg"></i>
             <span className="font-semibold">Live video</span>
           </button>
           <button className="flex items-center gap-2 flex-1 justify-center py-2 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors">
-            <ImageIcon className="w-5 h-5 text-green-500" />
+            <i className="fas fa-images text-green-500 text-lg"></i>
             <span className="font-semibold">Photo/video</span>
           </button>
           <button className="flex items-center gap-2 flex-1 justify-center py-2 rounded-lg text-[#B0B3B8] hover:bg-[#3A3B3C] transition-colors">
-            <Smile className="w-5 h-5 text-yellow-500" />
+            <i className="fas fa-smile text-yellow-500 text-lg"></i>
             <span className="font-semibold">Feeling/activity</span>
           </button>
         </div>
@@ -809,7 +784,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
             onClick={onClose}
             className="p-2 hover:bg-[#3A3B3C] rounded-full transition-colors"
           >
-            <X className="w-5 h-5 text-[#B0B3B8]" />
+            <i className="fas fa-times text-[#B0B3B8] text-lg"></i>
           </button>
         </div>
 
@@ -829,15 +804,15 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 className="text-sm text-[#B0B3B8] bg-transparent border-none focus:outline-none"
               >
                 <option value="public" className="bg-[#242526]">
-                  <Globe className="w-3 h-3 inline mr-2" />
+                  <i className="fas fa-globe text-xs mr-2"></i>
                   Public
                 </option>
                 <option value="friends" className="bg-[#242526]">
-                  <Users className="w-3 h-3 inline mr-2" />
+                  <i className="fas fa-users text-xs mr-2"></i>
                   Friends
                 </option>
                 <option value="private" className="bg-[#242526]">
-                  <Lock className="w-3 h-3 inline mr-2" />
+                  <i className="fas fa-lock text-xs mr-2"></i>
                   Only me
                 </option>
               </select>
@@ -876,7 +851,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                     onClick={() => removeFile(index)}
                     className="absolute top-2 right-2 w-8 h-8 bg-black/60 rounded-full flex items-center justify-center"
                   >
-                    <X className="w-4 h-4 text-white" />
+                    <i className="fas fa-times text-white text-sm"></i>
                   </button>
                 </div>
               ))}
@@ -893,19 +868,19 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-2 text-[#B0B3B8] hover:text-[#E4E6EB] transition-colors"
               >
-                <ImageIcon className="w-5 h-5" />
+                <i className="fas fa-images text-lg"></i>
                 <span>Photo/Video</span>
               </button>
               <button className="flex items-center gap-2 text-[#B0B3B8] hover:text-[#E4E6EB] transition-colors">
-                <UserIcon className="w-5 h-5" />
+                <i className="fas fa-user-tag text-lg"></i>
                 <span>Tag people</span>
               </button>
               <button className="flex items-center gap-2 text-[#B0B3B8] hover:text-[#E4E6EB] transition-colors">
-                <Smile className="w-5 h-5" />
+                <i className="fas fa-smile text-lg"></i>
                 <span>Feeling</span>
               </button>
               <button className="flex items-center gap-2 text-[#B0B3B8] hover:text-[#E4E6EB] transition-colors">
-                <MapPin className="w-5 h-5" />
+                <i className="fas fa-map-marker-alt text-lg"></i>
                 <span>Location</span>
               </button>
             </div>
@@ -1024,7 +999,7 @@ export const CommentsSheet: React.FC<CommentsSheetProps> = ({
             onClick={onClose}
             className="p-2 hover:bg-[#3A3B3C] rounded-full transition-colors"
           >
-            <X className="w-5 h-5 text-[#B0B3B8]" />
+            <i className="fas fa-times text-[#B0B3B8] text-lg"></i>
           </button>
         </div>
       </div>
@@ -1033,7 +1008,7 @@ export const CommentsSheet: React.FC<CommentsSheetProps> = ({
       <div className="flex-1 overflow-y-auto bg-[#18191A]">
         {comments.length === 0 ? (
           <div className="text-center py-12">
-            <MessageCircle className="w-12 h-12 text-[#B0B3B8] mx-auto mb-4" />
+            <i className="fas fa-comment-dots text-3xl text-[#B0B3B8] mx-auto mb-4"></i>
             <p className="text-[#B0B3B8]">No comments yet</p>
             <p className="text-[#B0B3B8] text-sm mt-1">Be the first to comment!</p>
           </div>
@@ -1117,7 +1092,7 @@ export const CommentsSheet: React.FC<CommentsSheetProps> = ({
               disabled={isSubmitting || !commentText.trim() || !currentUser}
               className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[#1877F2] hover:text-[#166FE5] disabled:opacity-50"
             >
-              <Send className="w-5 h-5" />
+              <i className="fas fa-paper-plane text-lg"></i>
             </button>
           </div>
         </div>
@@ -1181,7 +1156,7 @@ export const ShareBottomSheet: React.FC<ShareBottomSheetProps> = ({
             onClick={onClose}
             className="p-2 hover:bg-[#3A3B3C] rounded-full transition-colors"
           >
-            <X className="w-5 h-5 text-[#B0B3B8]" />
+            <i className="fas fa-times text-[#B0B3B8] text-lg"></i>
           </button>
         </div>
 
@@ -1356,7 +1331,7 @@ export const SuggestedProductsWidget: React.FC<SuggestedProductsWidgetProps> = (
                     />
                   ) : (
                     <div className="w-full h-full bg-gray-700 flex items-center justify-center">
-                      <ImageIcon className="w-8 h-8 text-gray-500" />
+                      <i className="fas fa-image text-2xl text-gray-500"></i>
                     </div>
                   )}
                 </div>
