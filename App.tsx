@@ -583,7 +583,13 @@ const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType,
     reactions_count: newReactions.length,
   };
 };
-
+    
+// If you need these functions, rename the duplicate:
+const API_BASE = window.location.origin; // Use current origin
+const isBlobUrl = (u: string) => u.startsWith('blob:');
+const isHttpUrl2 = (u: string) => u.startsWith('http://'); // Renamed
+const isHttpsUrl = (u: string) => u.startsWith('https://');
+const isAbsoluteUrl = (u: string) => isHttpsUrl(u) || isHttpUrl2(u) || isBlobUrl(u);
 const ensureAbsoluteUrl = (u?: string | null): string => {
   if (!u) return '';
   if (isAbsoluteUrl(u)) return u;
