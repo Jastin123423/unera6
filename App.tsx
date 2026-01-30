@@ -421,11 +421,15 @@ const normalizeReel = (r: any): Reel => {
   const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
   const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
   
-  // ✅ Determine if this is trimmed audio (audio_start=0, audio_end=0, audio_url exists)
+  // ✅ UPDATED: Use soundKey to determine trimmed audio, not start=0,end=0
+  const soundKey = String(r?.sound_key ?? r?.soundKey ?? '');
+  const isTrimmedAudio = soundKey.startsWith('trimmed:');
+  
+  // For backward compatibility, also check the old method
   const audioStart = safeNumber(r?.audio_start ?? r?.audioStart ?? 0);
   const audioEnd = safeNumber(r?.audio_end ?? r?.audioEnd ?? 0);
   const audioUrl = r?.audio_url ?? r?.audioUrl ?? '';
-  const isTrimmedAudio = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
+  const legacyIsTrimmed = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
   
   return {
     ...r,
@@ -435,21 +439,21 @@ const normalizeReel = (r: any): Reel => {
     caption: r?.caption ?? '',
     songName: r?.song_name ?? r?.songName ?? '',
     audioUrl: audioUrl,
-    audioStart: isTrimmedAudio ? 0 : audioStart, // ✅ Keep as 0 for trimmed audio
-    audioEnd: isTrimmedAudio ? 0 : audioEnd, // ✅ Keep as 0 for trimmed audio
-    audioStartTime: isTrimmedAudio ? 0 : audioStart, // ✅ Add for UI display
-    audioEndTime: isTrimmedAudio ? 0 : audioEnd, // ✅ Add for UI display
+    audioStart: isTrimmedAudio ? 0 : audioStart,
+    audioEnd: isTrimmedAudio ? 0 : audioEnd,
+    audioStartTime: isTrimmedAudio ? 0 : audioStart,
+    audioEndTime: isTrimmedAudio ? 0 : audioEnd,
     visibility: r?.visibility ?? 'public',
     location: r?.location ?? '',
     views: safeNumber(r?.views ?? 0),
     shares: safeNumber(r?.shares ?? 0),
     songId: r?.song_id ?? r?.songId ?? null,
-    soundKey: r?.sound_key ?? r?.soundKey ?? null,
+    soundKey: soundKey,
     reactions: safeArray(r?.reactions),
     comments: safeArray(r?.comments),
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
-    // ✅ Add flag for trimmed audio
-    isTrimmedAudio: isTrimmedAudio,
+    // ✅ Use soundKey to determine trimmed audio
+    isTrimmedAudio: isTrimmedAudio || legacyIsTrimmed,
   } as any;
 };
 
@@ -610,8 +614,8 @@ const toFetchableAudioUrl = (u?: string | null): string => {
     return url.replace('http://', 'https://');
   }
 
-  // ✅ FIXED 2: Safe proxy approach - only use if explicitly enabled
-  const USE_AUDIO_PROXY = false; // Change to true only if /api/proxy-audio exists
+  // ✅ FIXED 2: Enable audio proxy for reliable trimming
+  const USE_AUDIO_PROXY = true; // ✅ CHANGED: Now enabled since we have /api/proxy-audio
 
   if (USE_AUDIO_PROXY) {
     // Check if same origin to avoid CORS issues
@@ -623,9 +627,8 @@ const toFetchableAudioUrl = (u?: string | null): string => {
       }
     })();
 
-    // If cross-origin and not already a proxy URL
-    if (!isSameOrigin && !url.includes('/api/')) {
-      // Only proxy media.unera.social
+    // If cross-origin, use proxy for media.unera.social
+    if (!isSameOrigin) {
       try {
         const host = new URL(url).hostname;
         if (host === 'media.unera.social') {
@@ -1512,10 +1515,11 @@ export default function App() {
         throw new Error('Reel video upload failed (no valid R2 URL).');
       }
 
-      // ✅ Determine if this is trimmed audio (audioFile exists)
-      const isTrimmedAudio = !!audioFile;
+      // ✅ Determine if this is trimmed audio using soundKey (not start=0,end=0)
+      const soundKey = generateSoundKey(reelData, selectedReelSound);
+      const isTrimmedAudio = soundKey.startsWith('trimmed:');
       
-      // ✅ For trimmed audio: audio_start=0, audio_end=0 (or trimmed duration if available)
+      // ✅ For trimmed audio: audio_start=0, audio_end=0
       // ✅ For original sound: use provided start/end times
       const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
       const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
@@ -1528,9 +1532,6 @@ export default function App() {
         audioEnd,
         songId: reelData.originalSoundId,
       };
-
-      // ✅ Generate sound key for grouping
-      const soundKey = generateSoundKey(reelData, selectedReelSound);
 
       // ✅ UPDATED: Payload matches D1 table columns with trimmed audio support
       const payload = {
@@ -1676,8 +1677,8 @@ export default function App() {
     const songId = soundFromReel?.song_id ?? soundFromReel?.originalSoundId;
     const soundKey = soundFromReel?.sound_key ?? soundFromReel?.soundKey;
     
-    // Check if this is trimmed audio
-    const isTrimmedAudio = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
+    // Check if this is trimmed audio using soundKey
+    const isTrimmedAudio = String(soundKey || '').startsWith('trimmed:');
 
     if (audioUrl) {
       // ✅ CRITICAL: Ensure audio URL is fetchable for trimming
@@ -3623,6 +3624,8 @@ export default function App() {
           songs={songs} // ✅ ADDED: Pass UNERA Music songs
           selectedSound={selectedReelSound} // ✅ ADDED: Pass selected sound
           onPickSound={setSelectedReelSound} // ✅ ADDED: Pass sound picker handler
+          // ✅ ADDED: Pass the toBlobUrl helper for reliable trimming
+          toBlobUrl={toBlobUrl}
         />
       )}
 
