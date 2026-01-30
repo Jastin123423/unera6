@@ -1,4 +1,3 @@
-// App.tsx - Professionally Updated with Reels Integration
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -417,10 +416,16 @@ const normalizeUser = (u: any): User => {
   } as any;
 };
 
-/** ✅ UPDATED: Normalize reel data with D1 table fields ---------- */
+/** ✅ UPDATED: Normalize reel data with trimmed audio support ---------- */
 const normalizeReel = (r: any): Reel => {
   const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
   const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
+  
+  // ✅ Determine if this is trimmed audio (audio_start=0, audio_end=0, audio_url exists)
+  const audioStart = safeNumber(r?.audio_start ?? r?.audioStart ?? 0);
+  const audioEnd = safeNumber(r?.audio_end ?? r?.audioEnd ?? 0);
+  const audioUrl = r?.audio_url ?? r?.audioUrl ?? '';
+  const isTrimmedAudio = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
   
   return {
     ...r,
@@ -429,9 +434,11 @@ const normalizeReel = (r: any): Reel => {
     videoUrl: r?.video_url ?? r?.videoUrl ?? '',
     caption: r?.caption ?? '',
     songName: r?.song_name ?? r?.songName ?? '',
-    audioUrl: r?.audio_url ?? r?.audioUrl,
-    audioStart: safeNumber(r?.audio_start ?? r?.audioStart ?? 0),
-    audioEnd: safeNumber(r?.audio_end ?? r?.audioEnd ?? 0),
+    audioUrl: audioUrl,
+    audioStart: isTrimmedAudio ? 0 : audioStart, // ✅ Keep as 0 for trimmed audio
+    audioEnd: isTrimmedAudio ? 0 : audioEnd, // ✅ Keep as 0 for trimmed audio
+    audioStartTime: isTrimmedAudio ? 0 : audioStart, // ✅ Add for UI display
+    audioEndTime: isTrimmedAudio ? 0 : audioEnd, // ✅ Add for UI display
     visibility: r?.visibility ?? 'public',
     location: r?.location ?? '',
     views: safeNumber(r?.views ?? 0),
@@ -441,6 +448,8 @@ const normalizeReel = (r: any): Reel => {
     reactions: safeArray(r?.reactions),
     comments: safeArray(r?.comments),
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
+    // ✅ Add flag for trimmed audio
+    isTrimmedAudio: isTrimmedAudio,
   } as any;
 };
 
@@ -636,7 +645,7 @@ const fetchUserFollowData = async (userId: number): Promise<{ followers: number[
 };
 
 /**
- * Upload file to Cloudflare R2
+ * ✅ UPDATED: Helper to ensure R2 URL with trimmed audio support ----------
  */
 const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
   try {
@@ -667,7 +676,7 @@ const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url
   }
 };
 
-/** ✅ ADDED: Helper to ensure R2 URL ---------- */
+/** ✅ UPDATED: Helper to ensure R2 URL with trimmed audio support ---------- */
 const ensureR2Url = async (input: any, folder: string, fallbackName: string) => {
   if (!input) return '';
 
@@ -680,20 +689,41 @@ const ensureR2Url = async (input: any, folder: string, fallbackName: string) => 
   if (typeof input === 'string' && input.startsWith('blob:')) {
     const res = await fetch(input);
     const blob = await res.blob();
-    const file = new File([blob], fallbackName, { type: blob.type || 'application/octet-stream' });
+    
+    // ✅ Preserve audio type for trimmed audio
+    const fileType = folder.includes('audio') ? blob.type || 'audio/wav' : 'application/octet-stream';
+    const fileName = folder.includes('audio') ? 
+      `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
+      fallbackName;
+    
+    const file = new File([blob], fileName, { type: fileType });
     const up = await uploadToCloudflareR2(file, folder);
     return up.url;
   }
 
   // File -> upload to R2
   if (typeof File !== 'undefined' && input instanceof File) {
+    // ✅ Preserve audio type for trimmed audio
+    if (folder.includes('audio') && !input.type) {
+      const fileType = 'audio/wav';
+      const fileName = `audio-${Date.now()}.wav`;
+      const newFile = new File([input], fileName, { type: fileType });
+      const up = await uploadToCloudflareR2(newFile, folder);
+      return up.url;
+    }
     const up = await uploadToCloudflareR2(input, folder);
     return up.url;
   }
 
   // Blob -> convert to File -> upload
   if (typeof Blob !== 'undefined' && input instanceof Blob) {
-    const file = new File([input], fallbackName, { type: input.type || 'application/octet-stream' });
+    // ✅ Preserve audio type for trimmed audio
+    const fileType = folder.includes('audio') ? input.type || 'audio/wav' : 'application/octet-stream';
+    const fileName = folder.includes('audio') ? 
+      `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
+      fallbackName;
+    
+    const file = new File([input], fileName, { type: fileType });
     const up = await uploadToCloudflareR2(file, folder);
     return up.url;
   }
@@ -701,7 +731,7 @@ const ensureR2Url = async (input: any, folder: string, fallbackName: string) => 
   return '';
 };
 
-/** ✅ ADDED: Type for ReelSound (TikTok style sound payload) */
+/** ✅ ADDED: Type for ReelSound with trimmed audio support ---------- */
 type ReelSound = {
   songName: string;
   audioUrl: string;
@@ -709,6 +739,7 @@ type ReelSound = {
   audioEnd?: number;
   songId?: string | number;
   soundKey?: string;
+  isTrimmedAudio?: boolean;
 };
 
 type View =
@@ -1313,7 +1344,7 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ ADDED: Generate sound key based on sound type ---------- */
+  /** ✅ UPDATED: Generate sound key based on sound type ---------- */
   const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
     // Use soundKey from reelData if provided
     if (reelData.soundKey) return reelData.soundKey;
@@ -1321,6 +1352,11 @@ export default function App() {
     // Generate based on songId if available
     if (selectedReelSound?.songId) {
       return `song:${selectedReelSound.songId}`;
+    }
+    
+    // ✅ For trimmed audio, generate unique key
+    if (reelData.audioFile) {
+      return `trimmed:${currentUser?.id || 'unknown'}:${Date.now()}`;
     }
     
     // Generate based on audioUrl if available
@@ -1332,7 +1368,7 @@ export default function App() {
     return 'original:none';
   }, [currentUser]);
 
-  /** ✅ UPDATED: Create reel with proper D1 table column mapping ---------- */
+  /** ✅ UPDATED: Create reel with physical audio trimming support ---------- */
   const createReel = useCallback(async (reelData: Partial<Reel> & { 
     videoFile?: File | Blob; 
     audioFile?: File | Blob;
@@ -1346,7 +1382,6 @@ export default function App() {
     setIsFeedRefreshing(true);
     
     try {
-      // ✅ CRITICAL: Get videoFile from reelData (must come from CreateReelModal)
       const videoFile = reelData.videoFile;
       const audioFile = reelData.audioFile;
       
@@ -1354,47 +1389,63 @@ export default function App() {
         throw new Error('Video was not uploaded. Please select a video [video file missing]');
       }
 
-      // ✅ Use ensureR2Url to handle File/Blob/blob URL conversion
+      // ✅ Upload video to R2
       const videoUrl = await ensureR2Url(
         videoFile,
         'reels',
         `reel-${Date.now()}.mp4`
       );
 
-      const audioUrl = audioFile ? await ensureR2Url(
-        audioFile,
-        'reel-audio',
-        `audio-${Date.now()}.mp3`
-      ) : reelData.audioUrl;
+      // ✅ Handle audio file (could be trimmed or original)
+      let audioUrl = null;
+      if (audioFile) {
+        // If audioFile exists, it's a trimmed or custom audio file
+        audioUrl = await ensureR2Url(
+          audioFile,
+          'reel-audio',
+          `audio-${Date.now()}.wav` // ✅ Changed to .wav for trimmed audio
+        );
+      } else if (reelData.audioUrl) {
+        // Use existing audio URL (original sound)
+        audioUrl = reelData.audioUrl;
+      }
 
       // ✅ IMPORTANT: never post to backend without a real URL
       if (!videoUrl || !videoUrl.startsWith('http')) {
         throw new Error('Reel video upload failed (no valid R2 URL).');
       }
 
+      // ✅ Determine if this is trimmed audio (audioFile exists)
+      const isTrimmedAudio = !!audioFile;
+      
+      // ✅ For trimmed audio: audio_start=0, audio_end=0 (or trimmed duration if available)
+      // ✅ For original sound: use provided start/end times
+      const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
+      const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
+      
       // ✅ Use selectedReelSound if available, otherwise use reelData
       const soundPayload = selectedReelSound || {
         songName: reelData.songName || 'Original Sound',
         audioUrl: audioUrl || '',
-        audioStart: reelData.audioStart || 0,
-        audioEnd: reelData.audioEnd || 0,
+        audioStart,
+        audioEnd,
         songId: reelData.originalSoundId,
       };
 
       // ✅ Generate sound key for grouping
       const soundKey = generateSoundKey(reelData, selectedReelSound);
 
-      // ✅ UPDATED: Payload matches D1 table columns
+      // ✅ UPDATED: Payload matches D1 table columns with trimmed audio support
       const payload = {
         user_id: currentUser.id,
         caption: reelData.caption || '',
         video_url: videoUrl,
         song_name: soundPayload.songName,
-        audio_url: soundPayload.audioUrl || null,
-        audio_start: soundPayload.audioStart || 0,
-        audio_end: soundPayload.audioEnd || 0,
-        song_id: soundPayload.songId || null, // ✅ Changed from original_sound_id to song_id
-        sound_key: soundKey, // ✅ Added for sound grouping
+        audio_url: audioUrl, // ✅ This will be the trimmed audio URL or original URL
+        audio_start: audioStart, // ✅ 0 for trimmed audio, original start time otherwise
+        audio_end: audioEnd, // ✅ 0 for trimmed audio, original end time otherwise
+        song_id: soundPayload.songId || null,
+        sound_key: soundKey,
         visibility: reelData.visibility || 'public',
         location: reelData.location || '',
         views: 0,
@@ -1517,7 +1568,7 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ✅ UPDATED: Use sound from reel with correct field mapping ---------- */
+  /** ✅ UPDATED: Use sound from reel with trimmed audio support ---------- */
   const useSoundFromReel = useCallback((soundFromReel: any) => {
     const audioUrl = soundFromReel?.audio_url || soundFromReel?.audioUrl || '';
     const songName = soundFromReel?.song_name || soundFromReel?.songName || 'Original Sound';
@@ -1527,6 +1578,9 @@ export default function App() {
     // Get songId from either song_id or originalSoundId fields
     const songId = soundFromReel?.song_id ?? soundFromReel?.originalSoundId;
     const soundKey = soundFromReel?.sound_key ?? soundFromReel?.soundKey;
+    
+    // Check if this is trimmed audio
+    const isTrimmedAudio = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
 
     if (audioUrl) {
       setSelectedReelSound({
@@ -1535,7 +1589,8 @@ export default function App() {
         audioStart,
         audioEnd,
         songId,
-        soundKey
+        soundKey,
+        isTrimmedAudio,
       });
     }
 
