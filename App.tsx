@@ -584,7 +584,52 @@ const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType,
   };
 };
 
-/** ---------- API helper ---------- */
+/** ---------- ✅ ADDED: Audio URL Helper Functions to fix trimming errors ---------- */
+const API_BASE = window.location.origin; // Use current origin
+const isBlobUrl = (u: string) => u.startsWith('blob:');
+const isHttpUrl = (u: string) => u.startsWith('http://');
+const isHttpsUrl = (u: string) => u.startsWith('https://');
+const isAbsoluteUrl = (u: string) => isHttpsUrl(u) || isHttpUrl(u) || isBlobUrl(u);
+
+const ensureAbsoluteUrl = (u?: string | null): string => {
+  if (!u) return '';
+  if (isAbsoluteUrl(u)) return u;
+  // If backend returns relative path like /uploads/audio.mp3, make it absolute
+  return `${API_BASE}${u.startsWith('/') ? '' : '/'}${u}`;
+};
+
+// ✅ Critical: Ensure audio URLs are fetchable for trimming
+const toFetchableAudioUrl = (u?: string | null): string => {
+  const url = ensureAbsoluteUrl(u);
+  if (!url) return '';
+
+  // Blob URLs are already fetchable
+  if (isBlobUrl(url)) return url;
+
+  // Fix mixed content issues
+  if (isHttpUrl(url) && window.location.protocol === 'https:') {
+    return url.replace('http://', 'https://');
+  }
+
+  // Check if same origin to avoid CORS issues
+  const isSameOrigin = (() => {
+    try {
+      return new URL(url).origin === window.location.origin;
+    } catch {
+      return false;
+    }
+  })();
+
+  // If cross-origin and we have issues, use proxy
+  if (!isSameOrigin && !url.includes('/api/')) {
+    // Use proxy endpoint if available
+    return `/api/proxy-audio?url=${encodeURIComponent(url)}`;
+  }
+
+  return url;
+};
+
+/** ---------- API helper with audio proxy support ---------- */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const headers: HeadersInit = {
     Accept: 'application/json',
@@ -645,7 +690,7 @@ const fetchUserFollowData = async (userId: number): Promise<{ followers: number[
 };
 
 /**
- * ✅ UPDATED: Helper to ensure R2 URL with trimmed audio support ----------
+ * ✅ UPDATED: Upload file to Cloudflare R2 with audio support
  */
 const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
   try {
@@ -681,24 +726,31 @@ const ensureR2Url = async (input: any, folder: string, fallbackName: string) => 
   if (!input) return '';
 
   // already a real URL
-  if (typeof input === 'string' && (input.startsWith('http://') || input.startsWith('https://'))) {
+  if (typeof input === 'string' && isAbsoluteUrl(input)) {
     return input;
   }
 
   // blob URL -> fetch -> upload to R2
-  if (typeof input === 'string' && input.startsWith('blob:')) {
-    const res = await fetch(input);
-    const blob = await res.blob();
-    
-    // ✅ Preserve audio type for trimmed audio
-    const fileType = folder.includes('audio') ? blob.type || 'audio/wav' : 'application/octet-stream';
-    const fileName = folder.includes('audio') ? 
-      `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
-      fallbackName;
-    
-    const file = new File([blob], fileName, { type: fileType });
-    const up = await uploadToCloudflareR2(file, folder);
-    return up.url;
+  if (typeof input === 'string' && isBlobUrl(input)) {
+    try {
+      const res = await fetch(input);
+      if (!res.ok) throw new Error(`Failed to fetch blob: ${res.status}`);
+      
+      const blob = await res.blob();
+      
+      // ✅ Preserve audio type for trimmed audio
+      const fileType = folder.includes('audio') ? blob.type || 'audio/wav' : 'application/octet-stream';
+      const fileName = folder.includes('audio') ? 
+        `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
+        fallbackName;
+      
+      const file = new File([blob], fileName, { type: fileType });
+      const up = await uploadToCloudflareR2(file, folder);
+      return up.url;
+    } catch (error) {
+      console.error('Failed to process blob URL:', error);
+      throw new Error('Failed to process audio file');
+    }
   }
 
   // File -> upload to R2
@@ -740,6 +792,7 @@ type ReelSound = {
   songId?: string | number;
   soundKey?: string;
   isTrimmedAudio?: boolean;
+  originalUrl?: string; // ✅ ADDED: Store original URL for re-trimming
 };
 
 type View =
@@ -810,7 +863,7 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
         ...p,
         reactions: (existing as any).reactions,
         shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
-        comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
+        comments_count: Math.max((existing as Any).comments_count || 0, (p as any).comments_count || 0),
       } as any);
     } else {
       map.set(Number(p.id), p);
@@ -1100,7 +1153,17 @@ export default function App() {
     try {
       const data = await apiFetch('/api/songs');
       const list = Array.isArray(data) ? data : (data?.songs ?? data?.data ?? []);
-      const normalized = list.map(normalizeSong).filter((x: any) => x.audio_url);
+      
+      // ✅ CRITICAL: Normalize songs with fetchable audio URLs
+      const normalized = list.map(song => {
+        const normalizedSong = normalizeSong(song);
+        // Ensure audio URL is fetchable for trimming
+        return {
+          ...normalizedSong,
+          audio_url: toFetchableAudioUrl(normalizedSong.audio_url),
+        };
+      }).filter((x: any) => x.audio_url);
+      
       setSongs(normalized);
     } catch (e) {
       console.error('Failed to fetch songs:', e);
@@ -1336,7 +1399,17 @@ export default function App() {
     try {
       const data = await apiFetch('/api/reels');
       const reelsList = safeArray(data?.reels ?? data);
-      const normalizedReels = reelsList.map(normalizeReel);
+      
+      // ✅ CRITICAL: Normalize reels with fetchable audio URLs
+      const normalizedReels = reelsList.map(reel => {
+        const normalized = normalizeReel(reel);
+        // Ensure audio URL is fetchable for trimming
+        return {
+          ...normalized,
+          audioUrl: toFetchableAudioUrl(normalized.audioUrl),
+        };
+      });
+      
       setReels(normalizedReels);
     } catch (error) {
       console.error('Failed to fetch reels:', error);
@@ -1568,7 +1641,7 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ✅ UPDATED: Use sound from reel with trimmed audio support ---------- */
+  /** ✅ UPDATED: Use sound from reel with fetchable audio URLs ---------- */
   const useSoundFromReel = useCallback((soundFromReel: any) => {
     const audioUrl = soundFromReel?.audio_url || soundFromReel?.audioUrl || '';
     const songName = soundFromReel?.song_name || soundFromReel?.songName || 'Original Sound';
@@ -1583,14 +1656,18 @@ export default function App() {
     const isTrimmedAudio = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
 
     if (audioUrl) {
+      // ✅ CRITICAL: Ensure audio URL is fetchable for trimming
+      const fetchableUrl = toFetchableAudioUrl(audioUrl);
+      
       setSelectedReelSound({
         songName,
-        audioUrl,
+        audioUrl: fetchableUrl,
         audioStart,
         audioEnd,
         songId,
         soundKey,
         isTrimmedAudio,
+        originalUrl: audioUrl, // ✅ Store original URL for reference
       });
     }
 
