@@ -584,13 +584,6 @@ const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType,
   };
 };
 
-/** ---------- ✅ ADDED: Audio URL Helper Functions to fix trimming errors ---------- */
-const API_BASE = window.location.origin; // Use current origin
-const isBlobUrl = (u: string) => u.startsWith('blob:');
-const isHttpUrl = (u: string) => u.startsWith('http://');
-const isHttpsUrl = (u: string) => u.startsWith('https://');
-const isAbsoluteUrl = (u: string) => isHttpsUrl(u) || isHttpUrl(u) || isBlobUrl(u);
-
 const ensureAbsoluteUrl = (u?: string | null): string => {
   if (!u) return '';
   if (isAbsoluteUrl(u)) return u;
