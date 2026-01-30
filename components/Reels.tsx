@@ -37,6 +37,92 @@ interface SoundUsage {
   };
 }
 
+// ==================== AUDIO TRIMMING UTILITIES ====================
+async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch audio");
+  return await res.arrayBuffer();
+}
+
+function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const length = buffer.length;
+  const bytesPerSample = 2;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = length * blockAlign;
+
+  const ab = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(ab);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  // RIFF header
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, "WAVE");
+
+  // fmt chunk
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true); // bits
+
+  // data chunk
+  writeString(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  // Interleave + PCM16
+  let offset = 44;
+  for (let i = 0; i < length; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      let sample = buffer.getChannelData(ch)[i];
+      sample = Math.max(-1, Math.min(1, sample));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([ab], { type: "audio/wav" });
+}
+
+async function trimAudioUrlToWavBlob(audioUrl: string, startSec: number, endSec: number) {
+  if (!audioUrl) throw new Error("Missing audioUrl");
+  if (!(endSec > startSec)) throw new Error("Invalid trim range");
+
+  const arrayBuffer = await fetchAsArrayBuffer(audioUrl);
+
+  const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
+  const ctx = new AudioCtx();
+  const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+
+  const sr = decoded.sampleRate;
+  const startSample = Math.max(0, Math.floor(startSec * sr));
+  const endSample = Math.min(decoded.length, Math.floor(endSec * sr));
+  const frameCount = Math.max(0, endSample - startSample);
+
+  if (frameCount <= 0) throw new Error("Trim produced empty audio");
+
+  const trimmed = ctx.createBuffer(decoded.numberOfChannels, frameCount, sr);
+
+  for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+    const channel = decoded.getChannelData(ch).slice(startSample, endSample);
+    trimmed.copyToChannel(channel, ch, 0);
+  }
+
+  const wavBlob = audioBufferToWavBlob(trimmed);
+
+  try { await ctx.close(); } catch {}
+  return { blob: wavBlob, duration: frameCount / sr };
+}
+
 // ==================== AUDIO FOCUS MANAGER ====================
 const useAudioFocus = () => {
   const stopAllAudio = useCallback(() => {
@@ -66,7 +152,7 @@ const useAudioFocus = () => {
 const AudioTrimmer: React.FC<{ 
   url: string, 
   onClose: () => void, 
-  onConfirm: (start: number, end: number) => void,
+  onConfirm: (start: number, end: number, trimmedFile?: File) => void,
   initialStart: number,
   initialEnd: number,
   soundId?: string | number;
@@ -81,8 +167,13 @@ const AudioTrimmer: React.FC<{
   const [currentTime, setCurrentTime] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [activeThumb, setActiveThumb] = useState<'start' | 'end'>('start');
+  const [isTrimming, setIsTrimming] = useState(false);
+  const [trimProgress, setTrimProgress] = useState(0);
+  const [trimStatus, setTrimStatus] = useState<'idle' | 'trimming' | 'success' | 'error'>('idle');
+  const [trimError, setTrimError] = useState<string>('');
   
   const audioRef = useRef<HTMLAudioElement>(null);
+  const trimAudioRef = useRef<HTMLAudioElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playIntervalRef = useRef<any>(null);
   
@@ -93,6 +184,12 @@ const AudioTrimmer: React.FC<{
     onMountStopAll?.();
     stopAllAudio();
     
+    // Set up trimmed audio playback
+    if (trimAudioRef.current) {
+      trimAudioRef.current.src = url;
+      trimAudioRef.current.currentTime = start;
+    }
+    
     return () => {
       if (playIntervalRef.current) {
         clearInterval(playIntervalRef.current);
@@ -100,33 +197,36 @@ const AudioTrimmer: React.FC<{
       if (audioRef.current) {
         audioRef.current.pause();
       }
+      if (trimAudioRef.current) {
+        trimAudioRef.current.pause();
+      }
     };
   }, []);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
     const handleTimeUpdate = () => {
       if (!isPlaying) return;
       
-      if (audio.currentTime < start || audio.currentTime >= end) {
-        audio.currentTime = start;
-        audio.play().catch(() => {});
-      }
+      setCurrentTime(trimAudioRef.current?.currentTime || 0);
       
-      setCurrentTime(audio.currentTime);
+      // Loop between start and end
+      if (trimAudioRef.current && (trimAudioRef.current.currentTime < start || trimAudioRef.current.currentTime >= end)) {
+        trimAudioRef.current.currentTime = start;
+      }
     };
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
+    const audio = trimAudioRef.current;
+    if (audio) {
+      audio.addEventListener('timeupdate', handleTimeUpdate);
+      return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
+    }
   }, [isPlaying, start, end]);
 
   useEffect(() => {
     if (isPlaying) {
       playIntervalRef.current = setInterval(() => {
-        if (audioRef.current) {
-          setCurrentTime(audioRef.current.currentTime);
+        if (trimAudioRef.current) {
+          setCurrentTime(trimAudioRef.current.currentTime);
         }
       }, 100);
     } else {
@@ -154,17 +254,16 @@ const AudioTrimmer: React.FC<{
   };
 
   const togglePlay = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    if (!trimAudioRef.current) return;
 
     stopAllAudio();
 
     if (isPlaying) {
-      audio.pause();
+      trimAudioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audio.currentTime = start;
-      audio.play()
+      trimAudioRef.current.currentTime = start;
+      trimAudioRef.current.play()
         .then(() => setIsPlaying(true))
         .catch(() => setIsPlaying(false));
     }
@@ -173,16 +272,16 @@ const AudioTrimmer: React.FC<{
   const handleStartChange = (value: number) => {
     const newStart = Math.min(value, end - MIN_WINDOW);
     setStart(newStart);
-    if (audioRef.current) {
-      audioRef.current.currentTime = newStart;
+    if (trimAudioRef.current) {
+      trimAudioRef.current.currentTime = newStart;
     }
   };
 
   const handleEndChange = (value: number) => {
     const newEnd = Math.max(value, start + MIN_WINDOW);
     setEnd(Math.min(newEnd, start + MAX_WINDOW));
-    if (audioRef.current) {
-      audioRef.current.currentTime = newEnd;
+    if (trimAudioRef.current) {
+      trimAudioRef.current.currentTime = newEnd;
     }
   };
 
@@ -202,6 +301,46 @@ const AudioTrimmer: React.FC<{
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleConfirm = async () => {
+    setIsTrimming(true);
+    setTrimStatus('trimming');
+    setTrimProgress(0);
+    setTrimError('');
+    
+    try {
+      // Show trimming progress
+      for (let i = 0; i <= 90; i += 10) {
+        setTrimProgress(i);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Generate trimmed audio file
+      const { blob, duration: trimDuration } = await trimAudioUrlToWavBlob(url, start, end);
+      
+      setTrimProgress(95);
+      
+      // Create File object from blob
+      const trimmedFile = new File([blob], `trimmed-${Date.now()}.wav`, { 
+        type: "audio/wav" 
+      });
+      
+      setTrimProgress(100);
+      setTrimStatus('success');
+      
+      // Wait a moment to show success
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Pass trimmed file to parent
+      onConfirm(start, end, trimmedFile);
+      
+    } catch (error: any) {
+      console.error('Audio trimming failed:', error);
+      setTrimStatus('error');
+      setTrimError(error?.message || 'Failed to trim audio');
+      setIsTrimming(false);
+    }
   };
 
   return (
@@ -232,31 +371,128 @@ const AudioTrimmer: React.FC<{
         .slider-red::-webkit-slider-thumb { color: #F3425F; }
       `}</style>
 
-      <div className="bg-[#121212] w-full rounded-t-[40px] p-8 pb-14 border-t border-white/10 animate-slide-up shadow-2xl">
+      {(isTrimming || trimStatus === 'trimming' || trimStatus === 'error') && (
+        <div className="absolute inset-0 z-[900] bg-black/95 flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
+            <div className="flex flex-col items-center justify-center gap-6">
+              {trimStatus === 'trimming' ? (
+                <>
+                  <div className="w-24 h-24 relative">
+                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="45"
+                        fill="none"
+                        stroke="rgba(255, 255, 255, 0.1)"
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                      />
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="45"
+                        fill="none"
+                        stroke="#1877F2"
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                        strokeDasharray={`${trimProgress * 2.83} 283`}
+                        strokeDashoffset="0"
+                        className="transition-all duration-300 ease-out"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-16 h-16 rounded-full bg-black/50 flex items-center justify-center">
+                        <i className="fas fa-scissors text-2xl text-[#1877F2] animate-pulse"></i>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="text-center">
+                    <h3 className="text-xl font-bold text-white mb-2">Trimming Audio</h3>
+                    <p className="text-[#B0B3B8] text-sm">
+                      Creating trimmed audio file ({Math.round(trimProgress)}%)
+                    </p>
+                    <div className="w-full bg-white/10 rounded-full h-2 mt-4 overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] rounded-full transition-all duration-300"
+                        style={{ width: `${trimProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : trimStatus === 'error' ? (
+                <>
+                  <div className="w-24 h-24 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
+                    <i className="fas fa-exclamation-triangle text-3xl text-red-500"></i>
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-xl font-bold text-white mb-2">Trimming Failed</h3>
+                    <p className="text-[#B0B3B8] text-sm mb-6">{trimError || 'Failed to trim audio'}</p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => {
+                          setTrimStatus('idle');
+                          setTrimError('');
+                          setIsTrimming(false);
+                        }}
+                        className="flex-1 bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] text-white px-6 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity"
+                      >
+                        Try Again
+                      </button>
+                      <button
+                        onClick={onClose}
+                        className="flex-1 bg-white/10 text-white px-6 py-3 rounded-xl font-bold hover:bg-white/20 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-[#121212] w-full rounded-t-[40px] p-8 pb-14 border-t border-white/10 animate-slide-up shadow-2xl relative">
         <div className="flex justify-between items-center mb-10">
-          <button onClick={onClose} className="text-[#B0B3B8] font-black uppercase text-[10px] tracking-widest px-4 py-2">Cancel</button>
+          <button 
+            onClick={onClose} 
+            disabled={isTrimming}
+            className="text-[#B0B3B8] font-black uppercase text-[10px] tracking-widest px-4 py-2 disabled:opacity-50"
+          >
+            Cancel
+          </button>
           <div className="text-center">
             <h3 className="font-black text-white uppercase tracking-[4px] text-xs">Precision Sync</h3>
-            <p className="text-[9px] text-[#1877F2] font-black mt-1 uppercase tracking-tighter">Adjust Audio Window</p>
+            <p className="text-[9px] text-[#1877F2] font-black mt-1 uppercase tracking-tighter">Trim & Export Audio</p>
             {soundName && (
               <p className="text-[8px] text-white/60 font-bold mt-0.5 uppercase tracking-tight truncate max-w-[200px]">
                 {soundName}
               </p>
             )}
           </div>
-          <button onClick={() => onConfirm(start, end)} className="text-[#1877F2] font-black uppercase text-[10px] tracking-widest px-4 py-2">Done</button>
+          <button 
+            onClick={handleConfirm} 
+            disabled={isTrimming || trimStatus === 'trimming'}
+            className="text-[#1877F2] font-black uppercase text-[10px] tracking-widest px-4 py-2 disabled:opacity-50"
+          >
+            {isTrimming ? 'Processing...' : 'Done'}
+          </button>
         </div>
 
         <div className="flex items-center justify-center gap-4 mb-8">
           <button 
             onClick={togglePlay}
-            className="w-16 h-16 rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors"
+            disabled={isTrimming}
+            className="w-16 h-16 rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-white text-xl`}></i>
           </button>
           <div className="flex flex-col items-center">
             <span className="text-white text-sm font-bold">
-              {formatDuration(currentTime)}
+              {formatDuration(currentTime - start)}
             </span>
             <span className="text-white/40 text-[9px] uppercase tracking-widest">Current</span>
           </div>
@@ -264,8 +500,8 @@ const AudioTrimmer: React.FC<{
 
         <div 
           ref={containerRef}
-          onMouseDown={(e) => handleTrackInteraction(e.clientX)}
-          onTouchStart={(e) => handleTrackInteraction(e.touches[0].clientX)}
+          onMouseDown={(e) => !isTrimming && handleTrackInteraction(e.clientX)}
+          onTouchStart={(e) => !isTrimming && handleTrackInteraction(e.touches[0].clientX)}
           className="relative h-28 w-full bg-white/5 rounded-3xl overflow-hidden px-8 border border-white/5 shadow-inner flex flex-col justify-center"
         >
           <div className="absolute inset-0 flex items-center gap-[2px] opacity-10 px-8 pointer-events-none">
@@ -286,10 +522,11 @@ const AudioTrimmer: React.FC<{
               max={duration} 
               step="0.1" 
               value={start} 
-              onMouseDown={() => { setIsDragging(true); setActiveThumb('start'); }}
+              onMouseDown={() => { if (!isTrimming) { setIsDragging(true); setActiveThumb('start'); } }}
               onMouseUp={() => setIsDragging(false)}
-              onChange={(e) => handleStartChange(parseFloat(e.target.value))}
+              onChange={(e) => !isTrimming && handleStartChange(parseFloat(e.target.value))}
               className={`precision-slider slider-blue ${activeThumb === 'start' ? 'slider-active' : ''}`}
+              disabled={isTrimming}
             />
             <input 
               type="range" 
@@ -297,10 +534,11 @@ const AudioTrimmer: React.FC<{
               max={duration} 
               step="0.1" 
               value={end} 
-              onMouseDown={() => { setIsDragging(true); setActiveThumb('end'); }}
+              onMouseDown={() => { if (!isTrimming) { setIsDragging(true); setActiveThumb('end'); } }}
               onMouseUp={() => setIsDragging(false)}
-              onChange={(e) => handleEndChange(parseFloat(e.target.value))}
+              onChange={(e) => !isTrimming && handleEndChange(parseFloat(e.target.value))}
               className={`precision-slider slider-red ${activeThumb === 'end' ? 'slider-active' : ''}`}
+              disabled={isTrimming}
             />
           </div>
         </div>
@@ -320,11 +558,26 @@ const AudioTrimmer: React.FC<{
           </div>
         </div>
 
+        <div className="mt-10 text-center">
+          <p className="text-white/50 text-xs mb-2">
+            <i className="fas fa-info-circle text-[#1877F2] mr-2"></i>
+            Trimmed audio will be exported as a new file
+          </p>
+          <p className="text-white/30 text-[10px]">
+            Original: {formatDuration(duration)} → Trimmed: {formatDuration(end - start)}
+          </p>
+        </div>
+
         <audio 
           ref={audioRef} 
           src={url} 
           hidden 
           onLoadedMetadata={handleLoadedMetadata}
+        />
+        <audio 
+          ref={trimAudioRef} 
+          src={url} 
+          hidden 
         />
       </div>
     </div>
@@ -336,13 +589,13 @@ export const CreateReelModal: React.FC<{
   currentUser: User, 
   onClose: () => void, 
   onCreate: (data: Partial<Reel> & { 
-    videoFile: File; // ✅ UPDATED: Now REQUIRED File, not optional
+    videoFile: File;
     audioFile?: File | Blob;
     originalSoundId?: string | number;
     soundKey?: string;
     songId?: string | number;
-    visibility?: string; // ✅ ADDED
-    location?: string; // ✅ ADDED
+    visibility?: string;
+    location?: string;
   }) => Promise<void> | void,
   initialSound?: Sound | null,
   songs: Song[];
@@ -374,10 +627,11 @@ export const CreateReelModal: React.FC<{
   const [uploadStatus, setUploadStatus] = useState<'uploading' | 'processing' | 'success' | 'error'>('uploading');
   const [uploadError, setUploadError] = useState<string>('');
   
-  const [selectedVideoFile, setSelectedVideoFile] = useState<File | null>(null); // ✅ UPDATED: Store as File, not Blob
+  const [selectedVideoFile, setSelectedVideoFile] = useState<File | null>(null);
   const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
+  const [trimmedAudioFile, setTrimmedAudioFile] = useState<File | null>(null);
+  const [isTrimmedAudio, setIsTrimmedAudio] = useState(false);
   
-  // ✅ ADDED: Visibility and location
   const [visibility, setVisibility] = useState<string>('public');
   const [location, setLocation] = useState<string>('');
   
@@ -387,7 +641,6 @@ export const CreateReelModal: React.FC<{
   const audioUploadRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
-  // Generate sound key based on sound type
   const generateSoundKey = useCallback((sound: Sound | ReelSound | null): string => {
     if (!sound) return 'original:none';
     
@@ -425,7 +678,6 @@ export const CreateReelModal: React.FC<{
     }
   }, [selectedSound, currentUser, generateSoundKey]);
 
-  // Audio synchronization effect
   useEffect(() => {
     if (mediaPreview && selectedAudio && audioRef.current && videoRef.current) {
       const audio = audioRef.current;
@@ -462,7 +714,6 @@ export const CreateReelModal: React.FC<{
     }
   }, [mediaPreview, selectedAudio, audioStart, audioEnd, isStudioPlaying]);
 
-  // Preview sound effect
   useEffect(() => {
     if (previewSound && previewAudioRef.current && isPreviewPlaying) {
       const audio = previewAudioRef.current;
@@ -518,7 +769,6 @@ export const CreateReelModal: React.FC<{
     setIsTrimmerOpen(true);
   };
 
-  // ✅ UPDATED: Handle upload with proper File requirement
   const handleUpload = async () => {
     if (!selectedVideoFile) {
       setUploadStatus('error');
@@ -526,7 +776,6 @@ export const CreateReelModal: React.FC<{
       return;
     }
     
-    // Validate video file
     if (!selectedVideoFile.type.startsWith('video/')) {
       setUploadStatus('error');
       setUploadError('Please select a valid video file');
@@ -545,7 +794,6 @@ export const CreateReelModal: React.FC<{
     window.addEventListener('beforeunload', beforeUnloadHandler);
     
     try {
-      // Simulate upload progress
       for (let i = 0; i <= 100; i += 10) {
         setUploadProgress(i);
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -553,20 +801,19 @@ export const CreateReelModal: React.FC<{
       
       const soundKey = generateSoundKey(selectedAudio);
       
-      // ✅ CRITICAL: Pass the File object, not URL or Blob
       await Promise.resolve(onCreate({
         caption: caption.trim(),
         songName: selectedAudio?.name || 'Original Sound',
         audioUrl: selectedAudio?.url,
-        audioStart,
-        audioEnd,
-        videoFile: selectedVideoFile, // ✅ REQUIRED File object
-        audioFile: selectedAudioFile || undefined,
+        audioStart: trimmedAudioFile ? 0 : audioStart,
+        audioEnd: trimmedAudioFile ? 0 : audioEnd,
+        videoFile: selectedVideoFile,
+        audioFile: trimmedAudioFile || selectedAudioFile || undefined,
         originalSoundId: selectedSoundId || undefined,
         soundKey,
         songId: selectedSoundId || undefined,
-        visibility, // ✅ ADDED
-        location, // ✅ ADDED
+        visibility,
+        location,
       }));
       
       setUploadProgress(100);
@@ -591,20 +838,42 @@ export const CreateReelModal: React.FC<{
     }
   };
 
-  // ✅ UPDATED: Handle file selection with proper File storage
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // Validate file is a video
     if (!file.type.startsWith('video/')) {
       setUploadStatus('error');
       setUploadError('Please select a valid video file (MP4, MOV, etc.)');
       return;
     }
     
-    setSelectedVideoFile(file); // ✅ Store as File
+    setSelectedVideoFile(file);
     setMediaPreview(URL.createObjectURL(file));
+    setIsStudioPlaying(true);
+  };
+
+  const handleTrimConfirm = (start: number, end: number, trimmedFile?: File) => {
+    setAudioStart(start);
+    setAudioEnd(end);
+    
+    if (trimmedFile) {
+      setTrimmedAudioFile(trimmedFile);
+      setIsTrimmedAudio(true);
+      
+      // Create preview URL for trimmed audio
+      const trimmedAudioUrl = URL.createObjectURL(trimmedFile);
+      if (selectedAudio) {
+        setSelectedAudio({
+          ...selectedAudio,
+          url: trimmedAudioUrl,
+          start: 0,
+          end: end - start
+        });
+      }
+    }
+    
+    setIsTrimmerOpen(false);
     setIsStudioPlaying(true);
   };
 
@@ -623,7 +892,6 @@ export const CreateReelModal: React.FC<{
           <CameraStudio 
             selectedSound={selectedAudio || undefined}
             onCapture={(blob) => { 
-              // ✅ Convert Blob to File for consistency
               const file = new File([blob], `reel-${Date.now()}.mp4`, { type: blob.type || 'video/mp4' });
               setSelectedVideoFile(file);
               setMediaPreview(URL.createObjectURL(blob));
@@ -667,7 +935,7 @@ export const CreateReelModal: React.FC<{
             <span className="text-[10px] font-black uppercase tracking-[5px] text-[#1877F2]">UNERA PRO</span>
             {selectedAudio && (
               <span className="text-[8px] text-white/60 font-bold uppercase tracking-tight truncate max-w-[150px]">
-                Sound: {selectedAudio.name}
+                {isTrimmedAudio ? 'Trimmed: ' : 'Sound: '}{selectedAudio.name}
               </span>
             )}
           </div>
@@ -714,6 +982,8 @@ export const CreateReelModal: React.FC<{
               setSelectedVideoFile(null);
               setSelectedAudio(null);
               setSelectedAudioFile(null);
+              setTrimmedAudioFile(null);
+              setIsTrimmedAudio(false);
               setSelectedSoundId(null);
               if (onPickSound) onPickSound(null);
             }} className="flex flex-col items-center gap-2">
@@ -745,7 +1015,6 @@ export const CreateReelModal: React.FC<{
               <div className="h-[1px] bg-white/10 flex-1"></div>
             </div>
 
-            {/* ✅ UPDATED: File input with proper ref */}
             <input 
               type="file" 
               id="video-input-mobile" 
@@ -768,7 +1037,6 @@ export const CreateReelModal: React.FC<{
 
         {mediaPreview && (
           <div className="mt-auto relative z-20 p-8 bg-gradient-to-t from-black via-black/80 to-transparent pb-16">
-            {/* ✅ ADDED: Visibility and location fields */}
             <div className="mb-6 flex gap-4">
               <select 
                 value={visibility}
@@ -802,12 +1070,7 @@ export const CreateReelModal: React.FC<{
           <AudioTrimmer 
             url={selectedAudio.url} 
             onClose={() => setIsTrimmerOpen(false)} 
-            onConfirm={(s, e) => { 
-              setAudioStart(s); 
-              setAudioEnd(e); 
-              setIsTrimmerOpen(false); 
-              setIsStudioPlaying(true); 
-            }} 
+            onConfirm={handleTrimConfirm} 
             initialStart={audioStart} 
             initialEnd={audioEnd}
             soundId={selectedSoundId || undefined}
@@ -886,7 +1149,6 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   const audioRef = useRef<HTMLAudioElement>(null);
   const timerRef = useRef<any>(null);
 
-  // ✅ UPDATED: Use soundKey for fetching reels
   useEffect(() => {
     const fetchSoundReels = async () => {
       setLoadingReels(true);
@@ -1181,12 +1443,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
 
-  // ✅ UPDATED: Use normalized Reel properties
   const extractSoundFromReel = useCallback((reel: Reel): Sound => {
     const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
     const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
     
-    // ✅ Use normalized fields from App.tsx normalization
     const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
     const songName = reel.songName || (reel as any).song_name || 'Original Sound';
     const audioStart = reel.audioStart || (reel as any).audio_start || 0;
@@ -1200,7 +1460,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       start: audioStart,
       end: audioEnd,
       creator: author,
-      creationCount: 0, // Will be populated from backend
+      creationCount: 0,
       isOriginal: soundKey.startsWith('original:'),
       soundKey: soundKey
     };
@@ -1235,7 +1495,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [extractSoundFromReel, stopAllAudio]);
 
-  // ✅ UPDATED: Handle sound usage with proper ReelSound shape
   const handleUseSound = (sound: Sound) => {
     onPickSound({
       songName: sound.name,
@@ -1249,7 +1508,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     onCreateReelClick();
   };
 
-  // Audio/Video synchronization
   useEffect(() => {
     Object.keys(videoRefs.current).forEach((key) => {
       const id = Number(key);
@@ -1348,7 +1606,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                 data-reel-id={reel.id} 
                 className="reel-container w-full h-full snap-start relative bg-black flex items-center justify-center overflow-hidden"
               >
-                {/* ✅ UPDATED: Use videoUrl from normalized reel */}
                 <video 
                   ref={el => { if (el) videoRefs.current[reel.id] = el; }} 
                   src={reel.videoUrl || (reel as any).video_url} 
@@ -1561,7 +1818,6 @@ const ReelThumbnail: React.FC<{
       onClick={onClick} 
       className="aspect-[9/16] bg-white/5 relative cursor-pointer group overflow-hidden"
     >
-      {/* ✅ UPDATED: Use normalized videoUrl */}
       <video 
         src={reel.videoUrl || (reel as any).video_url} 
         className="w-full h-full object-cover group-hover:scale-110 transition-transform" 
