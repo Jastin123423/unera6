@@ -605,27 +605,51 @@ const toFetchableAudioUrl = (u?: string | null): string => {
   // Blob URLs are already fetchable
   if (isBlobUrl(url)) return url;
 
-  // Fix mixed content issues
-  if (isHttpUrl(url) && window.location.protocol === 'https:') {
+  // ✅ FIXED 1: Use isHttpUrl2 instead of isHttpUrl
+  if (isHttpUrl2(url) && window.location.protocol === 'https:') {
     return url.replace('http://', 'https://');
   }
 
-  // Check if same origin to avoid CORS issues
-  const isSameOrigin = (() => {
-    try {
-      return new URL(url).origin === window.location.origin;
-    } catch {
-      return false;
-    }
-  })();
+  // ✅ FIXED 2: Safe proxy approach - only use if explicitly enabled
+  const USE_AUDIO_PROXY = false; // Change to true only if /api/proxy-audio exists
 
-  // If cross-origin and we have issues, use proxy
-  if (!isSameOrigin && !url.includes('/api/')) {
-    // Use proxy endpoint if available
-    return `/api/proxy-audio?url=${encodeURIComponent(url)}`;
+  if (USE_AUDIO_PROXY) {
+    // Check if same origin to avoid CORS issues
+    const isSameOrigin = (() => {
+      try {
+        return new URL(url).origin === window.location.origin;
+      } catch {
+        return false;
+      }
+    })();
+
+    // If cross-origin and not already a proxy URL
+    if (!isSameOrigin && !url.includes('/api/')) {
+      // Only proxy media.unera.social
+      try {
+        const host = new URL(url).hostname;
+        if (host === 'media.unera.social') {
+          return `/api/proxy-audio?url=${encodeURIComponent(url)}`;
+        }
+      } catch {}
+    }
   }
 
   return url;
+};
+
+/** ✅ ADDED: Helper to convert remote audio to blob URL for reliable trimming */
+const toBlobUrl = async (remoteUrl: string): Promise<string> => {
+  try {
+    const fetchableUrl = toFetchableAudioUrl(remoteUrl);
+    const res = await fetch(fetchableUrl);
+    if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  } catch (error) {
+    console.error('Failed to create blob URL:', error);
+    throw new Error(`Could not load audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 };
 
 /** ---------- API helper with audio proxy support ---------- */
@@ -862,7 +886,8 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
         ...p,
         reactions: (existing as any).reactions,
         shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
-        comments_count: Math.max((existing as Any).comments_count || 0, (p as any).comments_count || 0),
+        // ✅ FIXED 5: Change (existing as Any) to (existing as any)
+        comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
       } as any);
     } else {
       map.set(Number(p.id), p);
