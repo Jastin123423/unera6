@@ -30,8 +30,12 @@ export const onRequestOptions: PagesFunction = async () =>
 
 /**
  * POST /api/reels
- * Supports: audio_url, audio_start, audio_end, visibility, location
- * Returns: full reel row (so frontend can use it immediately)
+ * Supports:
+ *  - audio_url, audio_start, audio_end
+ *  - visibility, location
+ *  - song_id, sound_key  ✅ REQUIRED for "Use this sound"
+ *
+ * Returns: created reel row
  */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -47,6 +51,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const audio_start = toNum(body.audio_start, 0);
     const audio_end = toNum(body.audio_end, 0);
 
+    // ✅ NEW: persist song_id + sound_key
+    const song_id =
+      body.song_id == null || body.song_id === ''
+        ? null
+        : (Number(body.song_id) || null);
+
+    const sound_key =
+      toText(body.sound_key) ??
+      toText(body.soundKey) ??
+      null;
+
     const visibilityRaw = String(body.visibility ?? 'public').toLowerCase();
     const visibility = (['public', 'friends', 'private'].includes(visibilityRaw)
       ? visibilityRaw
@@ -58,12 +73,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'user_id and video_url are required' }, 400);
     }
 
-    // NOTE: This assumes your reels table has these columns:
-    // audio_url, audio_start, audio_end, visibility, location, views, shares
+    // ✅ Insert with song_id + sound_key
     const result = await env.DB.prepare(
       `INSERT INTO reels
-        (user_id, video_url, caption, song_name, audio_url, audio_start, audio_end, visibility, location, views, shares)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`
+        (user_id, video_url, caption, song_name, audio_url, audio_start, audio_end,
+         visibility, location, views, shares, song_id, sound_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
     )
       .bind(
         user_id,
@@ -74,16 +89,21 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         audio_start,
         audio_end,
         visibility,
-        location
+        location,
+        song_id,
+        sound_key
       )
       .run();
 
     const reel_id = Number(result.meta.last_row_id || 0);
 
-    // Return the created row
+    // Return the created row (include song_id + sound_key)
     const row = await env.DB.prepare(
-      `SELECT id, user_id, video_url, caption, song_name, audio_url, audio_start, audio_end,
-              visibility, location, views, shares, created_at
+      `SELECT id, user_id, video_url, caption, song_name,
+              audio_url, audio_start, audio_end,
+              visibility, location, views, shares,
+              song_id, sound_key,
+              created_at
        FROM reels
        WHERE id = ?
        LIMIT 1`
@@ -91,7 +111,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .bind(reel_id)
       .first();
 
-    return json({ success: true, reel: row ?? { reel_id } });
+    return json({ success: true, reel: row ?? { id: reel_id } });
   } catch (e: any) {
     return json({ success: false, error: e?.message || 'Server error' }, 500);
   }
@@ -99,19 +119,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
 /**
  * GET /api/reels?viewerId=123
- * Returns reels with: reactions[] (from reel_likes), comments[] (from reel_comments),
- * plus counts + my_reaction and the new fields (audio/visibility/location/shares/views)
+ * Returns reels with:
+ *  - reactions[] (from reel_likes)
+ *  - comments[] (from reel_comments)
+ *  - my_reaction
+ *  - ✅ song_id + sound_key + audio fields for sound reuse
  */
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
     const viewerId = toNum(url.searchParams.get('viewerId'), 0);
 
-    // 1) reels (include new fields)
+    // 1) reels (include sound_key + song_id)
     const reelsRes = await env.DB.prepare(
       `SELECT id, user_id, video_url, caption, song_name,
               audio_url, audio_start, audio_end,
               visibility, location, views, shares,
+              song_id, sound_key,
               created_at
        FROM reels
        ORDER BY created_at DESC
@@ -125,7 +149,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const placeholders = reelIds.map(() => '?').join(',');
 
-    // 2) likes / reactions (your table is reel_likes)
+    // 2) likes / reactions
     const likesRes = await env.DB.prepare(
       `SELECT reel_id, user_id, type
        FROM reel_likes
@@ -134,7 +158,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       .bind(...reelIds)
       .all();
 
-    // 3) comments (you already do lightweight; we’ll cap attached per reel below)
+    // 3) comments
     const commentsRes = await env.DB.prepare(
       `SELECT id, reel_id, user_id, text, created_at
        FROM reel_comments
@@ -177,8 +201,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       const rid = toNum(r.id, 0);
       const reactions = likesByReel.get(rid) || [];
       const reelComments = commentsByReel.get(rid) || [];
-
-      // attach limited comments to reduce payload
       const limitedComments = reelComments.slice(0, 50);
 
       const my_reaction =
@@ -187,13 +209,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       return {
         ...r,
 
-        // normalize numeric fields
+        // normalize
         id: rid,
         user_id: toNum(r.user_id, 0),
         views: toNum(r.views, 0),
         shares: toNum(r.shares, 0),
         audio_start: toNum(r.audio_start, 0),
         audio_end: toNum(r.audio_end, 0),
+        song_id: (r.song_id == null ? null : toNum(r.song_id, 0)),
+        sound_key: toText(r.sound_key),
 
         reactions,
         comments: limitedComments,
