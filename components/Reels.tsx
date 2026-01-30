@@ -28,15 +28,6 @@ interface Sound {
   soundKey?: string;
 }
 
-interface SoundUsage {
-  [soundId: string]: {
-    reels: Reel[];
-    count: number;
-    sound: Sound;
-    totalViews: number;
-  };
-}
-
 // ==================== AUDIO TRIMMING UTILITIES ====================
 async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
@@ -601,7 +592,8 @@ export const CreateReelModal: React.FC<{
   songs: Song[];
   selectedSound?: ReelSound | null;
   onPickSound?: (sound: ReelSound | null) => void;
-}> = ({ currentUser, onClose, onCreate, initialSound, songs, selectedSound, onPickSound }) => {
+  toBlobUrl?: (remoteUrl: string) => Promise<string>;
+}> = ({ currentUser, onClose, onCreate, initialSound, songs, selectedSound, onPickSound, toBlobUrl }) => {
   const { stopAllAudio } = useAudioFocus();
   
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
@@ -1443,68 +1435,52 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
 
+  // ✅ CRITICAL: Replace extractSoundFromReel with your exact version
   const extractSoundFromReel = useCallback((reel: Reel): Sound => {
-    const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
-    const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
-    
-    const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
-    const songName = reel.songName || (reel as any).song_name || 'Original Sound';
-    const audioStart = reel.audioStart || (reel as any).audio_start || 0;
-    const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
-    const songId = reel.songId || (reel as any).song_id || null;
-    
+    const author = users.find(u => Number(u.id) === Number(reel.userId));
+
+    const audioUrl = (reel as any).audio_url || (reel as any).audioUrl || reel.audioUrl || '';
+    const songName = (reel as any).song_name || (reel as any).songName || reel.songName || 'Original Sound';
+
+    const audioStart = Number((reel as any).audio_start ?? (reel as any).audioStart ?? reel.audioStart ?? 0) || 0;
+    const audioEnd = Number((reel as any).audio_end ?? (reel as any).audioEnd ?? reel.audioEnd ?? 0) || 0;
+
+    const dbSoundKey =
+      String((reel as any).sound_key || (reel as any).soundKey || '').trim();
+
+    // RULE:
+    // - If DB gave sound_key → use it (best)
+    // - Else if audio_url exists → tie sound to audio file
+    // - Else fallback
+    const soundKey = dbSoundKey || (audioUrl ? `audio:${audioUrl}` : 'original:none');
+
     return {
       id: soundKey,
+      soundKey,
       name: songName,
       url: audioUrl,
       start: audioStart,
       end: audioEnd,
       creator: author,
-      creationCount: 0,
       isOriginal: soundKey.startsWith('original:'),
-      soundKey: soundKey
+      creationCount: 0,
     };
   }, [users]);
 
-  const handleSoundClick = useCallback(async (reel: Reel) => {
-    stopAllAudio();
-    const sound = extractSoundFromReel(reel);
-    
-    setSoundDetailLoading(true);
-    try {
-      const response = await fetch(`/api/sounds/detail?sound_key=${encodeURIComponent(String(sound.id))}`);
-      const data = await response.json();
-      
-      if (data?.sound) {
-        const detailedSound: Sound = {
-          ...sound,
-          ...data.sound,
-          playCount: data.sound.playCount || 0,
-          viewCount: data.sound.viewCount || 0,
-          duration: data.sound.duration || 30
-        };
-        setSelectedSoundData(detailedSound);
-      } else {
-        setSelectedSoundData(sound);
-      }
-    } catch (error) {
-      console.error('Failed to fetch sound details:', error);
-      setSelectedSoundData(sound);
-    } finally {
-      setSoundDetailLoading(false);
-    }
-  }, [extractSoundFromReel, stopAllAudio]);
-
+  // ✅ CRITICAL: Replace handleUseSound with your exact version
   const handleUseSound = (sound: Sound) => {
+    // If the soundKey is tied to a trimmed WAV/audio file, we should not apply offsets again.
+    const isFileSound = (sound.soundKey || String(sound.id)).startsWith('audio:');
+
     onPickSound({
       songName: sound.name,
-      audioUrl: sound.url,
-      audioStart: sound.start || 0,
-      audioEnd: sound.end || 0,
-      songId: sound.id?.toString().startsWith('song:') ? 
-        sound.id.toString().split(':')[1] : undefined,
-      soundKey: String(sound.id)
+      audioUrl: sound.url,                 // <-- MUST be the stored trimmed WAV URL
+      audioStart: isFileSound ? 0 : (sound.start || 0),
+      audioEnd:   isFileSound ? 0 : (sound.end || 0),
+      songId: undefined,                   // optional: keep undefined for file-based sounds
+      soundKey: sound.soundKey || String(sound.id), // MUST match reels.sound_key
     });
+
     onCreateReelClick();
   };
 
@@ -1714,7 +1690,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                     <div className="flex items-center justify-between w-full mt-2">
                       <div 
                         className="flex items-center gap-3 text-white/90 text-sm w-48 bg-white/10 backdrop-blur-xl px-4 py-2 rounded-2xl border border-white/10 cursor-pointer overflow-hidden active:scale-95 transition-all group" 
-                        onClick={() => handleSoundClick(reel)}
+                        onClick={() => {
+                          stopAllAudio();
+                          const sound = extractSoundFromReel(reel);
+                          setSelectedSoundData(sound);
+                        }}
                       >
                         <i className="fas fa-music text-[10px] animate-pulse text-[#1877F2]"></i>
                         <div className="relative flex-1 overflow-hidden whitespace-nowrap">
@@ -1730,7 +1710,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
                       <div 
                         className={`w-11 h-11 rounded-full bg-gradient-to-tr from-gray-900 to-black flex items-center justify-center border-2 border-white/20 shadow-2xl cursor-pointer ${playingReelId === reel.id ? 'animate-spin-slow' : ''} hover:scale-110 transition-transform`} 
-                        onClick={() => handleSoundClick(reel)}
+                        onClick={() => {
+                          stopAllAudio();
+                          const sound = extractSoundFromReel(reel);
+                          setSelectedSoundData(sound);
+                        }}
                       >
                         <div className="w-6 h-6 rounded-full border border-white/10 flex items-center justify-center bg-gray-800">
                           <i className="fas fa-compact-disc text-[10px] text-white/80"></i>
@@ -1766,7 +1750,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         <SoundDetailView 
           sound={selectedSoundData} 
           onClose={() => setSelectedSoundData(null)}
-          onUseSound={handleUseSound}
+          onUseSound={handleUseSound} // ✅ Use the updated handleUseSound
           onReelClick={(rid) => { 
             const el = document.getElementById(`reel-${rid}`);
             if (el) {
