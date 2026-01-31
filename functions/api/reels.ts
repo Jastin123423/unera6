@@ -30,12 +30,8 @@ export const onRequestOptions: PagesFunction = async () =>
 
 /**
  * POST /api/reels
- * Supports:
- *  - audio_url, audio_start, audio_end
- *  - visibility, location
- *  - song_id, sound_key  ✅ REQUIRED for "Use this sound"
- *
- * Returns: created reel row
+ * NEW: prefers sound_id.
+ * Legacy supported: song_name, audio_url, audio_start, audio_end, song_id, sound_key.
  */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -45,22 +41,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const video_url = String(body.video_url ?? '').trim();
 
     const caption = toText(body.caption);
-    const song_name = toText(body.song_name) ?? 'Original Sound';
-
-    const audio_url = toText(body.audio_url);
-    const audio_start = toNum(body.audio_start, 0);
-    const audio_end = toNum(body.audio_end, 0);
-
-    // ✅ NEW: persist song_id + sound_key
-    const song_id =
-      body.song_id == null || body.song_id === ''
-        ? null
-        : (Number(body.song_id) || null);
-
-    const sound_key =
-      toText(body.sound_key) ??
-      toText(body.soundKey) ??
-      null;
 
     const visibilityRaw = String(body.visibility ?? 'public').toLowerCase();
     const visibility = (['public', 'friends', 'private'].includes(visibilityRaw)
@@ -69,49 +49,93 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const location = toText(body.location);
 
+    // NEW
+    const sound_id = body.sound_id == null ? null : toNum(body.sound_id, 0);
+
+    // Legacy (optional)
+    const song_name = toText(body.song_name) ?? 'Original Sound';
+    const audio_url = toText(body.audio_url);
+    const audio_start = toNum(body.audio_start, 0);
+    const audio_end = toNum(body.audio_end, 0);
+    const song_id = body.song_id == null ? null : toNum(body.song_id, 0);
+    const sound_key = toText(body.sound_key);
+
     if (!user_id || !video_url) {
       return json({ success: false, error: 'user_id and video_url are required' }, 400);
     }
 
-    // ✅ Insert with song_id + sound_key
+    // If sound_id provided, validate it exists
+    if (sound_id) {
+      const exists = await env.DB.prepare(`SELECT id FROM sounds WHERE id = ? LIMIT 1`)
+        .bind(sound_id)
+        .first();
+      if (!exists) {
+        return json({ success: false, error: 'sound_id not found' }, 400);
+      }
+
+      // increment uses_count
+      await env.DB.prepare(`UPDATE sounds SET uses_count = uses_count + 1 WHERE id = ?`).bind(sound_id).run();
+    }
+
+    // Insert reel
     const result = await env.DB.prepare(
       `INSERT INTO reels
-        (user_id, video_url, caption, song_name, audio_url, audio_start, audio_end,
-         visibility, location, views, shares, song_id, sound_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
+        (user_id, video_url, caption,
+         sound_id,
+         song_name, audio_url, audio_start, audio_end, song_id, sound_key,
+         visibility, location, views, shares)
+       VALUES
+        (?, ?, ?,
+         ?,
+         ?, ?, ?, ?, ?, ?,
+         ?, ?, 0, 0)`
     )
       .bind(
         user_id,
         video_url,
         caption,
+
+        sound_id,
+
         song_name,
         audio_url,
         audio_start,
         audio_end,
-        visibility,
-        location,
         song_id,
-        sound_key
+        sound_key,
+
+        visibility,
+        location
       )
       .run();
 
     const reel_id = Number(result.meta.last_row_id || 0);
 
-    // Return the created row (include song_id + sound_key)
+    // Return created row WITH joined sounds (if sound_id exists)
     const row = await env.DB.prepare(
-      `SELECT id, user_id, video_url, caption, song_name,
-              audio_url, audio_start, audio_end,
-              visibility, location, views, shares,
-              song_id, sound_key,
-              created_at
-       FROM reels
-       WHERE id = ?
+      `SELECT
+        r.id, r.user_id, r.video_url, r.caption,
+        r.visibility, r.location, r.views, r.shares, r.created_at,
+
+        r.sound_id,
+
+        -- Prefer sounds table values when present
+        COALESCE(s.title, r.song_name) AS song_name,
+        COALESCE(s.audio_url, r.audio_url) AS audio_url,
+        COALESCE(s.trim_start, r.audio_start) AS audio_start,
+        COALESCE(s.trim_end, r.audio_end) AS audio_end,
+        COALESCE(s.source_song_id, r.song_id) AS song_id,
+        COALESCE(s.sound_key, r.sound_key) AS sound_key
+
+       FROM reels r
+       LEFT JOIN sounds s ON s.id = r.sound_id
+       WHERE r.id = ?
        LIMIT 1`
     )
       .bind(reel_id)
       .first();
 
-    return json({ success: true, reel: row ?? { id: reel_id } });
+    return json({ success: true, reel: row ?? { reel_id } });
   } catch (e: any) {
     return json({ success: false, error: e?.message || 'Server error' }, 500);
   }
@@ -119,26 +143,30 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
 /**
  * GET /api/reels?viewerId=123
- * Returns reels with:
- *  - reactions[] (from reel_likes)
- *  - comments[] (from reel_comments)
- *  - my_reaction
- *  - ✅ song_id + sound_key + audio fields for sound reuse
+ * Now joins sounds so your UI keeps getting audio fields even after migration.
  */
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
     const viewerId = toNum(url.searchParams.get('viewerId'), 0);
 
-    // 1) reels (include sound_key + song_id)
+    // 1) reels + sound join
     const reelsRes = await env.DB.prepare(
-      `SELECT id, user_id, video_url, caption, song_name,
-              audio_url, audio_start, audio_end,
-              visibility, location, views, shares,
-              song_id, sound_key,
-              created_at
-       FROM reels
-       ORDER BY created_at DESC
+      `SELECT
+        r.id, r.user_id, r.video_url, r.caption,
+        r.visibility, r.location, r.views, r.shares, r.created_at,
+        r.sound_id,
+
+        COALESCE(s.title, r.song_name) AS song_name,
+        COALESCE(s.audio_url, r.audio_url) AS audio_url,
+        COALESCE(s.trim_start, r.audio_start) AS audio_start,
+        COALESCE(s.trim_end, r.audio_end) AS audio_end,
+        COALESCE(s.source_song_id, r.song_id) AS song_id,
+        COALESCE(s.sound_key, r.sound_key) AS sound_key
+
+       FROM reels r
+       LEFT JOIN sounds s ON s.id = r.sound_id
+       ORDER BY r.created_at DESC
        LIMIT 200`
     ).all();
 
@@ -149,7 +177,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const placeholders = reelIds.map(() => '?').join(',');
 
-    // 2) likes / reactions
+    // 2) likes
     const likesRes = await env.DB.prepare(
       `SELECT reel_id, user_id, type
        FROM reel_likes
@@ -171,7 +199,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const likes = Array.isArray(likesRes.results) ? likesRes.results : [];
     const comments = Array.isArray(commentsRes.results) ? commentsRes.results : [];
 
-    // Group likes by reel
     const likesByReel = new Map<number, any[]>();
     for (const l of likes) {
       const rid = toNum((l as any).reel_id, 0);
@@ -183,7 +210,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       });
     }
 
-    // Group comments by reel
     const commentsByReel = new Map<number, any[]>();
     for (const c of comments) {
       const rid = toNum((c as any).reel_id, 0);
@@ -208,16 +234,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
       return {
         ...r,
-
-        // normalize
         id: rid,
         user_id: toNum(r.user_id, 0),
         views: toNum(r.views, 0),
         shares: toNum(r.shares, 0),
         audio_start: toNum(r.audio_start, 0),
         audio_end: toNum(r.audio_end, 0),
-        song_id: (r.song_id == null ? null : toNum(r.song_id, 0)),
-        sound_key: toText(r.sound_key),
 
         reactions,
         comments: limitedComments,
