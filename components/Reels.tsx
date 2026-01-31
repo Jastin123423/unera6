@@ -11,6 +11,8 @@ type ReelSound = {
   songId?: string | number;
   soundKey?: string;
   soundId?: number; // ✅ ADDED: sound_id support
+  originalUrl?: string; // ✅ ADDED: Store original URL
+  isTrimmedAudio?: boolean; // ✅ ADDED: Track if trimmed
 };
 
 interface Sound {
@@ -28,6 +30,11 @@ interface Sound {
   coverImage?: string;
   soundKey?: string;
   soundId?: number; // ✅ ADDED: sound_id support
+  // ✅ ADDED: For trimmed audio tracking
+  originalUrl?: string;
+  originalStart?: number;
+  originalEnd?: number;
+  isTrimmed?: boolean;
 }
 
 // ==================== AUDIO TRIMMING UTILITIES ====================
@@ -593,6 +600,7 @@ export const CreateReelModal: React.FC<{
     songId?: string | number;
     visibility?: string;
     location?: string;
+    isTrimmedAudio?: boolean; // ✅ ADDED: Flag for trimmed audio
   }) => Promise<void> | void,
   initialSound?: Sound | null,
   songs: Song[];
@@ -613,7 +621,7 @@ export const CreateReelModal: React.FC<{
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isStudioPlaying, setIsStudioPlaying] = useState(false);
   const [musicSearch, setMusicSearch] = useState('');
-  const [selectedSoundId, setSelectedSoundId] = useState<string | number | null>(initialSound?.id || selectedSound?.soundId || null);
+  const [selectedSoundId, setSelectedSoundId] = useState<string | number | null>(initialSound?.soundId || selectedSound?.soundId || null);
   const [previewSound, setPreviewSound] = useState<Sound | null>(null);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [availableSongs, setAvailableSongs] = useState<Song[]>(songs || []);
@@ -659,7 +667,16 @@ export const CreateReelModal: React.FC<{
     }
     
     // ✅ Priority 4: Use audio URL hash
-    if (sound.url) {
+    if ('audioUrl' in sound && sound.audioUrl) {
+      let hash = 0;
+      for (let i = 0; i < sound.audioUrl.length; i++) {
+        hash = (hash << 5) - hash + sound.audioUrl.charCodeAt(i);
+        hash |= 0;
+      }
+      return `audio:${Math.abs(hash)}`;
+    }
+    
+    if ('url' in sound && sound.url) {
       let hash = 0;
       for (let i = 0; i < sound.url.length; i++) {
         hash = (hash << 5) - hash + sound.url.charCodeAt(i);
@@ -682,12 +699,16 @@ export const CreateReelModal: React.FC<{
         end: selectedSound.audioEnd,
         creator: currentUser,
         isOriginal: true,
-        soundKey: selectedSound.soundKey || generateSoundKey(selectedSound)
+        soundKey: selectedSound.soundKey || generateSoundKey(selectedSound),
+        // ✅ Store original info for trimmed audio
+        originalUrl: selectedSound.audioUrl,
+        isTrimmed: selectedSound.isTrimmedAudio || false
       };
       setSelectedAudio(sound);
       setSelectedSoundId(sound.soundId || sound.id);
       setAudioStart(selectedSound.audioStart || 0);
       setAudioEnd(selectedSound.audioEnd || 0);
+      setIsTrimmedAudio(selectedSound.isTrimmedAudio || false);
     }
   }, [selectedSound, currentUser, generateSoundKey]);
 
@@ -785,7 +806,8 @@ export const CreateReelModal: React.FC<{
         audioEnd: sound.end || sound.duration || 60,
         songId: sound.id,
         soundId: sound.soundId, // ✅ Pass soundId
-        soundKey: sound.soundKey || generateSoundKey(sound)
+        soundKey: sound.soundKey || generateSoundKey(sound),
+        isTrimmedAudio: sound.isTrimmed || false
       });
     }
     
@@ -824,20 +846,59 @@ export const CreateReelModal: React.FC<{
       
       const soundKey = generateSoundKey(selectedAudio);
       
-      await Promise.resolve(onCreate({
-        caption: caption.trim(),
-        songName: selectedAudio?.name || 'Original Sound',
-        audioUrl: selectedAudio?.url,
-        audioStart: trimmedAudioFile ? 0 : audioStart,
-        audioEnd: trimmedAudioFile ? 0 : audioEnd,
-        videoFile: selectedVideoFile,
-        audioFile: trimmedAudioFile || selectedAudioFile || undefined,
-        originalSoundId: selectedSoundId || undefined,
-        soundKey,
-        songId: selectedSoundId || undefined,
-        visibility,
-        location,
-      }));
+      // ✅ DETERMINE PAYLOAD BASED ON WHETHER WE HAVE TRIMMED AUDIO
+      if (isTrimmedAudio && trimmedAudioFile && selectedAudio) {
+        // ✅ CASE 1: Using trimmed audio file
+        await Promise.resolve(onCreate({
+          caption: caption.trim(),
+          songName: selectedAudio.name || 'Original Sound',
+          audioUrl: selectedAudio.originalUrl || selectedAudio.url, // Original URL
+          audioStart: selectedAudio.originalStart || audioStart, // Original trim start
+          audioEnd: selectedAudio.originalEnd || audioEnd, // Original trim end
+          videoFile: selectedVideoFile,
+          audioFile: trimmedAudioFile, // The trimmed file
+          originalSoundId: selectedSoundId || undefined,
+          soundKey,
+          songId: selectedSoundId || undefined,
+          visibility,
+          location,
+          isTrimmedAudio: true, // ✅ Flag for backend
+        }));
+      } else if (selectedAudioFile) {
+        // ✅ CASE 2: Using uploaded audio file (not trimmed)
+        await Promise.resolve(onCreate({
+          caption: caption.trim(),
+          songName: selectedAudio?.name || 'Original Sound',
+          audioUrl: selectedAudio?.url || '',
+          audioStart: 0,
+          audioEnd: 0,
+          videoFile: selectedVideoFile,
+          audioFile: selectedAudioFile,
+          originalSoundId: selectedSoundId || undefined,
+          soundKey,
+          songId: selectedSoundId || undefined,
+          visibility,
+          location,
+          isTrimmedAudio: false,
+        }));
+      } else {
+        // ✅ CASE 3: Using existing song with trim times
+        await Promise.resolve(onCreate({
+          caption: caption.trim(),
+          songName: selectedAudio?.name || 'Original Sound',
+          audioUrl: selectedAudio?.url || '',
+          audioStart: audioStart,
+          audioEnd: audioEnd,
+          videoFile: selectedVideoFile,
+          audioFile: undefined,
+          originalSoundId: selectedSoundId || undefined,
+          soundKey,
+          songId: selectedSoundId || undefined,
+          visibility,
+          location,
+          isTrimmedAudio: false,
+        }));
+      }
       
       setUploadProgress(100);
       setUploadStatus('processing');
@@ -884,13 +945,20 @@ export const CreateReelModal: React.FC<{
       setTrimmedAudioFile(trimmedFile);
       setIsTrimmedAudio(true);
       
-      // ✅ CRITICAL FIX: DO NOT replace selectedAudio.url with blob URL
-      // Keep original URL and store trimmed file separately
+      // ✅ CRITICAL: Create a blob URL for preview AND update selectedAudio
+      const trimmedAudioUrl = URL.createObjectURL(trimmedFile);
+      
       if (selectedAudio) {
         setSelectedAudio({
           ...selectedAudio,
-          start: 0,
-          end: end - start
+          url: trimmedAudioUrl, // ✅ Use trimmed URL for preview
+          start: 0, // Trimmed file starts at 0
+          end: end - start, // Trimmed file duration
+          // ✅ Store original trim info for backend
+          originalUrl: selectedAudio.url,
+          originalStart: start,
+          originalEnd: end,
+          isTrimmed: true,
         });
       }
     }
@@ -911,6 +979,22 @@ export const CreateReelModal: React.FC<{
     }
   };
 
+  // ✅ Clean up blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      // Clean up blob URLs
+      if (mediaPreview?.startsWith('blob:')) {
+        URL.revokeObjectURL(mediaPreview);
+      }
+      if (selectedAudio?.url?.startsWith('blob:')) {
+        URL.revokeObjectURL(selectedAudio.url);
+      }
+      if (previewSound?.url?.startsWith('blob:')) {
+        URL.revokeObjectURL(previewSound.url);
+      }
+    };
+  }, [mediaPreview, selectedAudio, previewSound]);
+
   return (
     <>
       {(isUploading || uploadStatus === 'success' || uploadStatus === 'error') && (
@@ -928,7 +1012,7 @@ export const CreateReelModal: React.FC<{
             onCapture={(blob) => { 
               const file = new File([blob], `reel-${Date.now()}.mp4`, { type: blob.type || 'video/mp4' });
               setSelectedVideoFile(file);
-              setMediaPreview(URL.createObjectURL(blob));
+              setMediaPreview(URL.createObjectURL(file));
               setIsCameraOpen(false); 
               setIsStudioPlaying(true);
             }} 
@@ -1102,7 +1186,7 @@ export const CreateReelModal: React.FC<{
 
         {isTrimmerOpen && selectedAudio && (
           <AudioTrimmer 
-            url={selectedAudio.url} 
+            url={selectedAudio.originalUrl || selectedAudio.url} // Use original URL for trimming
             onClose={() => setIsTrimmerOpen(false)} 
             onConfirm={handleTrimConfirm} 
             initialStart={audioStart} 
@@ -1532,21 +1616,21 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       creator: author,
       isOriginal: soundKey.startsWith('original:'),
       creationCount: 0,
+      isTrimmed: audioStart > 0 || audioEnd > 0 || soundKey.includes('trim'),
     };
   }, [users]);
 
-  // ✅ CRITICAL: Updated handleUseSound to pass sound_id
+  // ✅ CRITICAL: Updated handleUseSound to pass sound_id and trimmed info
   const handleUseSound = (sound: Sound) => {
-    const isFileSound = (sound.soundKey || String(sound.id)).startsWith('audio:');
-
     onPickSound({
       songName: sound.name,
       audioUrl: sound.url,
-      audioStart: isFileSound ? 0 : (sound.start || 0),
-      audioEnd: isFileSound ? 0 : (sound.end || 0),
+      audioStart: sound.start || 0,
+      audioEnd: sound.end || 0,
       soundId: sound.soundId, // ✅ Pass sound_id
       songId: undefined,
       soundKey: sound.soundKey || String(sound.id),
+      isTrimmedAudio: sound.isTrimmed || false, // ✅ Pass trimmed flag
     });
 
     onCreateReelClick();
@@ -1567,14 +1651,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             video.muted = true;
             
             // ✅ CRITICAL: Read trim times from sound object first
-            const s = (reel as any).sound;
-            const hasSoundObject = !!(s && (s.audio_url || s.audioUrl));
-            
-            const start = hasSoundObject ? (s.trim_start ?? s.start ?? 0) : 
-                          reel.audioStart || (reel as any).audio_start || 0;
-            
-            const end = hasSoundObject ? (s.trim_end ?? s.end ?? 0) : 
-                        reel.audioEnd || (reel as any).audio_end || 1000000;
+            const sound = extractSoundFromReel(reel);
+            const start = sound.start || 0;
+            const end = sound.end || sound.duration || 1000000;
             
             const handleAudioSync = () => {
               if (!audio || !video) return;
@@ -1606,7 +1685,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         }
       }
     });
-  }, [playingReelId, reels]);
+  }, [playingReelId, reels, extractSoundFromReel]);
 
   const formatCount = (num: number): string => {
     if (!num && num !== 0) return '0';
@@ -1845,6 +1924,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             <div className="bg-black/80 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 max-w-[200px]">
               <p className="text-white text-xs font-semibold truncate">
                 Using: <span className="text-[#1877F2]">{selectedSound.songName}</span>
+                {selectedSound.isTrimmedAudio && (
+                  <span className="text-[#45BD62] text-[10px] ml-1">(Trimmed)</span>
+                )}
               </p>
             </div>
           )}
