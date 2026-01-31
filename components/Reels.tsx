@@ -10,7 +10,7 @@ type ReelSound = {
   audioEnd?: number;
   songId?: string | number;
   soundKey?: string;
-  originalUrl?: string; // ✅ ADDED: Store original D1 URL
+  originalUrl?: string; // ✅ Store original D1 URL
 };
 
 interface Sound {
@@ -27,7 +27,7 @@ interface Sound {
   viewCount?: number;
   coverImage?: string;
   soundKey?: string;
-  originalUrl?: string; // ✅ ADDED: Store original D1 URL
+  originalUrl?: string; // ✅ Store original D1 URL
 }
 
 interface SoundUsage {
@@ -150,7 +150,7 @@ const useAudioFocus = () => {
   return { stopAllAudio };
 };
 
-// ==================== ENHANCED AUDIO TRIMMER ====================
+// ==================== ENHANCED AUDIO TRIMMER WITH PREVIEW ====================
 const AudioTrimmer: React.FC<{ 
   url: string, 
   onClose: () => void, 
@@ -160,7 +160,7 @@ const AudioTrimmer: React.FC<{
   soundId?: string | number;
   soundName?: string;
   onMountStopAll?: () => void;
-  onStopVideo?: () => void; // ✅ ADDED: Callback to stop video
+  onStopVideo?: () => void;
 }> = ({ url, onClose, onConfirm, initialStart, initialEnd, soundId, soundName, onMountStopAll, onStopVideo }) => {
   const { stopAllAudio } = useAudioFocus();
   const [start, setStart] = useState(initialStart);
@@ -175,16 +175,103 @@ const AudioTrimmer: React.FC<{
   const [trimStatus, setTrimStatus] = useState<'idle' | 'trimming' | 'success' | 'error'>('idle');
   const [trimError, setTrimError] = useState<string>('');
   
+  // ✅ ADDED: Trimmed preview state
+  const [trimmedPreviewUrl, setTrimmedPreviewUrl] = useState<string>('');
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [previewGenerating, setPreviewGenerating] = useState(false);
+  
   const audioRef = useRef<HTMLAudioElement>(null);
   const trimAudioRef = useRef<HTMLAudioElement>(null);
+  const trimmedPreviewRef = useRef<HTMLAudioElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playIntervalRef = useRef<any>(null);
+  const previewTimeoutRef = useRef<any>(null);
   
   const MIN_WINDOW = 1;
   const MAX_WINDOW = 60;
 
+  // ✅ ADDED: Function to create trimmed preview
+  const createTrimmedPreview = useCallback(async () => {
+    if (isTrimming || previewGenerating) return;
+    
+    try {
+      setPreviewGenerating(true);
+      const { blob } = await trimAudioUrlToWavBlob(url, start, end);
+      const previewUrl = URL.createObjectURL(blob);
+      
+      // Clean up previous URL
+      if (trimmedPreviewUrl) {
+        URL.revokeObjectURL(trimmedPreviewUrl);
+      }
+      
+      setTrimmedPreviewUrl(previewUrl);
+      setPreviewGenerating(false);
+      return previewUrl;
+    } catch (error) {
+      console.error('Failed to create preview:', error);
+      setPreviewGenerating(false);
+      return null;
+    }
+  }, [url, start, end, isTrimming, previewGenerating, trimmedPreviewUrl]);
+
+  // ✅ ADDED: Play trimmed preview
+  const playTrimmedPreview = useCallback(async () => {
+    if (isTrimming || previewGenerating) return;
+    
+    stopAllAudio();
+    setIsPlaying(false);
+    setIsPreviewPlaying(false);
+    
+    if (trimAudioRef.current) {
+      trimAudioRef.current.pause();
+    }
+    
+    try {
+      let previewUrl = trimmedPreviewUrl;
+      
+      if (!previewUrl) {
+        previewUrl = await createTrimmedPreview();
+        if (!previewUrl) return;
+      }
+      
+      if (trimmedPreviewRef.current) {
+        trimmedPreviewRef.current.src = previewUrl;
+        trimmedPreviewRef.current.currentTime = 0;
+        trimmedPreviewRef.current.play()
+          .then(() => setIsPreviewPlaying(true))
+          .catch(() => setIsPreviewPlaying(false));
+      }
+    } catch (error) {
+      console.error('Failed to play trimmed preview:', error);
+    }
+  }, [trimmedPreviewUrl, createTrimmedPreview, stopAllAudio, isTrimming, previewGenerating]);
+
+  // ✅ ADDED: Stop trimmed preview
+  const stopTrimmedPreview = useCallback(() => {
+    if (trimmedPreviewRef.current) {
+      trimmedPreviewRef.current.pause();
+      setIsPreviewPlaying(false);
+    }
+  }, []);
+
+  // ✅ ADDED: Auto-create preview when trim range changes
   useEffect(() => {
-    // ✅ CRITICAL: Stop video when trimmer opens
+    if (start !== initialStart || end !== initialEnd) {
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+      }
+      
+      previewTimeoutRef.current = setTimeout(() => {
+        if (!isTrimming) {
+          createTrimmedPreview();
+        }
+      }, 300);
+      
+      return () => clearTimeout(previewTimeoutRef.current);
+    }
+  }, [start, end, isTrimming, createTrimmedPreview, initialStart, initialEnd]);
+
+  useEffect(() => {
     onStopVideo?.();
     onMountStopAll?.();
     stopAllAudio();
@@ -195,6 +282,9 @@ const AudioTrimmer: React.FC<{
       trimAudioRef.current.currentTime = start;
     }
     
+    // Auto-create initial preview
+    createTrimmedPreview();
+    
     return () => {
       if (playIntervalRef.current) {
         clearInterval(playIntervalRef.current);
@@ -204,6 +294,16 @@ const AudioTrimmer: React.FC<{
       }
       if (trimAudioRef.current) {
         trimAudioRef.current.pause();
+      }
+      if (trimmedPreviewRef.current) {
+        trimmedPreviewRef.current.pause();
+      }
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+      }
+      // Clean up preview URL
+      if (trimmedPreviewUrl) {
+        URL.revokeObjectURL(trimmedPreviewUrl);
       }
     };
   }, []);
@@ -262,6 +362,7 @@ const AudioTrimmer: React.FC<{
     if (!trimAudioRef.current) return;
 
     stopAllAudio();
+    stopTrimmedPreview();
 
     if (isPlaying) {
       trimAudioRef.current.pause();
@@ -487,19 +588,68 @@ const AudioTrimmer: React.FC<{
           </button>
         </div>
 
-        <div className="flex items-center justify-center gap-4 mb-8">
-          <button 
-            onClick={togglePlay}
-            disabled={isTrimming}
-            className="w-16 h-16 rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-white text-xl`}></i>
-          </button>
-          <div className="flex flex-col items-center">
-            <span className="text-white text-sm font-bold">
-              {formatDuration(currentTime - start)}
-            </span>
-            <span className="text-white/40 text-[9px] uppercase tracking-widest">Current</span>
+        {/* ✅ ENHANCED: Two-panel audio preview system */}
+        <div className="flex flex-col md:flex-row gap-8 mb-8">
+          {/* Original Audio Panel */}
+          <div className="flex-1 flex flex-col items-center gap-4">
+            <div className="text-center mb-2">
+              <h4 className="text-white font-bold text-sm uppercase tracking-widest">Original Audio</h4>
+              <p className="text-white/50 text-xs">Listen to selected segment</p>
+            </div>
+            <button 
+              onClick={togglePlay}
+              disabled={isTrimming}
+              className="w-20 h-20 rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center hover:bg-white/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+            >
+              {isPlaying ? (
+                <div className="w-12 h-12 rounded-full bg-red-500/20 border-2 border-red-500/30 flex items-center justify-center">
+                  <i className="fas fa-pause text-red-500 text-2xl"></i>
+                </div>
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-[#1877F2]/20 border-2 border-[#1877F2]/30 flex items-center justify-center group-hover:bg-[#1877F2]/30">
+                  <i className="fas fa-play text-[#1877F2] text-2xl ml-1"></i>
+                </div>
+              )}
+            </button>
+            <div className="text-center">
+              <p className="text-white text-sm font-bold">
+                {formatDuration(currentTime - start)} / {formatDuration(end - start)}
+              </p>
+              <p className="text-white/40 text-[10px] uppercase tracking-widest">Current Position</p>
+            </div>
+          </div>
+
+          {/* Trimmed Preview Panel */}
+          <div className="flex-1 flex flex-col items-center gap-4">
+            <div className="text-center mb-2">
+              <h4 className="text-white font-bold text-sm uppercase tracking-widest">Trimmed Preview</h4>
+              <p className="text-white/50 text-xs">Preview final audio before export</p>
+            </div>
+            <button 
+              onClick={isPreviewPlaying ? stopTrimmedPreview : playTrimmedPreview}
+              disabled={isTrimming || previewGenerating}
+              className="w-20 h-20 rounded-full bg-gradient-to-br from-[#45BD62]/10 to-[#45BD62]/5 border-2 border-[#45BD62]/20 flex items-center justify-center hover:from-[#45BD62]/20 hover:to-[#45BD62]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+            >
+              {previewGenerating ? (
+                <div className="w-12 h-12 rounded-full bg-[#45BD62]/30 border-2 border-[#45BD62]/40 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-[#45BD62] border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : isPreviewPlaying ? (
+                <div className="w-12 h-12 rounded-full bg-red-500/20 border-2 border-red-500/30 flex items-center justify-center animate-pulse">
+                  <i className="fas fa-pause text-red-500 text-2xl"></i>
+                </div>
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-[#45BD62]/30 border-2 border-[#45BD62]/40 flex items-center justify-center group-hover:bg-[#45BD62]/40">
+                  <i className="fas fa-play text-[#45BD62] text-2xl ml-1"></i>
+                </div>
+              )}
+            </button>
+            <div className="text-center">
+              <p className="text-[#45BD62] text-sm font-bold">
+                {formatDuration(end - start)}
+              </p>
+              <p className="text-white/40 text-[10px] uppercase tracking-widest">Trimmed Duration</p>
+            </div>
           </div>
         </div>
 
@@ -583,6 +733,12 @@ const AudioTrimmer: React.FC<{
           ref={trimAudioRef} 
           src={url} 
           hidden 
+        />
+        {/* ✅ ADDED: Trimmed preview audio element */}
+        <audio 
+          ref={trimmedPreviewRef} 
+          hidden 
+          onEnded={() => setIsPreviewPlaying(false)}
         />
       </div>
     </div>
@@ -676,7 +832,7 @@ export const CreateReelModal: React.FC<{
         creator: currentUser,
         isOriginal: true,
         soundKey: selectedSound.soundKey || generateSoundKey(selectedSound),
-        originalUrl: selectedSound.originalUrl // ✅ Store original D1 URL
+        originalUrl: selectedSound.originalUrl
       };
       setSelectedAudio(sound);
       setSelectedSoundId(sound.id);
@@ -695,7 +851,7 @@ export const CreateReelModal: React.FC<{
       const audio = audioRef.current;
       const video = videoRef.current;
 
-      if (isStudioPlaying && !isTrimmerOpen) { // ✅ Don't sync audio when trimmer is open
+      if (isStudioPlaying && !isTrimmerOpen) {
         const syncAudio = () => {
           if (!audio || !video) return;
           
@@ -771,7 +927,7 @@ export const CreateReelModal: React.FC<{
       onPickSound({
         songName: sound.name,
         audioUrl: sound.url,
-        originalUrl: sound.originalUrl || sound.url, // ✅ Pass original URL
+        originalUrl: sound.originalUrl || sound.url,
         audioStart: sound.start || 0,
         audioEnd: sound.end || sound.duration || 60,
         songId: sound.id,
@@ -818,7 +974,7 @@ export const CreateReelModal: React.FC<{
       await Promise.resolve(onCreate({
         caption: caption.trim(),
         songName: selectedAudio?.name || 'Original Sound',
-        audioUrl: selectedAudio?.originalUrl || selectedAudio?.url, // ✅ Use originalUrl if available
+        audioUrl: selectedAudio?.originalUrl || selectedAudio?.url,
         audioStart: trimmedAudioFile ? 0 : audioStart,
         audioEnd: trimmedAudioFile ? 0 : audioEnd,
         videoFile: selectedVideoFile,
@@ -891,7 +1047,6 @@ export const CreateReelModal: React.FC<{
     setIsStudioPlaying(true);
   };
 
-  // ✅ ADDED: Function to stop video when trimmer opens
   const handleStopVideo = () => {
     if (videoRef.current) {
       videoRef.current.pause();
@@ -996,7 +1151,7 @@ export const CreateReelModal: React.FC<{
             {selectedAudio && (
               <button onClick={() => {
                 stopAllAudio();
-                handleStopVideo(); // ✅ Stop video when opening trimmer
+                handleStopVideo();
                 setIsTrimmerOpen(true);
               }} className="flex flex-col items-center gap-2 animate-fade-in">
                 <div className="w-14 h-14 rounded-3xl bg-black/40 border-2 border-white/10 flex items-center justify-center backdrop-blur-2xl">
@@ -1100,7 +1255,7 @@ export const CreateReelModal: React.FC<{
             url={selectedAudio.url} 
             onClose={() => {
               setIsTrimmerOpen(false);
-              setIsStudioPlaying(true); // ✅ Resume video after closing trimmer
+              setIsStudioPlaying(true);
             }} 
             onConfirm={handleTrimConfirm} 
             initialStart={audioStart} 
@@ -1108,7 +1263,7 @@ export const CreateReelModal: React.FC<{
             soundId={selectedSoundId || undefined}
             soundName={selectedAudio.name}
             onMountStopAll={stopAllAudio}
-            onStopVideo={handleStopVideo} // ✅ Pass stop video callback
+            onStopVideo={handleStopVideo}
           />
         )}
 
@@ -1144,7 +1299,7 @@ export const CreateReelModal: React.FC<{
               setAudioEnd(60);
               setIsMusicPickerOpen(false);
               setIsTrimmerOpen(true);
-              handleStopVideo(); // ✅ Stop video when opening trimmer
+              handleStopVideo();
             }}
             onClose={() => setIsMusicPickerOpen(false)}
           />
@@ -1441,7 +1596,7 @@ interface ReelsFeedProps {
   onComment: (reelId: number, text: string) => void;
   onShare: (reelId: number, type: 'feed' | 'copy') => void;
   onFollow: (targetUserId: number) => void;
-  onUseSound: (sound: any) => void; // ✅ Changed from Sound to any to match App.tsx
+  onUseSound: (sound: any) => void;
   checkIsFollowing: (targetUserId: number) => boolean;
   followLoading: { [key: number]: boolean };
   initialReelId?: number | null;
@@ -1492,7 +1647,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       id: soundKey,
       name: songName,
       url: audioUrl,
-      originalUrl: audioUrl, // ✅ Store original D1 URL
+      originalUrl: audioUrl,
       start: audioStart,
       end: audioEnd,
       creator: author,
@@ -1535,8 +1690,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     // ✅ Pass both audioUrl and originalUrl to ensure proper storage
     onPickSound({
       songName: sound.name,
-      audioUrl: sound.url, // Fetchable URL for trimming
-      originalUrl: sound.originalUrl || sound.url, // Original D1 URL for storage
+      audioUrl: sound.url,
+      originalUrl: sound.originalUrl || sound.url,
       audioStart: sound.start || 0,
       audioEnd: sound.end || 0,
       songId: sound.id?.toString().startsWith('song:') ? 
@@ -2019,7 +2174,7 @@ const MusicPicker: React.FC<MusicPickerProps> = ({
         id: `song:${song.id}`,
         name: song.title,
         url: song.audio_url,
-        originalUrl: song.audio_url, // ✅ Store original URL
+        originalUrl: song.audio_url,
         creator: { 
           id: song.artistId,
           name: song.artist,
