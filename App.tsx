@@ -3788,42 +3788,37 @@ export default function App() {
           toBlobUrl={toBlobUrl}
         />
       )}
-
       {/* ✅ MOUNT THE GLOBAL AUDIO PLAYER ONCE */}
-      {currentAudioTrack && (
-        <GlobalAudioPlayer
-          currentTrack={currentAudioTrack}
-          isPlaying={isAudioPlaying}
-          onTogglePlay={onTogglePlay}
-          onNext={onNext}
-          onPrevious={onPrevious}
-          onClose={onClosePlayer}
-          onDownload={(id) => {
-            // optional download logic
-            console.log('Download track:', id);
-          }}
-          onLike={(id, type) => {
-            // Delegate to MusicSystem UI (or implement direct endpoints here)
-            const k = `${type}:${String(id)}`;
-            const nextLiked = !likedTracks.includes(k);
-            handleMusicSystemLikeSync(k, nextLiked);
-          }}
-          onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
-          isLiked={isPlayerLiked}
-          // ✅ ADDED: Pass owner info + total plays
-          ownerUser={resolveTrackOwner(currentAudioTrack)}
-          totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
-          totalPlaysLoading={playsLoading}
-          // ✅ ADDED: onStarted callback
-          onStarted={onStarted}
-        />
-      )
+{currentAudioTrack && (
+  <GlobalAudioPlayer
+    currentTrack={currentAudioTrack}
+    isPlaying={isAudioPlaying}
+    onTogglePlay={onTogglePlay}
+    onNext={onNext}
+    onPrevious={onPrevious}
+    onClose={onClosePlayer}
+    onDownload={(id) => {
+      console.log('Download track:', id);
+    }}
+    onLike={(id, type) => {
+      const k = `${type}:${String(id)}`;
+      const nextLiked = !likedTracks.includes(k);
+      handleMusicSystemLikeSync(k, nextLiked);
+    }}
+    onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
+    isLiked={isPlayerLiked}
+    ownerUser={resolveTrackOwner(currentAudioTrack)}
+    totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
+    totalPlaysLoading={playsLoading}
+    onStarted={onStarted}
+  />
+)}  // ← MAKE SURE THIS LINE EXISTS AND IS CORRECT!
 
-      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+{fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
-      {showCreateStoryModal && currentUser && (
-        <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
-      )}
+{showCreateStoryModal && currentUser && (
+  <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
+)}
     </div>
   );
 }
