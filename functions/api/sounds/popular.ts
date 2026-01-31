@@ -1,3 +1,4 @@
+// functions/api/sounds/popular.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
@@ -14,6 +15,11 @@ const json = (data: any, status = 200) =>
     headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
+const toNum = (v: any, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
@@ -25,40 +31,41 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const rows = await env.DB.prepare(
       `
       SELECT
-        sound_key,
-        MAX(song_name) AS song_name,
-        MAX(audio_url) AS audio_url,
-        MAX(audio_start) AS audio_start,
-        MAX(audio_end) AS audio_end,
-        MAX(song_id) AS song_id,
-        COUNT(*) AS uses,
-        COALESCE(SUM(views), 0) AS total_views
-      FROM reels
-      WHERE sound_key IS NOT NULL AND sound_key != ''
-      GROUP BY sound_key
-      ORDER BY uses DESC, total_views DESC
+        s.id,
+        s.sound_key,
+        s.title,
+        s.audio_url,
+        s.trim_start,
+        s.trim_end,
+        s.source_song_id,
+        s.uses_count,
+        s.plays_count
+      FROM sounds s
+      ORDER BY s.uses_count DESC, s.plays_count DESC, s.created_at DESC
       LIMIT ?
       `
     ).bind(limit).all();
 
     const sounds = (rows.results || []).map((r: any) => {
-      const start = Number(r.audio_start || 0);
-      const end = Number(r.audio_end || 0);
+      const start = toNum(r.trim_start, 0);
+      const end = toNum(r.trim_end, 0);
       const duration = end > start ? Math.max(1, end - start) : 30;
 
       return {
-        id: r.sound_key,
+        id: Number(r.id),                 // ✅ now numeric id
         soundKey: r.sound_key,
-        name: r.song_name || "Original Sound",
+        name: r.title || "Original Sound",
         url: r.audio_url || "",
         start,
         end,
-        songId: r.song_id ? Number(r.song_id) : null,
+        songId: r.source_song_id ? Number(r.source_song_id) : null,
         duration,
-        creationCount: Number(r.uses || 0),
-        viewCount: Number(r.total_views || 0),
-        playCount: Number(r.total_views || 0),
-        isOriginal: String(r.sound_key).startsWith("original:"),
+
+        creationCount: toNum(r.uses_count, 0),
+        viewCount: toNum(r.plays_count, 0),   // you can rename later if you track views separately
+        playCount: toNum(r.plays_count, 0),
+
+        isOriginal: String(r.sound_key || "").startsWith("original:"),
       };
     });
 
