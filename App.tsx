@@ -769,6 +769,8 @@ const ensureSound = async (input: {
   trim_end: number;
   source_song_id?: string | number | null;
   sound_key: string;
+  is_trimmed?: boolean; // ✅ ADDED: Flag for trimmed sounds
+  original_audio_url?: string; // ✅ ADDED: Original URL for trimmed sounds
 }): Promise<SoundRow> => {
   const res = await apiFetch('/api/sounds/ensure', {
     method: 'POST',
@@ -779,6 +781,8 @@ const ensureSound = async (input: {
       trim_end: input.trim_end,
       source_song_id: input.source_song_id ?? null,
       sound_key: input.sound_key,
+      is_trimmed: input.is_trimmed || false, // ✅ Pass trimmed flag
+      original_audio_url: input.original_audio_url || null, // ✅ Pass original URL
     }),
   });
 
@@ -908,6 +912,8 @@ type ReelSound = {
   soundKey?: string;
   isTrimmedAudio?: boolean;
   originalUrl?: string; // ✅ ADDED: Store original URL for re-trimming
+  originalTrimStart?: number; // ✅ ADDED: Original trim start
+  originalTrimEnd?: number; // ✅ ADDED: Original trim end
 };
 
 type View =
@@ -1538,6 +1544,10 @@ export default function App() {
     videoFile?: File | Blob; 
     audioFile?: File | Blob;
     originalSoundId?: string | number;
+    isTrimmedAudio?: boolean; // ✅ ADDED: Flag for trimmed audio
+    originalTrimStart?: number; // ✅ ADDED: Original trim start time
+    originalTrimEnd?: number; // ✅ ADDED: Original trim end time
+    originalAudioUrl?: string; // ✅ ADDED: Original audio URL
   }) => {
     if (!requireAuth('Creating reels')) return;
     if (!currentUser) return;
@@ -1549,6 +1559,7 @@ export default function App() {
     try {
       const videoFile = reelData.videoFile;
       const audioFile = reelData.audioFile;
+      const isTrimmedAudio = reelData.isTrimmedAudio || false;
       
       if (!videoFile) {
         throw new Error('Video was not uploaded. Please select a video [video file missing]');
@@ -1561,53 +1572,112 @@ export default function App() {
         `reel-${Date.now()}.mp4`
       );
 
-      // ✅ 2) Handle sound source and get sound_id
+      // ✅ 2) Handle sound source and get sound_id with trimmed audio support
       let finalSoundId: number | null = null;
+      let audioUrlForReel = '';
+      let trimStart = 0;
+      let trimEnd = 0;
 
       // ✅ Priority: already picked soundId -> trimmed file -> song/url trim -> none
       if (selectedReelSound?.soundId) {
         // ✅ Reuse existing sound
         finalSoundId = selectedReelSound.soundId;
-      } else {
-        // Build audioUrl that will represent the sound
-        let audioUrl = '';
-        let trimStart = safeNumber(reelData.audioStart ?? selectedReelSound?.audioStart ?? 0);
-        let trimEnd = safeNumber(reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0);
+        audioUrlForReel = selectedReelSound.audioUrl;
+        trimStart = selectedReelSound.audioStart || 0;
+        trimEnd = selectedReelSound.audioEnd || 0;
+      } else if (audioFile && isTrimmedAudio) {
+        // ✅ This is a trimmed audio file - need to upload and create sound record
+        const trimmedAudioUrl = await ensureR2Url(
+          audioFile, 
+          'reel-audio', 
+          `trimmed-audio-${Date.now()}.wav`
+        );
+        
+        // Get trim metadata from either reelData or selectedReelSound
+        const originalTrimStart = reelData.originalTrimStart || selectedReelSound?.originalTrimStart || reelData.audioStart || 0;
+        const originalTrimEnd = reelData.originalTrimEnd || selectedReelSound?.originalTrimEnd || reelData.audioEnd || 0;
+        const originalAudioUrl = reelData.originalAudioUrl || selectedReelSound?.originalUrl || selectedReelSound?.audioUrl || '';
         const songTitle = reelData.songName || selectedReelSound?.songName || 'Original Sound';
         const songId = reelData.originalSoundId ?? selectedReelSound?.songId ?? null;
 
-        if (audioFile) {
-          // ✅ Trimmed file exists -> upload it and treat as "full" clip
-          audioUrl = await ensureR2Url(audioFile, 'reel-audio', `audio-${Date.now()}.wav`);
-          // For trimmed uploaded files, store as 0-0 or actual trim times if available
-          if (reelData.audioStart !== undefined && reelData.audioEnd !== undefined) {
-            trimStart = safeNumber(reelData.audioStart);
-            trimEnd = safeNumber(reelData.audioEnd);
-          } else {
-            trimStart = 0;
-            trimEnd = 0;
-          }
-        } else if (reelData.audioUrl || selectedReelSound?.audioUrl) {
-          audioUrl = reelData.audioUrl || selectedReelSound?.audioUrl || '';
-        }
+        // Generate sound key that indicates this is a trimmed version
+        const soundKey = soundKeyFor({
+          songId,
+          audioUrl: originalAudioUrl,
+          audioStart: originalTrimStart,
+          audioEnd: originalTrimEnd,
+          isTrimmedFile: true,
+        });
 
-        // If user selected/trimmed sound, create/reuse it
-        if (audioUrl) {
+        // Create sound record in database with trimmed metadata
+        const sound = await ensureSound({
+          title: `${songTitle} (Trimmed)`,
+          audio_url: trimmedAudioUrl, // The uploaded trimmed file URL
+          trim_start: 0, // Trimmed file starts at 0
+          trim_end: (originalTrimEnd - originalTrimStart), // Trimmed file duration
+          source_song_id: songId,
+          sound_key: soundKey,
+          is_trimmed: true, // ✅ Flag as trimmed sound
+          original_audio_url: originalAudioUrl, // ✅ Store original URL
+        });
+
+        finalSoundId = sound.id;
+        audioUrlForReel = trimmedAudioUrl;
+        trimStart = 0; // Trimmed file starts at 0
+        trimEnd = originalTrimEnd - originalTrimStart; // Trimmed file duration
+      } else if (audioFile) {
+        // ✅ Uploaded audio file (not trimmed)
+        const uploadedAudioUrl = await ensureR2Url(audioFile, 'reel-audio', `audio-${Date.now()}.mp3`);
+        audioUrlForReel = uploadedAudioUrl;
+        
+        const songTitle = reelData.songName || selectedReelSound?.songName || 'Original Sound';
+        const songId = reelData.originalSoundId ?? selectedReelSound?.songId ?? null;
+        
+        // Create sound record for uploaded audio
+        const soundKey = soundKeyFor({
+          songId,
+          audioUrl: uploadedAudioUrl,
+          audioStart: 0,
+          audioEnd: 0,
+          isTrimmedFile: false,
+        });
+
+        const sound = await ensureSound({
+          title: songTitle,
+          audio_url: uploadedAudioUrl,
+          trim_start: 0,
+          trim_end: 0,
+          source_song_id: songId,
+          sound_key: soundKey,
+          is_trimmed: false,
+        });
+
+        finalSoundId = sound.id;
+      } else if (reelData.audioUrl || selectedReelSound?.audioUrl) {
+        // ✅ Using existing song/URL with trim times
+        audioUrlForReel = reelData.audioUrl || selectedReelSound?.audioUrl || '';
+        trimStart = reelData.audioStart ?? selectedReelSound?.audioStart ?? 0;
+        trimEnd = reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0;
+        const songTitle = reelData.songName || selectedReelSound?.songName || 'Original Sound';
+        const songId = reelData.originalSoundId ?? selectedReelSound?.songId ?? null;
+
+        if (audioUrlForReel) {
           const soundKey = soundKeyFor({
             songId,
-            audioUrl,
+            audioUrl: audioUrlForReel,
             audioStart: trimStart,
             audioEnd: trimEnd,
-            isTrimmedFile: !!audioFile,
+            isTrimmedFile: false,
           });
 
           const sound = await ensureSound({
             title: songTitle,
-            audio_url: audioUrl,
+            audio_url: audioUrlForReel,
             trim_start: trimStart,
             trim_end: trimEnd,
             source_song_id: songId,
             sound_key: soundKey,
+            is_trimmed: trimStart > 0 || trimEnd > 0, // Mark as trimmed if times are set
           });
 
           finalSoundId = sound.id;
@@ -1619,16 +1689,16 @@ export default function App() {
         user_id: currentUser.id,
         caption: reelData.caption || '',
         video_url: videoUrl,
-        sound_id: finalSoundId,              // ✅ IMPORTANT: Store sound_id instead of audio details
+        sound_id: finalSoundId, // ✅ Store sound_id reference
         visibility: reelData.visibility || 'public',
         location: reelData.location || '',
         // ✅ Keep legacy fields for backward compatibility
         song_name: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-        audio_url: '', // Will be fetched from sounds table via join
-        audio_start: 0,
-        audio_end: 0,
+        audio_url: audioUrlForReel,
+        audio_start: trimStart,
+        audio_end: trimEnd,
         song_id: reelData.originalSoundId ?? selectedReelSound?.songId ?? null,
-        sound_key: '', // Will be fetched from sounds table
+        sound_key: '', // Will be fetched from sounds table via join
       };
       
       console.log("Sending to API (with sound_id):", payload);
@@ -1776,6 +1846,8 @@ export default function App() {
         soundKey,
         isTrimmedAudio,
         originalUrl: audioUrl,
+        originalTrimStart: audioStart,
+        originalTrimEnd: audioEnd,
       });
     }
 
@@ -3694,7 +3766,7 @@ export default function App() {
             // Optional: keep selectedReelSound if you want it remembered
           }}
           onCreate={(reelData: any) => {
-            // ✅ inject selected sound into reelData before createReel()
+            // ✅ PROPERLY handle trimmed audio data from Reels.tsx
             return createReel({
               ...reelData,
               audioUrl: reelData.audioUrl || selectedReelSound?.audioUrl || '',
@@ -3702,6 +3774,11 @@ export default function App() {
               audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
               audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
               originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+              // ✅ PASS TRIM METADATA
+              isTrimmedAudio: reelData.isTrimmedAudio || selectedReelSound?.isTrimmedAudio || false,
+              originalTrimStart: reelData.audioStart ?? selectedReelSound?.originalTrimStart ?? selectedReelSound?.audioStart ?? 0,
+              originalTrimEnd: reelData.audioEnd ?? selectedReelSound?.originalTrimEnd ?? selectedReelSound?.audioEnd ?? 0,
+              originalAudioUrl: reelData.originalAudioUrl || selectedReelSound?.originalUrl || selectedReelSound?.audioUrl || '',
             });
           }}
           songs={songs} // ✅ ADDED: Pass UNERA Music songs
@@ -3740,7 +3817,7 @@ export default function App() {
           // ✅ ADDED: onStarted callback
           onStarted={onStarted}
         />
-      )}
+      )
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
