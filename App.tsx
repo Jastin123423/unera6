@@ -416,106 +416,44 @@ const normalizeUser = (u: any): User => {
   } as any;
 };
 
-/** ---------- Sound helper functions ---------- */
-// ✅ 1) Deterministic sound key generation
-const soundKeyFor = (p: {
-  songId?: string | number | null;
-  audioUrl?: string;
-  audioStart?: number;
-  audioEnd?: number;
-  isTrimmedFile?: boolean;
-}): string => {
-  const sid = p.songId ? String(p.songId) : '';
-  const s = Number(p.audioStart || 0).toFixed(2);
-  const e = Number(p.audioEnd || 0).toFixed(2);
-
-  // Song-based (best)
-  if (sid) return `song:${sid}|trim:${s}-${e}`;
-
-  // External URL-based (fallback)
-  if (p.audioUrl) {
-    try {
-      // Try to extract a filename or identifier from URL
-      const urlObj = new URL(p.audioUrl);
-      const pathParts = urlObj.pathname.split('/');
-      const filename = pathParts[pathParts.length - 1] || 'audio';
-      return `url:${filename}|trim:${s}-${e}`;
-    } catch {
-      // If URL parsing fails, use a hash of the URL
-      let hash = 0;
-      for (let i = 0; i < p.audioUrl.length; i++) {
-        hash = (hash << 5) - hash + p.audioUrl.charCodeAt(i);
-        hash |= 0;
-      }
-      return `url:${Math.abs(hash)}|trim:${s}-${e}`;
-    }
-  }
-
-  // If it's a trimmed uploaded blob/file and no songId/url
-  if (p.isTrimmedFile) return `upload:trim:${s}-${e}`;
-
-  return `original:none`;
-};
-
-// ✅ 2) SoundRow type definition
-type SoundRow = {
-  id: number;
-  sound_key: string;
-  title: string;
-  audio_url: string;
-  trim_start: number;
-  trim_end: number;
-  source_song_id: number | null;
-  created_at?: string;
-  user_id?: number;
-  plays?: number;
-  is_public?: boolean;
-};
-
-/** ✅ UPDATED: Normalize reel data with sound_id support ---------- */
+/** ✅ UPDATED: Normalize reel data with trimmed audio support ---------- */
 const normalizeReel = (r: any): Reel => {
   const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
   const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
   
-  // ✅ UPDATED: Support sound_id
-  const soundId = safeNumber(r?.sound_id ?? r?.soundId ?? 0) || null;
+  // ✅ UPDATED: Use soundKey to determine trimmed audio, not start=0,end=0
+  const soundKey = String(r?.sound_key ?? r?.soundKey ?? '');
+  const isTrimmedAudio = soundKey.startsWith('trimmed:');
   
-  // ✅ UPDATED: Extract sound info from joined sound object or legacy fields
-  const soundData = r?.sound || {};
-  const soundKey = String(r?.sound_key ?? soundData?.sound_key ?? r?.soundKey ?? '');
-  const audioUrl = r?.audio_url ?? soundData?.audio_url ?? r?.audioUrl ?? '';
-  const songName = r?.song_name ?? soundData?.title ?? r?.songName ?? 'Original Sound';
-  const audioStart = safeNumber(r?.audio_start ?? soundData?.trim_start ?? r?.audioStart ?? 0);
-  const audioEnd = safeNumber(r?.audio_end ?? soundData?.trim_end ?? r?.audioEnd ?? 0);
-  const songId = r?.song_id ?? soundData?.source_song_id ?? r?.songId ?? null;
+  // For backward compatibility, also check the old method
+  const audioStart = safeNumber(r?.audio_start ?? r?.audioStart ?? 0);
+  const audioEnd = safeNumber(r?.audio_end ?? r?.audioEnd ?? 0);
+  const audioUrl = r?.audio_url ?? r?.audioUrl ?? '';
+  const legacyIsTrimmed = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
   
-  // ✅ UPDATED: Determine if trimmed - use trim_start/end > 0 or soundKey contains 'trim'
-  const isTrimmedAudio = audioStart > 0 || audioEnd > 0 || soundKey.includes('trim');
-
   return {
     ...r,
     id: resolvedId,
     userId: userId,
-    soundId, // ✅ ADDED: sound_id
     videoUrl: r?.video_url ?? r?.videoUrl ?? '',
     caption: r?.caption ?? '',
-    songName: songName,
+    songName: r?.song_name ?? r?.songName ?? '',
     audioUrl: audioUrl,
-    audioStart: audioStart,
-    audioEnd: audioEnd,
-    audioStartTime: audioStart,
-    audioEndTime: audioEnd,
+    audioStart: isTrimmedAudio ? 0 : audioStart,
+    audioEnd: isTrimmedAudio ? 0 : audioEnd,
+    audioStartTime: isTrimmedAudio ? 0 : audioStart,
+    audioEndTime: isTrimmedAudio ? 0 : audioEnd,
     visibility: r?.visibility ?? 'public',
     location: r?.location ?? '',
     views: safeNumber(r?.views ?? 0),
     shares: safeNumber(r?.shares ?? 0),
-    songId: songId,
+    songId: r?.song_id ?? r?.songId ?? null,
     soundKey: soundKey,
     reactions: safeArray(r?.reactions),
     comments: safeArray(r?.comments),
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
-    // ✅ UPDATED: Use trim detection based on actual times
-    isTrimmedAudio: isTrimmedAudio,
+    // ✅ Use soundKey to determine trimmed audio
+    isTrimmedAudio: isTrimmedAudio || legacyIsTrimmed,
   } as any;
 };
 
@@ -761,36 +699,6 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-/** ✅ ADDED: Ensure sound exists or creates one ---------- */
-const ensureSound = async (input: {
-  title: string;
-  audio_url: string;
-  trim_start: number;
-  trim_end: number;
-  source_song_id?: string | number | null;
-  sound_key: string;
-  is_trimmed?: boolean; // ✅ ADDED: Flag for trimmed sounds
-  original_audio_url?: string; // ✅ ADDED: Original URL for trimmed sounds
-}): Promise<SoundRow> => {
-  const res = await apiFetch('/api/sounds/ensure', {
-    method: 'POST',
-    body: JSON.stringify({
-      title: input.title,
-      audio_url: input.audio_url,
-      trim_start: input.trim_start,
-      trim_end: input.trim_end,
-      source_song_id: input.source_song_id ?? null,
-      sound_key: input.sound_key,
-      is_trimmed: input.is_trimmed || false, // ✅ Pass trimmed flag
-      original_audio_url: input.original_audio_url || null, // ✅ Pass original URL
-    }),
-  });
-
-  const sound = res?.sound ?? res?.data?.sound ?? null;
-  if (!sound?.id) throw new Error('Sound ensure failed: no sound id returned');
-  return sound as SoundRow;
-};
-
 /**
  * Fetch user's followers/following data
  */
@@ -901,9 +809,8 @@ const ensureR2Url = async (input: any, folder: string, fallbackName: string) => 
   return '';
 };
 
-/** ✅ UPDATED: Type for ReelSound with soundId ---------- */
+/** ✅ ADDED: Type for ReelSound with trimmed audio support ---------- */
 type ReelSound = {
-  soundId?: number; // ✅ ADDED: sound_id
   songName: string;
   audioUrl: string;
   audioStart?: number;
@@ -912,8 +819,6 @@ type ReelSound = {
   soundKey?: string;
   isTrimmedAudio?: boolean;
   originalUrl?: string; // ✅ ADDED: Store original URL for re-trimming
-  originalTrimStart?: number; // ✅ ADDED: Original trim start
-  originalTrimEnd?: number; // ✅ ADDED: Original trim end
 };
 
 type View =
@@ -1539,15 +1444,35 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ UPDATED: Create reel with sounds table support ---------- */
+  /** ✅ UPDATED: Generate sound key based on sound type ---------- */
+  const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
+    // Use soundKey from reelData if provided
+    if (reelData.soundKey) return reelData.soundKey;
+    
+    // Generate based on songId if available
+    if (selectedReelSound?.songId) {
+      return `song:${selectedReelSound.songId}`;
+    }
+    
+    // ✅ For trimmed audio, generate unique key
+    if (reelData.audioFile) {
+      return `trimmed:${currentUser?.id || 'unknown'}:${Date.now()}`;
+    }
+    
+    // Generate based on audioUrl if available
+    if (selectedReelSound?.audioUrl) {
+      return `original:${currentUser?.id || 'unknown'}:${Date.now()}`;
+    }
+    
+    // Default fallback
+    return 'original:none';
+  }, [currentUser]);
+
+  /** ✅ UPDATED: Create reel with physical audio trimming support ---------- */
   const createReel = useCallback(async (reelData: Partial<Reel> & { 
     videoFile?: File | Blob; 
     audioFile?: File | Blob;
     originalSoundId?: string | number;
-    isTrimmedAudio?: boolean; // ✅ ADDED: Flag for trimmed audio
-    originalTrimStart?: number; // ✅ ADDED: Original trim start time
-    originalTrimEnd?: number; // ✅ ADDED: Original trim end time
-    originalAudioUrl?: string; // ✅ ADDED: Original audio URL
   }) => {
     if (!requireAuth('Creating reels')) return;
     if (!currentUser) return;
@@ -1559,149 +1484,73 @@ export default function App() {
     try {
       const videoFile = reelData.videoFile;
       const audioFile = reelData.audioFile;
-      const isTrimmedAudio = reelData.isTrimmedAudio || false;
       
       if (!videoFile) {
         throw new Error('Video was not uploaded. Please select a video [video file missing]');
       }
 
-      // ✅ 1) Upload video to R2
+      // ✅ Upload video to R2
       const videoUrl = await ensureR2Url(
         videoFile,
         'reels',
         `reel-${Date.now()}.mp4`
       );
 
-      // ✅ 2) Handle sound source and get sound_id with trimmed audio support
-      let finalSoundId: number | null = null;
-      let audioUrlForReel = '';
-      let trimStart = 0;
-      let trimEnd = 0;
-
-      // ✅ Priority: already picked soundId -> trimmed file -> song/url trim -> none
-      if (selectedReelSound?.soundId) {
-        // ✅ Reuse existing sound
-        finalSoundId = selectedReelSound.soundId;
-        audioUrlForReel = selectedReelSound.audioUrl;
-        trimStart = selectedReelSound.audioStart || 0;
-        trimEnd = selectedReelSound.audioEnd || 0;
-      } else if (audioFile && isTrimmedAudio) {
-        // ✅ This is a trimmed audio file - need to upload and create sound record
-        const trimmedAudioUrl = await ensureR2Url(
-          audioFile, 
-          'reel-audio', 
-          `trimmed-audio-${Date.now()}.wav`
+      // ✅ Handle audio file (could be trimmed or original)
+      let audioUrl = null;
+      if (audioFile) {
+        // If audioFile exists, it's a trimmed or custom audio file
+        audioUrl = await ensureR2Url(
+          audioFile,
+          'reel-audio',
+          `audio-${Date.now()}.wav` // ✅ Changed to .wav for trimmed audio
         );
-        
-        // Get trim metadata from either reelData or selectedReelSound
-        const originalTrimStart = reelData.originalTrimStart || selectedReelSound?.originalTrimStart || reelData.audioStart || 0;
-        const originalTrimEnd = reelData.originalTrimEnd || selectedReelSound?.originalTrimEnd || reelData.audioEnd || 0;
-        const originalAudioUrl = reelData.originalAudioUrl || selectedReelSound?.originalUrl || selectedReelSound?.audioUrl || '';
-        const songTitle = reelData.songName || selectedReelSound?.songName || 'Original Sound';
-        const songId = reelData.originalSoundId ?? selectedReelSound?.songId ?? null;
-
-        // Generate sound key that indicates this is a trimmed version
-        const soundKey = soundKeyFor({
-          songId,
-          audioUrl: originalAudioUrl,
-          audioStart: originalTrimStart,
-          audioEnd: originalTrimEnd,
-          isTrimmedFile: true,
-        });
-
-        // Create sound record in database with trimmed metadata
-        const sound = await ensureSound({
-          title: `${songTitle} (Trimmed)`,
-          audio_url: trimmedAudioUrl, // The uploaded trimmed file URL
-          trim_start: 0, // Trimmed file starts at 0
-          trim_end: (originalTrimEnd - originalTrimStart), // Trimmed file duration
-          source_song_id: songId,
-          sound_key: soundKey,
-          is_trimmed: true, // ✅ Flag as trimmed sound
-          original_audio_url: originalAudioUrl, // ✅ Store original URL
-        });
-
-        finalSoundId = sound.id;
-        audioUrlForReel = trimmedAudioUrl;
-        trimStart = 0; // Trimmed file starts at 0
-        trimEnd = originalTrimEnd - originalTrimStart; // Trimmed file duration
-      } else if (audioFile) {
-        // ✅ Uploaded audio file (not trimmed)
-        const uploadedAudioUrl = await ensureR2Url(audioFile, 'reel-audio', `audio-${Date.now()}.mp3`);
-        audioUrlForReel = uploadedAudioUrl;
-        
-        const songTitle = reelData.songName || selectedReelSound?.songName || 'Original Sound';
-        const songId = reelData.originalSoundId ?? selectedReelSound?.songId ?? null;
-        
-        // Create sound record for uploaded audio
-        const soundKey = soundKeyFor({
-          songId,
-          audioUrl: uploadedAudioUrl,
-          audioStart: 0,
-          audioEnd: 0,
-          isTrimmedFile: false,
-        });
-
-        const sound = await ensureSound({
-          title: songTitle,
-          audio_url: uploadedAudioUrl,
-          trim_start: 0,
-          trim_end: 0,
-          source_song_id: songId,
-          sound_key: soundKey,
-          is_trimmed: false,
-        });
-
-        finalSoundId = sound.id;
-      } else if (reelData.audioUrl || selectedReelSound?.audioUrl) {
-        // ✅ Using existing song/URL with trim times
-        audioUrlForReel = reelData.audioUrl || selectedReelSound?.audioUrl || '';
-        trimStart = reelData.audioStart ?? selectedReelSound?.audioStart ?? 0;
-        trimEnd = reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0;
-        const songTitle = reelData.songName || selectedReelSound?.songName || 'Original Sound';
-        const songId = reelData.originalSoundId ?? selectedReelSound?.songId ?? null;
-
-        if (audioUrlForReel) {
-          const soundKey = soundKeyFor({
-            songId,
-            audioUrl: audioUrlForReel,
-            audioStart: trimStart,
-            audioEnd: trimEnd,
-            isTrimmedFile: false,
-          });
-
-          const sound = await ensureSound({
-            title: songTitle,
-            audio_url: audioUrlForReel,
-            trim_start: trimStart,
-            trim_end: trimEnd,
-            source_song_id: songId,
-            sound_key: soundKey,
-            is_trimmed: trimStart > 0 || trimEnd > 0, // Mark as trimmed if times are set
-          });
-
-          finalSoundId = sound.id;
-        }
+      } else if (reelData.audioUrl) {
+        // ✅ Use the raw audio URL passed from CreateReelModal (which should be originalUrl)
+        audioUrl = reelData.audioUrl;
       }
 
-      // ✅ 3) Create reel row pointing to sound_id
+      // ✅ IMPORTANT: never post to backend without a real URL
+      if (!videoUrl || !videoUrl.startsWith('http')) {
+        throw new Error('Reel video upload failed (no valid R2 URL).');
+      }
+
+      // ✅ Determine if this is trimmed audio using soundKey (not start=0,end=0)
+      const soundKey = generateSoundKey(reelData, selectedReelSound);
+      const isTrimmedAudio = soundKey.startsWith('trimmed:');
+      
+      // ✅ For trimmed audio: audio_start=0, audio_end=0
+      // ✅ For original sound: use provided start/end times
+      const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
+      const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
+      
+      // ✅ Use selectedReelSound if available, otherwise use reelData
+      const soundPayload = selectedReelSound || {
+        songName: reelData.songName || 'Original Sound',
+        audioUrl: audioUrl || '',
+        audioStart,
+        audioEnd,
+        songId: reelData.originalSoundId,
+      };
+
+      // ✅ UPDATED: Payload matches D1 table columns with trimmed audio support
       const payload = {
         user_id: currentUser.id,
         caption: reelData.caption || '',
         video_url: videoUrl,
-        sound_id: finalSoundId, // ✅ Store sound_id reference
+        song_name: soundPayload.songName,
+        audio_url: audioUrl, // ✅ This will be the trimmed audio URL or original URL
+        audio_start: audioStart, // ✅ 0 for trimmed audio, original start time otherwise
+        audio_end: audioEnd, // ✅ 0 for trimmed audio, original end time otherwise
+        song_id: soundPayload.songId || null,
+        sound_key: soundKey,
         visibility: reelData.visibility || 'public',
         location: reelData.location || '',
-        // ✅ Keep legacy fields for backward compatibility
-        song_name: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-        audio_url: audioUrlForReel,
-        audio_start: trimStart,
-        audio_end: trimEnd,
-        song_id: reelData.originalSoundId ?? selectedReelSound?.songId ?? null,
-        sound_key: '', // Will be fetched from sounds table via join
+        views: 0,
+        shares: 0,
       };
       
-      console.log("Sending to API (with sound_id):", payload);
+      console.log("Sending to API:", payload);
       
       const data = await apiFetch('/api/reels', {
         method: 'POST',
@@ -1729,7 +1578,7 @@ export default function App() {
       setIsFeedRefreshing(false);
       setShowCreateReelModal(false);
     }
-  }, [currentUser, requireAuth, fetchReels, selectedReelSound]);
+  }, [currentUser, requireAuth, fetchReels, selectedReelSound, generateSoundKey]);
 
   /** ---------- ✅ ADDED: React to reel ---------- */
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
@@ -1817,39 +1666,34 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ✅ UPDATED: Use sound from reel with sound_id support ---------- */
+  /** ✅ UPDATED: Use sound from reel with fetchable audio URLs and original URL storage ---------- */
   const useSoundFromReel = useCallback((soundFromReel: any) => {
-    const soundId = Number(soundFromReel?.sound_id ?? soundFromReel?.soundId ?? 0) || undefined;
-    const audioUrl = soundFromReel?.audio_url || soundFromReel?.audioUrl || '';
-    const songName = soundFromReel?.song_name || soundFromReel?.songName || 'Original Sound';
+    // ✅ Get the raw D1 audio_url (this is what's stored in database)
+    const audioUrlRaw = soundFromReel?.audio_url ?? soundFromReel?.audioUrl ?? '';
+    
+    if (!audioUrlRaw) return;
+
+    const songName = soundFromReel?.song_name ?? soundFromReel?.songName ?? 'Original Sound';
     const audioStart = safeNumber(soundFromReel?.audio_start ?? soundFromReel?.audioStart ?? 0);
     const audioEnd = safeNumber(soundFromReel?.audio_end ?? soundFromReel?.audioEnd ?? 0);
-    
-    // Get songId from either song_id or originalSoundId fields
-    const songId = soundFromReel?.song_id ?? soundFromReel?.originalSoundId;
-    const soundKey = soundFromReel?.sound_key ?? soundFromReel?.soundKey;
-    
-    // Check if this is trimmed audio using trim times
-    const isTrimmedAudio = audioStart > 0 || audioEnd > 0 || (soundKey && soundKey.includes('trim'));
+    const songId = soundFromReel?.song_id ?? soundFromReel?.songId ?? null;
+    const soundKey = String(soundFromReel?.sound_key ?? soundFromReel?.soundKey ?? '');
 
-    if (audioUrl) {
-      // ✅ CRITICAL: Ensure audio URL is fetchable for trimming
-      const fetchableUrl = toFetchableAudioUrl(audioUrl);
-      
-      setSelectedReelSound({
-        soundId, // ✅ ADDED: sound_id
-        songName,
-        audioUrl: fetchableUrl,
-        audioStart,
-        audioEnd,
-        songId,
-        soundKey,
-        isTrimmedAudio,
-        originalUrl: audioUrl,
-        originalTrimStart: audioStart,
-        originalTrimEnd: audioEnd,
-      });
-    }
+    // Check if this is trimmed audio using soundKey
+    const isTrimmedAudio = soundKey.startsWith('trimmed:');
+
+    setSelectedReelSound({
+      songName,
+      // ✅ for trimming/fetching (fetchable URL)
+      audioUrl: toFetchableAudioUrl(audioUrlRaw),
+      // ✅ for saving to D1 (REUSE SOUND must use this)
+      originalUrl: audioUrlRaw,
+      audioStart,
+      audioEnd,
+      songId,
+      soundKey,
+      isTrimmedAudio,
+    });
 
     setShowCreateReelModal(true);
   }, []);
@@ -3757,68 +3601,71 @@ export default function App() {
         />
       )}
 
-      {/* ✅ CREATE REEL MODAL */}
+      {/* ✅ CREATE REEL MODAL WITH FIX 2 IMPLEMENTED */}
       {showCreateReelModal && currentUser && (
         <CreateReelModal
           currentUser={currentUser}
           onClose={() => {
             setShowCreateReelModal(false);
-            // Optional: keep selectedReelSound if you want it remembered
           }}
           onCreate={(reelData: any) => {
-            // ✅ PROPERLY handle trimmed audio data from Reels.tsx
+            // ✅ FIX 2: When creating a reel, ALWAYS save the raw URL (not proxy)
             return createReel({
               ...reelData,
-              audioUrl: reelData.audioUrl || selectedReelSound?.audioUrl || '',
+              // ✅ CRITICAL: Use originalUrl for D1 storage when reusing sound
+              audioUrl:
+                reelData.audioUrl ||
+                selectedReelSound?.originalUrl ||   // ✅ SAVE THIS (raw D1 url)
+                selectedReelSound?.audioUrl ||      // fallback
+                '',
               songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
               audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
               audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
               originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
-              // ✅ PASS TRIM METADATA
-              isTrimmedAudio: reelData.isTrimmedAudio || selectedReelSound?.isTrimmedAudio || false,
-              originalTrimStart: reelData.audioStart ?? selectedReelSound?.originalTrimStart ?? selectedReelSound?.audioStart ?? 0,
-              originalTrimEnd: reelData.audioEnd ?? selectedReelSound?.originalTrimEnd ?? selectedReelSound?.audioEnd ?? 0,
-              originalAudioUrl: reelData.originalAudioUrl || selectedReelSound?.originalUrl || selectedReelSound?.audioUrl || '',
             });
           }}
-          songs={songs} // ✅ ADDED: Pass UNERA Music songs
-          selectedSound={selectedReelSound} // ✅ ADDED: Pass selected sound
-          onPickSound={setSelectedReelSound} // ✅ ADDED: Pass sound picker handler
-          // ✅ ADDED: Pass the toBlobUrl helper for reliable trimming
+          songs={songs}
+          selectedSound={selectedReelSound}
+          onPickSound={setSelectedReelSound}
           toBlobUrl={toBlobUrl}
         />
       )}
+
       {/* ✅ MOUNT THE GLOBAL AUDIO PLAYER ONCE */}
-{currentAudioTrack && (
-  <GlobalAudioPlayer
-    currentTrack={currentAudioTrack}
-    isPlaying={isAudioPlaying}
-    onTogglePlay={onTogglePlay}
-    onNext={onNext}
-    onPrevious={onPrevious}
-    onClose={onClosePlayer}
-    onDownload={(id) => {
-      console.log('Download track:', id);
-    }}
-    onLike={(id, type) => {
-      const k = `${type}:${String(id)}`;
-      const nextLiked = !likedTracks.includes(k);
-      handleMusicSystemLikeSync(k, nextLiked);
-    }}
-    onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
-    isLiked={isPlayerLiked}
-    ownerUser={resolveTrackOwner(currentAudioTrack)}
-    totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
-    totalPlaysLoading={playsLoading}
-    onStarted={onStarted}
-  />
-)}  // ← MAKE SURE THIS LINE EXISTS AND IS CORRECT!
+      {currentAudioTrack && (
+        <GlobalAudioPlayer
+          currentTrack={currentAudioTrack}
+          isPlaying={isAudioPlaying}
+          onTogglePlay={onTogglePlay}
+          onNext={onNext}
+          onPrevious={onPrevious}
+          onClose={onClosePlayer}
+          onDownload={(id) => {
+            // optional download logic
+            console.log('Download track:', id);
+          }}
+          onLike={(id, type) => {
+            // Delegate to MusicSystem UI (or implement direct endpoints here)
+            const k = `${type}:${String(id)}`;
+            const nextLiked = !likedTracks.includes(k);
+            handleMusicSystemLikeSync(k, nextLiked);
+          }}
+          onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
+          isLiked={isPlayerLiked}
+          // ✅ ADDED: Pass owner info + total plays
+          ownerUser={resolveTrackOwner(currentAudioTrack)}
+          totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
+          totalPlaysLoading={playsLoading}
+          // ✅ ADDED: onStarted callback
+          onStarted={onStarted}
+        />
+      )}
 
-{fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
-{showCreateStoryModal && currentUser && (
-  <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
-)}
+      {showCreateStoryModal && currentUser && (
+        <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
+      )}
     </div>
   );
 }
