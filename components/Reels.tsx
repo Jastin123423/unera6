@@ -10,6 +10,7 @@ type ReelSound = {
   audioEnd?: number;
   songId?: string | number;
   soundKey?: string;
+  soundId?: number; // ✅ ADDED: sound_id support
 };
 
 interface Sound {
@@ -26,6 +27,7 @@ interface Sound {
   viewCount?: number;
   coverImage?: string;
   soundKey?: string;
+  soundId?: number; // ✅ ADDED: sound_id support
 }
 
 // ==================== AUDIO TRIMMING UTILITIES ====================
@@ -149,7 +151,9 @@ const AudioTrimmer: React.FC<{
   soundId?: string | number;
   soundName?: string;
   onMountStopAll?: () => void;
-}> = ({ url, onClose, onConfirm, initialStart, initialEnd, soundId, soundName, onMountStopAll }) => {
+  onPauseVideo?: () => void; // ✅ ADDED: Video pause callback
+  onResumeVideo?: () => void; // ✅ ADDED: Video resume callback
+}> = ({ url, onClose, onConfirm, initialStart, initialEnd, soundId, soundName, onMountStopAll, onPauseVideo, onResumeVideo }) => {
   const { stopAllAudio } = useAudioFocus();
   const [start, setStart] = useState(initialStart);
   const [end, setEnd] = useState(initialEnd > 0 ? initialEnd : Math.min(60, initialStart + 15));
@@ -174,6 +178,7 @@ const AudioTrimmer: React.FC<{
   useEffect(() => {
     onMountStopAll?.();
     stopAllAudio();
+    onPauseVideo?.(); // ✅ PAUSE VIDEO WHEN TRIMMER OPENS
     
     // Set up trimmed audio playback
     if (trimAudioRef.current) {
@@ -191,6 +196,7 @@ const AudioTrimmer: React.FC<{
       if (trimAudioRef.current) {
         trimAudioRef.current.pause();
       }
+      onResumeVideo?.(); // ✅ RESUME VIDEO WHEN TRIMMER CLOSES
     };
   }, []);
 
@@ -607,7 +613,7 @@ export const CreateReelModal: React.FC<{
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isStudioPlaying, setIsStudioPlaying] = useState(false);
   const [musicSearch, setMusicSearch] = useState('');
-  const [selectedSoundId, setSelectedSoundId] = useState<string | number | null>(initialSound?.id || selectedSound?.songId || null);
+  const [selectedSoundId, setSelectedSoundId] = useState<string | number | null>(initialSound?.id || selectedSound?.soundId || null);
   const [previewSound, setPreviewSound] = useState<Sound | null>(null);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [availableSongs, setAvailableSongs] = useState<Song[]>(songs || []);
@@ -633,28 +639,43 @@ export const CreateReelModal: React.FC<{
   const audioUploadRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
+  // ✅ FIXED: Generate sound key based on sound_id or audio URL
   const generateSoundKey = useCallback((sound: Sound | ReelSound | null): string => {
     if (!sound) return 'original:none';
     
-    if ('songId' in sound && sound.songId) {
-      return `song:${sound.songId}`;
+    // ✅ Priority 1: Use soundId if available
+    if ('soundId' in sound && sound.soundId) {
+      return `sound:${sound.soundId}`;
     }
     
+    // ✅ Priority 2: Use existing soundKey
     if ('soundKey' in sound && sound.soundKey) {
       return sound.soundKey;
     }
     
-    if (selectedSoundId) {
-      return `original:${selectedSoundId}`;
+    // ✅ Priority 3: Use songId
+    if ('songId' in sound && sound.songId) {
+      return `song:${sound.songId}`;
+    }
+    
+    // ✅ Priority 4: Use audio URL hash
+    if (sound.url) {
+      let hash = 0;
+      for (let i = 0; i < sound.url.length; i++) {
+        hash = (hash << 5) - hash + sound.url.charCodeAt(i);
+        hash |= 0;
+      }
+      return `audio:${Math.abs(hash)}`;
     }
     
     return 'original:none';
-  }, [selectedSoundId]);
+  }, []);
 
   useEffect(() => {
     if (selectedSound) {
       const sound: Sound = {
-        id: selectedSound.songId || `selected-${Date.now()}`,
+        id: selectedSound.soundId || selectedSound.songId || `selected-${Date.now()}`,
+        soundId: selectedSound.soundId || undefined,
         name: selectedSound.songName,
         url: selectedSound.audioUrl,
         start: selectedSound.audioStart,
@@ -664,18 +685,27 @@ export const CreateReelModal: React.FC<{
         soundKey: selectedSound.soundKey || generateSoundKey(selectedSound)
       };
       setSelectedAudio(sound);
-      setSelectedSoundId(sound.id);
+      setSelectedSoundId(sound.soundId || sound.id);
       setAudioStart(selectedSound.audioStart || 0);
       setAudioEnd(selectedSound.audioEnd || 0);
     }
   }, [selectedSound, currentUser, generateSoundKey]);
+
+  // ✅ FIXED: Pause video when trimmer opens
+  useEffect(() => {
+    if (isTrimmerOpen && videoRef.current) {
+      videoRef.current.pause();
+    } else if (!isTrimmerOpen && videoRef.current && isStudioPlaying) {
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isTrimmerOpen, isStudioPlaying]);
 
   useEffect(() => {
     if (mediaPreview && selectedAudio && audioRef.current && videoRef.current) {
       const audio = audioRef.current;
       const video = videoRef.current;
 
-      if (isStudioPlaying) {
+      if (isStudioPlaying && !isTrimmerOpen) {
         const syncAudio = () => {
           if (!audio || !video) return;
           
@@ -704,7 +734,7 @@ export const CreateReelModal: React.FC<{
         audio.pause();
       }
     }
-  }, [mediaPreview, selectedAudio, audioStart, audioEnd, isStudioPlaying]);
+  }, [mediaPreview, selectedAudio, audioStart, audioEnd, isStudioPlaying, isTrimmerOpen]);
 
   useEffect(() => {
     if (previewSound && previewAudioRef.current && isPreviewPlaying) {
@@ -742,7 +772,7 @@ export const CreateReelModal: React.FC<{
   const handleSoundSelect = (sound: Sound) => {
     stopAllAudio();
     setSelectedAudio(sound);
-    setSelectedSoundId(sound.id);
+    setSelectedSoundId(sound.soundId || sound.id);
     setAudioStart(sound.start || 0);
     setAudioEnd(sound.end || sound.duration || 60);
     setIsMusicPickerOpen(false);
@@ -754,6 +784,7 @@ export const CreateReelModal: React.FC<{
         audioStart: sound.start || 0,
         audioEnd: sound.end || sound.duration || 60,
         songId: sound.id,
+        soundId: sound.soundId, // ✅ Pass soundId
         soundKey: sound.soundKey || generateSoundKey(sound)
       });
     }
@@ -853,12 +884,11 @@ export const CreateReelModal: React.FC<{
       setTrimmedAudioFile(trimmedFile);
       setIsTrimmedAudio(true);
       
-      // Create preview URL for trimmed audio
-      const trimmedAudioUrl = URL.createObjectURL(trimmedFile);
+      // ✅ CRITICAL FIX: DO NOT replace selectedAudio.url with blob URL
+      // Keep original URL and store trimmed file separately
       if (selectedAudio) {
         setSelectedAudio({
           ...selectedAudio,
-          url: trimmedAudioUrl,
           start: 0,
           end: end - start
         });
@@ -867,6 +897,18 @@ export const CreateReelModal: React.FC<{
     
     setIsTrimmerOpen(false);
     setIsStudioPlaying(true);
+  };
+
+  const handlePauseVideo = () => {
+    if (videoRef.current) {
+      videoRef.current.pause();
+    }
+  };
+
+  const handleResumeVideo = () => {
+    if (videoRef.current && isStudioPlaying) {
+      videoRef.current.play().catch(() => {});
+    }
   };
 
   return (
@@ -1068,6 +1110,8 @@ export const CreateReelModal: React.FC<{
             soundId={selectedSoundId || undefined}
             soundName={selectedAudio.name}
             onMountStopAll={stopAllAudio}
+            onPauseVideo={handlePauseVideo} // ✅ PAUSE VIDEO DURING TRIMMING
+            onResumeVideo={handleResumeVideo} // ✅ RESUME VIDEO AFTER TRIMMING
           />
         )}
 
@@ -1146,7 +1190,20 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
       setLoadingReels(true);
       try {
         const soundKey = sound.soundKey || sound.id;
-        const response = await fetch(`/api/reels/by-sound?sound_key=${encodeURIComponent(String(soundKey))}&limit=60`);
+        const soundId = sound.soundId;
+        
+        // ✅ Try both sound_id and sound_key
+        let url = `/api/reels/by-sound?`;
+        if (soundId) {
+          url += `sound_id=${encodeURIComponent(String(soundId))}`;
+        } else if (soundKey) {
+          url += `sound_key=${encodeURIComponent(String(soundKey))}`;
+        } else {
+          url += `sound_key=${encodeURIComponent(String(sound.id))}`;
+        }
+        url += `&limit=60`;
+        
+        const response = await fetch(url);
         const data = await response.json();
         
         if (data?.success && data.reels) {
@@ -1178,7 +1235,7 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
     };
 
     fetchSoundReels();
-  }, [sound.id, sound.soundKey]);
+  }, [sound.id, sound.soundKey, sound.soundId]);
 
   useEffect(() => {
     if (isPlaying) {
@@ -1435,28 +1492,39 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
 
-  // ✅ CRITICAL: Replace extractSoundFromReel with your exact version
+  // ✅ CRITICAL: Updated extractSoundFromReel to read from reel.sound object
   const extractSoundFromReel = useCallback((reel: Reel): Sound => {
     const author = users.find(u => Number(u.id) === Number(reel.userId));
 
-    const audioUrl = (reel as any).audio_url || (reel as any).audioUrl || reel.audioUrl || '';
-    const songName = (reel as any).song_name || (reel as any).songName || reel.songName || 'Original Sound';
+    const s = (reel as any).sound; // ✅ NEW: Read from sound object
+    const hasSoundObject = !!(s && (s.audio_url || s.audioUrl));
 
-    const audioStart = Number((reel as any).audio_start ?? (reel as any).audioStart ?? reel.audioStart ?? 0) || 0;
-    const audioEnd = Number((reel as any).audio_end ?? (reel as any).audioEnd ?? reel.audioEnd ?? 0) || 0;
+    // ✅ Prefer new sound object
+    const audioUrl = hasSoundObject ? (s.audio_url || s.audioUrl) : 
+                     (reel as any).audio_url || reel.audioUrl || '';
+    
+    const songName = hasSoundObject ? (s.title || s.name) : 
+                     (reel as any).song_name || reel.songName || 'Original Sound';
 
-    const dbSoundKey =
-      String((reel as any).sound_key || (reel as any).soundKey || '').trim();
+    const audioStart = Number(hasSoundObject ? (s.trim_start ?? s.start ?? 0) : 
+                             ((reel as any).audio_start ?? reel.audioStart ?? 0)) || 0;
+    
+    const audioEnd = Number(hasSoundObject ? (s.trim_end ?? s.end ?? 0) : 
+                           ((reel as any).audio_end ?? reel.audioEnd ?? 0)) || 0;
 
-    // RULE:
-    // - If DB gave sound_key → use it (best)
-    // - Else if audio_url exists → tie sound to audio file
-    // - Else fallback
-    const soundKey = dbSoundKey || (audioUrl ? `audio:${audioUrl}` : 'original:none');
+    const soundId = (reel as any).sound_id ?? null;
+    const dbSoundKey = String(hasSoundObject ? (s.sound_key || s.soundKey) : 
+                             (reel as any).sound_key || reel.soundKey || '').trim();
+
+    // ✅ Key generation logic
+    const soundKey = dbSoundKey || 
+                     (soundId ? `sound:${soundId}` : 
+                     (audioUrl ? `audio:${audioUrl}` : 'original:none'));
 
     return {
       id: soundKey,
       soundKey,
+      soundId, // ✅ Include sound_id
       name: songName,
       url: audioUrl,
       start: audioStart,
@@ -1467,18 +1535,18 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     };
   }, [users]);
 
-  // ✅ CRITICAL: Replace handleUseSound with your exact version
+  // ✅ CRITICAL: Updated handleUseSound to pass sound_id
   const handleUseSound = (sound: Sound) => {
-    // If the soundKey is tied to a trimmed WAV/audio file, we should not apply offsets again.
     const isFileSound = (sound.soundKey || String(sound.id)).startsWith('audio:');
 
     onPickSound({
       songName: sound.name,
-      audioUrl: sound.url,                 // <-- MUST be the stored trimmed WAV URL
+      audioUrl: sound.url,
       audioStart: isFileSound ? 0 : (sound.start || 0),
-      audioEnd:   isFileSound ? 0 : (sound.end || 0),
-      songId: undefined,                   // optional: keep undefined for file-based sounds
-      soundKey: sound.soundKey || String(sound.id), // MUST match reels.sound_key
+      audioEnd: isFileSound ? 0 : (sound.end || 0),
+      soundId: sound.soundId, // ✅ Pass sound_id
+      songId: undefined,
+      soundKey: sound.soundKey || String(sound.id),
     });
 
     onCreateReelClick();
@@ -1497,8 +1565,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           
           if (audio && reel) {
             video.muted = true;
-            const start = reel.audioStart || (reel as any).audio_start || 0;
-            const end = reel.audioEnd || (reel as any).audio_end || 1000000;
+            
+            // ✅ CRITICAL: Read trim times from sound object first
+            const s = (reel as any).sound;
+            const hasSoundObject = !!(s && (s.audio_url || s.audioUrl));
+            
+            const start = hasSoundObject ? (s.trim_start ?? s.start ?? 0) : 
+                          reel.audioStart || (reel as any).audio_start || 0;
+            
+            const end = hasSoundObject ? (s.trim_end ?? s.end ?? 0) : 
+                        reel.audioEnd || (reel as any).audio_end || 1000000;
             
             const handleAudioSync = () => {
               if (!audio || !video) return;
@@ -1750,7 +1826,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         <SoundDetailView 
           sound={selectedSoundData} 
           onClose={() => setSelectedSoundData(null)}
-          onUseSound={handleUseSound} // ✅ Use the updated handleUseSound
+          onUseSound={handleUseSound}
           onReelClick={(rid) => { 
             const el = document.getElementById(`reel-${rid}`);
             if (el) {
