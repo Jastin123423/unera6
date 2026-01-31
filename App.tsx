@@ -457,7 +457,7 @@ const normalizeReel = (r: any): Reel => {
   } as any;
 };
 
-/** ✅ ADDED: Normalize song data for UNERA Music ---------- */
+/** ✅ UPDATED: Normalize song data for UNERA Music with audio_fetch_url support ---------- */
 const normalizeSong = (s: any): Song => {
   return {
     ...s,
@@ -465,6 +465,7 @@ const normalizeSong = (s: any): Song => {
     title: s?.title ?? s?.name ?? 'Unknown',
     artist: s?.artist ?? s?.artist_name ?? '',
     audio_url: s?.audio_url ?? s?.url ?? s?.file_url ?? '',
+    audio_fetch_url: s?.audio_fetch_url ?? '', // ✅ ADDED: For fetchable/proxy URLs
     cover_url: s?.cover_url ?? s?.cover ?? DEFAULT_MUSIC_COVER,
     duration: s?.duration ?? 0,
     playCount: s?.playCount ?? s?.plays ?? 0,
@@ -1175,21 +1176,26 @@ export default function App() {
     }
   }, [myTotalPlays, apiFetch]);
 
-  /** ---------- ✅ ADDED: Fetch UNERA Music songs ---------- */
+  /** ---------- ✅ UPDATED: Fetch UNERA Music songs with BOTH raw and fetchable URLs ---------- */
   const fetchSongs = useCallback(async () => {
     try {
       const data = await apiFetch('/api/songs');
       const list = Array.isArray(data) ? data : (data?.songs ?? data?.data ?? []);
       
-      // ✅ CRITICAL: Normalize songs with fetchable audio URLs
-      const normalized = list.map(song => {
-        const normalizedSong = normalizeSong(song);
-        // Ensure audio URL is fetchable for trimming
-        return {
-          ...normalizedSong,
-          audio_url: toFetchableAudioUrl(normalizedSong.audio_url),
-        };
-      }).filter((x: any) => x.audio_url);
+      // ✅ CRITICAL: Normalize songs with BOTH raw and fetchable audio URLs
+      const normalized = list
+        .map((song) => {
+          const s = normalizeSong(song);
+          const raw = ensureAbsoluteUrl(s.audio_url);          // raw absolute URL for D1 storage
+          const fetchable = toFetchableAudioUrl(raw);          // fetchable/proxy for trimming
+
+          return {
+            ...s,
+            audio_url: raw,                // ✅ keep raw for saving to backend
+            audio_fetch_url: fetchable,    // ✅ use this for trimming/playback
+          } as any;
+        })
+        .filter((x: any) => x.audio_url);
       
       setSongs(normalized);
     } catch (e) {
@@ -1684,8 +1690,8 @@ export default function App() {
 
     setSelectedReelSound({
       songName,
-      // ✅ for trimming/fetching (fetchable URL)
-      audioUrl: toFetchableAudioUrl(audioUrlRaw),
+      // ✅ for trimming/fetching (use audio_fetch_url if available, otherwise generate fetchable URL)
+      audioUrl: soundFromReel?.audio_fetch_url || toFetchableAudioUrl(audioUrlRaw),
       // ✅ for saving to D1 (REUSE SOUND must use this)
       originalUrl: audioUrlRaw,
       audioStart,
@@ -3609,19 +3615,20 @@ export default function App() {
             setShowCreateReelModal(false);
           }}
           onCreate={(reelData: any) => {
-            // ✅ FIX 2: When creating a reel, ALWAYS save the raw URL (not proxy)
+            // ✅ When creating a reel, use audio_fetch_url for trimming and audio_url for storage
             return createReel({
               ...reelData,
-              // ✅ CRITICAL: Use originalUrl for D1 storage when reusing sound
+              // ✅ Use the fetchable URL for trimming (audio_fetch_url)
               audioUrl:
                 reelData.audioUrl ||
-                selectedReelSound?.originalUrl ||   // ✅ SAVE THIS (raw D1 url)
-                selectedReelSound?.audioUrl ||      // fallback
+                (selectedReelSound?.songId && songs.find(s => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+                selectedReelSound?.audioUrl ||
                 '',
+              // ✅ Store the raw URL (originalUrl) for re-trimming
+              originalSoundId: selectedReelSound?.songId,
               songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
               audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
               audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-              originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
             });
           }}
           songs={songs}
