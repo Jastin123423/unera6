@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Event, Group, Product, Post as PostType, AudioTrack } from '../types';
 import { MARKETPLACE_COUNTRIES } from '../constants';
@@ -134,7 +133,249 @@ export const BirthdaysPage: React.FC<BirthdaysPageProps> = ({ currentUser, users
     );
 };
 
+// --- MEMORIES PAGE ---
+export const MemoriesPage = ({
+  currentUser,
+  posts,
+  users,
+  onProfileClick,
+  onReact,
+  onShare,
+  onViewImage,
+  onOpenComments,
+  onVideoClick,
+  onPlayAudioTrack,
+  onHashtagClick,
+}: any) => {
+  // ---- Defensive helpers (avoid blank screen) ----
+  const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+  const safeNumber = (v: any, fallback = 0) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const safeString = (v: any, fallback = "") => (typeof v === "string" ? v : fallback);
+
+  const allPosts = safeArray<PostType>(posts);
+  const allUsers = safeArray<User>(users);
+
+  // ---- Find author safely (important for feed Post component) ----
+  const authorOf = (p: any) =>
+    allUsers.find((u: any) => Number(u?.id) === Number(p?.user_id)) || currentUser;
+
+  // ---- Date utilities ----
+  const parseDate = (d: any): Date | null => {
+    if (!d) return null;
+    const dt = new Date(d);
+    return isNaN(dt.getTime()) ? null : dt;
+  };
+
+  const formatMonthDay = (d: Date) =>
+    d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+
+  const formatYear = (d: Date) => String(d.getFullYear());
+
+  // ---- Pick a "memory date" (default = today) ----
+  const today = useMemo(() => new Date(), []);
+  const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth());
+  const [selectedDay, setSelectedDay] = useState<number>(today.getDate());
+  const [onlyMine, setOnlyMine] = useState<boolean>(true);
+
+  const selectedLabel = useMemo(() => {
+    const d = new Date();
+    d.setMonth(selectedMonth);
+    d.setDate(selectedDay);
+    return formatMonthDay(d);
+  }, [selectedMonth, selectedDay]);
+
+  // ---- Build memories: posts from same month/day in previous years ----
+  const memoriesByYear = useMemo(() => {
+    const nowYear = today.getFullYear();
+
+    const filtered = allPosts
+      .filter((p: any) => {
+        const created = parseDate(p?.created_at || (p as any)?.createdAt);
+        if (!created) return false;
+
+        // Same month/day
+        if (created.getMonth() !== selectedMonth) return false;
+        if (created.getDate() !== selectedDay) return false;
+
+        // Only previous years (not current year)
+        if (created.getFullYear() >= nowYear) return false;
+
+        // Only my posts (default)
+        if (onlyMine && Number(p?.user_id) !== Number(currentUser?.id)) return false;
+
+        return true;
+      })
+      .map((p: any) => ({
+        ...p,
+        id: safeNumber(p?.id ?? p?.post_id ?? p?.postId),
+        user_id: safeNumber(p?.user_id),
+        created_at: p?.created_at ?? (p as any)?.createdAt ?? new Date().toISOString(),
+      }));
+
+    // Group by year
+    const groups: Record<string, any[]> = {};
+    for (const p of filtered) {
+      const d = parseDate(p.created_at);
+      const y = d ? formatYear(d) : "Unknown";
+      if (!groups[y]) groups[y] = [];
+      groups[y].push(p);
+    }
+
+    // Sort posts inside year: newest first
+    Object.keys(groups).forEach((y) => {
+      groups[y].sort((a: any, b: any) =>
+        String(b.created_at).localeCompare(String(a.created_at))
+      );
+    });
+
+    // Sort years: newest year first
+    const sortedYears = Object.keys(groups).sort((a, b) => Number(b) - Number(a));
+
+    return sortedYears.map((y) => ({ year: y, posts: groups[y] }));
+  }, [allPosts, currentUser?.id, onlyMine, selectedMonth, selectedDay, today]);
+
+  // ---- Some "nice" stats ----
+  const totalMemories = useMemo(
+    () => memoriesByYear.reduce((acc: number, g: any) => acc + safeArray(g.posts).length, 0),
+    [memoriesByYear]
+  );
+
+  // ---- UI ----
+  return (
+    <div className="w-full max-w-[900px] mx-auto p-4 md:p-6 font-sans pb-20 animate-fade-in">
+      <div className="flex items-center gap-4 mb-6">
+        <div className="w-14 h-14 bg-gradient-to-tr from-[#1877F2] to-[#00C6FF] rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3">
+          <i className="fas fa-history text-white text-2xl"></i>
+        </div>
+        <div className="min-w-0">
+          <h1 className="text-3xl font-bold text-white leading-tight">Memories</h1>
+          <p className="text-[#B0B3B8]">
+            Relive posts from previous years — <span className="text-white font-semibold">{selectedLabel}</span>
+          </p>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="bg-[#242526] rounded-2xl border border-[#3E4042] p-4 mb-6 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center gap-3">
+          <div className="flex gap-2 items-center flex-wrap">
+            <span className="text-[#B0B3B8] text-sm font-semibold">Pick a date:</span>
+
+            {/* Month */}
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              className="bg-[#3A3B3C] border border-[#3E4042] rounded-lg px-3 py-2 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+            >
+              {Array.from({ length: 12 }).map((_, m) => (
+                <option key={m} value={m}>
+                  {new Date(2000, m, 1).toLocaleDateString(undefined, { month: "long" })}
+                </option>
+              ))}
+            </select>
+
+            {/* Day */}
+            <select
+              value={selectedDay}
+              onChange={(e) => setSelectedDay(Number(e.target.value))}
+              className="bg-[#3A3B3C] border border-[#3E4042] rounded-lg px-3 py-2 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+            >
+              {Array.from({ length: 31 }).map((_, i) => (
+                <option key={i + 1} value={i + 1}>
+                  {i + 1}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={() => {
+                setSelectedMonth(today.getMonth());
+                setSelectedDay(today.getDate());
+              }}
+              className="px-3 py-2 rounded-lg bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold transition-colors active:scale-95"
+            >
+              Today
+            </button>
+          </div>
+
+          <div className="md:ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setOnlyMine(true)}
+              className={`px-3 py-2 rounded-lg font-semibold transition-colors active:scale-95 ${
+                onlyMine
+                  ? "bg-[#1877F2] text-white"
+                  : "bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB]"
+              }`}
+            >
+              My memories
+            </button>
+            <button
+              onClick={() => setOnlyMine(false)}
+              className={`px-3 py-2 rounded-lg font-semibold transition-colors active:scale-95 ${
+                !onlyMine
+                  ? "bg-[#1877F2] text-white"
+                  : "bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB]"
+              }`}
+            >
+              All memories
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 text-[#B0B3B8] text-sm">
+          Found <span className="text-white font-bold">{totalMemories}</span> memory(ies) on this date.
+        </div>
+      </div>
+
+      {/* Memories timeline */}
+      {memoriesByYear.length === 0 ? (
+        <div className="bg-[#242526] rounded-3xl p-10 text-center border border-[#3E4042] shadow-inner">
+          <i className="fas fa-clock text-[#B0B3B8] text-4xl mb-4 opacity-50"></i>
+          <h3 className="text-white font-bold text-lg mb-1">No Memories</h3>
+          <p className="text-[#B0B3B8]">You don't have posts from previous years on {selectedLabel}.</p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {memoriesByYear.map((group: any) => (
+            <div key={group.year}>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-xl font-bold text-white">
+                  {selectedLabel} • {group.year}
+                </h2>
+                <span className="text-[#B0B3B8] text-sm">
+                  {safeArray(group.posts).length} post(s)
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                {safeArray(group.posts).map((post: any) => (
+                  <Post
+                    key={post.id}
+                    post={post}
+                    author={authorOf(post)}
+                    currentUser={currentUser}
+                    onProfileClick={onProfileClick}
+                    onReact={onReact}
+                    onShare={onShare}
+                    onViewImage={onViewImage}
+                    onOpenComments={onOpenComments}
+                    onVideoClick={onVideoClick}
+                    onPlayAudioTrack={onPlayAudioTrack}
+                    onHashtagClick={onHashtagClick}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ... Rest of component stays same
 export const EventsPage = ({ events, currentUser, onJoinEvent, onCreateEventClick, onProfileClick }: any) => { /* ... existing ... */ };
-export const MemoriesPage = ({ currentUser, posts, users, onProfileClick, onReact, onShare, onViewImage, onOpenComments, onVideoClick, onPlayAudioTrack, onHashtagClick }: any) => { /* ... existing ... */ };
-export const SettingsPage = ({ currentUser, onUpdateUser }: any) => { /* ... existing ... */ };
+export const SettingsPage = ({ currentUser, onUpdateUser }: any) => { /* ... existing ... */ }; cwh
