@@ -202,28 +202,25 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
         }
       }
 
-      // Create event date string
-      const eventDate = new Date(`${date}T${time}`).toISOString();
-
-      // Prepare event data matching your App.tsx structure
-      const eventData: Partial<Event> = {
+      // Prepare event data matching DB columns
+      const eventData = {
         title: title.trim(),
         description: desc.trim(),
-        date: eventDate,
-        time,
+        event_date: new Date(`${date}T${time}:00`).toISOString(),
+        event_time: time,
         location: location.trim(),
         visibility,
-        image: coverUrl,
-        organizerId: currentUser.id,
-        attendees: [currentUser.id],
-        interestedIds: [],
-        // Additional fields that might be needed
-        created_at: new Date().toISOString(),
-        organizer_name: currentUser.name,
-        organizer_avatar: currentUser.profile_image_url,
+        cover_url: coverUrl,
+        // Don't include these - they'll be added by App.tsx:
+        // organizerId: currentUser.id,
+        // attendees: [currentUser.id],
+        // interestedIds: [],
+        // created_at: new Date().toISOString(),
+        // organizer_name: currentUser.name,
+        // organizer_avatar: currentUser.profile_image_url,
       };
 
-      await onCreate(eventData);
+      await onCreate(eventData as any);
       
       // Clean up blob URL if created
       if (image && image.startsWith('blob:')) {
