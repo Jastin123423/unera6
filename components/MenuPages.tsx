@@ -217,7 +217,7 @@ export const MemoriesPage = ({
 
   // ---- Memory Mode State ----
   type MemoryMode = 'classic' | 'last_week_day' | 'last_7_days';
-  const [mode, setMode] = useState<MemoryMode>('classic');
+  const [mode, setMode] = useState<MemoryMode>('last_7_days');    
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedDay, setSelectedDay] = useState<number>(new Date().getDate());
   const [onlyMine, setOnlyMine] = useState<boolean>(true);
