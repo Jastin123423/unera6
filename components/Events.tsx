@@ -1,24 +1,35 @@
-import React, { useState, useRef, useEffect } from 'react';
+// Events.tsx - Updated with API integration matching your App.tsx
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { User, Event } from '../types';
 
-// --- Cloudflare R2 Upload Helper ---
-const uploadToCloudflareR2 = async (file: File): Promise<string> => {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('filename', file.name);
-  formData.append('type', file.type);
+// Use the uploadToCloudflareR2 function from your App.tsx
+const uploadToCloudflareR2 = async (file: File, folder = 'events'): Promise<{ url: string; type: string; filename: string }> => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('filename', file.name);
+    formData.append('type', file.type);
+    formData.append('folder', folder);
+    formData.append('timestamp', Date.now().toString());
 
-  const response = await fetch('/api/upload', { method: 'POST', body: formData });
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `Upload failed: ${response.status}`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Upload failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.url) throw new Error('No URL returned from upload');
+
+    return { url: result.url, type: file.type, filename: file.name };
+  } catch (error) {
+    console.error('Upload failed:', error);
+    throw error;
   }
-
-  const result = await response.json().catch(() => ({}));
-  if (!result.url) throw new Error('No URL returned from upload');
-
-  return result.url;
 };
 
 // --- OSM LOCATION SEARCH COMPONENT ---
@@ -108,7 +119,7 @@ const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void 
 interface CreateEventModalProps {
   currentUser: User;
   onClose: () => void;
-  onCreate: (event: Partial<Event>) => void;
+  onCreate: (event: Partial<Event>) => Promise<void>;
 }
 
 export const CreateEventModal: React.FC<CreateEventModalProps> = ({
@@ -121,15 +132,30 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [location, setLocation] = useState('');
+  const [visibility, setVisibility] = useState<'worldwide' | 'targeted'>('worldwide');
   const [image, setImage] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
 
+    // Validate file is an image
+    if (!f.type.startsWith('image/')) {
+      setError('Only image files are allowed');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (f.size > 5 * 1024 * 1024) {
+      setError('Image size must be less than 5MB');
+      return;
+    }
+
+    setError(null);
     setImageFile(f);
     const previewUrl = URL.createObjectURL(f);
     setImage(previewUrl);
@@ -137,47 +163,88 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
 
-    if (!title.trim() || !date || !time || !location.trim()) {
-      alert('Please fill all required fields');
+    if (!title.trim()) {
+      setError('Event name is required');
+      return;
+    }
+
+    if (!date) {
+      setError('Date is required');
+      return;
+    }
+
+    if (!time) {
+      setError('Time is required');
+      return;
+    }
+
+    if (!location.trim()) {
+      setError('Location is required');
       return;
     }
 
     try {
       setIsUploading(true);
 
-      let coverUrl =
-        'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
+      // Default cover image if none uploaded
+      let coverUrl = 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
 
+      // Upload image if provided
       if (imageFile) {
-        coverUrl = await uploadToCloudflareR2(imageFile);
+        try {
+          const uploadResult = await uploadToCloudflareR2(imageFile, 'events');
+          coverUrl = uploadResult.url;
+        } catch (uploadError: any) {
+          console.error('Image upload failed:', uploadError);
+          // Continue with default image if upload fails
+        }
       }
 
-      const eventISO = new Date(`${date}T${time}`).toISOString();
+      // Create event date string
+      const eventDate = new Date(`${date}T${time}`).toISOString();
 
-      onCreate({
+      // Prepare event data matching your App.tsx structure
+      const eventData: Partial<Event> = {
         title: title.trim(),
         description: desc.trim(),
-        event_date: eventISO,
+        date: eventDate,
+        time,
         location: location.trim(),
-        cover_url: coverUrl,
-        creator_id: currentUser.id,
+        visibility,
+        image: coverUrl,
+        organizerId: currentUser.id,
         attendees: [currentUser.id],
-        interested_ids: [],
-      });
+        interestedIds: [],
+        // Additional fields that might be needed
+        created_at: new Date().toISOString(),
+        organizer_name: currentUser.name,
+        organizer_avatar: currentUser.profile_image_url,
+      };
 
+      await onCreate(eventData);
+      
+      // Clean up blob URL if created
+      if (image && image.startsWith('blob:')) {
+        URL.revokeObjectURL(image);
+      }
+      
       onClose();
     } catch (error: any) {
       console.error('Failed to create event:', error);
-      alert(`Failed to create event: ${error?.message || 'Unknown error'}`);
+      setError(error?.message || 'Failed to create event. Please try again.');
     } finally {
       setIsUploading(false);
     }
   };
 
+  // Clean up blob URLs on unmount
   useEffect(() => {
     return () => {
-      if (image && image.startsWith('blob:')) URL.revokeObjectURL(image);
+      if (image && image.startsWith('blob:')) {
+        URL.revokeObjectURL(image);
+      }
     };
   }, [image]);
 
@@ -195,6 +262,16 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4">
+          {/* Error Display */}
+          {error && (
+            <div className="p-3 bg-red-500/20 border border-red-500/40 rounded-lg text-red-200 text-sm">
+              <div className="flex items-center gap-2">
+                <i className="fas fa-exclamation-triangle"></i>
+                <span>{error}</span>
+              </div>
+            </div>
+          )}
+
           {/* Image Upload */}
           <div
             className="w-full h-40 bg-[#3A3B3C] rounded-lg flex flex-col items-center justify-center cursor-pointer border border-dashed border-[#B0B3B8] hover:bg-[#4E4F50] transition-colors overflow-hidden relative group"
@@ -211,7 +288,9 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
                   type="button"
                   onClick={(ev) => {
                     ev.stopPropagation();
-                    if (image.startsWith('blob:')) URL.revokeObjectURL(image);
+                    if (image.startsWith('blob:')) {
+                      URL.revokeObjectURL(image);
+                    }
                     setImage(null);
                     setImageFile(null);
                   }}
@@ -224,6 +303,7 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
               <>
                 <i className="fas fa-camera text-2xl text-[#E4E6EB] mb-2 group-hover:scale-110 transition-transform"></i>
                 <span className="text-[#E4E6EB] text-sm font-semibold">Add Cover Photo</span>
+                <span className="text-[#B0B3B8] text-xs mt-1">(Optional, max 5MB)</span>
               </>
             )}
             <input
@@ -236,49 +316,96 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">Event Name</label>
+            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">
+              Event Name <span className="text-red-400">*</span>
+            </label>
             <input
               type="text"
               className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="What are you hosting?"
+              placeholder="What's the name of your event?"
+              disabled={isUploading}
             />
           </div>
 
           <div>
-            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">Date & Time</label>
+            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">
+              Date & Time <span className="text-red-400">*</span>
+            </label>
             <div className="flex gap-2">
               <input
                 type="date"
                 className="flex-1 bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                disabled={isUploading}
               />
               <input
                 type="time"
                 className="flex-1 bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
+                disabled={isUploading}
               />
             </div>
           </div>
 
           <div>
             <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">
-              Location (Global Search)
+              Location <span className="text-red-400">*</span>
             </label>
             <LocationSearch value={location} onSelect={setLocation} />
+            <p className="text-xs text-[#B0B3B8] mt-1">Search for a city, venue, or address</p>
+          </div>
+
+          <div>
+            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">
+              Who should see this?
+            </label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="radio" 
+                  name="visibility" 
+                  value="worldwide" 
+                  checked={visibility === 'worldwide'} 
+                  onChange={() => setVisibility('worldwide')}
+                  className="accent-[#1877F2]"
+                  disabled={isUploading}
+                />
+                <span className="text-sm text-[#E4E6EB]">Worldwide</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="radio" 
+                  name="visibility" 
+                  value="targeted" 
+                  checked={visibility === 'targeted'} 
+                  onChange={() => setVisibility('targeted')}
+                  className="accent-[#1877F2]"
+                  disabled={isUploading}
+                />
+                <span className="text-sm text-[#E4E6EB]">Local Only</span>
+              </label>
+            </div>
+            {visibility === 'targeted' && (
+              <p className="text-[11px] text-[#B0B3B8] mt-1 italic">
+                Shown only to users in {location ? location.split(',').pop()?.trim() : 'selected location'}.
+              </p>
+            )}
           </div>
 
           <div>
             <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">Description</label>
-            <textarea
+            <textarea 
               className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2] h-24 resize-none"
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
               placeholder="Tell people more about the event..."
+              disabled={isUploading}
             />
+            <p className="text-xs text-[#B0B3B8] mt-1">URLs will be clickable in the event description</p>
           </div>
 
           <button
