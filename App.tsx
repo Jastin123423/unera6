@@ -1984,114 +1984,134 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-  // ==================== EVENTS API INTEGRATIONS ====================
+// ================== EVENTS API INTEGRATIONS (FIXED) ====================
+// ✅ Fix #2: ALWAYS normalize inside optimistic updates
+// This prevents blank screens when some events use attendee_ids / interested_ids / cover_url / event_date etc.
 
-  /** ---------- ✅ ADDED: Join event ---------- */
-  const joinEvent = useCallback(async (eventId: number) => {
-    if (!requireAuth('Joining events')) return;
-    if (!currentUser) return;
+const joinEvent = useCallback(async (eventId: number) => {
+  if (!requireAuth('Joining events')) return;
+  if (!currentUser) return;
 
-    try {
-      const res = await apiFetch(`/api/events/${eventId}/attend`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
+  try {
+    const res = await apiFetch(`/api/events/${eventId}/attend`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
 
-      if (res?.success) {
-        // Optimistically update events list with safe arrays
-        setEvents(prev => 
-          safeArray(prev).map(event => 
-            event.id === eventId 
-              ? {
-                  ...event,
-                  attendees: [...safeArray(event.attendees), currentUser.id].filter((v, i, a) => a.indexOf(v) === i),
-                  interestedIds: safeArray(event.interestedIds).filter(id => id !== currentUser.id)
-                }
-              : event
-          )
-        );
-      }
-    } catch (error: any) {
-      console.error('Failed to join event:', error);
-      setLoginError(error?.message || 'Failed to join event');
-      throw error;
+    if (res?.success) {
+      setEvents(prev =>
+        safeArray(prev).map(ev => {
+          const event = normalizeEvent(ev); // ✅ important
+
+          if (Number(event.id) !== Number(eventId)) return event;
+
+          const nextAttendees = [...safeArray(event.attendees), Number(currentUser.id)]
+            .filter((v, i, a) => a.indexOf(v) === i);
+
+          const nextInterested = safeArray(event.interestedIds).filter(
+            id => Number(id) !== Number(currentUser.id)
+          );
+
+          return {
+            ...event,
+            attendees: nextAttendees,
+            interestedIds: nextInterested,
+          };
+        })
+      );
     }
-  }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ ADDED: Mark event as interested ---------- */
-  const markEventInterested = useCallback(async (eventId: number) => {
-    if (!requireAuth('Marking event as interested')) return;
-    if (!currentUser) return;
+    return res;
+  } catch (error: any) {
+    console.error('Failed to join event:', error);
+    setLoginError(error?.message || 'Failed to join event');
+    throw error;
+  }
+}, [currentUser, requireAuth]);
 
-    try {
-      const res = await apiFetch(`/api/events/${eventId}/interested`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
+const markEventInterested = useCallback(async (eventId: number) => {
+  if (!requireAuth('Marking event as interested')) return;
+  if (!currentUser) return;
 
-      if (res?.success) {
-        // Optimistically update events list with safe arrays
-        setEvents(prev => 
-          safeArray(prev).map(event => 
-            event.id === eventId 
-              ? {
-                  ...event,
-                  interestedIds: [...safeArray(event.interestedIds), currentUser.id].filter((v, i, a) => a.indexOf(v) === i),
-                  attendees: safeArray(event.attendees).filter(id => id !== currentUser.id)
-                }
-              : event
-          )
-        );
-      }
-    } catch (error: any) {
-      console.error('Failed to mark event as interested:', error);
-      setLoginError(error?.message || 'Failed to mark interest');
-      throw error;
+  try {
+    const res = await apiFetch(`/api/events/${eventId}/interested`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
+
+    if (res?.success) {
+      setEvents(prev =>
+        safeArray(prev).map(ev => {
+          const event = normalizeEvent(ev); // ✅ important
+
+          if (Number(event.id) !== Number(eventId)) return event;
+
+          const nextInterested = [...safeArray(event.interestedIds), Number(currentUser.id)]
+            .filter((v, i, a) => a.indexOf(v) === i);
+
+          const nextAttendees = safeArray(event.attendees).filter(
+            id => Number(id) !== Number(currentUser.id)
+          );
+
+          return {
+            ...event,
+            interestedIds: nextInterested,
+            attendees: nextAttendees,
+          };
+        })
+      );
     }
-  }, [currentUser, requireAuth]);
 
-  /** ✅ UPDATED: CREATE EVENT FUNCTION WITH UI->DB KEY MAPPING ---------- */
-  const createEvent = useCallback(async (eventData: any) => {
-    if (!requireAuth('Creating events')) return;
-    if (!currentUser) return;
+    return res;
+  } catch (error: any) {
+    console.error('Failed to mark event as interested:', error);
+    setLoginError(error?.message || 'Failed to mark interest');
+    throw error;
+  }
+}, [currentUser, requireAuth]);
 
-    try {
-      // ✅ Accept both UI-shaped and DB-shaped inputs safely
-      const payload = {
-        title: safeString(eventData?.title).trim(),
-        description: safeString(eventData?.description).trim(),
+const createEvent = useCallback(async (eventData: any) => {
+  if (!requireAuth('Creating events')) return;
+  if (!currentUser) return;
 
-        // ✅ Map UI date/time -> DB columns
-        event_date: safeString(eventData?.event_date ?? eventData?.date),
-        event_time: safeString(eventData?.event_time ?? eventData?.time),
+  try {
+    const payload = {
+      title: safeString(eventData?.title).trim(),
+      description: safeString(eventData?.description).trim(),
 
-        location: safeString(eventData?.location).trim(),
-        visibility: safeString(eventData?.visibility, 'worldwide'),
+      // ✅ Map UI date/time -> DB columns
+      event_date: safeString(eventData?.event_date ?? eventData?.date),
+      event_time: safeString(eventData?.event_time ?? eventData?.time),
 
-        // ✅ Map UI image -> DB cover_url
-        cover_url: safeString(eventData?.cover_url ?? eventData?.image),
+      location: safeString(eventData?.location).trim(),
+      visibility: safeString(eventData?.visibility, 'worldwide'),
 
-        creator_id: Number(currentUser.id),
-        creator_name: safeString(currentUser.name),
-        creator_avatar: safeString(currentUser.profile_image_url),
-      };
+      // ✅ Map UI image -> DB cover_url
+      cover_url: safeString(eventData?.cover_url ?? eventData?.image),
 
-      const res = await apiFetch('/api/events', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      // ✅ creator fields (your backend uses creator_* in types)
+      creator_id: Number(currentUser.id),
+      creator_name: safeString(currentUser.name),
+      creator_avatar: safeString(currentUser.profile_image_url),
+    };
 
-      const newEvent = normalizeEvent(res?.event ?? res);
+    const res = await apiFetch('/api/events', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
 
-      // ✅ Optimistic add to events list with safe array
-      setEvents(prev => [newEvent, ...safeArray(prev)]);
-      return newEvent;
-    } catch (error: any) {
-      console.error('Failed to create event:', error);
-      setLoginError(error?.message || 'Failed to create event');
-      throw error;
-    }
-  }, [currentUser, requireAuth]);
+    // ✅ normalize whatever backend returns
+    const newEvent = normalizeEvent(res?.event ?? res);
+
+    // ✅ store normalized always
+    setEvents(prev => [newEvent, ...safeArray(prev).map(normalizeEvent)]);
+    return newEvent;
+  } catch (error: any) {
+    console.error('Failed to create event:', error);
+    setLoginError(error?.message || 'Failed to create event');
+    throw error;
+  }
+}, [currentUser, requireAuth]);
 
   // ==================== GROUPS BACKEND INTEGRATIONS ====================
 
