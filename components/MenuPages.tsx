@@ -172,7 +172,9 @@ export const MemoriesPage = ({
   const formatMonthDay = (d: Date) =>
     d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
 
-  const formatYear = (d: Date) => String(d.getFullYear());
+  // ---- Helper to compare dates by year-month-day (ignore time) ----
+  const ymd = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
   // ---- Pick a "memory date" (default = today) ----
   const today = useMemo(() => new Date(), []);
@@ -187,23 +189,31 @@ export const MemoriesPage = ({
     return formatMonthDay(d);
   }, [selectedMonth, selectedDay]);
 
-  // ---- Build memories: posts from same month/day in previous years ----
-  const memoriesByYear = useMemo(() => {
-    const nowYear = today.getFullYear();
+  // ---- Compute target date = selected date - 7 days ----
+  const targetDate = useMemo(() => {
+    const d = new Date();
+    d.setFullYear(today.getFullYear()); // keep current year by default
+    d.setMonth(selectedMonth);
+    d.setDate(selectedDay);
+    
+    // ✅ subtract 7 days
+    d.setDate(d.getDate() - 7);
+    return d;
+  }, [today, selectedMonth, selectedDay]);
 
-    const filtered = allPosts
+  // ---- Build memories: posts from last week (same weekday/day offset) ----
+  const lastWeekPosts = useMemo(() => {
+    const targetKey = ymd(targetDate);
+
+    return allPosts
       .filter((p: any) => {
-        const created = parseDate(p?.created_at || (p as any)?.createdAt);
+        const created = parseDate(p?.created_at || p?.createdAt);
         if (!created) return false;
 
-        // Same month/day
-        if (created.getMonth() !== selectedMonth) return false;
-        if (created.getDate() !== selectedDay) return false;
+        // ✅ exact day last week
+        if (ymd(created) !== targetKey) return false;
 
-        // Only previous years (not current year)
-        if (created.getFullYear() >= nowYear) return false;
-
-        // Only my posts (default)
+        // Only my posts (optional)
         if (onlyMine && Number(p?.user_id) !== Number(currentUser?.id)) return false;
 
         return true;
@@ -212,36 +222,10 @@ export const MemoriesPage = ({
         ...p,
         id: safeNumber(p?.id ?? p?.post_id ?? p?.postId),
         user_id: safeNumber(p?.user_id),
-        created_at: p?.created_at ?? (p as any)?.createdAt ?? new Date().toISOString(),
-      }));
-
-    // Group by year
-    const groups: Record<string, any[]> = {};
-    for (const p of filtered) {
-      const d = parseDate(p.created_at);
-      const y = d ? formatYear(d) : "Unknown";
-      if (!groups[y]) groups[y] = [];
-      groups[y].push(p);
-    }
-
-    // Sort posts inside year: newest first
-    Object.keys(groups).forEach((y) => {
-      groups[y].sort((a: any, b: any) =>
-        String(b.created_at).localeCompare(String(a.created_at))
-      );
-    });
-
-    // Sort years: newest year first
-    const sortedYears = Object.keys(groups).sort((a, b) => Number(b) - Number(a));
-
-    return sortedYears.map((y) => ({ year: y, posts: groups[y] }));
-  }, [allPosts, currentUser?.id, onlyMine, selectedMonth, selectedDay, today]);
-
-  // ---- Some "nice" stats ----
-  const totalMemories = useMemo(
-    () => memoriesByYear.reduce((acc: number, g: any) => acc + safeArray(g.posts).length, 0),
-    [memoriesByYear]
-  );
+        created_at: p?.created_at ?? p?.createdAt ?? new Date().toISOString(),
+      }))
+      .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+  }, [allPosts, currentUser?.id, onlyMine, targetDate]);
 
   // ---- UI ----
   return (
@@ -253,7 +237,7 @@ export const MemoriesPage = ({
         <div className="min-w-0">
           <h1 className="text-3xl font-bold text-white leading-tight">Memories</h1>
           <p className="text-[#B0B3B8]">
-            Relive posts from previous years — <span className="text-white font-semibold">{selectedLabel}</span>
+            Relive posts from last week — <span className="text-white font-semibold">{selectedLabel}</span>
           </p>
         </div>
       </div>
@@ -326,49 +310,44 @@ export const MemoriesPage = ({
         </div>
 
         <div className="mt-3 text-[#B0B3B8] text-sm">
-          Found <span className="text-white font-bold">{totalMemories}</span> memory(ies) on this date.
+          Found <span className="text-white font-bold">{lastWeekPosts.length}</span> memory(ies) from last week on{" "}
+          <span className="text-white font-semibold">
+            {targetDate.toLocaleDateString(undefined, { month: "long", day: "numeric" })}
+          </span>
+          .
         </div>
       </div>
 
-      {/* Memories timeline */}
-      {memoriesByYear.length === 0 ? (
+      {/* Last week memories */}
+      {lastWeekPosts.length === 0 ? (
         <div className="bg-[#242526] rounded-3xl p-10 text-center border border-[#3E4042] shadow-inner">
           <i className="fas fa-clock text-[#B0B3B8] text-4xl mb-4 opacity-50"></i>
-          <h3 className="text-white font-bold text-lg mb-1">No Memories</h3>
-          <p className="text-[#B0B3B8]">You don't have posts from previous years on {selectedLabel}.</p>
+          <h3 className="text-white font-bold text-lg mb-1">No Memories From Last Week</h3>
+          <p className="text-[#B0B3B8]">
+            You don't have posts on{" "}
+            <span className="text-white font-semibold">
+              {targetDate.toLocaleDateString(undefined, { month: "long", day: "numeric" })}
+            </span>
+            .
+          </p>
         </div>
       ) : (
-        <div className="space-y-8">
-          {memoriesByYear.map((group: any) => (
-            <div key={group.year}>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xl font-bold text-white">
-                  {selectedLabel} • {group.year}
-                </h2>
-                <span className="text-[#B0B3B8] text-sm">
-                  {safeArray(group.posts).length} post(s)
-                </span>
-              </div>
-
-              <div className="space-y-4">
-                {safeArray(group.posts).map((post: any) => (
-                  <Post
-                    key={post.id}
-                    post={post}
-                    author={authorOf(post)}
-                    currentUser={currentUser}
-                    onProfileClick={onProfileClick}
-                    onReact={onReact}
-                    onShare={onShare}
-                    onViewImage={onViewImage}
-                    onOpenComments={onOpenComments}
-                    onVideoClick={onVideoClick}
-                    onPlayAudioTrack={onPlayAudioTrack}
-                    onHashtagClick={onHashtagClick}
-                  />
-                ))}
-              </div>
-            </div>
+        <div className="space-y-4">
+          {lastWeekPosts.map((post: any) => (
+            <Post
+              key={post.id}
+              post={post}
+              author={authorOf(post)}
+              currentUser={currentUser}
+              onProfileClick={onProfileClick}
+              onReact={onReact}
+              onShare={onShare}
+              onViewImage={onViewImage}
+              onOpenComments={onOpenComments}
+              onVideoClick={onVideoClick}
+              onPlayAudioTrack={onPlayAudioTrack}
+              onHashtagClick={onHashtagClick}
+            />
           ))}
         </div>
       )}
@@ -376,13 +355,12 @@ export const MemoriesPage = ({
   );
 };
 
-      // ... keep your existing code above
-
+// --- EVENTS PAGE ---
 export const EventsPage = () => {
   return <div className="p-6 text-white">EventsPage not implemented yet.</div>;
 };
 
+// --- SETTINGS PAGE ---
 export const SettingsPage = () => {
   return <div className="p-6 text-white">SettingsPage not implemented yet.</div>;
 };
-
