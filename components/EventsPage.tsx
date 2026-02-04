@@ -1,451 +1,290 @@
-// EventsPage.tsx - Updated with API integration
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import { User, Event } from '../types';
 
-// --- LINKIFY HELPER ---
-const linkify = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    return text.split(urlRegex).map((part, i) => {
-        if (part.match(urlRegex)) {
-            return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-[#1877F2] hover:underline" onClick={e => e.stopPropagation()}>{part}</a>;
-        }
-        return part;
-    });
-};
+interface EventsPageProps {
+  currentUser: User;
+  events: Event[];
+  loading: boolean;
+  error: string;
 
-// --- SHUFFLE HELPER FOR "ROTATING" FEEL ---
-const shuffleArray = (array: any[]) => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-};
-
-interface EventsPageProps { 
-    events: Event[]; 
-    currentUser: User | null; 
-    onJoinEvent: (eventId: number) => Promise<void>; 
-    onInterestedEvent: (eventId: number) => Promise<void>;
-    onCreateEventClick: () => void; 
-    onProfileClick: (id: number) => void;
-    onFollow: (id: number) => Promise<void>;
-    checkIsFollowing: (id: number) => boolean;
+  onRefresh: () => void;
+  onCreateEvent: (payload: Partial<Event>) => Promise<boolean>;
+  onAttend: (eventId: number) => Promise<boolean>;
+  onInterested: (eventId: number) => Promise<boolean>;
 }
 
-const CompactEventCard: React.FC<{ 
-    event: Event, 
-    currentUser: User | null, 
-    onClick: () => void,
-    onJoin: (e: React.MouseEvent) => void,
-    onInterested: (e: React.MouseEvent) => void,
-    isWide?: boolean
-}> = ({ event, currentUser, onClick, onJoin, onInterested, isWide }) => {
-    const date = new Date(event.date);
-    const isAttending = currentUser && event.attendees.includes(currentUser.id);
-    const isInterested = currentUser && event.interestedIds.includes(currentUser.id);
+const CreateEventModal: React.FC<{
+  currentUser: User;
+  onClose: () => void;
+  onCreate: (payload: Partial<Event>) => Promise<boolean>;
+}> = ({ onClose, onCreate }) => {
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState(''); // yyyy-mm-dd
+  const [time, setTime] = useState('');
+  const [location, setLocation] = useState('');
+  const [image, setImage] = useState(''); // URL (R2 or normal)
+  const [description, setDescription] = useState('');
+  const [visibility, setVisibility] = useState<'worldwide' | 'targeted'>('worldwide');
 
-    return (
-        <div 
-            onClick={onClick}
-            className={`bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] flex flex-col hover:bg-[#3A3B3C] transition-all cursor-pointer shadow-md group ${isWide ? 'w-[260px] shrink-0' : 'w-full'}`}
-        >
-            <div className="h-32 relative overflow-hidden">
-                <img src={event.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
-                <div className="absolute top-2 left-2 bg-white/95 text-black rounded-lg px-2 py-1 text-center shadow-lg min-w-[36px]">
-                    <div className="text-[8px] font-black uppercase text-[#1877F2] leading-none">{date.toLocaleString('default', { month: 'short' })}</div>
-                    <div className="text-[14px] font-black leading-tight">{date.getDate()}</div>
-                </div>
-                {event.visibility === 'targeted' && (
-                    <div className="absolute top-2 right-2 bg-[#45BD62] text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg uppercase tracking-tighter">
-                        Local
-                    </div>
-                )}
-            </div>
-            
-            <div className="p-3 flex flex-col flex-1">
-                <h3 className="text-[14px] font-bold text-[#E4E6EB] line-clamp-1 mb-1 leading-tight group-hover:text-[#1877F2] transition-colors">{event.title}</h3>
-                <p className="text-[11px] text-[#B0B3B8] font-medium truncate mb-1">
-                    {date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} • {event.time}
-                </p>
-                <div className="flex items-center gap-1 text-[10px] font-bold text-[#B0B3B8] mb-3">
-                    <i className="fas fa-users text-[#45BD62] text-[9px]"></i>
-                    <span>{event.attendees.length} going • {event.interestedIds.length} interested</span>
-                </div>
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [err, setErr] = useState('');
 
-                <div className="mt-auto flex gap-1.5">
-                    <button 
-                        onClick={onInterested}
-                        disabled={!!isAttending}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1 border ${
-                            isInterested 
-                            ? 'bg-[#FAB400]/20 text-[#FAB400] border-[#FAB400]/30' 
-                            : isAttending 
-                                ? 'opacity-30 cursor-not-allowed' 
-                                : 'bg-[#3A3B3C] text-[#E4E6EB] border-transparent hover:bg-[#4E4F50]'
-                        }`}
-                    >
-                        <i className={`${isInterested ? 'fas' : 'far'} fa-star text-[9px]`}></i>
-                        <span>Interested</span>
-                    </button>
-                    <button 
-                        onClick={onJoin}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1 shadow-md ${
-                            isAttending 
-                            ? 'bg-[#45BD62] text-white' 
-                            : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                        }`}
-                    >
-                        <i className={`fas ${isAttending ? 'fa-check' : 'fa-plus'} text-[9px]`}></i>
-                        <span>{isAttending ? 'Going' : 'Going'}</span>
-                    </button>
-                </div>
-            </div>
+  const submit = async () => {
+    setErr('');
+    if (!title.trim()) return setErr('Title is required');
+    if (!date.trim()) return setErr('Date is required');
+
+    setIsSubmitting(true);
+    try {
+      const ok = await onCreate({
+        title: title.trim(),
+        date,
+        time,
+        location,
+        image,
+        description,
+        visibility,
+      });
+      if (ok) onClose();
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to create event');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[999] bg-black/60 flex items-end sm:items-center justify-center">
+      <div className="w-full sm:max-w-[560px] bg-[#242526] border border-[#3E4042] rounded-t-2xl sm:rounded-2xl p-4 pb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-white font-bold text-lg">Create Event</h2>
+          <button onClick={onClose} className="text-[#B0B3B8] hover:text-white">
+            <i className="fas fa-times"></i>
+          </button>
         </div>
-    );
+
+        {err ? (
+          <div className="bg-red-500/15 border border-red-500/40 text-red-200 rounded-xl p-3 text-sm mb-3">
+            {err}
+          </div>
+        ) : null}
+
+        <div className="space-y-3">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Event title"
+            className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl px-3 py-2 text-white outline-none focus:border-[#1877F2]"
+          />
+
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl px-3 py-2 text-white outline-none focus:border-[#1877F2]"
+            />
+            <input
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl px-3 py-2 text-white outline-none focus:border-[#1877F2]"
+            />
+          </div>
+
+          <input
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="Location (optional)"
+            className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl px-3 py-2 text-white outline-none focus:border-[#1877F2]"
+          />
+
+          <input
+            value={image}
+            onChange={(e) => setImage(e.target.value)}
+            placeholder="Image URL (optional)"
+            className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl px-3 py-2 text-white outline-none focus:border-[#1877F2]"
+          />
+
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Description (optional)"
+            rows={4}
+            className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl px-3 py-2 text-white outline-none focus:border-[#1877F2]"
+          />
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setVisibility('worldwide')}
+              className={`flex-1 px-3 py-2 rounded-xl font-bold ${
+                visibility === 'worldwide'
+                  ? 'bg-[#1877F2] text-white'
+                  : 'bg-[#3A3B3C] text-white hover:bg-[#4E4F50]'
+              }`}
+            >
+              Worldwide
+            </button>
+            <button
+              onClick={() => setVisibility('targeted')}
+              className={`flex-1 px-3 py-2 rounded-xl font-bold ${
+                visibility === 'targeted'
+                  ? 'bg-[#1877F2] text-white'
+                  : 'bg-[#3A3B3C] text-white hover:bg-[#4E4F50]'
+              }`}
+            >
+              Targeted
+            </button>
+          </div>
+
+          <button
+            onClick={submit}
+            disabled={isSubmitting}
+            className="w-full bg-[#1877F2] hover:bg-[#166FE5] disabled:opacity-60 text-white py-2.5 rounded-xl font-bold"
+          >
+            {isSubmitting ? 'Creating...' : 'Create Event'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
-const EventDetailsModal: React.FC<{ 
-    event: Event, 
-    currentUser: User | null, 
-    onClose: () => void, 
-    onJoin: () => void, 
-    onInterested: () => void,
-    onProfileClick: (id: number) => void 
-}> = ({ event, currentUser, onClose, onJoin, onInterested, onProfileClick }) => {
-    const date = new Date(event.date);
-    const isAttending = currentUser && event.attendees.includes(currentUser.id);
-    const isInterested = currentUser && event.interestedIds.includes(currentUser.id);
-
-    return (
-        <div className="fixed inset-0 z-[600] bg-black/90 flex items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-md" onClick={onClose}>
-            <div className="bg-[#242526] w-full max-w-[700px] h-full sm:h-auto sm:max-h-[90vh] sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl border border-[#3E4042]" onClick={e => e.stopPropagation()}>
-                <div className="relative h-[250px] sm:h-[350px] shrink-0">
-                    <img src={event.image} className="w-full h-full object-cover" alt="" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#242526] via-transparent to-transparent"></div>
-                    <button onClick={onClose} className="absolute top-4 right-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-all border border-white/10">
-                        <i className="fas fa-times"></i>
-                    </button>
-                </div>
-
-                <div className="p-6 overflow-y-auto flex-1">
-                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6">
-                        <div>
-                            <p className="text-[#F3425F] font-black uppercase text-sm tracking-widest mb-1">
-                                {date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                            </p>
-                            <h2 className="text-3xl font-black text-white leading-tight">{event.title}</h2>
-                            <div className="flex items-center gap-2 text-[#B0B3B8] font-bold mt-2">
-                                <i className="fas fa-location-dot text-[#1877F2]"></i>
-                                <span>{event.location}</span>
-                            </div>
-                        </div>
-                        <div className="flex gap-2 w-full sm:w-auto">
-                            <button 
-                                onClick={onInterested}
-                                disabled={!!isAttending}
-                                className={`flex-1 sm:px-6 py-2.5 rounded-xl font-black text-[15px] transition-all flex items-center justify-center gap-2 ${
-                                    isInterested 
-                                    ? 'bg-[#FAB400]/20 text-[#FAB400] border border-[#FAB400]/30' 
-                                    : isAttending ? 'opacity-30 cursor-not-allowed' : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                                }`}
-                            >
-                                <i className={`${isInterested ? 'fas' : 'far'} fa-star`}></i>
-                                <span>Interested</span>
-                            </button>
-                            <button 
-                                onClick={onJoin}
-                                className={`flex-1 sm:px-8 py-2.5 rounded-xl font-black text-[15px] transition-all flex items-center justify-center gap-2 shadow-lg ${
-                                    isAttending 
-                                    ? 'bg-[#45BD62] text-white' 
-                                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                                }`}
-                            >
-                                <i className={`fas ${isAttending ? 'fa-check' : 'fa-plus'}`}></i>
-                                <span>{isAttending ? 'Going' : 'Going'}</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="md:col-span-2 space-y-6">
-                            <div>
-                                <h3 className="text-white font-black uppercase text-xs tracking-widest mb-3 pb-2 border-b border-[#3E4042] w-fit pr-8">Description</h3>
-                                <p className="text-[#E4E6EB] text-[16px] leading-relaxed whitespace-pre-wrap">
-                                    {event.description ? linkify(event.description) : 'No description provided for this event.'}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="space-y-6">
-                            <div className="bg-[#18191A] p-4 rounded-xl border border-[#3E4042]">
-                                <h4 className="text-xs font-black text-[#B0B3B8] uppercase tracking-widest mb-4">Event Details</h4>
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-clock text-[#1877F2]"></i></div>
-                                        <div>
-                                            <p className="text-white text-sm font-bold">{event.time}</p>
-                                            <p className="text-[10px] text-[#B0B3B8] font-bold">Standard Time</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-users text-[#45BD62]"></i></div>
-                                        <div>
-                                            <p className="text-white text-sm font-bold">{event.attendees.length} Attendees</p>
-                                            <p className="text-[10px] text-[#B0B3B8] font-bold">{event.interestedIds.length} interested</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-globe text-[#A033FF]"></i></div>
-                                        <div>
-                                            <p className="text-white text-sm font-bold capitalize">{event.visibility || 'Worldwide'}</p>
-                                            <p className="text-[10px] text-[#B0B3B8] font-bold">Visibility Scope</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-export const EventsPage: React.FC<EventsPageProps> = ({ 
-    events, 
-    currentUser, 
-    onJoinEvent, 
-    onInterestedEvent, 
-    onCreateEventClick,
-    onProfileClick,
-    onFollow,
-    checkIsFollowing 
+export const EventsPage: React.FC<EventsPageProps> = ({
+  currentUser,
+  events,
+  loading,
+  error,
+  onRefresh,
+  onCreateEvent,
+  onAttend,
+  onInterested,
 }) => {
-    const [selectedCategory, setSelectedCategory] = useState('All');
-    const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-    const [shuffledEvents, setShuffledEvents] = useState<Event[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    
-    const categories = ['All', 'Discover', 'Hosting', 'Upcoming'];
+  const [showCreate, setShowCreate] = useState(false);
 
-    // Filter logic with API-like filtering
-    const filteredEvents = useMemo(() => {
-        let visible = events.filter(event => {
-            if (!event.visibility || event.visibility === 'worldwide') return true;
-            if (event.visibility === 'targeted') {
-                if (!currentUser) return false;
-                const userLoc = currentUser.location?.toLowerCase() || '';
-                const eventLoc = event.location?.toLowerCase() || '';
-                const userRegion = userLoc.split(',').pop()?.trim() || userLoc;
-                const eventRegion = eventLoc.split(',').pop()?.trim() || eventLoc;
-                return userLoc.includes(eventRegion) || eventLoc.includes(userRegion) || userRegion === eventRegion;
-            }
-            return true;
-        });
+  const safeEvents = Array.isArray(events) ? events : [];
 
-        if (selectedCategory === 'Hosting' && currentUser) {
-            return visible.filter(e => e.organizerId === currentUser.id);
-        }
-        if (selectedCategory === 'Upcoming' && currentUser) {
-            return visible.filter(e => 
-                e.attendees.includes(currentUser.id) || 
-                e.interestedIds.includes(currentUser.id)
-            );
-        }
-        return visible;
-    }, [events, selectedCategory, currentUser]);
+  const upcoming = useMemo(() => {
+    return safeEvents.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }, [safeEvents]);
 
-    // Shuffle only on category change to create the "rotating" feel
-    useEffect(() => {
-        setShuffledEvents(shuffleArray(filteredEvents));
-    }, [filteredEvents]);
-
-    // Split events into chunks for alternating layout
-    const alternatingChunks = useMemo(() => {
-        const chunks = [];
-        let i = 0;
-        let isGrid = true;
-        
-        while (i < shuffledEvents.length) {
-            const count = isGrid ? 4 : 4;
-            chunks.push({
-                type: isGrid ? 'grid' : 'slider',
-                items: shuffledEvents.slice(i, i + count)
-            });
-            i += count;
-            isGrid = !isGrid;
-        }
-        return chunks;
-    }, [shuffledEvents]);
-
-    const handleJoinEvent = async (e: React.MouseEvent, eventId: number) => {
-        e.stopPropagation();
-        if (!currentUser) return;
-        
-        setLoading(true);
-        try {
-            await onJoinEvent(eventId);
-        } catch (err: any) {
-            setError(err.message || 'Failed to join event');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleInterestedEvent = async (e: React.MouseEvent, eventId: number) => {
-        e.stopPropagation();
-        if (!currentUser) return;
-        
-        setLoading(true);
-        try {
-            await onInterestedEvent(eventId);
-        } catch (err: any) {
-            setError(err.message || 'Failed to mark interest');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div className="w-full max-w-[1000px] mx-auto p-4 font-sans pb-24 animate-fade-in">
-            {/* Error Display */}
-            {error && (
-                <div className="mb-4 p-3 bg-red-500/20 border border-red-500/40 rounded-lg text-red-200 text-sm">
-                    <div className="flex items-center gap-2">
-                        <i className="fas fa-exclamation-triangle"></i>
-                        <span>{error}</span>
-                        <button 
-                            onClick={() => setError('')} 
-                            className="ml-auto text-xs hover:text-white"
-                        >
-                            <i className="fas fa-times"></i>
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Loading Overlay */}
-            {loading && (
-                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
-                    <div className="bg-[#242526] p-6 rounded-xl border border-[#3E4042] flex items-center gap-3">
-                        <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span className="text-white font-medium">Processing...</span>
-                    </div>
-                </div>
-            )}
-
-            {/* Minimal Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-[#242526] p-6 rounded-2xl border border-[#3E4042] shadow-xl">
-                <div>
-                    <h1 className="text-3xl font-black text-[#E4E6EB]">Events</h1>
-                    <p className="text-[#B0B3B8] text-sm font-bold uppercase tracking-widest mt-1">Happening in your community</p>
-                </div>
-                {currentUser && (
-                    <button 
-                        onClick={onCreateEventClick}
-                        disabled={loading}
-                        className="bg-[#1877F2] hover:bg-[#166FE5] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95"
-                    >
-                        <i className="fas fa-calendar-plus text-xl"></i>
-                        <span>Create Event</span>
-                    </button>
-                )}
-            </div>
-
-            {/* Filter Tabs */}
-            <div className="flex gap-2 mb-10 overflow-x-auto scrollbar-hide">
-                {categories.map(cat => (
-                    <button 
-                        key={cat}
-                        onClick={() => setSelectedCategory(cat)}
-                        disabled={loading}
-                        className={`px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest border transition-all ${
-                            selectedCategory === cat 
-                            ? 'bg-[#1877F2] border-[#1877F2] text-white shadow-lg' 
-                            : 'bg-[#242526] border-[#3E4042] text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                        } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                        {cat}
-                    </button>
-                ))}
-            </div>
-
-            {shuffledEvents.length > 0 ? (
-                <div className="space-y-16">
-                    {alternatingChunks.map((chunk, idx) => (
-                        <div key={idx} className="animate-fade-in">
-                            {chunk.type === 'slider' ? (
-                                <div className="relative">
-                                    <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide">
-                                        {chunk.items.map(event => (
-                                            <CompactEventCard 
-                                                key={event.id}
-                                                event={event}
-                                                currentUser={currentUser}
-                                                isWide={true}
-                                                onClick={() => setSelectedEvent(event)}
-                                                onJoin={(e) => handleJoinEvent(e, event.id)}
-                                                onInterested={(e) => handleInterestedEvent(e, event.id)}
-                                            />
-                                        ))}
-                                    </div>
-                                    <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-[#242526] rounded-full flex items-center justify-center shadow-lg border border-[#3E4042] hidden md:flex opacity-50"><i className="fas fa-chevron-left text-[10px]"></i></div>
-                                    <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-[#242526] rounded-full flex items-center justify-center shadow-lg border border-[#3E4042] hidden md:flex opacity-50"><i className="fas fa-chevron-right text-[10px]"></i></div>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    {chunk.items.map(event => (
-                                        <CompactEventCard 
-                                            key={event.id}
-                                            event={event}
-                                            currentUser={currentUser}
-                                            onClick={() => setSelectedEvent(event)}
-                                            onJoin={(e) => handleJoinEvent(e, event.id)}
-                                            onInterested={(e) => handleInterestedEvent(e, event.id)}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="p-20 text-center text-[#B0B3B8] bg-[#242526] rounded-3xl border border-[#3E4042] shadow-inner">
-                    <div className="w-24 h-24 bg-[#3A3B3C] rounded-full flex items-center justify-center mx-auto mb-6">
-                        <i className="fas fa-calendar-xmark text-5xl opacity-20"></i>
-                    </div>
-                    <h3 className="text-xl font-black text-[#E4E6EB] mb-2">No events found</h3>
-                    <p className="max-w-xs mx-auto font-medium">
-                        {selectedCategory === 'Hosting' 
-                            ? 'You haven\'t created any events yet.' 
-                            : selectedCategory === 'Upcoming'
-                            ? 'You\'re not attending or interested in any upcoming events.'
-                            : 'Try changing your filters or check back later for new gatherings.'}
-                    </p>
-                    {selectedCategory !== 'All' && (
-                        <button 
-                            onClick={() => setSelectedCategory('All')}
-                            className="mt-4 px-6 py-2 bg-[#1877F2] hover:bg-[#166FE5] text-white rounded-lg font-medium transition-colors"
-                        >
-                            View All Events
-                        </button>
-                    )}
-                </div>
-            )}
-
-            {/* Event Detail Modal */}
-            {selectedEvent && (
-                <EventDetailsModal 
-                    event={selectedEvent}
-                    currentUser={currentUser}
-                    onClose={() => setSelectedEvent(null)}
-                    onJoin={() => onJoinEvent(selectedEvent.id)}
-                    onInterested={() => onInterestedEvent(selectedEvent.id)}
-                    onProfileClick={onProfileClick}
-                />
-            )}
+  return (
+    <div className="w-full max-w-[900px] mx-auto p-4 pb-24 animate-fade-in">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold text-white">Events</h1>
+        <div className="flex gap-2">
+          <button
+            onClick={onRefresh}
+            className="px-3 py-2 rounded-lg bg-[#3A3B3C] hover:bg-[#4E4F50] text-white font-semibold"
+          >
+            Refresh
+          </button>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="px-3 py-2 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white font-semibold"
+          >
+            Create
+          </button>
         </div>
-    );
+      </div>
+
+      {error ? (
+        <div className="bg-[#242526] border border-red-500/40 text-red-200 rounded-xl p-4 mb-4">
+          {error}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="text-[#B0B3B8] py-10 text-center">Loading events...</div>
+      ) : upcoming.length === 0 ? (
+        <div className="bg-[#242526] border border-[#3E4042] rounded-2xl p-10 text-center text-[#B0B3B8]">
+          No events yet.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {upcoming.map((ev) => {
+            const me = Number(currentUser?.id);
+            const isAttending = (ev.attendees || []).includes(me);
+            const isInterested = (ev.interestedIds || []).includes(me);
+
+            return (
+              <div
+                key={ev.id}
+                className="bg-[#242526] border border-[#3E4042] rounded-2xl overflow-hidden"
+              >
+                {ev.image ? (
+                  <div className="h-44 bg-black">
+                    <img src={ev.image} className="w-full h-full object-cover" alt="" />
+                  </div>
+                ) : null}
+
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="text-white font-bold text-lg truncate">{ev.title}</h2>
+                      <div className="text-[#B0B3B8] text-sm mt-1">
+                        <span className="mr-2">
+                          <i className="fas fa-calendar mr-2" />
+                          {ev.date || '—'} {ev.time ? `• ${ev.time}` : ''}
+                        </span>
+                        {ev.location ? (
+                          <span className="block mt-1">
+                            <i className="fas fa-map-marker-alt mr-2" />
+                            {ev.location}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-end text-xs text-[#B0B3B8]">
+                      <span>{(ev.attendees || []).length} going</span>
+                      <span>{(ev.interestedIds || []).length} interested</span>
+                    </div>
+                  </div>
+
+                  {ev.description ? (
+                    <p className="text-[#E4E6EB] text-sm mt-3 whitespace-pre-wrap">
+                      {ev.description}
+                    </p>
+                  ) : null}
+
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={() => onAttend(ev.id)}
+                      className={`flex-1 px-3 py-2 rounded-xl font-bold transition-colors ${
+                        isAttending
+                          ? 'bg-[#1877F2] text-white'
+                          : 'bg-[#3A3B3C] hover:bg-[#4E4F50] text-white'
+                      }`}
+                    >
+                      {isAttending ? 'Going' : 'Attend'}
+                    </button>
+
+                    <button
+                      onClick={() => onInterested(ev.id)}
+                      className={`flex-1 px-3 py-2 rounded-xl font-bold transition-colors ${
+                        isInterested
+                          ? 'bg-[#F7B928] text-black'
+                          : 'bg-[#3A3B3C] hover:bg-[#4E4F50] text-white'
+                      }`}
+                    >
+                      Interested
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showCreate ? (
+        <CreateEventModal
+          currentUser={currentUser}
+          onClose={() => setShowCreate(false)}
+          onCreate={onCreateEvent}
+        />
+      ) : null}
+    </div>
+  );
 };
