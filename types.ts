@@ -1,4 +1,4 @@
-// types.ts — FULL UPDATED (App.tsx + Feed.tsx + Groups + Reels compatible)
+// types.ts — FULL UPDATED (App.tsx + Feed.tsx + Groups + Reels + Stories compatible)
 
 // =========================
 // USERS / BRANDS
@@ -148,7 +148,7 @@ export interface Post {
   reactions: Reaction[];
   comments: Comment[];
 
-  // ✅ counts + “my reaction” fields used by App.tsx optimistic updates
+  // ✅ counts + "my reaction" fields used by App.tsx optimistic updates
   reactions_count?: number;
   reactionsCount?: number;
   likesCount?: number;
@@ -197,25 +197,50 @@ export interface Post {
 }
 
 // =========================
-// STORIES
+// STORIES - ✅ UPDATED TO MATCH Story.tsx COMPLETELY
 // =========================
 export interface Story {
   id: number;
   user_id: number;
-  media_url?: string;
-  user?: User;
-  created_at: string;
-  expires_at: string;
-
-  type?: 'text' | 'image';
+  
+  // ✅ REQUIRED: Story.tsx uses this for rendering
+  type: 'text' | 'image' | 'video';
+  
+  // Text stories
   text_content?: string;
   background_style?: string;
-
+  
+  // Media stories
+  media_url?: string;
+  
+  // Music
   music_url?: string;
   music_title?: string;
-
+  
+  // User info (either embedded user object or separate fields)
+  user?: User;
+  
+  // ✅ ADDED: Story.tsx uses these for display (pickBestName helper)
+  author_name?: string;
+  author_username?: string;
+  author_image?: string;
+  username?: string;
+  
+  // ✅ ADDED: For like functionality
+  liked_by_me?: boolean;
+  
+  // Timestamps
+  created_at: string;
+  expires_at?: string;
+  
+  // Reactions & replies
   reactions?: { user_id: number }[];
   replies?: { user_id: number; text: string; created_at: string }[];
+  
+  // Optional
+  duration?: number;
+  seen?: boolean;
+  views?: number;
 }
 
 // =========================
@@ -257,10 +282,15 @@ export interface Reel {
   author_image?: string;
 
   // ✅ OPTIONAL: raw backend aliases for compatibility if some components still use snake_case
-  // (Try to use normalized fields everywhere, but this prevents TS errors while migrating)
   user_id?: number;
   video_url?: string;
   song_name?: string;
+  
+  // ✅ ADDED: For trimmed audio support
+  soundKey?: string;
+  isTrimmedAudio?: boolean;
+  audioStartTime?: number;
+  audioEndTime?: number;
 }
 
 // =========================
@@ -320,6 +350,7 @@ export interface SearchResult {
   user: User;
   score: number;
 }
+
 // =========================
 // EVENTS
 // =========================
@@ -539,3 +570,40 @@ export interface AudioTrack {
   uploader_id?: number;
   is_verified?: boolean;
 }
+
+// =========================
+// ✅ ADDED: For Reel Sound Support (App.tsx uses this)
+// =========================
+export type ReelSound = {
+  songName: string;
+  audioUrl: string;
+  audioStart?: number;
+  audioEnd?: number;
+  songId?: string | number;
+  soundKey?: string;
+  isTrimmedAudio?: boolean;
+  originalUrl?: string;
+};
+
+// =========================
+// ✅ ADDED: For Hashtag Filtering
+// =========================
+export type View = 
+  | 'home'
+  | 'reels'
+  | 'marketplace'
+  | 'groups'
+  | 'brands'
+  | 'music'
+  | 'tools'
+  | 'profiles'
+  | 'events'
+  | 'birthdays'
+  | 'memories'
+  | 'settings'
+  | 'privacy'
+  | 'terms'
+  | 'help'
+  | 'profile'
+  | 'login'
+  | 'register';
