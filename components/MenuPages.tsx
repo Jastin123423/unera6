@@ -275,7 +275,7 @@ export const MemoriesPage = ({
         ...p,
         id: safeNumber(p?.id ?? p?.post_id ?? p?.postId),
         user_id: safeNumber(p?.user_id),
-        created_at: p?.created_at ?? p?.createdAt ?? new Date().toISOString(),
+      created_at: p?.created_at ?? p?.createdAt ?? p?.created ?? p?.date ?? new Date().toISOString(),
       }));
 
     // Grouping:
