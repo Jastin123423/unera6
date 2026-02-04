@@ -540,9 +540,7 @@ export const MemoriesPage = ({
 };
 
 // --- EVENTS PAGE ---
-export const EventsPage = () => {
-  return <div className="p-6 text-white">EventsPage not implemented yet.</div>;
-};
+export const EventsPage = RealEventsPage;
 
 // --- SETTINGS PAGE ---
 export const SettingsPage = () => {
