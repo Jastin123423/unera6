@@ -248,7 +248,8 @@ export const MemoriesPage = ({
 
     const filtered = allPosts
       .filter((p: any) => {
-        const created = parseDate(p?.created_at || p?.createdAt);
+        const created = parseDate(p?.created_at || p?.createdAt || p?.created || p?.date);
+
         if (!created) return false;
 
         // Only my posts (optional toggle)
