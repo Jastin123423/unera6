@@ -471,16 +471,26 @@ export interface Stats {
 
 export interface Song {
   id: number;
-  uploader_id: number;
   title: string;
-  artist_name: string;
-  album_name?: string;
-  cover_image_url: string;
-  audio_url: string;
+  artist: string;
+
+  audio_url: string;          // raw (stored)
+  audio_fetch_url?: string;   // fetchable/proxy (trim/play)
+
+  cover_url?: string;
+  duration?: number;
+
+  playCount?: number;
+  artistId?: number;
+
+  // aliases (optional)
+  uploader_id?: number;
+  artist_name?: string;
+  cover_image_url?: string;
   duration_seconds?: number;
-  genre?: string;
-  created_at: string;
-  stats?: Stats;
+
+  type?: 'music' | 'podcast';
+  created_at?: string;
 }
 
 export interface Album {
