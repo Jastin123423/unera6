@@ -320,20 +320,64 @@ export interface SearchResult {
   user: User;
   score: number;
 }
-
 // =========================
 // EVENTS
 // =========================
 export interface Event {
+  // Core identifiers
   id: number;
+  
+  // Organizer info (supports multiple field names from API)
   creator_id: number;
+  organizerId?: number;
+  user_id?: number;
+  organizer_name?: string;
+  creator_name?: string;
+  organizer_avatar?: string;
+  creator_avatar?: string;
+  
+  // Event details
   title: string;
   description: string;
-  event_date: string;
+  
+  // Date & time (ISO format from API)
+  event_date: string;            // Primary from API
+  date?: string;                 // Display/alternative
+  time?: string;                 // Display time (e.g., "7:00 PM")
+  
+  // Location
   location: string;
-  cover_url: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  
+  // Images
+  cover_url: string;             // Primary from API
+  image?: string;                // Alternative/display
+  cover_image?: string;          // Another alternative
+  
+  // Attendance
   attendees: number[];
+  attendee_ids?: number[];       // Alternative from API
   interested_ids: number[];
+  interestedIds?: number[];      // Alternative from API
+  
+  // Settings
+  visibility: 'worldwide' | 'targeted';
+  is_public?: boolean;
+  max_attendees?: number;
+  price?: number;
+  currency?: string;
+  
+  // Metadata
+  created_at: string;
+  updated_at?: string;
+  status?: 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
+  
+  // For UI state (not from API)
+  isAttending?: boolean;
+  isInterested?: boolean;
+  isLoading?: boolean;
 }
 
 // =========================
