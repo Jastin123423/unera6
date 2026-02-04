@@ -450,3 +450,5 @@ export const EventsPage: React.FC<EventsPageProps> = ({
         </div>
     );
 };
+export const EventsPage = (props: any) => { ... }
+
