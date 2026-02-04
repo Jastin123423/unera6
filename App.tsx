@@ -307,6 +307,7 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 /**
  * ✅ UPDATED: Normalize raw D1 rows to UI-safe PostType shape with multi-media support
  * ✅ ADDED: Support for media_urls + media_types arrays
+ * ✅ FIXED: created_at field normalization for MemoriesPage
  */
 const normalizePost = (p: any): PostType => {
   // ✅ multi media support (new)
@@ -359,7 +360,9 @@ const normalizePost = (p: any): PostType => {
         if (t.startsWith('audio/')) return 'audio';
         return 'post';
       })(),
-    created_at: p?.created_at ?? new Date().toISOString(),
+    
+    // ✅ FIXED: Support both created_at and createdAt for MemoriesPage
+    created_at: p?.created_at ?? p?.createdAt ?? new Date().toISOString(),
     
     // ✅ ADD THESE (very important) - Preserve reaction data
     my_reaction: p?.my_reaction ?? p?.myReaction ?? null,
@@ -430,7 +433,7 @@ const normalizeReel = (r: any): Reel => {
   const audioEnd = safeNumber(r?.audio_end ?? r?.audioEnd ?? 0);
   const audioUrl = r?.audio_url ?? r?.audioUrl ?? '';
   const legacyIsTrimmed = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
-  
+
   return {
     ...r,
     id: resolvedId,
@@ -560,7 +563,7 @@ const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meI
   };
 };
 
-/** ---------- ✅ ADDED: Optimistic reel reaction helper ---------- */
+/** ✅ UPDATED: Optimistic reel reaction helper ---------- */
 const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType, meId: number) => {
   if (Number(r?.id) !== Number(reelId)) return r;
 
@@ -3128,6 +3131,17 @@ export default function App() {
     setShowCreateStoryModal(true);
   }, [requireAuth]);
 
+  /** ---------- ✅ ADDED: Get all known posts for MemoriesPage ---------- */
+  const allKnownPosts = useMemo(() => {
+    const map = new Map<number, PostType>();
+    [...safeArray(posts), ...safeArray(profilePosts)].forEach(p => {
+      if (p?.id) {
+        map.set(Number(p.id), p);
+      }
+    });
+    return Array.from(map.values());
+  }, [posts, profilePosts]);
+
   /** ---------- Render ---------- */
   const isLoading = false;
   if (isLoading) return <ProfessionalLoader />;
@@ -3437,18 +3451,32 @@ export default function App() {
           {view === 'memories' && currentUser && (
             <MemoriesPage
               currentUser={currentUser}
-              posts={posts}
+              // ✅ FIXED: Use allKnownPosts instead of just posts for better memory coverage
+              posts={allKnownPosts}
               users={users}
-              onProfileClick={(id) => openProfile(id)}
-              onReact={() => requireAuth('Reacting')}
+              onProfileClick={(id: number) => openProfile(id)}
+              // ✅ FIXED: Pass actual reaction handler instead of placeholder
+              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onViewImage={setFullScreenImage}
-              onOpenComments={(id) => onOpenComments(id)}
-              onVideoClick={() => {}}
+              onOpenComments={(postId: number) => onOpenComments(postId)}
+              // ✅ FIXED: Pass proper video click handler to navigate to reels
+              onVideoClick={(p: any) => {
+                setActiveReelId(p.id);
+                setView('reels');
+              }}
               // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayAudioTrack={onPlayTrack}
+              // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
+              onHashtagClick={handleHashtagClick}
+              // ✅ ADDED: Pass follow system props
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+              // ✅ ADDED: Pass groups, brands, chats if Post component needs them
+              groups={groups}
+              brands={brands}
+              chats={chats}
             />
           )}
 
