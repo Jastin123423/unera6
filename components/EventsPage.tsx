@@ -1,9 +1,8 @@
- 
 // EventsPage.tsx - Updated with API integration
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, Event } from '../types';
 
-// --- LINKIFY HELPER ---
+// --- HELPER FUNCTIONS ---
 const linkify = (text: string) => {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     return text.split(urlRegex).map((part, i) => {
@@ -14,7 +13,6 @@ const linkify = (text: string) => {
     });
 };
 
-// --- SHUFFLE HELPER FOR "ROTATING" FEEL ---
 const shuffleArray = (array: any[]) => {
     const shuffled = [...array];
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -22,6 +20,35 @@ const shuffleArray = (array: any[]) => {
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
+};
+
+// --- NORMALIZATION HELPER ---
+const safeArr = (v: any): number[] => (Array.isArray(v) ? v.map(Number) : []);
+
+const normalizeEvent = (e: any) => {
+  const dateStr = e?.event_date ?? e?.date ?? "";
+  return {
+    ...e,
+    // unify date
+    date: dateStr,
+
+    // unify image
+    image: e?.cover_url ?? e?.image ?? e?.cover_image ?? "",
+
+    // unify attendance arrays
+    attendees: safeArr(e?.attendees ?? e?.attendee_ids),
+    interestedIds: safeArr(e?.interestedIds ?? e?.interested_ids),
+
+    // unify organizer
+    organizerId: Number(e?.organizerId ?? e?.creator_id ?? e?.user_id ?? 0),
+
+    // fallback fields used in UI
+    time: e?.time ?? "",
+    location: e?.location ?? "",
+    title: e?.title ?? "Untitled event",
+    description: e?.description ?? "",
+    visibility: e?.visibility ?? "worldwide",
+  };
 };
 
 interface EventsPageProps { 
@@ -36,16 +63,22 @@ interface EventsPageProps {
 }
 
 const CompactEventCard: React.FC<{ 
-    event: Event, 
+    event: any, // Changed to any to accept normalized events
     currentUser: User | null, 
     onClick: () => void,
     onJoin: (e: React.MouseEvent) => void,
     onInterested: (e: React.MouseEvent) => void,
     isWide?: boolean
 }> = ({ event, currentUser, onClick, onJoin, onInterested, isWide }) => {
-    const date = new Date(event.date);
-    const isAttending = currentUser && event.attendees.includes(currentUser.id);
-    const isInterested = currentUser && event.interestedIds.includes(currentUser.id);
+    // Safe date parsing
+    const date = new Date(event.date || event.event_date || event.created_at || Date.now());
+    
+    // Safe array access
+    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
+    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
+    
+    const isAttending = currentUser && attendees.includes(currentUser.id);
+    const isInterested = currentUser && interestedIds.includes(currentUser.id);
 
     return (
         <div 
@@ -53,7 +86,7 @@ const CompactEventCard: React.FC<{
             className={`bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] flex flex-col hover:bg-[#3A3B3C] transition-all cursor-pointer shadow-md group ${isWide ? 'w-[260px] shrink-0' : 'w-full'}`}
         >
             <div className="h-32 relative overflow-hidden">
-                <img src={event.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
+                <img src={event.image || ''} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
                 <div className="absolute top-2 left-2 bg-white/95 text-black rounded-lg px-2 py-1 text-center shadow-lg min-w-[36px]">
                     <div className="text-[8px] font-black uppercase text-[#1877F2] leading-none">{date.toLocaleString('default', { month: 'short' })}</div>
                     <div className="text-[14px] font-black leading-tight">{date.getDate()}</div>
@@ -72,7 +105,7 @@ const CompactEventCard: React.FC<{
                 </p>
                 <div className="flex items-center gap-1 text-[10px] font-bold text-[#B0B3B8] mb-3">
                     <i className="fas fa-users text-[#45BD62] text-[9px]"></i>
-                    <span>{event.attendees.length} going • {event.interestedIds.length} interested</span>
+                    <span>{attendees.length} going • {interestedIds.length} interested</span>
                 </div>
 
                 <div className="mt-auto flex gap-1.5">
@@ -108,22 +141,28 @@ const CompactEventCard: React.FC<{
 };
 
 const EventDetailsModal: React.FC<{ 
-    event: Event, 
+    event: any, // Changed to any to accept normalized events
     currentUser: User | null, 
     onClose: () => void, 
     onJoin: () => void, 
     onInterested: () => void,
     onProfileClick: (id: number) => void 
 }> = ({ event, currentUser, onClose, onJoin, onInterested, onProfileClick }) => {
-    const date = new Date(event.date);
-    const isAttending = currentUser && event.attendees.includes(currentUser.id);
-    const isInterested = currentUser && event.interestedIds.includes(currentUser.id);
+    // Safe date parsing
+    const date = new Date(event.date || event.event_date || event.created_at || Date.now());
+    
+    // Safe array access
+    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
+    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
+    
+    const isAttending = currentUser && attendees.includes(currentUser.id);
+    const isInterested = currentUser && interestedIds.includes(currentUser.id);
 
     return (
         <div className="fixed inset-0 z-[600] bg-black/90 flex items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-md" onClick={onClose}>
             <div className="bg-[#242526] w-full max-w-[700px] h-full sm:h-auto sm:max-h-[90vh] sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl border border-[#3E4042]" onClick={e => e.stopPropagation()}>
                 <div className="relative h-[250px] sm:h-[350px] shrink-0">
-                    <img src={event.image} className="w-full h-full object-cover" alt="" />
+                    <img src={event.image || ''} className="w-full h-full object-cover" alt="" />
                     <div className="absolute inset-0 bg-gradient-to-t from-[#242526] via-transparent to-transparent"></div>
                     <button onClick={onClose} className="absolute top-4 right-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-all border border-white/10">
                         <i className="fas fa-times"></i>
@@ -192,8 +231,8 @@ const EventDetailsModal: React.FC<{
                                     <div className="flex items-center gap-3">
                                         <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-users text-[#45BD62]"></i></div>
                                         <div>
-                                            <p className="text-white text-sm font-bold">{event.attendees.length} Attendees</p>
-                                            <p className="text-[10px] text-[#B0B3B8] font-bold">{event.interestedIds.length} interested</p>
+                                            <p className="text-white text-sm font-bold">{attendees.length} Attendees</p>
+                                            <p className="text-[10px] text-[#B0B3B8] font-bold">{interestedIds.length} interested</p>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3">
@@ -224,16 +263,22 @@ export const EventsPage: React.FC<EventsPageProps> = ({
     checkIsFollowing 
 }) => {
     const [selectedCategory, setSelectedCategory] = useState('All');
-    const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-    const [shuffledEvents, setShuffledEvents] = useState<Event[]>([]);
+    const [selectedEvent, setSelectedEvent] = useState<any | null>(null); // Changed to any
+    const [shuffledEvents, setShuffledEvents] = useState<any[]>([]); // Changed to any[]
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     
     const categories = ['All', 'Discover', 'Hosting', 'Upcoming'];
 
-    // Filter logic with API-like filtering
+    // Normalize events
+    const safeEvents = useMemo(() => {
+        const list = Array.isArray(events) ? events : [];
+        return list.map(normalizeEvent);
+    }, [events]);
+
+    // Filter logic with normalized events
     const filteredEvents = useMemo(() => {
-        let visible = events.filter(event => {
+        let visible = safeEvents.filter(event => {
             if (!event.visibility || event.visibility === 'worldwide') return true;
             if (event.visibility === 'targeted') {
                 if (!currentUser) return false;
@@ -250,13 +295,13 @@ export const EventsPage: React.FC<EventsPageProps> = ({
             return visible.filter(e => e.organizerId === currentUser.id);
         }
         if (selectedCategory === 'Upcoming' && currentUser) {
-            return visible.filter(e => 
-                e.attendees.includes(currentUser.id) || 
+            return visible.filter(e =>
+                e.attendees.includes(currentUser.id) ||
                 e.interestedIds.includes(currentUser.id)
             );
         }
         return visible;
-    }, [events, selectedCategory, currentUser]);
+    }, [safeEvents, selectedCategory, currentUser]);
 
     // Shuffle only on category change to create the "rotating" feel
     useEffect(() => {
@@ -380,7 +425,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
                             {chunk.type === 'slider' ? (
                                 <div className="relative">
                                     <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide">
-                                        {chunk.items.map(event => (
+                                        {chunk.items.map((event: any) => (
                                             <CompactEventCard 
                                                 key={event.id}
                                                 event={event}
@@ -397,7 +442,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    {chunk.items.map(event => (
+                                    {chunk.items.map((event: any) => (
                                         <CompactEventCard 
                                             key={event.id}
                                             event={event}
@@ -450,5 +495,3 @@ export const EventsPage: React.FC<EventsPageProps> = ({
         </div>
     );
 };
-
-
