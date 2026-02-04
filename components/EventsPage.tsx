@@ -495,3 +495,4 @@ export const EventsPage: React.FC<EventsPageProps> = ({
         </div>
     );
 };
+export default EventsPage;
