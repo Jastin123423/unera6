@@ -378,4 +378,4 @@ export const MemoriesPage = ({
 
 // ... Rest of component stays same
 export const EventsPage = ({ events, currentUser, onJoinEvent, onCreateEventClick, onProfileClick }: any) => { /* ... existing ... */ };
-export const SettingsPage = ({ currentUser, onUpdateUser }: any) => { /* ... existing ... */ }; cwh
+export const SettingsPage = ({ currentUser, onUpdateUser }: any) => { /* ... existing ... */ }; 
