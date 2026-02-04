@@ -6,6 +6,7 @@ import { Post } from './Feed';
 export { EventsPage } from './EventsPage';
 
 
+
 // --- SUGGESTED PROFILES PAGE ---
 interface SuggestedProfilesPageProps {
     currentUser: User;
