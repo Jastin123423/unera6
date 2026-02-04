@@ -29,6 +29,9 @@ const normalizeEvent = (e: any) => {
   const dateStr = e?.event_date ?? e?.date ?? "";
   return {
     ...e,
+    // ID safety
+    id: Number(e?.id ?? 0),
+
     // unify date
     date: dateStr,
 
@@ -43,7 +46,7 @@ const normalizeEvent = (e: any) => {
     organizerId: Number(e?.organizerId ?? e?.creator_id ?? e?.user_id ?? 0),
 
     // fallback fields used in UI
-    time: e?.time ?? "",
+    time: e?.time ?? e?.event_time ?? "",
     location: e?.location ?? "",
     title: e?.title ?? "Untitled event",
     description: e?.description ?? "",
@@ -252,7 +255,7 @@ const EventDetailsModal: React.FC<{
     );
 };
 
-export const EventsPage: React.FC<EventsPageProps> = ({ 
+const EventsPage: React.FC<EventsPageProps> = ({ 
     events, 
     currentUser, 
     onJoinEvent, 
@@ -495,4 +498,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
         </div>
     );
 };
+
+// Export both named and default (Pattern B)
+export { EventsPage };
 export default EventsPage;
