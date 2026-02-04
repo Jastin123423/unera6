@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Event, Group, Product, Post as PostType, AudioTrack } from '../types';
 import { MARKETPLACE_COUNTRIES } from '../constants';
@@ -79,58 +80,98 @@ interface BirthdaysPageProps {
     onProfileClick: (id: number) => void;
 }
 
-export const BirthdaysPage: React.FC<BirthdaysPageProps> = ({ currentUser, users, onMessage, onProfileClick }) => {
-    const today = new Date();
-    const currentMonth = today.getMonth();
-    const currentDay = today.getDate();
+export const BirthdaysPage: React.FC<BirthdaysPageProps> = ({
+  currentUser,
+  users,
+  onMessage,
+  onProfileClick,
+}) => {
+  const today = new Date();
+  const currentMonth = today.getMonth();
+  const currentDay = today.getDate();
 
-    const isBirthdayToday = (dateStr?: string) => {
-        if (!dateStr) return false;
-        const bDate = new Date(dateStr);
-        return bDate.getMonth() === currentMonth && bDate.getDate() === currentDay;
-    };
+  const allUsers = Array.isArray(users) ? users : [];
 
-    const birthdayPeople = users.filter(u => u.id !== currentUser?.id && isBirthdayToday(u.birth_date));
+  const getBirthDate = (u: any) => u?.birth_date || u?.birthDate || u?.dob || u?.birthday;
 
-    return (
-        <div className="w-full max-w-[800px] mx-auto p-4 md:p-6 font-sans pb-20 animate-fade-in">
-            <div className="flex items-center gap-4 mb-8">
-                <div className="w-14 h-14 bg-gradient-to-tr from-[#FF0080] to-[#7928CA] rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3">
-                    <i className="fas fa-birthday-cake text-white text-2xl"></i>
-                </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-white leading-tight">Birthdays</h1>
-                    <p className="text-[#B0B3B8]">Celebrate special moments with your community.</p>
-                </div>
-            </div>
+  const isBirthdayToday = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const s = String(dateStr).trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return false;
+    const month = Number(m[2]) - 1;
+    const day = Number(m[3]);
+    return month === currentMonth && day === currentDay;
+  };
 
-            <div className="mb-10">
-                <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-4">
-                    Today's Stars <span className="text-xs bg-[#F3425F] px-2 py-0.5 rounded-full animate-pulse uppercase tracking-wider">Live</span>
-                </h2>
-                {birthdayPeople.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {birthdayPeople.map(person => (
-                            <div key={person.id} className="relative group overflow-hidden rounded-3xl bg-gradient-to-br from-[#242526] to-[#18191A] border border-[#3E4042] hover:border-[#1877F2]/50 transition-all duration-300 shadow-xl p-6 flex flex-col items-center text-center">
-                                <div className="relative mb-4">
-                                    <div className="absolute -inset-1 bg-gradient-to-tr from-[#1877F2] via-[#F3425F] to-[#FAB400] rounded-full animate-[spin_3s_linear_infinite] opacity-75 blur-sm"></div>
-                                    <img src={person.profile_image_url} className="w-24 h-24 rounded-full object-cover border-4 border-[#242526] relative z-10 cursor-pointer" onClick={() => onProfileClick(person.id)} alt="" />
-                                </div>
-                                <h3 className="text-xl font-bold text-white mb-1">{person.name}</h3>
-                                <p className="text-[#B0B3B8] text-sm mb-6 flex items-center gap-1"><i className="fas fa-map-marker-alt text-[10px]"></i> {person.location || 'World Citizen'}</p>
-                                <button onClick={() => onMessage(person.id)} className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg">Wish Him/Her</button>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="bg-[#242526] rounded-3xl p-10 text-center border border-[#3E4042] shadow-inner">
-                        <i className="fas fa-calendar-day text-[#B0B3B8] text-4xl mb-4 opacity-50"></i>
-                        <h3 className="text-white font-bold text-lg">No Birthdays Today</h3>
-                    </div>
-                )}
-            </div>
+  const birthdayPeople = allUsers.filter(
+    (u) => Number(u?.id) !== Number(currentUser?.id) && isBirthdayToday(getBirthDate(u))
+  );
+
+  return (
+    <div className="w-full max-w-[800px] mx-auto p-4 md:p-6 font-sans pb-20 animate-fade-in">
+      <div className="flex items-center gap-4 mb-8">
+        <div className="w-14 h-14 bg-gradient-to-tr from-[#FF0080] to-[#7928CA] rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3">
+          <i className="fas fa-birthday-cake text-white text-2xl"></i>
         </div>
-    );
+        <div>
+          <h1 className="text-3xl font-bold text-white leading-tight">Birthdays</h1>
+          <p className="text-[#B0B3B8]">Celebrate special moments with your community.</p>
+        </div>
+      </div>
+
+      <div className="mb-10">
+        <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-4">
+          Today's Stars{" "}
+          <span className="text-xs bg-[#F3425F] px-2 py-0.5 rounded-full animate-pulse uppercase tracking-wider">
+            Live
+          </span>
+        </h2>
+
+        {birthdayPeople.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {birthdayPeople.map((person: any) => (
+              <div
+                key={person.id}
+                className="relative group overflow-hidden rounded-3xl bg-gradient-to-br from-[#242526] to-[#18191A] border border-[#3E4042] hover:border-[#1877F2]/50 transition-all duration-300 shadow-xl p-6 flex flex-col items-center text-center"
+              >
+                <div className="relative mb-4">
+                  <div className="absolute -inset-1 bg-gradient-to-tr from-[#1877F2] via-[#F3425F] to-[#FAB400] rounded-full animate-[spin_3s_linear_infinite] opacity-75 blur-sm"></div>
+                  <img
+                    src={person.profile_image_url}
+                    className="w-24 h-24 rounded-full object-cover border-4 border-[#242526] relative z-10 cursor-pointer"
+                    onClick={() => onProfileClick(person.id)}
+                    alt=""
+                  />
+                </div>
+                <h3 className="text-xl font-bold text-white mb-1">
+                  {person.name || person.username || "User"}
+                </h3>
+                <p className="text-[#B0B3B8] text-sm mb-6 flex items-center gap-1">
+                  <i className="fas fa-map-marker-alt text-[10px]"></i>{" "}
+                  {person.location || "World Citizen"}
+                </p>
+                <button
+                  onClick={() => onMessage(person.id)}
+                  className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg"
+                >
+                  Wish Him/Her
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-[#242526] rounded-3xl p-10 text-center border border-[#3E4042] shadow-inner">
+            <i className="fas fa-calendar-day text-[#B0B3B8] text-4xl mb-4 opacity-50"></i>
+            <h3 className="text-white font-bold text-lg">No Birthdays Today</h3>
+            <p className="text-[#B0B3B8] text-sm mt-2">
+              Check back tomorrow or see upcoming birthdays.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
 // --- MEMORIES PAGE ---
@@ -176,8 +217,7 @@ export const MemoriesPage = ({
 
   // ---- Memory Mode State ----
   type MemoryMode = 'classic' | 'last_week_day' | 'last_7_days';
-
-  const [mode, setMode] = useState<MemoryMode>('last_7_days');   
+  const [mode, setMode] = useState<MemoryMode>('classic');
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedDay, setSelectedDay] = useState<number>(new Date().getDate());
   const [onlyMine, setOnlyMine] = useState<boolean>(true);
