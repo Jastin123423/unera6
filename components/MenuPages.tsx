@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { User, Event, Group, Product, Post as PostType, AudioTrack } from '../types';
 import { MARKETPLACE_COUNTRIES } from '../constants';
 import { Post } from './Feed';
-import { EventsPage } from './EventsPage';
+export { EventsPage } from './EventsPage';
 
 // --- SUGGESTED PROFILES PAGE ---
 interface SuggestedProfilesPageProps {
@@ -539,8 +539,6 @@ export const MemoriesPage = ({
   );
 };
 
-// --- EVENTS PAGE ---
-export const EventsPage = RealEventsPage;
 
 // --- SETTINGS PAGE ---
 export const SettingsPage = () => {
