@@ -1,4 +1,4 @@
-// App.tsx - FULLY UPDATED WITH EVENTS INTEGRATION
+// App.tsx - FULLY UPDATED WITH STORIES & EVENTS FIX
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -10,7 +10,7 @@ import {
   SuggestedProductsWidget,
   ShareBottomSheet,
 } from './components/Feed';
-import { StoryReel, CreateStoryModal } from './components/Story';
+import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
@@ -432,6 +432,30 @@ const normalizeEvent = (e: any): Event => {
   } as any;
 };
 
+/** ✅ ADDED: Normalize story data ---------- */
+const normalizeStory = (s: any): Story => {
+  const resolvedId = safeNumber(s?.id ?? s?.story_id ?? 0);
+  const userId = safeNumber(s?.user_id ?? s?.userId ?? 0);
+  
+  return {
+    id: resolvedId,
+    user_id: userId,
+    type: (s?.type ?? 'image') as 'text' | 'image' | 'video',
+    text_content: s?.text_content ?? s?.text ?? '',
+    media_url: s?.media_url ?? s?.mediaUrl ?? '',
+    background_style: s?.background_style ?? s?.backgroundStyle ?? '',
+    music_url: s?.music_url ?? s?.musicUrl ?? '',
+    music_title: s?.music_title ?? s?.musicTitle ?? '',
+    created_at: s?.created_at ?? s?.createdAt ?? new Date().toISOString(),
+    author_name: s?.author_name ?? s?.authorName ?? '',
+    author_username: s?.author_username ?? s?.authorUsername ?? '',
+    author_image: s?.author_image ?? s?.authorImage ?? '',
+    username: s?.username ?? '',
+    liked_by_me: Boolean(s?.liked_by_me ?? s?.likedByMe ?? false),
+    user: s?.user ? normalizeUser(s.user) : undefined,
+  } as any;
+};
+
 /**
  * Normalize user data with UNERA-style profile pictures
  * ✅ FIXED: cover_image_url can be undefined, not empty string
@@ -650,18 +674,18 @@ const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType,
     reactions_count: newReactions.length,
   };
 };
-    
-// If you need these functions, rename the duplicate:
-const API_BASE = window.location.origin; // Use current origin
+
+// Fixed duplicate function - renamed
+const isHttpUrl2 = (u: string) => u.startsWith('http://') || u.startsWith('https://');
 const isBlobUrl = (u: string) => u.startsWith('blob:');
-const isHttpUrl2 = (u: string) => u.startsWith('http://'); // Renamed
 const isHttpsUrl = (u: string) => u.startsWith('https://');
 const isAbsoluteUrl = (u: string) => isHttpsUrl(u) || isHttpUrl2(u) || isBlobUrl(u);
+
 const ensureAbsoluteUrl = (u?: string | null): string => {
   if (!u) return '';
   if (isAbsoluteUrl(u)) return u;
   // If backend returns relative path like /uploads/audio.mp3, make it absolute
-  return `${API_BASE}${u.startsWith('/') ? '' : '/'}${u}`;
+  return `${window.location.origin}${u.startsWith('/') ? '' : '/'}${u}`;
 };
 
 // ✅ Critical: Ensure audio URLs are fetchable for trimming
@@ -672,12 +696,12 @@ const toFetchableAudioUrl = (u?: string | null): string => {
   // Blob URLs are already fetchable
   if (isBlobUrl(url)) return url;
 
-  // ✅ FIXED 1: Use isHttpUrl2 instead of isHttpUrl
+  // ✅ FIXED: Use isHttpUrl2 instead of isHttpUrl
   if (isHttpUrl2(url) && window.location.protocol === 'https:') {
     return url.replace('http://', 'https://');
   }
 
-  // ✅ FIXED 2: Enable audio proxy for reliable trimming
+  // ✅ FIXED: Enable audio proxy for reliable trimming
   const USE_AUDIO_PROXY = true; // ✅ CHANGED: Now enabled since we have /api/proxy-audio
 
   if (USE_AUDIO_PROXY) {
@@ -1056,6 +1080,10 @@ export default function App() {
   // ✅ ADDED: Reel sound state (TikTok style)
   const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
 
+  // ✅ ADDED: Story states
+  const [activeStory, setActiveStory] = useState<Story | null>(null);
+  const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
+
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
@@ -1079,11 +1107,9 @@ export default function App() {
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
-  const [activeStory, setActiveStory] = useState<Story | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
 
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
-  const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
 
@@ -1265,6 +1291,142 @@ export default function App() {
       setSongs([]);
     }
   }, []);
+
+  /** ---------- ✅ ADDED: Fetch Stories ---------- */
+  const fetchStories = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/stories');
+      const storiesList = safeArray(data?.stories ?? data);
+      
+      // Normalize stories and add user data
+      const normalizedStories = storiesList.map((story: any) => {
+        const normalized = normalizeStory(story);
+        
+        // Add user data if available
+        const userId = story.user_id;
+        const user = users.find(u => Number(u.id) === Number(userId));
+        if (user) {
+          normalized.user = user;
+        }
+        
+        return normalized;
+      });
+      
+      setStories(normalizedStories);
+    } catch (error) {
+      console.error('Failed to fetch stories:', error);
+      setStories([]);
+    }
+  }, [users]);
+
+  /** ---------- ✅ ADDED: Create Story Function ---------- */
+  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
+    if (!requireAuth('Creating stories')) return;
+    if (!currentUser) return;
+
+    try {
+      let mediaUrl = storyData.media_url;
+      let musicUrl = storyData.music_url;
+
+      // Upload media file if provided
+      if (storyData.media_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
+        mediaUrl = uploadResult.url;
+      }
+
+      // Upload audio file if provided
+      if (storyData.audio_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'story-audio');
+        musicUrl = uploadResult.url;
+      }
+
+      const payload = {
+        user_id: currentUser.id,
+        type: storyData.type || 'text',
+        text_content: storyData.text_content || null,
+        media_url: mediaUrl || null,
+        background_style: storyData.background_style || null,
+        music_url: musicUrl || null,
+        music_title: storyData.music_title || null,
+        created_at: new Date().toISOString(),
+      };
+
+      const data = await apiFetch('/api/stories', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const newStory = normalizeStory(data?.story ?? data);
+      newStory.user = currentUser;
+
+      // Add to stories list
+      setStories(prev => [newStory, ...prev]);
+
+      // Show success
+      setLoginError('Story created successfully!');
+      
+    } catch (error: any) {
+      console.error('Failed to create story:', error);
+      setLoginError(error?.message || 'Failed to create story');
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ ADDED: Like Story Function ---------- */
+  const likeStory = useCallback(async (storyId: number) => {
+    if (!requireAuth('Liking stories')) return;
+    if (!currentUser) return;
+
+    try {
+      // Optimistic update
+      setStories(prev => 
+        prev.map(story => {
+          if (Number(story.id) !== Number(storyId)) return story;
+          
+          return {
+            ...story,
+            liked_by_me: !story.liked_by_me
+          };
+        })
+      );
+
+      await apiFetch(`/api/stories/${storyId}/like`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+    } catch (error) {
+      console.error('Failed to like story:', error);
+      // Revert optimistic update
+      fetchStories().catch(() => {});
+    }
+  }, [currentUser, requireAuth, fetchStories]);
+
+  /** ---------- ✅ ADDED: Reply to Story Function ---------- */
+  const replyToStory = useCallback(async (storyId: number, text: string) => {
+    if (!requireAuth('Replying to stories')) return;
+    if (!currentUser) return;
+
+    try {
+      await apiFetch(`/api/stories/${storyId}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          user_id: currentUser.id, 
+          text: text 
+        }),
+      });
+
+      // Show success toast
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.innerText = 'Reply sent!';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+
+    } catch (error) {
+      console.error('Failed to reply to story:', error);
+      setLoginError('Failed to send reply');
+    }
+  }, [currentUser, requireAuth]);
 
   // ✅ FIXED: Call fetchMyTotalPlays only after auth is hydrated
   useEffect(() => {
@@ -1754,7 +1916,7 @@ export default function App() {
       songName,
       // ✅ for trimming/fetching (use audio_fetch_url if available, otherwise generate fetchable URL)
       audioUrl: soundFromReel?.audio_fetch_url || toFetchableAudioUrl(audioUrlRaw),
-      // ✅ for saving to D1 (REUSE SOUND must use this)
+      // ✅ Store the raw URL (originalUrl) for re-trimming
       originalUrl: audioUrlRaw,
       audioStart,
       audioEnd,
@@ -1915,14 +2077,6 @@ export default function App() {
       setProfilePosts([]);
     }
   }, [currentUser, posts]);
-
-  /** ✅ Fetch profile posts when user opens profile ---------- */
-  useEffect(() => {
-    if (view !== 'profile') return;
-    if (!selectedUserId) return;
-
-    fetchProfilePosts(Number(selectedUserId)).catch(() => {});
-  }, [view, selectedUserId, fetchProfilePosts]);
 
   /** ---------- Fetch follow data for a user ---------- */
   const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
@@ -2122,11 +2276,15 @@ const createEvent = useCallback(async (eventData: any) => {
       apiFetch('/api/products').catch(() => []),
       apiFetch('/api/groups').catch(() => []),
       apiFetch('/api/brands').catch(() => []),
-      apiFetch('/api/events').catch(() => []),
+      // ✅ CRITICAL FIX: Always normalize events when loading
+      apiFetch('/api/events').then(data => safeArray(data?.events ?? data).map(normalizeEvent)).catch(() => []),
       apiFetch('/api/chats').catch(() => []),
     ]);
 
-    setStories(safeArray(s));
+    // Handle stories
+    const storiesList = safeArray(s);
+    const normalizedStories = storiesList.map(normalizeStory);
+    setStories(normalizedStories);
     
     // ✅ FIXED: Handle different API response formats for products
     const prRaw = pr;
@@ -2153,15 +2311,9 @@ const createEvent = useCallback(async (eventData: any) => {
     
     setBrands(safeArray(b));
     
-    // ✅ UPDATED: Normalize events
-    const eRaw = e;
-    const eList = Array.isArray(eRaw)
-      ? eRaw
-      : Array.isArray((eRaw as any)?.events) ? (eRaw as any).events
-      : Array.isArray((eRaw as any)?.results) ? (eRaw as any).results
-      : [];
-    
-    setEvents(eList.map(normalizeEvent));
+    // ✅ UPDATED: Normalize events (already normalized above)
+    // e is already normalized from Promise.all
+    setEvents(e);
     
     setChats(safeArray(c));
   }, []);
@@ -2445,9 +2597,10 @@ const createEvent = useCallback(async (eventData: any) => {
         fetchOtherData(), 
         fetchReels(),
         fetchSongs(), // ✅ ADDED: Fetch UNERA Music songs
+        fetchStories(), // ✅ ADDED: Fetch stories
       ]);
     },
-    [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs]
+    [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
   /** ---------- ✅ FIXED: Restore session + initial load with auth hydration ---------- */
@@ -2900,6 +3053,8 @@ const createEvent = useCallback(async (eventData: any) => {
     setSelectedUserId(null);
     setProfilePosts([]);
     setReels([]);
+    setStories([]); // ✅ Clear stories on logout
+    setActiveStory(null); // ✅ Clear active story
     setActiveHashtag(null); // ✅ Clear hashtag filter on logout
     setLikedTracks([]); // ✅ Clear liked tracks on logout
     setMyTotalPlays(0); // ✅ Clear total plays on logout
@@ -3396,6 +3551,7 @@ const createEvent = useCallback(async (eventData: any) => {
                 </div>
               )}
 
+              {/* ✅ STORY REEL - Now properly implemented */}
               <StoryReel
                 stories={stories}
                 onProfileClick={(id) => openProfile(id)}
@@ -3865,6 +4021,25 @@ const createEvent = useCallback(async (eventData: any) => {
         />
       )}
 
+      {/* ✅ ACTIVE STORY VIEWER MODAL */}
+      {activeStory && (
+        <StoryViewerModal
+          story={activeStory}
+          onClose={() => setActiveStory(null)}
+          onProfileClick={(id) => openProfile(id)}
+        />
+      )}
+
+      {/* ✅ CREATE STORY MODAL */}
+      {showCreateStoryModal && currentUser && (
+        <CreateStoryModal
+          currentUser={currentUser}
+          songs={songs}
+          onClose={() => setShowCreateStoryModal(false)}
+          onCreate={createStory}
+        />
+      )}
+
       {/* ✅ MOUNT THE GLOBAL AUDIO PLAYER ONCE */}
       {currentAudioTrack && (
         <GlobalAudioPlayer
@@ -3896,10 +4071,6 @@ const createEvent = useCallback(async (eventData: any) => {
       )}
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
-
-      {showCreateStoryModal && currentUser && (
-        <CreateStoryModal currentUser={currentUser} onClose={() => setShowCreateStoryModal(false)} onCreate={() => {}} />
-      )}
     </div>
   );
 }
