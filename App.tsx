@@ -1,3 +1,4 @@
+// App.tsx - FULLY UPDATED WITH EVENTS INTEGRATION
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -370,6 +371,44 @@ const normalizePost = (p: any): PostType => {
     reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
     reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
     likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
+  } as any;
+};
+
+/** ✅ UPDATED: Normalize event data ---------- */
+const normalizeEvent = (e: any): Event => {
+  const id = e?.id ?? e?.event_id ?? 0;
+  const date = e?.date ?? e?.event_date ?? new Date().toISOString();
+  const eventDate = new Date(date);
+  
+  // Handle attendees and interestedIds arrays
+  const attendees = Array.isArray(e?.attendees) 
+    ? e.attendees.map(Number).filter(Number.isFinite)
+    : Array.isArray(e?.attendee_ids)
+    ? e.attendee_ids.map(Number).filter(Number.isFinite)
+    : [];
+
+  const interestedIds = Array.isArray(e?.interestedIds) 
+    ? e.interestedIds.map(Number).filter(Number.isFinite)
+    : Array.isArray(e?.interested_ids)
+    ? e.interested_ids.map(Number).filter(Number.isFinite)
+    : [];
+
+  return {
+    ...e,
+    id,
+    title: safeString(e?.title, 'Untitled Event'),
+    description: safeString(e?.description, ''),
+    date,
+    time: safeString(e?.time, eventDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+    location: safeString(e?.location, 'Location not specified'),
+    image: safeString(e?.image ?? e?.cover_url, 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80'),
+    organizerId: safeNumber(e?.organizerId ?? e?.creator_id ?? e?.user_id, 0),
+    organizer_name: safeString(e?.organizer_name ?? e?.creator_name, 'Organizer'),
+    organizer_avatar: safeString(e?.organizer_avatar ?? e?.creator_avatar, ''),
+    attendees,
+    interestedIds,
+    visibility: safeString(e?.visibility, 'worldwide') as 'worldwide' | 'targeted',
+    created_at: e?.created_at ?? new Date().toISOString(),
   } as any;
 };
 
@@ -1925,6 +1964,103 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
+  // ==================== EVENTS API INTEGRATIONS ====================
+
+  /** ---------- ✅ ADDED: Join event ---------- */
+  const joinEvent = useCallback(async (eventId: number) => {
+    if (!requireAuth('Joining events')) return;
+    if (!currentUser) return;
+
+    try {
+      const res = await apiFetch(`/api/events/${eventId}/attend`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+      if (res?.success) {
+        // Optimistically update events list
+        setEvents(prev => 
+          prev.map(event => 
+            event.id === eventId 
+              ? {
+                  ...event,
+                  attendees: [...event.attendees, currentUser.id].filter((v, i, a) => a.indexOf(v) === i),
+                  interestedIds: event.interestedIds.filter(id => id !== currentUser.id)
+                }
+              : event
+          )
+        );
+      }
+    } catch (error: any) {
+      console.error('Failed to join event:', error);
+      setLoginError(error?.message || 'Failed to join event');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ ADDED: Mark event as interested ---------- */
+  const markEventInterested = useCallback(async (eventId: number) => {
+    if (!requireAuth('Marking event as interested')) return;
+    if (!currentUser) return;
+
+    try {
+      const res = await apiFetch(`/api/events/${eventId}/interested`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+      if (res?.success) {
+        // Optimistically update events list
+        setEvents(prev => 
+          prev.map(event => 
+            event.id === eventId 
+              ? {
+                  ...event,
+                  interestedIds: [...event.interestedIds, currentUser.id].filter((v, i, a) => a.indexOf(v) === i),
+                  attendees: event.attendees.filter(id => id !== currentUser.id)
+                }
+              : event
+          )
+        );
+      }
+    } catch (error: any) {
+      console.error('Failed to mark event as interested:', error);
+      setLoginError(error?.message || 'Failed to mark interest');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ ADDED: Create event ---------- */
+  const createEvent = useCallback(async (eventData: Partial<Event>) => {
+    if (!requireAuth('Creating events')) return;
+    if (!currentUser) return;
+
+    try {
+      const payload = {
+        ...eventData,
+        creator_id: currentUser.id,
+        creator_name: currentUser.name,
+        creator_avatar: currentUser.profile_image_url,
+      };
+
+      const res = await apiFetch('/api/events', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const newEvent = normalizeEvent(res?.event ?? res);
+      
+      // Optimistically add to events list
+      setEvents(prev => [newEvent, ...prev]);
+      
+      return newEvent;
+    } catch (error: any) {
+      console.error('Failed to create event:', error);
+      setLoginError(error?.message || 'Failed to create event');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
   // ==================== GROUPS BACKEND INTEGRATIONS ====================
 
   /** ---------- ✅ FIXED: Fetch groups correctly with normalization ---------- */
@@ -1964,7 +2100,17 @@ export default function App() {
     setGroups(gList.map(normalizeGroup));
     
     setBrands(safeArray(b));
-    setEvents(safeArray(e));
+    
+    // ✅ UPDATED: Normalize events
+    const eRaw = e;
+    const eList = Array.isArray(eRaw)
+      ? eRaw
+      : Array.isArray((eRaw as any)?.events) ? (eRaw as any).events
+      : Array.isArray((eRaw as any)?.results) ? (eRaw as any).results
+      : [];
+    
+    setEvents(eList.map(normalizeEvent));
+    
     setChats(safeArray(c));
   }, []);
 
@@ -3423,7 +3569,8 @@ export default function App() {
             <EventsPage
               events={events}
               currentUser={currentUser as any}
-              onJoinEvent={() => requireAuth('Joining events')}
+              onJoinEvent={joinEvent}
+              onInterestedEvent={markEventInterested}
               onCreateEventClick={() => {
                 if (!requireAuth('Creating events')) return;
                 setShowCreateEventModal(true);
@@ -3581,7 +3728,7 @@ export default function App() {
         <CreateEventModal
           currentUser={currentUser}
           onClose={() => setShowCreateEventModal(false)}
-          onCreate={() => {}}
+          onCreate={createEvent}
         />
       )}
 
