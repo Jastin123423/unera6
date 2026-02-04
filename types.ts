@@ -324,57 +324,40 @@ export interface SearchResult {
 // EVENTS
 // =========================
 export interface Event {
-  // Core identifiers
   id: number;
-  
-  // Organizer info (supports multiple field names from API)
-  creator_id: number;
-  organizerId?: number;
-  user_id?: number;
-  organizer_name?: string;
-  creator_name?: string;
-  organizer_avatar?: string;
-  creator_avatar?: string;
-  
-  // Event details
+
   title: string;
   description: string;
-  
-  // Date & time (ISO format from API)
-  event_date: string;            // Primary from API
-  date?: string;                 // Display/alternative
-  time?: string;                 // Display time (e.g., "7:00 PM")
-  
-  // Location
+
+  // UI-safe fields (what your normalizeEvent creates)
+  date: string;         // ISO string
+  time?: string;        // display string
   location: string;
-  address?: string;
-  city?: string;
-  country?: string;
-  
-  // Images
-  cover_url: string;             // Primary from API
-  image?: string;                // Alternative/display
-  cover_image?: string;          // Another alternative
-  
-  // Attendance
+  image?: string;       // cover image url for UI
+
+  organizerId: number;
+  organizer_name?: string;
+  organizer_avatar?: string;
+
   attendees: number[];
-  attendee_ids?: number[];       // Alternative from API
-  interested_ids: number[];
-  interestedIds?: number[];      // Alternative from API
-  
-  // Settings
+  interestedIds: number[];
+
   visibility: 'worldwide' | 'targeted';
-  is_public?: boolean;
-  max_attendees?: number;
-  price?: number;
-  currency?: string;
-  
-  // Metadata
   created_at: string;
-  updated_at?: string;
-  status?: 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
-  
-  // For UI state (not from API)
+
+  // DB / API raw aliases (optional but supported)
+  event_date?: string;
+  event_time?: string;
+  cover_url?: string;
+
+  creator_id?: number;
+  creator_name?: string;
+  creator_avatar?: string;
+
+  attendee_ids?: number[];
+  interested_ids?: number[];
+
+  // UI-only state
   isAttending?: boolean;
   isInterested?: boolean;
   isLoading?: boolean;
