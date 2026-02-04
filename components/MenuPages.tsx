@@ -546,4 +546,4 @@ export const SettingsPage = () => {
   return <div className="p-6 text-white">SettingsPage not implemented yet.</div>;
 };
     
-export { default as EventsPage } from './EventsPage';
+
