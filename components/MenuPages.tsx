@@ -376,6 +376,13 @@ export const MemoriesPage = ({
   );
 };
 
-// ... Rest of component stays same
-export const EventsPage = ({ events, currentUser, onJoinEvent, onCreateEventClick, onProfileClick }: any) => { /* ... existing ... */ };
-export const SettingsPage = ({ currentUser, onUpdateUser }: any) => { /* ... existing ... */ }; 
+      // ... keep your existing code above
+
+export const EventsPage = () => {
+  return <div className="p-6 text-white">EventsPage not implemented yet.</div>;
+};
+
+export const SettingsPage = () => {
+  return <div className="p-6 text-white">SettingsPage not implemented yet.</div>;
+};
+
