@@ -374,41 +374,61 @@ const normalizePost = (p: any): PostType => {
   } as any;
 };
 
-/** ✅ UPDATED: Normalize event data ---------- */
+/** ✅ UPDATED: Normalize event data with safe arrays ---------- */
 const normalizeEvent = (e: any): Event => {
-  const id = e?.id ?? e?.event_id ?? 0;
-  const date = e?.date ?? e?.event_date ?? new Date().toISOString();
-  const eventDate = new Date(date);
-  
-  // Handle attendees and interestedIds arrays
-  const attendees = Array.isArray(e?.attendees) 
-    ? e.attendees.map(Number).filter(Number.isFinite)
-    : Array.isArray(e?.attendee_ids)
-    ? e.attendee_ids.map(Number).filter(Number.isFinite)
-    : [];
+  const id = safeNumber(e?.id ?? e?.event_id ?? 0);
 
-  const interestedIds = Array.isArray(e?.interestedIds) 
-    ? e.interestedIds.map(Number).filter(Number.isFinite)
-    : Array.isArray(e?.interested_ids)
-    ? e.interested_ids.map(Number).filter(Number.isFinite)
-    : [];
+  // DB column is event_date
+  const date = safeString(e?.date ?? e?.event_date ?? new Date().toISOString());
+
+  const time =
+    safeString(
+      e?.time ?? e?.event_time ?? '',
+      ''
+    ) || (() => {
+      const d = new Date(date);
+      return Number.isFinite(d.getTime())
+        ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '';
+    })();
+
+  const attendees =
+    Array.isArray(e?.attendees) ? e.attendees :
+    Array.isArray(e?.attendee_ids) ? e.attendee_ids :
+    Array.isArray(e?.attendees_ids) ? e.attendees_ids :
+    [];
+
+  const interestedIds =
+    Array.isArray(e?.interestedIds) ? e.interestedIds :
+    Array.isArray(e?.interested_ids) ? e.interested_ids :
+    Array.isArray(e?.interested) ? e.interested :
+    [];
 
   return {
     ...e,
     id,
     title: safeString(e?.title, 'Untitled Event'),
     description: safeString(e?.description, ''),
-    date,
-    time: safeString(e?.time, eventDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
-    location: safeString(e?.location, 'Location not specified'),
-    image: safeString(e?.image ?? e?.cover_url, 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80'),
-    organizerId: safeNumber(e?.organizerId ?? e?.creator_id ?? e?.user_id, 0),
-    organizer_name: safeString(e?.organizer_name ?? e?.creator_name, 'Organizer'),
-    organizer_avatar: safeString(e?.organizer_avatar ?? e?.creator_avatar, ''),
-    attendees,
-    interestedIds,
-    visibility: safeString(e?.visibility, 'worldwide') as 'worldwide' | 'targeted',
-    created_at: e?.created_at ?? new Date().toISOString(),
+    date,                          // UI field
+    time,                          // UI field
+    location: safeString(e?.location, ''),
+    image: safeString(
+      e?.image ?? e?.cover_url ?? '',
+      'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80'
+    ),
+
+    visibility: (safeString(e?.visibility, 'worldwide') as any),
+
+    // DB columns are creator_*
+    organizerId: safeNumber(e?.organizerId ?? e?.creator_id ?? 0),
+    organizer_name: safeString(e?.organizer_name ?? e?.creator_name ?? ''),
+    organizer_avatar: safeString(e?.organizer_avatar ?? e?.creator_avatar ?? ''),
+
+    // ALWAYS arrays (prevents blank screens)
+    attendees: safeArray(attendees).map(Number).filter(Number.isFinite),
+    interestedIds: safeArray(interestedIds).map(Number).filter(Number.isFinite),
+
+    created_at: safeString(e?.created_at ?? '', new Date().toISOString()),
   } as any;
 };
 
@@ -1978,14 +1998,14 @@ export default function App() {
       });
 
       if (res?.success) {
-        // Optimistically update events list
+        // Optimistically update events list with safe arrays
         setEvents(prev => 
-          prev.map(event => 
+          safeArray(prev).map(event => 
             event.id === eventId 
               ? {
                   ...event,
-                  attendees: [...event.attendees, currentUser.id].filter((v, i, a) => a.indexOf(v) === i),
-                  interestedIds: event.interestedIds.filter(id => id !== currentUser.id)
+                  attendees: [...safeArray(event.attendees), currentUser.id].filter((v, i, a) => a.indexOf(v) === i),
+                  interestedIds: safeArray(event.interestedIds).filter(id => id !== currentUser.id)
                 }
               : event
           )
@@ -2010,14 +2030,14 @@ export default function App() {
       });
 
       if (res?.success) {
-        // Optimistically update events list
+        // Optimistically update events list with safe arrays
         setEvents(prev => 
-          prev.map(event => 
+          safeArray(prev).map(event => 
             event.id === eventId 
               ? {
                   ...event,
-                  interestedIds: [...event.interestedIds, currentUser.id].filter((v, i, a) => a.indexOf(v) === i),
-                  attendees: event.attendees.filter(id => id !== currentUser.id)
+                  interestedIds: [...safeArray(event.interestedIds), currentUser.id].filter((v, i, a) => a.indexOf(v) === i),
+                  attendees: safeArray(event.attendees).filter(id => id !== currentUser.id)
                 }
               : event
           )
@@ -2030,17 +2050,30 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ ADDED: Create event ---------- */
-  const createEvent = useCallback(async (eventData: Partial<Event>) => {
+  /** ✅ UPDATED: CREATE EVENT FUNCTION WITH UI->DB KEY MAPPING ---------- */
+  const createEvent = useCallback(async (eventData: any) => {
     if (!requireAuth('Creating events')) return;
     if (!currentUser) return;
 
     try {
+      // ✅ Accept both UI-shaped and DB-shaped inputs safely
       const payload = {
-        ...eventData,
-        creator_id: currentUser.id,
-        creator_name: currentUser.name,
-        creator_avatar: currentUser.profile_image_url,
+        title: safeString(eventData?.title).trim(),
+        description: safeString(eventData?.description).trim(),
+
+        // ✅ Map UI date/time -> DB columns
+        event_date: safeString(eventData?.event_date ?? eventData?.date),
+        event_time: safeString(eventData?.event_time ?? eventData?.time),
+
+        location: safeString(eventData?.location).trim(),
+        visibility: safeString(eventData?.visibility, 'worldwide'),
+
+        // ✅ Map UI image -> DB cover_url
+        cover_url: safeString(eventData?.cover_url ?? eventData?.image),
+
+        creator_id: Number(currentUser.id),
+        creator_name: safeString(currentUser.name),
+        creator_avatar: safeString(currentUser.profile_image_url),
       };
 
       const res = await apiFetch('/api/events', {
@@ -2049,10 +2082,9 @@ export default function App() {
       });
 
       const newEvent = normalizeEvent(res?.event ?? res);
-      
-      // Optimistically add to events list
-      setEvents(prev => [newEvent, ...prev]);
-      
+
+      // ✅ Optimistic add to events list with safe array
+      setEvents(prev => [newEvent, ...safeArray(prev)]);
       return newEvent;
     } catch (error: any) {
       console.error('Failed to create event:', error);
