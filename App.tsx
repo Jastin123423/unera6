@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONALLY UPDATED WITH FETCH LOOP FIX + CLICK FREEZE FIX
+// App.tsx - PROFESSIONALLY UPDATED WITH TDZ FIX
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -1014,7 +1014,6 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
         ...p,
         reactions: (existing as any).reactions,
         shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
-        // ✅ FIXED 5: Change (existing as Any) to (existing as any)
         comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
       } as any);
     } else {
@@ -1329,7 +1328,7 @@ export default function App() {
     } finally {
       setPlaysLoading(false);
     }
-  }, [myTotalPlays, apiFetch]);
+  }, [myTotalPlays]); // ✅ REMOVED: apiFetch from dependencies (it's a module-level constant)
 
   /** ---------- ✅ UPDATED: Fetch UNERA Music songs with BOTH raw and fetchable URLs ---------- */
   const fetchSongs = useCallback(async () => {
@@ -1735,15 +1734,6 @@ export default function App() {
     }
   }, []);
 
-  // ✅ Update function refs when functions change
-  useEffect(() => {
-    fetchPostsForHomeRef.current = fetchPostsForHome;
-  }, [fetchPostsForHome]);
-
-  useEffect(() => {
-    fetchReelsRef.current = fetchReels;
-  }, [fetchReels]);
-
   /** ✅ UPDATED: Generate sound key based on sound type ---------- */
   const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
     // Use soundKey from reelData if provided
@@ -2107,6 +2097,15 @@ export default function App() {
     },
     [activeCommentsPostId, feedHydrated]
   );
+
+  // ✅ ✅ ✅ CRITICAL FIX: MOVE THE EFFECTS HERE, AFTER fetchPostsForHome IS DEFINED
+  useEffect(() => {
+    fetchPostsForHomeRef.current = fetchPostsForHome;
+  }, [fetchPostsForHome]);
+
+  useEffect(() => {
+    fetchReelsRef.current = fetchReels;
+  }, [fetchReels]);
 
   /** ✅ Fetch profile posts with viewerId (latest only) ---------- */
   const fetchProfilePosts = useCallback(async (profileUserId: number) => {
