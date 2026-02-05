@@ -1,8 +1,60 @@
+  
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack } from '../types';
 import { CreatePost, Post, CreatePostModal } from './Feed';
 
-// ... (keep existing defensive helpers and getMediaTypeInfo)
+/**
+ * Defensive helpers to prevent blank-screen crashes
+ * when backend returns raw D1 rows (missing arrays like reactions/comments).
+ */
+const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+const safeNumber = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+
+/**
+ * ✅ ADDED: Robust media type detection for Cloudflare R2
+ */
+const getMediaTypeInfo = (post: any) => {
+  const mediaUrl = String(post?.media_url || '');
+  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
+  const typeRaw = String(post?.type || '').toLowerCase();
+
+  // Extract file extension from URL (ignoring query params and fragments)
+  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
+  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
+
+  // Check if it's an image
+  const isImage =
+    typeRaw === 'image' ||
+    mediaTypeRaw === 'image' ||
+    mediaTypeRaw.startsWith('image/') ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
+
+  // Check if it's a video
+  const isVideo =
+    typeRaw === 'video' ||
+    mediaTypeRaw === 'video' ||
+    mediaTypeRaw.startsWith('video/') ||
+    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
+
+  // Check if it's audio
+  const isAudio =
+    typeRaw === 'audio' ||
+    mediaTypeRaw.startsWith('audio/') ||
+    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
+
+  return {
+    mediaUrl,
+    isImage,
+    isVideo,
+    isAudio,
+    extension: ext,
+    mimeType: mediaTypeRaw,
+  };
+};
 
 interface EditProfileModalProps {
   user: User;
@@ -10,7 +62,116 @@ interface EditProfileModalProps {
   onSave: (updatedData: Partial<User>) => void;
 }
 
-// ... (keep EditProfileModal component as is)
+const EditProfileModal: React.FC<EditProfileModalProps> = ({ user, onClose, onSave }) => {
+  const [bio, setBio] = useState(safeString((user as any).bio, ''));
+  const [work, setWork] = useState(safeString((user as any).work, ''));
+  const [education, setEducation] = useState(safeString((user as any).education, ''));
+  const [location, setLocation] = useState(safeString((user as any).location, ''));
+  const [website, setWebsite] = useState(safeString((user as any).website, ''));
+
+  const handleSave = () => {
+    onSave({ bio, work, education, location, website });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in font-sans">
+      <div className="bg-[#242526] w-full max-w-[600px] rounded-xl border border-[#3E4042] shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="p-4 border-b border-[#3E4042] flex justify-between items-center">
+          <h2 className="text-xl font-bold text-[#E4E6EB]">Edit Profile</h2>
+          <div
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center cursor-pointer"
+          >
+            <i className="fas fa-times text-[#B0B3B8]"></i>
+          </div>
+        </div>
+
+        <div className="p-4 overflow-y-auto space-y-4">
+          <div>
+            <label className="text-[#E4E6EB] font-bold text-sm block mb-1">Bio</label>
+            <textarea
+              className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-3 text-[#E4E6EB] outline-none focus:border-[#1877F2] text-center"
+              rows={3}
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="Describe yourself..."
+            />
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="text-[#E4E6EB] font-bold text-lg">Details</h3>
+
+            <div>
+              <div className="flex items-center gap-2 mb-1 text-[#B0B3B8]">
+                <i className="fas fa-briefcase w-5 text-center"></i>
+                <span className="text-sm">Work</span>
+              </div>
+              <input
+                type="text"
+                className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+                value={work}
+                onChange={(e) => setWork(e.target.value)}
+                placeholder="Add a workplace"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-1 text-[#B0B3B8]">
+                <i className="fas fa-graduation-cap w-5 text-center"></i>
+                <span className="text-sm">Education</span>
+              </div>
+              <input
+                type="text"
+                className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+                value={education}
+                onChange={(e) => setEducation(e.target.value)}
+                placeholder="Add a high school or university"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-1 text-[#B0B3B8]">
+                <i className="fas fa-map-marker-alt w-5 text-center"></i>
+                <span className="text-sm">Location</span>
+              </div>
+              <input
+                type="text"
+                className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Add current city"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-1 text-[#B0B3B8]">
+                <i className="fas fa-link w-5 text-center"></i>
+                <span className="text-sm">Website</span>
+              </div>
+              <input
+                type="text"
+                className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                placeholder="Add website link"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-[#3E4042] bg-[#242526] rounded-b-xl">
+          <button
+            onClick={handleSave}
+            className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-lg font-bold shadow-md transition-colors active:scale-95 active:shadow-inner"
+          >
+            Save Details
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface UserProfileProps {
   user: User;
@@ -48,16 +209,8 @@ interface UserProfileProps {
   onMakeModerator?: (id: number, make: boolean) => void;
   onCreateStoryClick?: () => void;
   
-  // ✅ NEW: For fetching profile posts with viewer context
+  // ✅ ADDED: New prop for fetching profile posts with viewer context
   fetchProfilePosts?: (profileUserId: number, viewerId: number | null) => Promise<PostType[]>;
-  
-  // ✅ NEW: Cached followers for stability
-  cachedFollowers?: number[];
-  // ✅ NEW: Profile image/cover freeze props
-  stableProfileImage?: string;
-  stableCoverImage?: string;
-  // ✅ NEW: Stable author for posts
-  stableAuthor?: User;
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -90,11 +243,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   onDeleteUser,
   onMakeModerator,
   onCreateStoryClick,
-  fetchProfilePosts,
-  cachedFollowers, // ✅ NEW: Stable followers from cache
-  stableProfileImage, // ✅ NEW: Frozen profile image
-  stableCoverImage, // ✅ NEW: Frozen cover image
-  stableAuthor, // ✅ NEW: Stable author for posts
+  fetchProfilePosts, // ✅ NEW: Optional custom fetch function
 }) => {
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
@@ -106,30 +255,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const isCurrentUser = Boolean(currentUser && Number(user?.id) === Number(currentUser?.id));
   const isSelf = isCurrentUser;
 
-  // ✅ UPDATED: Facebook-style stable followers logic
-  const [optimisticFollowers, setOptimisticFollowers] = useState<number[]>(() => {
-    // Prefer cached followers first
-    if (Array.isArray(cachedFollowers) && cachedFollowers.length >= 0) {
-      return cachedFollowers;
-    }
-    // Fallback to user's followers (defensive)
-    return safeArray<number>((user as any)?.followers || []);
-  });
-
-  // ✅ FIXED: Update optimistic followers when cachedFollowers changes
-  useEffect(() => {
-    if (Array.isArray(cachedFollowers) && cachedFollowers.length >= 0) {
-      setOptimisticFollowers(cachedFollowers);
-    }
-  }, [cachedFollowers]);
-
-  // ✅ PROFESSIONALLY FIXED: Facebook-style follow logic with optimistic updates
+  // ✅ FIXED: Simple and correct follow logic
   const isFollowing = useMemo(() => {
     if (!currentUser) return false;
-    return optimisticFollowers.includes(currentUser.id);
-  }, [currentUser, optimisticFollowers]);
+    
+    const userFollowers = safeArray<number>((user as any)?.followers || []);
+    return userFollowers.includes(currentUser.id);
+  }, [currentUser, user]);
 
-  const followerCount = optimisticFollowers.length;
+  const userFollowers = useMemo(() => safeArray<number>((user as any).followers || []), [user]);
+  const followerCount = userFollowers.length;
 
   // ✅ PROFESSIONALLY FIXED: Check if current user is admin or moderator (with trim)
   const roleOf = (u: any) => String(u?.role || "").trim().toLowerCase();
@@ -139,65 +274,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
-
-  // ✅ ADDED: Ref-based image freezing (extra safety layer)
-  const profileImageRef = useRef<string>('');
-  const coverImageRef = useRef<string>('');
-
-  const isValidImg = (v: any) => {
-    const s = String(v ?? '').trim();
-    return !!s && s !== 'null' && s !== 'undefined' && s !== '';
-  };
-
-  // Freeze images: Use stable props first, then ref fallback, then safeString
-  useEffect(() => {
-    const next = stableProfileImage || (user as any)?.profile_image_url;
-    if (isValidImg(next)) profileImageRef.current = String(next);
-  }, [stableProfileImage, (user as any)?.profile_image_url]);
-
-  useEffect(() => {
-    const next = stableCoverImage || (user as any)?.cover_image_url;
-    if (isValidImg(next)) coverImageRef.current = String(next);
-  }, [stableCoverImage, (user as any)?.cover_image_url]);
-
-  // ✅ UPDATED: Facebook-style frozen images
-  const displayProfileImage = useMemo(() => {
-    // Priority 1: Stable prop
-    if (stableProfileImage && isValidImg(stableProfileImage)) return stableProfileImage;
-    // Priority 2: Current user's image
-    if (isValidImg((user as any)?.profile_image_url)) return String((user as any)?.profile_image_url);
-    // Priority 3: Frozen ref (last good image)
-    if (profileImageRef.current) return profileImageRef.current;
-    // Priority 4: Safe fallback
-    return safeString((user as any)?.profile_image_url, '');
-  }, [stableProfileImage, user]);
-
-  const displayCoverImage = useMemo(() => {
-    // Priority 1: Stable prop
-    if (stableCoverImage && isValidImg(stableCoverImage)) return stableCoverImage;
-    // Priority 2: Current user's image
-    if (isValidImg((user as any)?.cover_image_url)) return String((user as any)?.cover_image_url);
-    // Priority 3: Frozen ref (last good image)
-    if (coverImageRef.current) return coverImageRef.current;
-    // Priority 4: Safe fallback
-    return safeString((user as any)?.cover_image_url, '');
-  }, [stableCoverImage, user]);
-
-  // ✅ UPDATED: Stable author for posts
-  const postAuthor = useMemo(() => {
-    if (stableAuthor) return stableAuthor;
-    
-    // Create a stable version of user with frozen images
-    return {
-      ...user,
-      profile_image_url: displayProfileImage,
-      cover_image_url: displayCoverImage,
-      // ✅ Keep followers stable too
-      followers: optimisticFollowers,
-    };
-  }, [stableAuthor, user, displayProfileImage, displayCoverImage, optimisticFollowers]);
-
-  const safeBio = safeString((user as any)?.bio, '');
 
   // ✅ ADDED: Helper for safe post ID extraction
   const safePostId = (p: any) => {
@@ -264,6 +340,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
   const totalEngagement = totalLikes + totalComments + totalShares;
 
+  const safeProfileImage = safeString((user as any)?.profile_image_url, '');
+  const safeCoverImage = safeString((user as any)?.cover_image_url, '');
+  const safeBio = safeString((user as any)?.bio, '');
+
   // ✅ ADDED: Image validation handler
   const validateAndUploadImage = (file: File, uploadCallback: (file: File) => void) => {
     if (!file.type || !file.type.startsWith('image/')) {
@@ -282,26 +362,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     uploadCallback(file);
   };
 
-  // ✅ UPDATED: Facebook-style follow handler with optimistic updates
+  // ✅ ADDED: Enhanced follow handler with animation
   const handleFollowClick = () => {
     if (!currentUser) return;
     
-    const myId = currentUser.id;
-    const targetId = user.id;
-    
-    // 1. Optimistic UI update (Facebook-style immediate response)
     setIsFollowButtonClicked(true);
-    setOptimisticFollowers(prev => {
-      const isCurrentlyFollowing = prev.includes(myId);
-      return isCurrentlyFollowing 
-        ? prev.filter(id => id !== myId) 
-        : [...prev, myId];
-    });
+    onFollow(user.id);
     
-    // 2. Call parent handler (which should update cache in App.tsx)
-    onFollow(targetId);
-    
-    // 3. Reset button animation
     setTimeout(() => {
       setIsFollowButtonClicked(false);
     }, 300);
@@ -510,7 +577,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Followers</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {users
-                .filter((u) => optimisticFollowers.includes(u.id))
+                .filter((u) => userFollowers.includes(u.id))
                 .map((follower) => (
                   <div
                     key={follower.id}
@@ -675,15 +742,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 </>
               )}
 
-              {/* ✅ MODIFIED: Use profilePosts with proper reaction handler and STABLE author */}
+              {/* ✅ MODIFIED: Use profilePosts with proper reaction handler */}
               {profilePosts.map((post: any) => (
                 <Post
                   key={post.id}
                   post={post}
-                  author={postAuthor} // ✅ CRITICAL: Use stable author
+                  author={user}
                   currentUser={currentUser}
                   onProfileClick={onProfileClick}
-                  onReact={handleProfileReact}
+                  onReact={handleProfileReact} // ✅ Important: Use local handler
                   onShare={onShare}
                   onDelete={onDeletePost}
                   onEdit={onEditPost}
@@ -731,12 +798,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       <div className="bg-[#242526] shadow-sm">
         <div className="max-w-[1095px] mx-auto w-full relative">
           <div className="h-[200px] md:h-[350px] w-full bg-gray-700 relative overflow-hidden md:rounded-b-xl">
-            {displayCoverImage ? (
+            {safeCoverImage ? (
               <img
-                src={displayCoverImage}
+                src={safeCoverImage}
                 alt="Cover"
                 className="w-full h-full object-cover cursor-pointer"
-                onClick={() => onViewImage(displayCoverImage)}
+                onClick={() => onViewImage(safeCoverImage)}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-500">No Cover</div>
@@ -751,7 +818,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   <i className="fas fa-camera"></i> Edit cover photo
                 </div>
                 
-                {!displayCoverImage && (
+                {!safeCoverImage && (
                   <div
                     className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/50 active:scale-95 transition-transform"
                     onClick={() => coverInputRef.current?.click()}
@@ -769,12 +836,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           <div className="px-4 pb-0">
             <div className="flex flex-col md:flex-row items-center md:items-end -mt-[84px] md:-mt-[30px] relative z-10 mb-4">
               <div className="w-[168px] h-[168px] rounded-full border-[6px] border-[#242526] bg-[#242526] overflow-hidden cursor-pointer relative group">
-                {displayProfileImage ? (
+                {safeProfileImage ? (
                   <img
-                    src={displayProfileImage}
+                    src={safeProfileImage}
                     alt={safeString((user as any).name, 'User')}
                     className="w-full h-full object-cover"
-                    onClick={() => onViewImage(displayProfileImage)}
+                    onClick={() => onViewImage(safeProfileImage)}
                   />
                 ) : (
                   <div className="w-full h-full bg-[#3A3B3C] flex items-center justify-center text-[#B0B3B8]">
@@ -791,7 +858,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       <i className="fas fa-camera text-white text-3xl"></i>
                     </div>
                     
-                    {!displayProfileImage && (
+                    {!safeProfileImage && (
                       <div
                         className="absolute inset-0 flex items-center justify-center bg-black/60 cursor-pointer active:scale-95 transition-transform"
                         onClick={() => profileInputRef.current?.click()}
@@ -1005,7 +1072,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     }`}
                   >
                     Remove Moderator {isSelf ? "(Self)" : ""}
-                </button>
+                  </button>
                 </div>
               )}
 
