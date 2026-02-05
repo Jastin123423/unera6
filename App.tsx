@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONALLY UPDATED WITH FETCH LOOP FIX & CACHE-BASED FOLLOW
+// App.tsx - PROFESSIONALLY UPDATED WITH FETCH LOOP FIX + CLICK FREEZE FIX
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -1109,6 +1109,13 @@ export default function App() {
     usersRef.current = users;
   }, [users]);
   
+  // ✅ CLICK FREEZE FIX: Add function refs
+  const currentUserRef = useRef<User | null>(null);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+
+  const fetchPostsForHomeRef = useRef(fetchPostsForHome);
+  const fetchReelsRef = useRef(fetchReels);
+  
   const [posts, setPosts] = useState<PostType[]>([]);
   const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
@@ -1720,6 +1727,15 @@ export default function App() {
     }
   }, []);
 
+  // ✅ Update function refs when functions change
+  useEffect(() => {
+    fetchPostsForHomeRef.current = fetchPostsForHome;
+  }, [fetchPostsForHome]);
+
+  useEffect(() => {
+    fetchReelsRef.current = fetchReels;
+  }, [fetchReels]);
+
   /** ✅ UPDATED: Generate sound key based on sound type ---------- */
   const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
     // Use soundKey from reelData if provided
@@ -2179,6 +2195,7 @@ export default function App() {
   const scheduleSilentRefresh = useCallback(() => {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
     scheduleSilentRefreshRef.current = setTimeout(() => {
+      if (document.visibilityState !== 'visible') return;
       fetchPostsForHome(currentUser).catch(() => {});
       fetchReels().catch(() => {});
     }, 8000);
@@ -2678,11 +2695,11 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // ✅ EMPTY deps - prevents re-init loops
 
-  /** ---------- Return detection (leave -> come back => new seed + refresh) ---------- */
+  /** ✅ CLICK FREEZE FIX: Fixed Return detection effect (runs once + no leaks) ---------- */
   useEffect(() => {
     const markActive = () => {
       try {
-        localStorage.setItem(FEED_LAST_ACTIVE_KEY, String(nowMs()));
+        localStorage.setItem(FEED_LAST_ACTIVE_KEY, String(Date.now()));
       } catch {}
     };
 
@@ -2693,28 +2710,33 @@ export default function App() {
       }
 
       const last = Number(localStorage.getItem(FEED_LAST_ACTIVE_KEY) || '0') || 0;
-      const away = nowMs() - last;
+      const away = Date.now() - last;
 
       if (away > FEED_RETURN_THRESHOLD_MS) {
-        try {
-          sessionStorage.removeItem(FEED_SESSION_KEY);
-        } catch {}
-        fetchPostsForHome(currentUser).catch(() => {});
-        fetchReels().catch(() => {});
+        try { sessionStorage.removeItem(FEED_SESSION_KEY); } catch {}
+
+        // ✅ use refs (latest functions + latest user) without re-subscribing listeners
+        fetchPostsForHomeRef.current(currentUserRef.current).catch(() => {});
+        fetchReelsRef.current().catch(() => {});
       }
     };
 
-    const events = ['click', 'scroll', 'keydown', 'touchstart'];
-    events.forEach((e) => window.addEventListener(e, markActive, { passive: true } as any));
+    // ✅ IMPORTANT: don't include "click" (too frequent + conflicts with UI)
+    const activityEvents: (keyof WindowEventMap)[] = ['scroll', 'keydown', 'touchstart', 'pointerdown'];
+
+    // ✅ stable options
+    const opts: AddEventListenerOptions = { passive: true };
+
+    activityEvents.forEach((e) => window.addEventListener(e, markActive, opts));
     document.addEventListener('visibilitychange', onVisibility);
 
     markActive();
 
     return () => {
-      events.forEach((e) => window.removeEventListener(e, markActive as any));
+      activityEvents.forEach((e) => window.removeEventListener(e, markActive, opts));
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [currentUser, fetchPostsForHome, fetchReels]);
+  }, []); // ✅ EMPTY deps - runs once only
 
   /** ---------- Smart Polling ---------- */
   useEffect(() => {
