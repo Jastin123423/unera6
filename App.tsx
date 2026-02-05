@@ -1,4 +1,4 @@
-// App.tsx - FULLY UPDATED WITH STORIES & EVENTS FIX
+// App.tsx - FULLY UPDATED WITH CRITICAL BUG FIXES
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -976,7 +976,7 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
         ...p,
         reactions: (existing as any).reactions,
         shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
-        // ✅ FIXED 5: Change (existing as Any) to (existing as any)
+        // ✅ FIXED: Change (existing as Any) to (existing as any)
         comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
       } as any);
     } else {
@@ -1085,6 +1085,18 @@ export default function App() {
   const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  
+  /** ---------- ✅ FIX 1: Moved requireAuth HERE (TDZ fix) ---------- */
+  const requireAuth = useCallback(
+    (actionName = 'This action') => {
+      if (currentUser) return true;
+      setLoginError(`${actionName} requires login.`);
+      setView('login');
+      return false;
+    },
+    [currentUser]
+  );
+  
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
 
@@ -1362,8 +1374,8 @@ export default function App() {
       // Add to stories list
       setStories(prev => [newStory, ...prev]);
 
-      // Show success
-      setLoginError('Story created successfully!');
+      // ✅ FIX 5: Clear error instead of setting success message
+      setLoginError('');
       
     } catch (error: any) {
       console.error('Failed to create story:', error);
@@ -1564,17 +1576,6 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
-  /** ---------- Auth gate ---------- */
-  const requireAuth = useCallback(
-    (actionName = 'This action') => {
-      if (currentUser) return true;
-      setLoginError(`${actionName} requires login.`);
-      setView('login');
-      return false;
-    },
-    [currentUser]
-  );
-
   /** ---------- ✅ ADDED: CREATE PRODUCT FUNCTION ---------- */
   const createProduct = useCallback(async (productData: any) => {
     if (!requireAuth("Creating products")) return;
@@ -1698,7 +1699,7 @@ export default function App() {
     return 'original:none';
   }, [currentUser]);
 
-  /** ✅ UPDATED: Create reel with physical audio trimming support ---------- */
+  /** ✅ FIX 2: Create reel with robust video file detection ---------- */
   const createReel = useCallback(async (reelData: Partial<Reel> & { 
     videoFile?: File | Blob; 
     audioFile?: File | Blob;
@@ -1712,10 +1713,24 @@ export default function App() {
     setIsFeedRefreshing(true);
     
     try {
-      const videoFile = reelData.videoFile;
-      const audioFile = reelData.audioFile;
-      
+      // ✅ FIX 2: Robust video file resolver with multiple possible keys
+      const videoFile =
+        reelData.videoFile ??
+        (reelData as any).video_file ??
+        (reelData as any).video ??
+        (reelData as any).file ??
+        (reelData as any).selectedVideo ??
+        null;
+
+      const audioFile =
+        reelData.audioFile ??
+        (reelData as any).audio_file ??
+        (reelData as any).audio ??
+        (reelData as any).trimmedAudio ??
+        null;
+
       if (!videoFile) {
+        console.error("CreateReelModal payload keys:", Object.keys(reelData || {}), reelData);
         throw new Error('Video was not uploaded. Please select a video [video file missing]');
       }
 
@@ -2269,10 +2284,9 @@ const createEvent = useCallback(async (eventData: any) => {
 
   // ==================== GROUPS BACKEND INTEGRATIONS ====================
 
-  /** ---------- ✅ FIXED: Fetch groups correctly with normalization ---------- */
+  /** ---------- ✅ FIX 3: Fetch groups correctly with normalization ---------- */
   const fetchOtherData = useCallback(async () => {
-    const [s, pr, g, b, e, c] = await Promise.all([
-      apiFetch('/api/stories').catch(() => []),
+    const [pr, g, b, e, c] = await Promise.all([
       apiFetch('/api/products').catch(() => []),
       apiFetch('/api/groups').catch(() => []),
       apiFetch('/api/brands').catch(() => []),
@@ -2281,10 +2295,7 @@ const createEvent = useCallback(async (eventData: any) => {
       apiFetch('/api/chats').catch(() => []),
     ]);
 
-    // Handle stories
-    const storiesList = safeArray(s);
-    const normalizedStories = storiesList.map(normalizeStory);
-    setStories(normalizedStories);
+    // ✅ FIX 4: REMOVED stories from fetchOtherData (already handled by fetchStories)
     
     // ✅ FIXED: Handle different API response formats for products
     const prRaw = pr;
@@ -2597,7 +2608,7 @@ const createEvent = useCallback(async (eventData: any) => {
         fetchOtherData(), 
         fetchReels(),
         fetchSongs(), // ✅ ADDED: Fetch UNERA Music songs
-        fetchStories(), // ✅ ADDED: Fetch stories
+        fetchStories(), // ✅ FIX 4: Use dedicated story fetcher
       ]);
     },
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
