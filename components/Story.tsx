@@ -1,6 +1,6 @@
-
+// Story.tsx - FULLY UPDATED WITH FOLLOW FUNCTIONALITY & FIXED BLINKING ISSUE
 import React, { useState, useEffect, useRef } from 'react';
-import { Story, User, Song } from '../types';
+import { Story as StoryType, User, Song } from '../types';
 
 // ✅ 1) Add time formatter helper
 const formatStoryTime = (created_at?: string) => {
@@ -46,9 +46,71 @@ const getDefaultProfilePicture = (name: string, userId: number): string => {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${color}&color=fff&size=128&font-size=0.5&bold=true&rounded=true`;
 };
 
-// ✅ 5) Update StoryViewer props
+// ✅ CRITICAL: SAFE USER MERGE HELPER TO PREVENT BLINKING
+const mergeUserSafe = (prev: User | undefined, patch: Partial<User> | undefined): User => {
+  if (!prev && !patch) {
+    return {
+      id: 0,
+      username: 'user',
+      name: 'User',
+      email: '',
+      profile_image_url: getDefaultProfilePicture('User', 0),
+      cover_image_url: '',
+      followers: [],
+      following: [],
+      is_verified: false,
+      role: 'user',
+      is_online: false,
+      location: '',
+      bio: '',
+      created_at: null,
+    };
+  }
+  
+  if (!prev && patch) {
+    return {
+      id: patch.id || 0,
+      username: patch.username || 'user',
+      name: patch.name || 'User',
+      email: patch.email || '',
+      profile_image_url: patch.profile_image_url || getDefaultProfilePicture(patch.name || 'User', patch.id || 0),
+      cover_image_url: patch.cover_image_url || '',
+      followers: Array.isArray(patch.followers) ? patch.followers : [],
+      following: Array.isArray(patch.following) ? patch.following : [],
+      is_verified: patch.is_verified || false,
+      role: patch.role || 'user',
+      is_online: patch.is_online || false,
+      location: patch.location || '',
+      bio: patch.bio || '',
+      created_at: patch.created_at || null,
+    };
+  }
+  
+  if (prev && !patch) return prev;
+  
+  // Both exist, merge safely
+  return {
+    ...prev!,
+    ...patch,
+    id: patch?.id ?? prev!.id,
+    username: patch?.username ?? prev!.username,
+    name: patch?.name ?? prev!.name,
+    // ✅ PRESERVE ARRAYS - This is the key fix for blinking followers
+    followers: Array.isArray(patch?.followers) ? patch.followers : prev!.followers,
+    following: Array.isArray(patch?.following) ? patch.following : prev!.following,
+    // ✅ Preserve profile image if new one is empty/placeholder
+    profile_image_url: patch?.profile_image_url && 
+                      safeText(patch.profile_image_url) && 
+                      !patch.profile_image_url.includes('ui-avatars.com/api/?name=User') &&
+                      !patch.profile_image_url.includes('ui-avatars.com/api/?name=UN')
+                      ? patch.profile_image_url 
+                      : prev!.profile_image_url,
+  } as User;
+};
+
+// ✅ 5) Update StoryViewer props with follow functionality
 interface StoryViewerProps {
-    story: Story;
+    story: StoryType;
     user: User;
     currentUser: User | null;
     onClose: () => void;
@@ -56,9 +118,9 @@ interface StoryViewerProps {
     onPrev?: () => void;
     onReply?: (storyId: number, text: string) => void;
     onLike?: (storyId: number) => void;
-    onFollow?: (id: number) => void;
-    isFollowing?: boolean;
-    allStories?: Story[];
+    onFollow?: (userId: number) => void; // ✅ ADDED: Follow callback
+    isFollowing?: boolean; // ✅ ADDED: Follow status
+    allStories?: StoryType[];
 }
 
 export const StoryViewer: React.FC<StoryViewerProps> = ({ 
@@ -72,7 +134,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
     // ✅ A2) Add refs for stable story list and navigation
-    const frozenUserStoriesRef = useRef<Story[]>([]);
+    const frozenUserStoriesRef = useRef<StoryType[]>([]);
     const didAdvanceRef = useRef(false);
 
     // ✅ A5) Freeze author identity for the whole viewing session (prevents flicker)
@@ -224,12 +286,23 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                         <div className="flex flex-col">
                             <div className="flex items-center gap-3">
                                 <span className="text-white font-bold text-[17px] drop-shadow-md">{frozenAuthor.name}</span>
-                                {!isFollowing && currentUser?.id !== frozenAuthor.id && onFollow && (
+                                {/* ✅ ADDED: Follow button with proper logic */}
+                                {currentUser && 
+                                 frozenAuthor.id > 0 && 
+                                 frozenAuthor.id !== currentUser.id && 
+                                 onFollow && (
                                     <button
-                                        onClick={(e) => { e.stopPropagation(); onFollow(frozenAuthor.id); }}
-                                        className="bg-[#1877F2] text-white text-[14px] font-black px-6 py-2 rounded-full hover:bg-[#166FE5] shadow-lg transition-all active:scale-95 border-none"
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            onFollow(frozenAuthor.id); 
+                                        }}
+                                        className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                                            isFollowing 
+                                                ? 'bg-[#3A3B3C] text-white' 
+                                                : 'bg-[#1877F2] text-white'
+                                        } hover:opacity-90 transition-all active:scale-95 border-none`}
                                     >
-                                        Follow
+                                        {isFollowing ? 'Following' : 'Follow'}
                                     </button>
                                 )}
                             </div>
@@ -293,7 +366,32 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     );
 };
 
-export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number) => void, onCreateStory?: () => void, onViewStory: (story: Story) => void, currentUser: User | null, onRequestLogin: () => void }> = ({ stories, onProfileClick, onCreateStory, onViewStory, currentUser, onRequestLogin }) => {
+// ✅ UPDATED: StoryReelProps with follow functionality
+interface StoryReelProps {
+    stories: StoryType[];
+    onProfileClick: (id: number) => void;
+    onCreateStory?: () => void;
+    onViewStory: (story: StoryType) => void;
+    currentUser: User | null;
+    onRequestLogin: () => void;
+    // ✅ ADDED: Follow system props
+    onFollow?: (userId: number) => void;
+    checkIsFollowing?: (userId: number) => boolean;
+    followLoading?: { [key: number]: boolean };
+}
+
+export const StoryReel: React.FC<StoryReelProps> = ({ 
+    stories, 
+    onProfileClick, 
+    onCreateStory, 
+    onViewStory, 
+    currentUser, 
+    onRequestLogin,
+    // ✅ ADDED: Follow props
+    onFollow,
+    checkIsFollowing,
+    followLoading
+}) => {
     // ✅ C) Sort by real date, not string compare
     const toTime = (d: any) => {
         const t = new Date(String(d ?? "")).getTime();
@@ -302,8 +400,8 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
 
     const sortedStories = [...stories].sort((a, b) => toTime(b.created_at) - toTime(a.created_at));
     
-    const uniqueUserStories: Story[] = Array.from(
-        new Map<number, Story>(sortedStories.map(s => [s.user_id, s])).values()
+    const uniqueUserStories: StoryType[] = Array.from(
+        new Map<number, StoryType>(sortedStories.map(s => [s.user_id, s])).values()
     );
 
     return (
@@ -340,14 +438,20 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
                     (story as any).author_image
                 ) || getDefaultProfilePicture(bestName, story.user_id);
                 
-                const author =
-                    story.user ||
-                    ({
-                        id: story.user_id,
-                        name: bestName,
-                        username: bestUsername,
-                        profile_image_url: authorImage,
-                    } as any);
+                // ✅ USE mergeUserSafe to create stable user object
+                const storyUser = story.user || {
+                    id: story.user_id,
+                    name: bestName,
+                    username: bestUsername,
+                    profile_image_url: authorImage,
+                };
+                
+                const author = mergeUserSafe(storyUser, story.user || {});
+                
+                // ✅ Get follow status if currentUser is logged in
+                const isMe = !!currentUser && Number(currentUser.id) === Number(author.id);
+                const isFollowing = author.id && checkIsFollowing ? checkIsFollowing(Number(author.id)) : false;
+                const isLoading = author.id && followLoading ? followLoading[Number(author.id)] : false;
                 
                 return (
                     <div key={story.id} className="min-w-[110px] sm:min-w-[140px] h-[210px] sm:h-[250px] relative rounded-2xl overflow-hidden cursor-pointer flex-shrink-0 group shadow-lg border border-white/10" onClick={() => onViewStory(story)}>
@@ -366,6 +470,34 @@ export const StoryReel: React.FC<{ stories: Story[], onProfileClick: (id: number
                         <div className="absolute top-3 left-3 w-9 h-9 rounded-full border-4 border-[#1877F2] overflow-hidden z-10 shadow-md" onClick={(e) => { e.stopPropagation(); onProfileClick(story.user_id); }}>
                             <img src={author.profile_image_url} alt="" className="w-full h-full object-cover" />
                         </div>
+                        {/* ✅ ADDED: Follow button in story reel */}
+                        {currentUser && !isMe && author.id > 0 && onFollow && (
+                            <div 
+                                className="absolute top-3 right-3 z-20" 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    onFollow(Number(author.id));
+                                }}
+                            >
+                                <button
+                                    disabled={isLoading}
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs border ${
+                                        isFollowing 
+                                            ? 'bg-[#3A3B3C] border-[#4E4F50]' 
+                                            : 'bg-[#1877F2] border-[#1877F2]'
+                                    } ${isLoading ? 'opacity-60' : 'hover:opacity-90'}`}
+                                >
+                                    {isLoading ? (
+                                        <i className="fas fa-spinner fa-spin"></i>
+                                    ) : isFollowing ? (
+                                        <i className="fas fa-check"></i>
+                                    ) : (
+                                        <i className="fas fa-plus"></i>
+                                    )}
+                                </button>
+                            </div>
+                        )}
                         <p className="absolute bottom-3 left-3 text-white font-bold text-xs drop-shadow-md truncate w-[85%]">{author.name}</p>
                     </div>
                 );
@@ -394,7 +526,7 @@ interface CreateStoryModalProps {
     currentUser: User;
     songs: Song[];
     onClose: () => void;
-    onCreate: (story: Partial<Story> & { media_file?: File; audio_file?: File }) => void;
+    onCreate: (story: Partial<StoryType> & { media_file?: File; audio_file?: File }) => void;
 }
 
 export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser, songs, onClose, onCreate }) => {
@@ -605,14 +737,28 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser,
     );
 };
 
-// ✅ ADDED: StoryViewerModal component for App.tsx (Missing export that was causing the build error)
+// ✅ UPDATED: StoryViewerModal component with follow functionality
 export const StoryViewerModal: React.FC<{
-    story: Story;
+    story: StoryType;
     onClose: () => void;
     onProfileClick: (id: number) => void;
-}> = ({ story, onClose, onProfileClick }) => {
-    // Create a user object from story data
-    const user: User = {
+    // ✅ ADDED: Follow system props
+    currentUser?: User | null;
+    onFollow?: (userId: number) => void;
+    checkIsFollowing?: (userId: number) => boolean;
+    followLoading?: { [key: number]: boolean };
+}> = ({ 
+    story, 
+    onClose, 
+    onProfileClick,
+    // ✅ ADDED: Follow props
+    currentUser,
+    onFollow,
+    checkIsFollowing,
+    followLoading
+}) => {
+    // Create a user object from story data using mergeUserSafe
+    const user: User = mergeUserSafe(story.user, {
         id: story.user_id,
         name: pickBestName(
             (story as any)?.user?.name,
@@ -631,18 +777,18 @@ export const StoryViewerModal: React.FC<{
             (story as any)?.author_image
         ) || getDefaultProfilePicture("User", story.user_id),
         cover_image_url: "",
-        followers: [],
-        following: [],
+        followers: Array.isArray(story.user?.followers) ? story.user.followers : [],
+        following: Array.isArray(story.user?.following) ? story.user.following : [],
         is_verified: false,
         role: 'user',
         is_online: false,
         location: '',
         bio: '',
         created_at: null,
-    };
+    });
 
     // Get all stories from the same user for navigation
-    const [allStories, setAllStories] = useState<Story[]>([]);
+    const [allStories, setAllStories] = useState<StoryType[]>([]);
     
     useEffect(() => {
         // This would normally fetch stories from API
@@ -670,18 +816,21 @@ export const StoryViewerModal: React.FC<{
         // In a real app, you would call an API to like the story
     };
 
+    // ✅ Get follow status if currentUser is logged in
+    const isFollowing = user.id && checkIsFollowing ? checkIsFollowing(Number(user.id)) : false;
+    
     return (
         <StoryViewer
             story={story}
             user={user}
-            currentUser={null} // Pass actual current user if available
+            currentUser={currentUser || null}
             onClose={onClose}
             onNext={handleNext}
             onPrev={handlePrev}
             onReply={handleReply}
             onLike={handleLike}
-            onFollow={onProfileClick}
-            isFollowing={false} // You would need to check follow status
+            onFollow={onFollow}
+            isFollowing={isFollowing}
             allStories={allStories}
         />
     );
