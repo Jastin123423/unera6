@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONALLY UPDATED WITH TDZ FIX
+// App.tsx - PROFESSIONALLY UPDATED WITH PERFORMANCE FIXES + PAGINATION
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -1156,6 +1156,18 @@ export default function App() {
 
   const [loginError, setLoginError] = useState('');
 
+  // ✅ CRITICAL PERFORMANCE FIX: Add pagination states
+  const [feedCursor, setFeedCursor] = useState<string | null>(null);
+  const [feedHasMore, setFeedHasMore] = useState(true);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
+  const feedSeedRef = useRef<number>(1);
+
+  // ✅ GUEST PAGINATION STATES
+  const [guestPosts, setGuestPosts] = useState<PostType[]>([]);
+  const [guestCursor, setGuestCursor] = useState<string | null>(null);
+  const [guestHasMore, setGuestHasMore] = useState(true);
+  const [guestLoadingMore, setGuestLoadingMore] = useState(false);
+
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -1248,6 +1260,49 @@ export default function App() {
     // Also keep legacy key for compatibility
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
+
+  /** ---------- ✅ CRITICAL PERFORMANCE FIX: Fast lookup maps ---------- */
+  
+  // ✅ FIX 1: Create fast usersById map (O(1) lookup instead of users.find per post)
+  const usersById = useMemo(() => {
+    const m = new Map<number, User>();
+    safeArray(users).forEach(u => {
+      const nu = normalizeUser(u);
+      m.set(Number(nu.id), nu);
+    });
+    return m;
+  }, [users]);
+
+  // ✅ FIX 2: Create fast myFollowingSet without localStorage spam during render
+  const myFollowingSet = useMemo(() => {
+    const meId = Number(currentUser?.id || 0);
+    if (!meId) return new Set<number>();
+
+    // Try cache ONCE (not inside post rendering)
+    try {
+      const cached = localStorage.getItem(`follow_cache_${meId}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return new Set<number>(safeArray<number>(parsed?.following).map(Number));
+      }
+    } catch {}
+
+    // fallback to currentUser.following (already in memory)
+    return new Set<number>(safeArray<number>((currentUser as any)?.following).map(Number));
+  }, [currentUser?.id, (currentUser as any)?.following]);
+
+  // ✅ FIX 3: Optimized checkIsFollowing using Set only (O(1))
+  const checkIsFollowing = useCallback((targetUserId: number): boolean => {
+    const tid = Number(targetUserId || 0);
+    if (!tid) return false;
+    return myFollowingSet.has(tid);
+  }, [myFollowingSet]);
+
+  // ✅ FIX 4: Optimized getPostAuthor using Map only (O(1))
+  const getPostAuthor = useCallback((post: PostType) => {
+    const authorId = Number((post as any)?.user_id || 0);
+    return usersById.get(authorId) || createFallbackUser();
+  }, [usersById]);
 
   /** ---------- ✅ ADDED: Helper to resolve track owner ---------- */
   const resolveTrackOwner = useCallback((track: any): User | null => {
@@ -1358,7 +1413,7 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ FIX 2: Updated fetchStories to use usersRef.current instead of users dependency ---------- */
+  /** ✅ FIX 5: Updated fetchStories to use usersRef.current instead of users dependency ---------- */
   const fetchStories = useCallback(async () => {
     try {
       const data = await apiFetch('/api/stories');
@@ -1988,17 +2043,100 @@ export default function App() {
     setShowCreateReelModal(true);
   }, []);
 
-  /** ---------- Fetch posts (Facebook-like freshness) ---------- */
+  /** ---------- ✅ ADDED: Load More Functions for Pagination ---------- */
+  
+  // ✅ Load more home feed for logged-in users
+  const loadMoreHomeFeed = useCallback(async () => {
+    if (!currentUser?.id) return;
+    if (feedLoadingMore) return;
+    if (!feedHasMore) return;
+    if (!feedCursor) return;
+
+    setFeedLoadingMore(true);
+    try {
+      const seed = feedSeedRef.current || getOrCreateSessionSeed(currentUser.id);
+
+      // send seen to avoid repeats (your backend expects comma string)
+      const seenIds = readJson<number[]>(FEED_SEEN_KEY, []).slice(0, 250);
+      const seenParam = seenIds.join(',');
+
+      const data = await apiFetch(
+        `/api/feeds?userId=${currentUser.id}` +
+          `&limit=20` +
+          `&cursor=${encodeURIComponent(feedCursor)}` +
+          `&seed=${seed}` +
+          `&seen=${encodeURIComponent(seenParam)}`
+      );
+
+      const rows = safeArray<any>(data?.feed);
+      const incoming = rows.map(normalizeFeedRowToPost);
+
+      // push seen for the next chunks too (prevents repeats)
+      pushSeenIds(incoming.slice(0, 40).map((p: any) => Number(p.id)));
+
+      // ✅ append (do NOT replace)
+      setPosts(prev => {
+        const merged = mergeFeed(prev, incoming);
+        stableFeedRef.current = merged;
+        lastGoodPostsRef.current = merged;
+        return merged;
+      });
+
+      setFeedCursor(data?.nextCursor ?? null);
+      setFeedHasMore(!!data?.hasMore);
+    } catch (e) {
+      console.error("loadMoreHomeFeed failed:", e);
+    } finally {
+      setFeedLoadingMore(false);
+    }
+  }, [currentUser?.id, feedCursor, feedHasMore, feedLoadingMore]);
+
+  // ✅ Load more guest posts for non-logged-in users
+  const loadMoreGuestPosts = useCallback(async () => {
+    if (guestLoadingMore || !guestHasMore) return;
+
+    setGuestLoadingMore(true);
+    try {
+      const qs = new URLSearchParams();
+      qs.set("limit", "20");
+      if (guestCursor) qs.set("cursor", guestCursor);
+
+      const res = await apiFetch(`/api/posts?${qs.toString()}`);
+
+      // res = { success:true, posts:[], nextCursor, hasMore }
+      const newRows = Array.isArray(res?.posts) ? res.posts : [];
+
+      setGuestPosts(prev => {
+        const map = new Map<number, any>();
+        for (const p of [...prev, ...newRows]) map.set(Number(p.id), p);
+        return Array.from(map.values());
+      });
+
+      setGuestCursor(res?.nextCursor ?? null);
+      setGuestHasMore(!!res?.hasMore);
+    } catch (e) {
+      console.error("guest load more failed", e);
+    } finally {
+      setGuestLoadingMore(false);
+    }
+  }, [guestLoadingMore, guestHasMore, guestCursor]);
+
+  /** ---------- ✅ UPDATED: Fetch posts with pagination support ---------- */
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
       setIsFeedRefreshing(true);
 
       try {
         const seed = getOrCreateSessionSeed(viewer?.id ?? null);
+        feedSeedRef.current = seed;
         const seen = getSeenSet();
 
         if (viewer?.id) {
-          const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
+          // ✅ RESET PAGINATION when refreshing
+          setFeedCursor(null);
+          setFeedHasMore(true);
+          
+          const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=20&seed=${seed}`);
           const rows = safeArray<any>(data?.feed);
 
           if (!rows.length) {
@@ -2046,6 +2184,10 @@ export default function App() {
             return next;
           });
 
+          // ✅ SET PAGINATION STATE
+          setFeedCursor(data?.nextCursor ?? null);
+          setFeedHasMore(!!data?.hasMore);
+
           if (!feedHydrated) setFeedHydrated(true);
 
           // keep comments stable
@@ -2057,9 +2199,13 @@ export default function App() {
           return;
         }
 
-        // Guest feed fallback
-        const p = await apiFetch('/api/posts');
-        const normalized = safeArray(p).map(normalizePost);
+        // Guest feed fallback with pagination
+        const qs = new URLSearchParams();
+        qs.set("limit", "20");
+        if (guestCursor) qs.set("cursor", guestCursor);
+        
+        const p = await apiFetch(`/api/posts?${qs.toString()}`);
+        const normalized = safeArray(p?.posts).map(normalizePost);
 
         if (normalized.length) {
           const unseen = normalized.filter((x: any) => !seen.has(Number(x.id)));
@@ -2072,14 +2218,17 @@ export default function App() {
 
           pushSeenIds(ordered.slice(0, 40).map((x: any) => Number(x.id)));
 
-          setPosts((prev) => {
-            const next = mergeFeed(prev, ordered);
-            stableFeedRef.current = next;
-            lastGoodPostsRef.current = next;
-            return next;
+          setGuestPosts(prev => {
+            const map = new Map<number, any>();
+            for (const p of [...prev, ...ordered]) map.set(Number(p.id), p);
+            return Array.from(map.values());
           });
+
+          // ✅ SET GUEST PAGINATION STATE
+          setGuestCursor(p?.nextCursor ?? null);
+          setGuestHasMore(!!p?.hasMore);
         } else if (lastGoodPostsRef.current.length) {
-          setPosts(lastGoodPostsRef.current);
+          setGuestPosts(lastGoodPostsRef.current);
         }
 
         if (!feedHydrated) setFeedHydrated(true);
@@ -2095,7 +2244,7 @@ export default function App() {
         setIsFeedRefreshing(false);
       }
     },
-    [activeCommentsPostId, feedHydrated]
+    [activeCommentsPostId, feedHydrated, guestCursor]
   );
 
   // ✅ ✅ ✅ CRITICAL FIX: MOVE THE EFFECTS HERE, AFTER fetchPostsForHome IS DEFINED
@@ -2336,7 +2485,7 @@ export default function App() {
 
   // ==================== GROUPS BACKEND INTEGRATIONS ====================
 
-  /** ✅ FIX 3: Updated fetchOtherData to use usersRef.current instead of users dependency ---------- */
+  /** ✅ FIX 6: Updated fetchOtherData to use usersRef.current instead of users dependency ---------- */
   const fetchOtherData = useCallback(async () => {
     const [pr, g, b, e, c] = await Promise.all([
       apiFetch('/api/products').catch(() => []),
@@ -2378,7 +2527,7 @@ export default function App() {
     
     setChats(safeArray(c));
     
-    // ✅ FIX 4: REMOVED stories from here to prevent duplicate fetching
+    // ✅ FIX 7: REMOVED stories from here to prevent duplicate fetching
     // Stories are now only fetched from fetchStories()
   }, []); // ✅ EMPTY dependencies now
 
@@ -2652,7 +2801,7 @@ export default function App() {
     }
   }, [requireAuth, updateGroupSettings]);
 
-  /** ✅ FIX 5: Updated fetchData to fetch stories separately ---------- */
+  /** ✅ FIX 8: Updated fetchData to fetch stories separately ---------- */
   const fetchData = useCallback(
     async (viewer: User | null) => {
       await Promise.all([
@@ -2667,7 +2816,7 @@ export default function App() {
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
-  /** ✅ FIX 6: Stabilized init effect with empty deps ---------- */
+  /** ✅ FIX 9: Stabilized init effect with empty deps ---------- */
   useEffect(() => {
     const init = async () => {
       let viewer: User | null = null;
@@ -2744,6 +2893,35 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []); // ✅ EMPTY deps - runs once only
+
+  /** ---------- ✅ ADDED: Infinite Scroll for Home Feed ---------- */
+  useEffect(() => {
+    if (view !== 'home') return;
+    if (activeHashtag) return; // optional: don't load more during filters
+    
+    // Determine which load more function to use based on auth status
+    const hasMore = currentUser ? feedHasMore : guestHasMore;
+    if (!hasMore) return;
+
+    const el = document.getElementById('feed-sentinel');
+    if (!el) return;
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          if (currentUser) {
+            loadMoreHomeFeed();
+          } else {
+            loadMoreGuestPosts();
+          }
+        }
+      },
+      { root: null, rootMargin: '600px 0px', threshold: 0.01 } // prefetch before bottom
+    );
+
+    io.observe(el);
+    return () => io.disconnect();
+  }, [view, activeHashtag, currentUser, feedHasMore, guestHasMore, loadMoreHomeFeed, loadMoreGuestPosts]);
 
   /** ---------- Smart Polling ---------- */
   useEffect(() => {
@@ -2878,10 +3056,15 @@ export default function App() {
 
   /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
-    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
-                     activeHashtag ? filteredPosts : posts;
-    return Array.isArray(feedToRank) ? feedToRank : [];
-  }, [posts, filteredPosts, activeHashtag]);
+    if (currentUser) {
+      const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
+                       activeHashtag ? filteredPosts : posts;
+      return Array.isArray(feedToRank) ? feedToRank : [];
+    } else {
+      // Guest view
+      return Array.isArray(guestPosts) ? guestPosts : [];
+    }
+  }, [currentUser, posts, filteredPosts, activeHashtag, guestPosts]);
 
   /** ✅ Updated activePost resolver to include profilePosts ---------- */
   const activePost = useMemo(() => {
@@ -2891,9 +3074,9 @@ export default function App() {
       return commentPostSnapshot;
     }
 
-    const source = view === 'profile' ? profilePosts : posts;
+    const source = view === 'profile' ? profilePosts : (currentUser ? posts : guestPosts);
     return source.find((p: any) => Number(p.id) === Number(activeCommentsPostId)) || null;
-  }, [posts, profilePosts, view, activeCommentsPostId, commentPostSnapshot]);
+  }, [posts, guestPosts, profilePosts, view, activeCommentsPostId, commentPostSnapshot, currentUser]);
 
   const profileUser = useMemo(() => {
     if (selectedUserId) {
@@ -3127,27 +3310,6 @@ export default function App() {
     [requireAuth, currentUser, users, scheduleSilentRefresh]
   );
 
-  /** ✅ CACHE-BASED: Check if current user is following a specific user ---------- */
-  const checkIsFollowing = useCallback((targetUserId: number): boolean => {
-    if (!currentUser || !targetUserId) return false;
-    
-    // ✅ CACHE-BASED: Check cache first
-    const cacheKey = `follow_cache_${currentUser.id}`;
-    const cached = localStorage.getItem(cacheKey);
-    
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        const following = parsed.following || [];
-        return following.includes(Number(targetUserId));
-      } catch {}
-    }
-    
-    // Fallback to currentUser data
-    const myFollowing = safeArray<number>((currentUser as any).following);
-    return myFollowing.includes(Number(targetUserId));
-  }, [currentUser]);
-
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
 
@@ -3170,6 +3332,12 @@ export default function App() {
     setIsAudioPlaying(false); // ✅ Stop audio playback
     setSelectedReelSound(null); // ✅ Clear selected reel sound
     setSongs([]); // ✅ Clear songs on logout
+    // ✅ Clear pagination states
+    setFeedCursor(null);
+    setFeedHasMore(true);
+    setGuestCursor(null);
+    setGuestHasMore(true);
+    setGuestPosts([]);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -3429,7 +3597,7 @@ export default function App() {
     const pid = Number(postId);
     setActiveCommentsPostId(pid);
 
-    const source = view === 'profile' ? profilePosts : posts;
+    const source = view === 'profile' ? profilePosts : (currentUser ? posts : guestPosts);
     const found = source.find((p: any) => Number(p.id) === pid) || null;
     setCommentPostSnapshot(found);
   };
@@ -3565,16 +3733,6 @@ export default function App() {
     [requireAuth, currentUser, updateUserDetails]
   );
 
-  /** ---------- Helper function to get post author ---------- */
-  const getPostAuthor = useCallback(
-    (post: PostType) => {
-      const author = users.find((u) => Number(u.id) === Number((post as any).user_id));
-      if (author) return author;
-      return createFallbackUser();
-    },
-    [users]
-  );
-
   /** ---------- Handle create story from profile ---------- */
   const handleCreateStoryFromProfile = useCallback(() => {
     if (!requireAuth('Creating stories')) return;
@@ -3694,7 +3852,7 @@ export default function App() {
                     <Post
                       key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
                       post={post}
-                      author={getPostAuthor(post)}
+                      author={getPostAuthor(post)} // ✅ Using optimized getPostAuthor
                       currentUser={currentUser}
                       users={users}
                       onProfileClick={(id) => openProfile(id)}
@@ -3738,9 +3896,46 @@ export default function App() {
                   {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
                 </div>
               )}
+
+              {/* ✅ LOAD MORE INDICATORS FOR PAGINATION */}
+              {currentUser ? (
+                <>
+                  {feedLoadingMore && (
+                    <div className="text-center py-6 text-[#B0B3B8]">
+                      <div className="inline-flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
+                        Loading more posts...
+                      </div>
+                    </div>
+                  )}
+                  {!feedHasMore && rankedPosts.length > 0 && (
+                    <div className="text-center py-6 text-[#B0B3B8]">You're all caught up.</div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {guestLoadingMore && (
+                    <div className="text-center py-6 text-[#B0B3B8]">
+                      <div className="inline-flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
+                        Loading more posts...
+                      </div>
+                    </div>
+                  )}
+                  {!guestHasMore && guestPosts.length > 0 && (
+                    <div className="text-center py-6 text-[#B0B3B8]">You're all caught up.</div>
+                  )}
+                </>
+              )}
+
+              {/* ✅ INFINITE SCROLL SENTINEL */}
+              {(currentUser ? feedHasMore : guestHasMore) && (
+                <div id="feed-sentinel" className="h-10 w-full" />
+              )}
             </div>
           )}
 
+          {/* Other view components remain exactly the same... */}
           {view === 'reels' && (
             <ReelsFeed
               reels={reels}
