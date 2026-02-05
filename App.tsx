@@ -1,4 +1,4 @@
-// App.tsx - UPDATED WITH FOLLOW FUNCTIONALITY IN STORIES & BLINKING FIX
+// App.tsx - PROFESSIONALLY UPDATED WITH FETCH LOOP FIX & CACHE-BASED FOLLOW
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -801,15 +801,39 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 };
 
 /**
- * Fetch user's followers/following data
+ * ✅ CACHE-BASED: Fetch user's followers/following data (Facebook-style - only from cache after initial load)
  */
 const fetchUserFollowData = async (userId: number): Promise<{ followers: number[], following: number[] }> => {
   try {
+    // ✅ CHECK LOCAL CACHE FIRST (Facebook-style)
+    const cacheKey = `follow_cache_${userId}`;
+    const cached = localStorage.getItem(cacheKey);
+    
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      const cacheAge = Date.now() - (parsed.timestamp || 0);
+      const MAX_CACHE_AGE = 30 * 60 * 1000; // 30 minutes
+      
+      // Return cached data if not too old
+      if (cacheAge < MAX_CACHE_AGE) {
+        return { followers: parsed.followers || [], following: parsed.following || [] };
+      }
+    }
+    
+    // ✅ Only fetch from API if cache is missing or stale
     const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
-    return {
+    const result = {
       followers: safeArray<number>(data?.followers),
       following: safeArray<number>(data?.following)
     };
+    
+    // ✅ Update cache
+    localStorage.setItem(cacheKey, JSON.stringify({
+      ...result,
+      timestamp: Date.now()
+    }));
+    
+    return result;
   } catch (error) {
     console.error('Failed to fetch follow data:', error);
     return { followers: [], following: [] };
@@ -1078,6 +1102,13 @@ export default function App() {
 
   /** ---------- State ---------- */
   const [users, setUsers] = useState<User[]>([]);
+  
+  // ✅ FIX 1: Add usersRef to prevent fetch loop
+  const usersRef = useRef<User[]>([]);
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+  
   const [posts, setPosts] = useState<PostType[]>([]);
   const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
@@ -1143,7 +1174,7 @@ export default function App() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
 
-  // Add state for follow loading to prevent double clicks
+  // ✅ CACHE-BASED: Follow loading state
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
   // ✅ ADDED: Hashtag filtering state for Facebook-like feed filtering
@@ -1318,17 +1349,19 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- ✅ UPDATED: Fetch Stories with safe user merging ---------- */
+  /** ✅ FIX 2: Updated fetchStories to use usersRef.current instead of users dependency ---------- */
   const fetchStories = useCallback(async () => {
     try {
       const data = await apiFetch('/api/stories');
       const storiesList = safeArray(data?.stories ?? data);
       
-      // ✅ CRITICAL: Normalize stories with safe user merging to prevent blinking
+      // ✅ CRITICAL: Use usersRef.current instead of users to break the dependency loop
+      const currentUsers = usersRef.current;
+      
       const normalizedStories = storiesList.map((story: any) => {
         // Find existing user in our users list
         const userId = story.user_id;
-        const existingUser = users.find(u => Number(u.id) === Number(userId));
+        const existingUser = currentUsers.find(u => Number(u.id) === Number(userId));
         
         // ✅ Use normalizeStory with existing user to merge safely
         const normalized = normalizeStory(story, existingUser);
@@ -1341,7 +1374,7 @@ export default function App() {
       console.error('Failed to fetch stories:', error);
       setStories([]);
     }
-  }, [users]);
+  }, []); // ✅ EMPTY dependencies now
 
   /** ---------- ✅ ADDED: Create Story Function ---------- */
   const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
@@ -2091,7 +2124,7 @@ export default function App() {
     }
   }, [currentUser, posts]);
 
-  /** ---------- Fetch follow data for a user ---------- */
+  /** ---------- CACHE-BASED: Fetch follow data for a user (Facebook-style) ---------- */
   const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
     try {
       const followData = await fetchUserFollowData(userId);
@@ -2151,141 +2184,137 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-// ================== EVENTS API INTEGRATIONS (FIXED) ====================
-// ✅ Fix #2: ALWAYS normalize inside optimistic updates
-// This prevents blank screens when some events use attendee_ids / interested_ids / cover_url / event_date etc.
+  // ================== EVENTS API INTEGRATIONS (FIXED) ====================
+  const joinEvent = useCallback(async (eventId: number) => {
+    if (!requireAuth('Joining events')) return;
+    if (!currentUser) return;
 
-const joinEvent = useCallback(async (eventId: number) => {
-  if (!requireAuth('Joining events')) return;
-  if (!currentUser) return;
+    try {
+      const res = await apiFetch(`/api/events/${eventId}/attend`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
 
-  try {
-    const res = await apiFetch(`/api/events/${eventId}/attend`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: currentUser.id }),
-    });
+      if (res?.success) {
+        setEvents(prev =>
+          safeArray(prev).map(ev => {
+            const event = normalizeEvent(ev); // ✅ important
 
-    if (res?.success) {
-      setEvents(prev =>
-        safeArray(prev).map(ev => {
-          const event = normalizeEvent(ev); // ✅ important
+            if (Number(event.id) !== Number(eventId)) return event;
 
-          if (Number(event.id) !== Number(eventId)) return event;
+            const nextAttendees = [...safeArray(event.attendees), Number(currentUser.id)]
+              .filter((v, i, a) => a.indexOf(v) === i);
 
-          const nextAttendees = [...safeArray(event.attendees), Number(currentUser.id)]
-            .filter((v, i, a) => a.indexOf(v) === i);
+            const nextInterested = safeArray(event.interestedIds).filter(
+              id => Number(id) !== Number(currentUser.id)
+            );
 
-          const nextInterested = safeArray(event.interestedIds).filter(
-            id => Number(id) !== Number(currentUser.id)
-          );
+            return {
+              ...event,
+              attendees: nextAttendees,
+              interestedIds: nextInterested,
+            };
+          })
+        );
+      }
 
-          return {
-            ...event,
-            attendees: nextAttendees,
-            interestedIds: nextInterested,
-          };
-        })
-      );
+      return res;
+    } catch (error: any) {
+      console.error('Failed to join event:', error);
+      setLoginError(error?.message || 'Failed to join event');
+      throw error;
     }
+  }, [currentUser, requireAuth]);
 
-    return res;
-  } catch (error: any) {
-    console.error('Failed to join event:', error);
-    setLoginError(error?.message || 'Failed to join event');
-    throw error;
-  }
-}, [currentUser, requireAuth]);
+  const markEventInterested = useCallback(async (eventId: number) => {
+    if (!requireAuth('Marking event as interested')) return;
+    if (!currentUser) return;
 
-const markEventInterested = useCallback(async (eventId: number) => {
-  if (!requireAuth('Marking event as interested')) return;
-  if (!currentUser) return;
+    try {
+      const res = await apiFetch(`/api/events/${eventId}/interested`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
 
-  try {
-    const res = await apiFetch(`/api/events/${eventId}/interested`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: currentUser.id }),
-    });
+      if (res?.success) {
+        setEvents(prev =>
+          safeArray(prev).map(ev => {
+            const event = normalizeEvent(ev); // ✅ important
 
-    if (res?.success) {
-      setEvents(prev =>
-        safeArray(prev).map(ev => {
-          const event = normalizeEvent(ev); // ✅ important
+            if (Number(event.id) !== Number(eventId)) return event;
 
-          if (Number(event.id) !== Number(eventId)) return event;
+            const nextInterested = [...safeArray(event.interestedIds), Number(currentUser.id)]
+              .filter((v, i, a) => a.indexOf(v) === i);
 
-          const nextInterested = [...safeArray(event.interestedIds), Number(currentUser.id)]
-            .filter((v, i, a) => a.indexOf(v) === i);
+            const nextAttendees = safeArray(event.attendees).filter(
+              id => Number(id) !== Number(currentUser.id)
+            );
 
-          const nextAttendees = safeArray(event.attendees).filter(
-            id => Number(id) !== Number(currentUser.id)
-          );
+            return {
+              ...event,
+              interestedIds: nextInterested,
+              attendees: nextAttendees,
+            };
+          })
+        );
+      }
 
-          return {
-            ...event,
-            interestedIds: nextInterested,
-            attendees: nextAttendees,
-          };
-        })
-      );
+      return res;
+    } catch (error: any) {
+      console.error('Failed to mark event as interested:', error);
+      setLoginError(error?.message || 'Failed to mark interest');
+      throw error;
     }
+  }, [currentUser, requireAuth]);
 
-    return res;
-  } catch (error: any) {
-    console.error('Failed to mark event as interested:', error);
-    setLoginError(error?.message || 'Failed to mark interest');
-    throw error;
-  }
-}, [currentUser, requireAuth]);
+  const createEvent = useCallback(async (eventData: any) => {
+    if (!requireAuth('Creating events')) return;
+    if (!currentUser) return;
 
-const createEvent = useCallback(async (eventData: any) => {
-  if (!requireAuth('Creating events')) return;
-  if (!currentUser) return;
+    try {
+      const payload = {
+        title: safeString(eventData?.title).trim(),
+        description: safeString(eventData?.description).trim(),
 
-  try {
-    const payload = {
-      title: safeString(eventData?.title).trim(),
-      description: safeString(eventData?.description).trim(),
+        // ✅ Map UI date/time -> DB columns
+        event_date: safeString(eventData?.event_date ?? eventData?.date),
+        event_time: safeString(eventData?.event_time ?? eventData?.time),
 
-      // ✅ Map UI date/time -> DB columns
-      event_date: safeString(eventData?.event_date ?? eventData?.date),
-      event_time: safeString(eventData?.event_time ?? eventData?.time),
+        location: safeString(eventData?.location).trim(),
+        visibility: safeString(eventData?.visibility, 'worldwide'),
 
-      location: safeString(eventData?.location).trim(),
-      visibility: safeString(eventData?.visibility, 'worldwide'),
+        // ✅ Map UI image -> DB cover_url
+        cover_url: safeString(eventData?.cover_url ?? eventData?.image),
 
-      // ✅ Map UI image -> DB cover_url
-      cover_url: safeString(eventData?.cover_url ?? eventData?.image),
+        // ✅ creator fields (your backend uses creator_* in types)
+        creator_id: Number(currentUser.id),
+        creator_name: safeString(currentUser.name),
+        creator_avatar: safeString(currentUser.profile_image_url),
+      };
 
-      // ✅ creator fields (your backend uses creator_* in types)
-      creator_id: Number(currentUser.id),
-      creator_name: safeString(currentUser.name),
-      creator_avatar: safeString(currentUser.profile_image_url),
-    };
+      const res = await apiFetch('/api/events', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
 
-    const res = await apiFetch('/api/events', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+      // ✅ normalize whatever backend returns
+      const newEvent = normalizeEvent(res?.event ?? res);
 
-    // ✅ normalize whatever backend returns
-    const newEvent = normalizeEvent(res?.event ?? res);
-
-    // ✅ store normalized always
-    setEvents(prev => [newEvent, ...safeArray(prev).map(normalizeEvent)]);
-    return newEvent;
-  } catch (error: any) {
-    console.error('Failed to create event:', error);
-    setLoginError(error?.message || 'Failed to create event');
-    throw error;
-  }
-}, [currentUser, requireAuth]);
+      // ✅ store normalized always
+      setEvents(prev => [newEvent, ...safeArray(prev).map(normalizeEvent)]);
+      return newEvent;
+    } catch (error: any) {
+      console.error('Failed to create event:', error);
+      setLoginError(error?.message || 'Failed to create event');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
 
   // ==================== GROUPS BACKEND INTEGRATIONS ====================
 
-  /** ---------- ✅ FIXED: Fetch groups correctly with normalization ---------- */
+  /** ✅ FIX 3: Updated fetchOtherData to use usersRef.current instead of users dependency ---------- */
   const fetchOtherData = useCallback(async () => {
-    const [s, pr, g, b, e, c] = await Promise.all([
-      apiFetch('/api/stories').catch(() => []),
+    const [pr, g, b, e, c] = await Promise.all([
       apiFetch('/api/products').catch(() => []),
       apiFetch('/api/groups').catch(() => []),
       apiFetch('/api/brands').catch(() => []),
@@ -2294,15 +2323,6 @@ const createEvent = useCallback(async (eventData: any) => {
       apiFetch('/api/chats').catch(() => []),
     ]);
 
-    // Handle stories
-    const storiesList = safeArray(s);
-    const normalizedStories = storiesList.map((story: any) => {
-      const userId = story.user_id;
-      const existingUser = users.find(u => Number(u.id) === Number(userId));
-      return normalizeStory(story, existingUser);
-    });
-    setStories(normalizedStories);
-    
     // ✅ FIXED: Handle different API response formats for products
     const prRaw = pr;
     const prList =
@@ -2333,7 +2353,10 @@ const createEvent = useCallback(async (eventData: any) => {
     setEvents(e);
     
     setChats(safeArray(c));
-  }, [users]);
+    
+    // ✅ FIX 4: REMOVED stories from here to prevent duplicate fetching
+    // Stories are now only fetched from fetchStories()
+  }, []); // ✅ EMPTY dependencies now
 
   /** ---------- ✅ 2) Fetch group posts with viewerId ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
@@ -2605,7 +2628,7 @@ const createEvent = useCallback(async (eventData: any) => {
     }
   }, [requireAuth, updateGroupSettings]);
 
-  /** ---------- One fetch pipeline ---------- */
+  /** ✅ FIX 5: Updated fetchData to fetch stories separately ---------- */
   const fetchData = useCallback(
     async (viewer: User | null) => {
       await Promise.all([
@@ -2613,14 +2636,14 @@ const createEvent = useCallback(async (eventData: any) => {
         fetchPostsForHome(viewer), 
         fetchOtherData(), 
         fetchReels(),
-        fetchSongs(), // ✅ ADDED: Fetch UNERA Music songs
-        fetchStories(), // ✅ ADDED: Fetch stories
+        fetchSongs(),
+        fetchStories(), // ✅ Stories fetched separately to prevent loop
       ]);
     },
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
-  /** ---------- ✅ FIXED: Restore session + initial load with auth hydration ---------- */
+  /** ✅ FIX 6: Stabilized init effect with empty deps ---------- */
   useEffect(() => {
     const init = async () => {
       let viewer: User | null = null;
@@ -2653,7 +2676,7 @@ const createEvent = useCallback(async (eventData: any) => {
 
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchData]);
+  }, []); // ✅ EMPTY deps - prevents re-init loops
 
   /** ---------- Return detection (leave -> come back => new seed + refresh) ---------- */
   useEffect(() => {
@@ -2956,7 +2979,7 @@ const createEvent = useCallback(async (eventData: any) => {
     });
   };
 
-  /** ✅ FIXED: Follow User with EXACT same API structure as original working code ---------- */
+  /** ✅ CACHE-BASED: Follow User with Facebook-style cache loading ---------- */
   const followUser = useCallback(
     async (targetUserId: number) => {
       if (!requireAuth('Following')) return;
@@ -2968,9 +2991,22 @@ const createEvent = useCallback(async (eventData: any) => {
       // ✅ backend blocks self-follow
       if (!targetId || targetId === meId) return;
 
-      // ✅ TRUE follow state comes from my "following"
-      const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
-      const isFollowingNow = myFollowing.has(targetId);
+      // ✅ CACHE-BASED: Check cache first for current state
+      const cacheKey = `follow_cache_${meId}`;
+      const cached = localStorage.getItem(cacheKey);
+      let myFollowing: number[] = [];
+      
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          myFollowing = parsed.following || [];
+        } catch {}
+      } else {
+        // Fallback to currentUser data
+        myFollowing = safeArray<number>((currentUser as any).following);
+      }
+      
+      const isFollowingNow = myFollowing.includes(targetId);
 
       // Set loading state to prevent double clicks
       setFollowLoading(prev => ({ ...prev, [targetId]: true }));
@@ -2988,10 +3024,10 @@ const createEvent = useCallback(async (eventData: any) => {
 
           // update ME.following
           if (uid === meId) {
-            const following = new Set<number>(safeArray<number>((u as any).following));
-            if (isFollowingNow) following.delete(targetId);
-            else following.add(targetId);
-            return normalizeUser({ ...u, following: Array.from(following) });
+            const followingSet = new Set<number>(myFollowing);
+            if (isFollowingNow) followingSet.delete(targetId);
+            else followingSet.add(targetId);
+            return normalizeUser({ ...u, following: Array.from(followingSet) });
           }
 
           // update TARGET.followers
@@ -3009,10 +3045,10 @@ const createEvent = useCallback(async (eventData: any) => {
       // keep currentUser in sync + persist
       setCurrentUser((prev) => {
         if (!prev) return prev;
-        const following = new Set<number>(safeArray<number>((prev as any).following));
-        if (isFollowingNow) following.delete(targetId);
-        else following.add(targetId);
-        const next = normalizeUser({ ...prev, following: Array.from(following) });
+        const followingSet = new Set<number>(myFollowing);
+        if (isFollowingNow) followingSet.delete(targetId);
+        else followingSet.add(targetId);
+        const next = normalizeUser({ ...prev, following: Array.from(followingSet) });
         localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
         return next;
       });
@@ -3032,9 +3068,16 @@ const createEvent = useCallback(async (eventData: any) => {
           });
         }
 
-        // ✅ Refresh follow data from server for consistency
-        fetchUserFollowDataForUI(targetId).catch(() => {});
-        fetchUserFollowDataForUI(meId).catch(() => {});
+        // ✅ CACHE-BASED: Update cache instead of immediate API refresh
+        const updatedFollowing = isFollowingNow 
+          ? myFollowing.filter(id => id !== targetId)
+          : [...myFollowing, targetId];
+        
+        // Update cache
+        localStorage.setItem(cacheKey, JSON.stringify({
+          following: updatedFollowing,
+          timestamp: Date.now()
+        }));
 
         scheduleSilentRefresh();
       } catch (e: any) {
@@ -3045,10 +3088,6 @@ const createEvent = useCallback(async (eventData: any) => {
         setCurrentUser(originalCurrentUser);
         localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
         
-        // ✅ rollback using server truth
-        fetchUserFollowDataForUI(targetId).catch(() => {});
-        fetchUserFollowDataForUI(meId).catch(() => {});
-        
         // Show error message
         setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
       } finally {
@@ -3056,14 +3095,26 @@ const createEvent = useCallback(async (eventData: any) => {
         setFollowLoading(prev => ({ ...prev, [targetId]: false }));
       }
     },
-    [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
+    [requireAuth, currentUser, users, scheduleSilentRefresh]
   );
 
-  /** ✅ SIMPLIFIED & RELIABLE: Check if current user is following a specific user ---------- */
+  /** ✅ CACHE-BASED: Check if current user is following a specific user ---------- */
   const checkIsFollowing = useCallback((targetUserId: number): boolean => {
     if (!currentUser || !targetUserId) return false;
     
-    // Direct check of current user's following array
+    // ✅ CACHE-BASED: Check cache first
+    const cacheKey = `follow_cache_${currentUser.id}`;
+    const cached = localStorage.getItem(cacheKey);
+    
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        const following = parsed.following || [];
+        return following.includes(Number(targetUserId));
+      } catch {}
+    }
+    
+    // Fallback to currentUser data
     const myFollowing = safeArray<number>((currentUser as any).following);
     return myFollowing.includes(Number(targetUserId));
   }, [currentUser]);
@@ -3568,7 +3619,7 @@ const createEvent = useCallback(async (eventData: any) => {
                 </div>
               )}
 
-              {/* ✅ UPDATED: StoryReel with follow functionality */}
+              {/* ✅ UPDATED: StoryReel with cache-based follow functionality */}
               <StoryReel
                 stories={stories}
                 onProfileClick={(id) => openProfile(id)}
@@ -3579,7 +3630,7 @@ const createEvent = useCallback(async (eventData: any) => {
                 onViewStory={(s) => setActiveStory(s)}
                 currentUser={currentUser}
                 onRequestLogin={() => setView('login')}
-                // ✅ ADDED: Follow system props
+                // ✅ CACHE-BASED: Follow system props
                 onFollow={followUser}
                 checkIsFollowing={checkIsFollowing}
                 followLoading={followLoading}
@@ -3633,7 +3684,7 @@ const createEvent = useCallback(async (eventData: any) => {
                       chats={chats}
                       // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
                       onHashtagClick={handleHashtagClick}
-                      // ✅ CORRECT: Pass follow status and handler
+                      // ✅ CACHE-BASED: Pass follow status and handler
                       isFollowing={isFollowing}
                       onFollow={() => followUser(postAuthorId)}
                       followLoading={followLoading[postAuthorId] || false}
@@ -3845,7 +3896,7 @@ const createEvent = useCallback(async (eventData: any) => {
               onPlayAudioTrack={onPlayTrack}
               // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
               onHashtagClick={handleHashtagClick}
-              // ✅ ADDED: Pass follow system props
+              // ✅ CACHE-BASED: Pass follow system props
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
@@ -3901,7 +3952,7 @@ const createEvent = useCallback(async (eventData: any) => {
               onRestrictUser={(id, duration) => suspendUser(id, duration)}
               onDeleteUser={(id) => deleteUserAccount(id)}
               onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
-              // ✅ ADDED: Pass follow status to UserProfile
+              // ✅ CACHE-BASED: Pass follow status to UserProfile
               isFollowing={checkIsFollowing(Number(profileUser.id))}
               followLoading={followLoading[Number(profileUser.id)] || false}
             />
@@ -4042,13 +4093,13 @@ const createEvent = useCallback(async (eventData: any) => {
         />
       )}
 
-      {/* ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH FOLLOW FUNCTIONALITY */}
+      {/* ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH CACHE-BASED FOLLOW FUNCTIONALITY */}
       {activeStory && (
         <StoryViewerModal
           story={activeStory}
           onClose={() => setActiveStory(null)}
           onProfileClick={(id) => openProfile(id)}
-          // ✅ ADDED: Pass follow system props
+          // ✅ CACHE-BASED: Pass follow system props
           currentUser={currentUser}
           onFollow={followUser}
           checkIsFollowing={checkIsFollowing}
