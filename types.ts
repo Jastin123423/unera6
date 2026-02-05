@@ -1,4 +1,4 @@
-// types.ts — FULL UPDATED (App.tsx + Feed.tsx + Groups + Reels + Stories compatible)
+
 
 // =========================
 // USERS / BRANDS
@@ -6,7 +6,11 @@
 export interface User {
   id: number;
   username: string;
-  name?: string;
+
+  // ✅ Make required because App.tsx uses currentUser.name a lot
+  name: string;
+
+  // Optional splits (some UIs/forms may use them)
   firstName?: string;
   lastName?: string;
 
@@ -44,6 +48,16 @@ export interface User {
 
   created_at?: string;
   interests?: string[];
+
+  // ✅ Optional aliases some endpoints might return
+  user_id?: number;
+  userId?: number;
+  avatar_url?: string;
+  profileImage?: string;
+  coverImage?: string;
+  isVerified?: boolean;
+  joined_date?: string;
+  joinedDate?: string;
 }
 
 export interface Brand {
@@ -51,16 +65,28 @@ export interface Brand {
   name: string;
   description: string;
   category: string;
+
   profile_image_url: string;
   cover_image_url: string;
+
   admin_id: number;
   followers: number[];
+
   location: string;
   website?: string;
+
   contact_email?: string;
   contact_phone?: string;
+
   is_verified?: boolean;
   created_at: string;
+
+  // ✅ Optional aliases to tolerate mixed APIs
+  brand_id?: number;
+  profileImage?: string;
+  coverImage?: string;
+  adminId?: number;
+  isVerified?: boolean;
 }
 
 // =========================
@@ -87,8 +113,14 @@ export interface CommentReply {
   created_at: string;
   likes: number;
   has_liked?: boolean;
+
   author_name?: string;
   author_image?: string;
+
+  // aliases
+  userId?: number;
+  commentId?: number;
+  createdAt?: string;
 }
 
 export interface Comment {
@@ -97,7 +129,8 @@ export interface Comment {
 
   post_id?: number;
   group_post_id?: number;
-  reel_id?: number; // ✅ ADDED: reels comments compatibility
+  reel_id?: number;
+  story_id?: number;
 
   text: string;
   created_at: string;
@@ -113,6 +146,14 @@ export interface Comment {
   // Joined/derived author data
   author_name?: string;
   author_image?: string;
+
+  // aliases
+  userId?: number;
+  postId?: number;
+  groupPostId?: number;
+  reelId?: number;
+  storyId?: number;
+  createdAt?: string;
 }
 
 // =========================
@@ -127,7 +168,7 @@ export interface LinkPreview {
 }
 
 // =========================
-// POSTS (✅ UPDATED FOR MULTI-IMAGE / MULTI-MEDIA + REACTION SYNC FIELDS)
+// POSTS (Multi-media + reaction sync fields)
 // =========================
 export interface Post {
   id: number;
@@ -135,11 +176,11 @@ export interface Post {
 
   content?: string;
 
-  // ✅ backward compatible single media
+  // backward compatible single media
   media_url?: string | null;
   media_type?: string | null;
 
-  // ✅ NEW: multi-media arrays (used by Feed.tsx + App.tsx normalizePost)
+  // ✅ multi-media arrays (used by normalizePost)
   media_urls?: string[];
   media_types?: string[];
 
@@ -148,7 +189,7 @@ export interface Post {
   reactions: Reaction[];
   comments: Comment[];
 
-  // ✅ counts + "my reaction" fields used by App.tsx optimistic updates
+  // counts + "my reaction" fields used by optimistic updates
   reactions_count?: number;
   reactionsCount?: number;
   likesCount?: number;
@@ -164,8 +205,7 @@ export interface Post {
 
   type: 'text' | 'image' | 'video' | 'event' | 'product' | 'audio' | 'post';
 
-  // NOTE: App.tsx sometimes uses 'public' lowercase from backend.
-  // Keep both forms compatible.
+  // backend can return lowercase variants
   visibility: 'Public' | 'Friends' | 'Only Me' | 'public' | 'friends' | 'only_me';
 
   location?: string;
@@ -194,65 +234,88 @@ export interface Post {
   // Joined data from backend
   author_name?: string;
   author_image?: string;
+
+  // aliases
+  post_id?: number;
+  postId?: number;
+  userId?: number;
+  mediaUrl?: string | null;
+  mediaType?: string | null;
+  mediaUrls?: string[];
+  mediaTypes?: string[];
+  createdAt?: string;
 }
 
 // =========================
-// STORIES - ✅ UPDATED TO MATCH Story.tsx COMPLETELY
+// STORIES (✅ matches normalizeStory + Story UI)
 // =========================
 export interface Story {
   id: number;
   user_id: number;
-  
-  // ✅ REQUIRED: Story.tsx uses this for rendering
+
   type: 'text' | 'image' | 'video';
-  
+
   // Text stories
   text_content?: string;
   background_style?: string;
-  
+
   // Media stories
   media_url?: string;
-  
+
   // Music
   music_url?: string;
   music_title?: string;
-  
+
   // User info (either embedded user object or separate fields)
   user?: User;
-  
-  // ✅ ADDED: Story.tsx uses these for display (pickBestName helper)
+
   author_name?: string;
   author_username?: string;
   author_image?: string;
   username?: string;
-  
-  // ✅ ADDED: For like functionality
-  liked_by_me?: boolean;
-  
-  // Timestamps
+
+  // ✅ make stable for UI
+  liked_by_me: boolean;
+
   created_at: string;
   expires_at?: string;
-  
-  // Reactions & replies
-  reactions?: { user_id: number }[];
+
+  // ✅ keep consistent with your Reaction type
+  reactions?: Reaction[];
   replies?: { user_id: number; text: string; created_at: string }[];
-  
-  // Optional
+
   duration?: number;
   seen?: boolean;
   views?: number;
+
+  // ✅ aliases to tolerate different API shapes
+  story_id?: number;
+  userId?: number;
+
+  text?: string;
+  backgroundStyle?: string;
+
+  mediaUrl?: string;
+
+  musicUrl?: string;
+  musicTitle?: string;
+
+  createdAt?: string;
+  expiresAt?: string;
+
+  likedByMe?: boolean;
 }
 
 // =========================
-// REELS (✅ UPDATED TO MATCH App.tsx normalizeReel + ReelsFeed props)
+// REELS (matches App.tsx normalizeReel + ReelsFeed props)
 // =========================
 export interface Reel {
   id: number;
 
-  // ✅ App.tsx uses userId in normalized reels
+  // App.tsx uses userId in normalized reels
   userId: number;
 
-  // ✅ Normalized camelCase fields used by Reels UI
+  // Normalized camelCase fields used by Reels UI
   videoUrl: string;
   caption: string;
 
@@ -261,7 +324,7 @@ export interface Reel {
   audioStart?: number;
   audioEnd?: number;
 
-  // ✅ Keep arrays optional (some endpoints may omit)
+  // reactions/comments
   reactions?: Array<{ userId?: number; user_id?: number; type: ReactionType }>;
   comments?: Comment[];
 
@@ -273,24 +336,29 @@ export interface Reel {
   effect_name?: string;
   is_compressed?: boolean;
 
-  // Optional counts (App may set these during optimistic updates)
   likesCount?: number;
   reactions_count?: number;
 
-  // Joined data (optional)
   author_name?: string;
   author_image?: string;
 
-  // ✅ OPTIONAL: raw backend aliases for compatibility if some components still use snake_case
+  // raw backend aliases
   user_id?: number;
   video_url?: string;
   song_name?: string;
-  
-  // ✅ ADDED: For trimmed audio support
+  audio_url?: string;
+  audio_start?: number;
+  audio_end?: number;
+  createdAt?: string;
+
+  // trimmed audio support
   soundKey?: string;
   isTrimmedAudio?: boolean;
   audioStartTime?: number;
   audioEndTime?: number;
+
+  // alias
+  sound_key?: string;
 }
 
 // =========================
@@ -315,6 +383,10 @@ export interface Notification {
   reel_id?: number;
   created_at: string;
   is_read: boolean;
+
+  // aliases
+  createdAt?: string;
+  isRead?: boolean;
 }
 
 // =========================
@@ -324,16 +396,26 @@ export interface Message {
   id: number;
   conversation_id: number;
   sender_id: number;
+
   text_content?: string;
+
   attachment_url?: string;
   attachment_type?: 'image' | 'video' | 'gif' | 'document';
+
   created_at: string;
   parent_message_id?: number;
+
+  // aliases
+  conversationId?: number;
+  senderId?: number;
+  text?: string;
+  createdAt?: string;
 }
 
 export interface Conversation {
   id: number;
   type: 'one_on_one' | 'group';
+
   created_at: string;
   last_message_at?: string;
 
@@ -341,6 +423,12 @@ export interface Conversation {
   group_avatar_url?: string;
 
   participants?: User[];
+
+  // aliases
+  createdAt?: string;
+  lastMessageAt?: string;
+  groupName?: string;
+  groupAvatarUrl?: string;
 }
 
 // =========================
@@ -360,11 +448,11 @@ export interface Event {
   title: string;
   description: string;
 
-  // UI-safe fields (what your normalizeEvent creates)
-  date: string;         // ISO string
-  time?: string;        // display string
+  // UI-safe fields (what normalizeEvent creates)
+  date: string; // ISO string
+  time?: string;
   location: string;
-  image?: string;       // cover image url for UI
+  image?: string;
 
   organizerId: number;
   organizer_name?: string;
@@ -376,7 +464,7 @@ export interface Event {
   visibility: 'worldwide' | 'targeted';
   created_at: string;
 
-  // DB / API raw aliases (optional but supported)
+  // DB / API raw aliases
   event_date?: string;
   event_time?: string;
   cover_url?: string;
@@ -412,8 +500,10 @@ export interface Product {
   description: string;
   country: string;
   address: string;
+
   main_price: number;
   discount_price?: number | null;
+
   quantity: number;
   phone_number: string;
 
@@ -432,6 +522,12 @@ export interface Product {
 
   ratings: number[];
   comments: Comment[];
+
+  // aliases
+  sellerId?: number;
+  sellerName?: string;
+  sellerAvatar?: string;
+  createdAt?: string;
 }
 
 // =========================
@@ -447,7 +543,7 @@ export interface GroupPost {
   media_url?: string;
   media_type?: string;
 
-  // (Optional future-proof)
+  // future-proof multi
   media_urls?: string[];
   media_types?: string[];
 
@@ -459,13 +555,18 @@ export interface GroupPost {
   shares: number;
   created_at: string;
 
-  // Joined data
   author_name?: string;
   author_image?: string;
 
-  // Optional counts
   reactions_count?: number;
   my_reaction?: ReactionType | null;
+
+  // aliases
+  userId?: number;
+  groupId?: number;
+  mediaUrl?: string;
+  mediaType?: string;
+  createdAt?: string;
 }
 
 export interface Group {
@@ -487,6 +588,14 @@ export interface Group {
   events?: Event[];
   member_posting_allowed?: boolean;
   member_count?: number;
+
+  // aliases
+  group_id?: number;
+  groupId?: number;
+  adminId?: number;
+  coverImage?: string;
+  profileImage?: string;
+  createdAt?: string;
 }
 
 // =========================
@@ -505,8 +614,9 @@ export interface Song {
   title: string;
   artist: string;
 
-  audio_url: string;          // raw (stored)
-  audio_fetch_url?: string;   // fetchable/proxy (trim/play)
+  // raw (stored) + fetchable/proxy (trim/play)
+  audio_url: string;
+  audio_fetch_url?: string;
 
   cover_url?: string;
   duration?: number;
@@ -514,7 +624,12 @@ export interface Song {
   playCount?: number;
   artistId?: number;
 
-  // aliases (optional)
+  // aliases
+  song_id?: number;
+  name?: string;
+  url?: string;
+  file_url?: string;
+
   uploader_id?: number;
   artist_name?: string;
   cover_image_url?: string;
@@ -543,20 +658,30 @@ export interface Podcast {
   category: string;
   followers: number;
   created_at: string;
+
+  // aliases
+  createdAt?: string;
 }
 
 export interface Episode {
   id: number;
   podcast_id: number;
   uploader_id: number;
+
   title: string;
   description: string;
+
   created_at: string;
   duration_seconds: number;
+
   audio_url: string;
   cover_image_url: string;
+
   stats?: Stats;
   host?: string;
+
+  // aliases
+  createdAt?: string;
 }
 
 export interface AudioTrack {
@@ -572,7 +697,7 @@ export interface AudioTrack {
 }
 
 // =========================
-// ✅ ADDED: For Reel Sound Support (App.tsx uses this)
+// Reel Sound Support (App.tsx uses this)
 // =========================
 export type ReelSound = {
   songName: string;
@@ -586,9 +711,9 @@ export type ReelSound = {
 };
 
 // =========================
-// ✅ ADDED: For Hashtag Filtering
+// View union (App.tsx)
 // =========================
-export type View = 
+export type View =
   | 'home'
   | 'reels'
   | 'marketplace'
