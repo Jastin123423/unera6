@@ -1,6 +1,4 @@
-Now I want you to ensure Story.tsx is defined well in App.tsx 
 
-Here it is
 import React, { useState, useEffect, useRef } from 'react';
 import { Story, User, Song } from '../types';
 
