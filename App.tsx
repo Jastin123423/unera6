@@ -1109,12 +1109,16 @@ export default function App() {
     usersRef.current = users;
   }, [users]);
   
-  // ✅ CLICK FREEZE FIX: Add function refs
+  // ✅ FIXED: CLICK FREEZE FIX - Initialize refs with placeholders first
   const currentUserRef = useRef<User | null>(null);
-  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
-
-  const fetchPostsForHomeRef = useRef(fetchPostsForHome);
-  const fetchReelsRef = useRef(fetchReels);
+  
+  // ✅ FIXED: Initialize with placeholders to avoid TDZ error
+  const fetchPostsForHomeRef = useRef<(viewer: User | null) => Promise<void>>(
+    async () => {}
+  );
+  const fetchReelsRef = useRef<() => Promise<void>>(async () => {});
+  
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   
   const [posts, setPosts] = useState<PostType[]>([]);
   const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
@@ -1136,7 +1140,6 @@ export default function App() {
   const [activeStory, setActiveStory] = useState<Story | null>(null);
   const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
 
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
 
@@ -1491,6 +1494,11 @@ export default function App() {
       setLoginError('Failed to send reply');
     }
   }, [currentUser, requireAuth]);
+
+  // ✅ Update currentUserRef when currentUser changes
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   // ✅ FIXED: Call fetchMyTotalPlays only after auth is hydrated
   useEffect(() => {
@@ -1956,7 +1964,7 @@ export default function App() {
       console.error('Failed to share reel:', error);
       setLoginError('Failed to share');
     }
-  }, [currentUser, requireAuth]);
+  }, [currentUser, requireAuth, fetchReels]);
 
   /** ✅ UPDATED: Use sound from reel with fetchable audio URLs and original URL storage ---------- */
   const useSoundFromReel = useCallback((soundFromReel: any) => {
@@ -2196,10 +2204,10 @@ export default function App() {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
     scheduleSilentRefreshRef.current = setTimeout(() => {
       if (document.visibilityState !== 'visible') return;
-      fetchPostsForHome(currentUser).catch(() => {});
-      fetchReels().catch(() => {});
+      fetchPostsForHomeRef.current(currentUser);
+      fetchReelsRef.current();
     }, 8000);
-  }, [currentUser, fetchPostsForHome, fetchReels]);
+  }, [currentUser]);
 
   // ================== EVENTS API INTEGRATIONS (FIXED) ====================
   const joinEvent = useCallback(async (eventId: number) => {
@@ -2716,8 +2724,8 @@ export default function App() {
         try { sessionStorage.removeItem(FEED_SESSION_KEY); } catch {}
 
         // ✅ use refs (latest functions + latest user) without re-subscribing listeners
-        fetchPostsForHomeRef.current(currentUserRef.current).catch(() => {});
-        fetchReelsRef.current().catch(() => {});
+        fetchPostsForHomeRef.current(currentUserRef.current);
+        fetchReelsRef.current();
       }
     };
 
