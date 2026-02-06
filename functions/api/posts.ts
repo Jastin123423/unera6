@@ -23,7 +23,6 @@ const toInt = (v: any, fallback = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
 };
-
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
 const safeJsonParseArray = (v: any): string[] => {
@@ -64,25 +63,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     if (!env.DB) return json({ success: false, error: 'DB binding missing (DB)' }, 500);
 
     const url = new URL(request.url);
-
-    // Pagination
     const limit = clamp(toInt(url.searchParams.get('limit'), 20), 1, 50);
     const cursorToken = str(url.searchParams.get('cursor'));
     const cursor = cursorToken ? decodeCursor(cursorToken) : null;
 
-    // ✅ Facebook-like guest logic:
-    // Guests can see ONLY public posts.
-    // (If you later add auth-aware logic, you can widen this for the owner.)
     const where = cursor
       ? `WHERE (visibility IS NULL OR visibility = 'public')
            AND (created_at < ? OR (created_at = ? AND id < ?))`
       : `WHERE (visibility IS NULL OR visibility = 'public')`;
 
-    const params: any[] = cursor
-      ? [cursor.t, cursor.t, cursor.id, limit + 1]
-      : [limit + 1];
+    const params: any[] = cursor ? [cursor.t, cursor.t, cursor.id, limit + 1] : [limit + 1];
 
-    // ✅ IMPORTANT: Order by created_at + id for stable paging
     const sql = `
       SELECT
         id,
@@ -93,7 +84,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         media_urls,
         media_types,
         visibility,
-        type,
         location,
         feeling,
         tagged_users,
@@ -116,7 +106,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       const media_urls = safeJsonParseArray(p?.media_urls);
       const media_types = safeJsonParseArray(p?.media_types);
 
-      // Backward compatibility: keep single if arrays empty
       const media_url = p?.media_url ?? (media_urls[0] ?? null);
       const media_type = p?.media_type ?? (media_types[0] ?? null);
 
@@ -132,14 +121,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         shares: Number(p?.shares ?? 0),
         views: Number(p?.views ?? 0),
         created_at: p?.created_at ?? new Date().toISOString(),
-        // Guest endpoint: no viewer, so no my_reaction fields here (App.tsx normalizes to null/0)
       };
     });
 
     const last = page[page.length - 1];
-    const nextCursor = hasMore && last?.created_at && last?.id
-      ? encodeCursor({ t: String(last.created_at), id: Number(last.id) })
-      : null;
+    const nextCursor =
+      hasMore && last?.created_at && last?.id
+        ? encodeCursor({ t: String(last.created_at), id: Number(last.id) })
+        : null;
 
     return json({ success: true, posts: page, nextCursor, hasMore });
   } catch (e: any) {
@@ -159,7 +148,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const media_url = body?.media_url ? str(body.media_url) : null;
     const media_type = body?.media_type ? str(body.media_type) : null;
 
-    // Multi-media
     const media_urls = Array.isArray(body?.media_urls) ? body.media_urls : undefined;
     const media_types = Array.isArray(body?.media_types) ? body.media_types : undefined;
 
@@ -175,11 +163,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         user_id, content,
         media_url, media_type,
         media_urls, media_types,
-        visibility, type, location, feeling,
+        visibility, location, feeling,
         tagged_users, background, link_preview,
         shares, views,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const info = await env.DB.prepare(insert).bind(
@@ -190,7 +178,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       media_urls ? JSON.stringify(media_urls) : null,
       media_types ? JSON.stringify(media_types) : null,
       visibility,
-      str(body?.type) || null,
       body?.location ?? null,
       body?.feeling ?? null,
       body?.tagged_users ? JSON.stringify(body.tagged_users) : null,
@@ -214,7 +201,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         media_urls: media_urls?.length ? media_urls : (media_url ? [media_url] : []),
         media_types: media_types?.length ? media_types : (media_type ? [media_type] : []),
         visibility,
-        type: str(body?.type) || null,
         shares: 0,
         views: 0,
         created_at,
