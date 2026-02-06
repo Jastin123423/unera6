@@ -1,4 +1,4 @@
-// App.tsx - UPDATED WITH FIXED USER BLINKING ISSUE
+// App.tsx - PROFESSIONAL FIX WITH NO BLINKING
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -1145,6 +1145,19 @@ export default function App() {
 
   const [loginError, setLoginError] = useState('');
 
+  // ✅ ADDED: Refs for deduplication and stable access
+  const usersRef = useRef<User[]>([]);
+  const storiesInFlightRef = useRef(false);
+  const reelsInFlightRef = useRef(false);
+  const postsInFlightRef = useRef(false);
+  const usersInFlightRef = useRef(false);
+  const otherDataInFlightRef = useRef(false);
+
+  /** ---------- ✅ FIXED: Keep refs in sync with state ---------- */
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+
   /** ---------- Auth gate ---------- */
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -1343,51 +1356,49 @@ export default function App() {
       setSongs(normalized);
     } catch (e) {
       console.error('Failed to fetch songs:', e);
-      setSongs([]);
+      // ✅ FIXED: Don't clear existing songs on transient error
+      // setSongs([]);
     }
   }, []);
 
-  /** ---------- ✅ UPDATED: Fetch Stories with SAFE user merging to prevent blinking ---------- */
+  /** ---------- ✅ FIXED: Fetch Stories with deduplication and no double state updates ---------- */
   const fetchStories = useCallback(async () => {
+    if (storiesInFlightRef.current) return;
+    storiesInFlightRef.current = true;
+    
     try {
       const data = await apiFetch('/api/stories');
       const storiesList = safeArray(data?.stories ?? data);
       
-      // ✅ FIXED: SAFE normalization that doesn't overwrite existing user data
-      setUsers(prev => {
-        const map = new Map<number, User>();
-        safeArray(prev).forEach(u => map.set(Number(u.id), u));
+      // snapshot users once
+      const prevUsers = usersRef.current;
 
-        // Process stories and merge user data safely
-        const normalizedStories = storiesList.map((story: any) => {
-          const userId = story.user_id;
-          const existingUser = map.get(Number(userId));
-          const storyWithUser = normalizeStory(story, existingUser);
-          
-          // Update the user in our map if we have new valid data
-          if (storyWithUser.user) {
-            const incomingUser = storyWithUser.user;
-            const current = map.get(Number(userId));
-            if (current) {
-              // Merge safely without overwriting good data with bad/default values
-              map.set(Number(userId), normalizeUser(mergeUserSafe(current, incomingUser)));
-            } else {
-              map.set(Number(userId), normalizeUser(incomingUser));
-            }
-          }
-          
-          return storyWithUser;
-        });
-        
-        // Update stories with the normalized data
-        setStories(normalizedStories);
-        
-        return Array.from(map.values());
+      const map = new Map<number, User>();
+      prevUsers.forEach(u => map.set(Number(u.id), u));
+
+      const normalizedStories = storiesList.map((story: any) => {
+        const uid = Number(story.user_id);
+        const existing = map.get(uid);
+        const st = normalizeStory(story, existing);
+
+        if (st.user) {
+          const incoming = normalizeUser(st.user);
+          const cur = map.get(uid);
+          map.set(uid, cur ? normalizeUser(mergeUserSafe(cur, incoming)) : incoming);
+        }
+        return st;
       });
+
+      // Update stories FIRST, then users (separate updates to prevent nested renders)
+      setStories(normalizedStories);
+      setUsers(Array.from(map.values()));
       
     } catch (error) {
       console.error('Failed to fetch stories:', error);
-      setStories([]);
+      // ✅ FIXED: Don't clear stories on transient error
+      // setStories([]);
+    } finally {
+      storiesInFlightRef.current = false;
     }
   }, []);
 
@@ -1702,8 +1713,11 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
-  /** ---------- ✅ FIXED: Fetch users list with safe merging ---------- */
+  /** ---------- ✅ FIXED: Fetch users list with deduplication ---------- */
   const fetchUsersList = useCallback(async () => {
+    if (usersInFlightRef.current) return;
+    usersInFlightRef.current = true;
+    
     try {
       const u = await apiFetch('/api/users').catch(() => []);
       const newUsers = safeArray(u).map(normalizeUser);
@@ -1729,12 +1743,18 @@ export default function App() {
         return Array.from(map.values());
       });
     } catch {
-      setUsers([]);
+      // ✅ FIXED: Don't clear users on transient error
+      // setUsers([]);
+    } finally {
+      usersInFlightRef.current = false;
     }
   }, []);
 
-  /** ---------- Fetch reels ---------- */
+  /** ---------- ✅ FIXED: Fetch reels with deduplication ---------- */
   const fetchReels = useCallback(async () => {
+    if (reelsInFlightRef.current) return;
+    reelsInFlightRef.current = true;
+    
     try {
       const data = await apiFetch('/api/reels');
       const reelsList = safeArray(data?.reels ?? data);
@@ -1752,7 +1772,10 @@ export default function App() {
       setReels(normalizedReels);
     } catch (error) {
       console.error('Failed to fetch reels:', error);
-      setReels([]);
+      // ✅ FIXED: Don't clear reels on transient error
+      // setReels([]);
+    } finally {
+      reelsInFlightRef.current = false;
     }
   }, []);
 
@@ -2010,9 +2033,12 @@ export default function App() {
     setShowCreateReelModal(true);
   }, []);
 
-  /** ---------- Fetch posts (Facebook-like freshness) ---------- */
+  /** ---------- ✅ FIXED: Fetch posts with deduplication ---------- */
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
+      if (postsInFlightRef.current) return;
+      postsInFlightRef.current = true;
+      
       setIsFeedRefreshing(true);
 
       try {
@@ -2118,6 +2144,7 @@ export default function App() {
         if (!feedHydrated) setFeedHydrated(true);
       } finally {
         setIsFeedRefreshing(false);
+        postsInFlightRef.current = false;
       }
     },
     [activeCommentsPostId, feedHydrated]
@@ -2159,7 +2186,8 @@ export default function App() {
         });
       });
     } catch {
-      setProfilePosts([]);
+      // ✅ FIXED: Don't clear profile posts on transient error
+      // setProfilePosts([]);
     }
   }, [currentUser, posts]);
 
@@ -2354,59 +2382,59 @@ const createEvent = useCallback(async (eventData: any) => {
 
   // ==================== GROUPS BACKEND INTEGRATIONS ====================
 
-  /** ---------- ✅ FIXED: Fetch groups correctly with normalization ---------- */
+  /** ---------- ✅ FIXED: Fetch other data WITHOUT stories (stable dependency) ---------- */
   const fetchOtherData = useCallback(async () => {
-    const [s, pr, g, b, e, c] = await Promise.all([
-      apiFetch('/api/stories').catch(() => []),
-      apiFetch('/api/products').catch(() => []),
-      apiFetch('/api/groups').catch(() => []),
-      apiFetch('/api/brands').catch(() => []),
-      // ✅ CRITICAL FIX: Always normalize events when loading
-      apiFetch('/api/events').then(data => safeArray(data?.events ?? data).map(normalizeEvent)).catch(() => []),
-      apiFetch('/api/chats').catch(() => []),
-    ]);
+    if (otherDataInFlightRef.current) return;
+    otherDataInFlightRef.current = true;
+    
+    try {
+      // ✅ FIXED: REMOVED stories from Promise.all - stories are fetched separately
+      const [pr, g, b, e, c] = await Promise.all([
+        apiFetch('/api/products').catch(() => []),
+        apiFetch('/api/groups').catch(() => []),
+        apiFetch('/api/brands').catch(() => []),
+        // ✅ CRITICAL FIX: Always normalize events when loading
+        apiFetch('/api/events').then(data => safeArray(data?.events ?? data).map(normalizeEvent)).catch(() => []),
+        apiFetch('/api/chats').catch(() => []),
+      ]);
 
-    // Handle stories (already handled in fetchStories for safety)
-    // Just update stories from the result
-    const storiesList = safeArray(s);
-    const normalizedStories = storiesList.map((story: any) => {
-      const userId = story.user_id;
-      const existingUser = users.find(u => Number(u.id) === Number(userId));
-      return normalizeStory(story, existingUser);
-    });
-    setStories(normalizedStories);
-    
-    // ✅ FIXED: Handle different API response formats for products
-    const prRaw = pr;
-    const prList =
-      Array.isArray(prRaw) ? prRaw :
-      Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
-      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
-      Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
-      Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
-      [];
+      // ✅ FIXED: Handle different API response formats for products
+      const prRaw = pr;
+      const prList =
+        Array.isArray(prRaw) ? prRaw :
+        Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
+        Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
+        Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
+        Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
+        [];
 
-    setProducts(prList.map(normalizeProduct));
-    
-    // ✅ FIXED: Handle new groups API response shape WITH NORMALIZATION
-    const gRaw = g;
-    const gList = Array.isArray(gRaw)
-      ? gRaw
-      : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
-      : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
-      : [];
-    
-    // ✅ CRITICAL: Normalize groups to prevent crashes
-    setGroups(gList.map(normalizeGroup));
-    
-    setBrands(safeArray(b));
-    
-    // ✅ UPDATED: Normalize events (already normalized above)
-    // e is already normalized from Promise.all
-    setEvents(e);
-    
-    setChats(safeArray(c));
-  }, [users]);
+      setProducts(prList.map(normalizeProduct));
+      
+      // ✅ FIXED: Handle new groups API response shape WITH NORMALIZATION
+      const gRaw = g;
+      const gList = Array.isArray(gRaw)
+        ? gRaw
+        : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
+        : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
+        : [];
+      
+      // ✅ CRITICAL: Normalize groups to prevent crashes
+      setGroups(gList.map(normalizeGroup));
+      
+      setBrands(safeArray(b));
+      
+      // ✅ UPDATED: Normalize events (already normalized above)
+      // e is already normalized from Promise.all
+      setEvents(e);
+      
+      setChats(safeArray(c));
+    } catch (error) {
+      console.error('Failed to fetch other data:', error);
+      // ✅ FIXED: Don't clear all data on transient error
+    } finally {
+      otherDataInFlightRef.current = false;
+    }
+  }, []); // ✅ FIXED: Empty dependency array - stable function
 
   /** ---------- ✅ 2) Fetch group posts with viewerId ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
@@ -2678,7 +2706,7 @@ const createEvent = useCallback(async (eventData: any) => {
     }
   }, [requireAuth, updateGroupSettings]);
 
-  /** ---------- One fetch pipeline ---------- */
+  /** ---------- ✅ FIXED: One fetch pipeline with stable dependencies ---------- */
   const fetchData = useCallback(
     async (viewer: User | null) => {
       await Promise.all([
@@ -2693,8 +2721,10 @@ const createEvent = useCallback(async (eventData: any) => {
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
-  /** ---------- ✅ FIXED: Restore session + initial load with auth hydration ---------- */
+  /** ---------- ✅ FIXED: Restore session + initial load WITHOUT dependency chain ---------- */
   useEffect(() => {
+    let mounted = true;
+    
     const init = async () => {
       let viewer: User | null = null;
 
@@ -2720,13 +2750,29 @@ const createEvent = useCallback(async (eventData: any) => {
         // ignore
       }
 
-      await fetchData(viewer);
-      setAuthHydrated(true); // ✅ Mark auth as hydrated AFTER session restore
+      if (!mounted) return;
+      
+      // Fetch all data in parallel
+      await Promise.all([
+        fetchUsersList(),
+        fetchPostsForHome(viewer),
+        fetchOtherData(),
+        fetchReels(),
+        fetchSongs(),
+        fetchStories(),
+      ]);
+      
+      if (!mounted) return;
+      setAuthHydrated(true);
     };
 
     init();
+    
+    return () => {
+      mounted = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchData]);
+  }, []); // ✅ FIXED: Empty dependency array - runs once on mount
 
   /** ---------- Return detection (leave -> come back => new seed + refresh) ---------- */
   useEffect(() => {
