@@ -1,4 +1,6 @@
+// functions/api/posts/by-user.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
+
 type Env = { DB: D1Database };
 
 const cors = {
@@ -13,185 +15,186 @@ const json = (data: any, status = 200) =>
     headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
 
-const toInt = (v: any, fallback = 0) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
-
-const safeString = (v: any) => (typeof v === "string" ? v : "");
-
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
+
+const str = (v: any) => String(v ?? '').trim();
+const toInt = (v: any, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+};
+const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+
+const safeJsonParseArray = (v: any): string[] => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map(String).filter(Boolean);
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+// Cursor token: base64(JSON.stringify({ t: created_at, id }))
+type CursorPayload = { t: string; id: number };
+const encodeCursor = (p: CursorPayload) =>
+  btoa(unescape(encodeURIComponent(JSON.stringify(p))));
+const decodeCursor = (token: string): CursorPayload | null => {
+  try {
+    const raw = decodeURIComponent(escape(atob(token)));
+    const p = JSON.parse(raw);
+    const t = String(p?.t ?? '').trim();
+    const id = Number(p?.id ?? NaN);
+    if (!t || !Number.isFinite(id)) return null;
+    return { t, id };
+  } catch {
+    return null;
+  }
+};
+
+// ✅ Change these table names if yours differ
+const REACTIONS_TABLE = 'post_reactions'; // <-- if yours is "reactions" or "post_likes", change here.
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env.DB) return json({ success: false, error: 'DB binding missing (DB)' }, 500);
 
     const url = new URL(request.url);
-
-    // profile owner (whose posts)
     const userId = toInt(url.searchParams.get('userId'), 0);
-    
-    // viewer (who is logged in) - used for my_reaction highlight
     const viewerId = toInt(url.searchParams.get('viewerId'), 0);
-    
-    // pagination cursor (ISO timestamp)
-    const cursor = safeString(url.searchParams.get('cursor')).trim();
-    
-    const limit = Math.min(50, Math.max(1, toInt(url.searchParams.get('limit'), 30)));
 
-    if (!userId) return json({ success: false, error: 'Missing userId' }, 400);
+    if (!userId) return json({ success: false, error: 'userId is required' }, 400);
 
-    const where: string[] = [];
-    const binds: any[] = [];
+    const limit = clamp(toInt(url.searchParams.get('limit'), 30), 1, 50);
+    const cursorToken = str(url.searchParams.get('cursor'));
+    const cursor = cursorToken ? decodeCursor(cursorToken) : null;
 
-    where.push(`p.user_id = ?`);
-    binds.push(userId);
+    // ✅ Visibility:
+    // - If viewer is profile owner: show all
+    // - Else: show public only
+    const visibilityWhere =
+      viewerId && viewerId === userId
+        ? `1=1`
+        : `(p.visibility IS NULL OR p.visibility = 'public')`;
 
-    // cursor-based pagination
-    if (cursor) {
-      where.push(`p.created_at < ?`);
-      binds.push(cursor);
-    }
+    const cursorWhere = cursor
+      ? `AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?))`
+      : '';
 
-    // Optional: visibility filter (public or visible to viewer)
-    if (viewerId === userId) {
-      // User viewing their own profile - show all posts
-      // No additional filter needed
-    } else {
-      // Others viewing profile - only show public posts
-      where.push(`p.visibility = 'public'`);
-    }
+    const params: any[] = cursor
+      ? [userId, ...(viewerId ? [viewerId, viewerId] : [0, 0]), cursor.t, cursor.t, cursor.id, limit + 1]
+      : [userId, ...(viewerId ? [viewerId, viewerId] : [0, 0]), limit + 1];
 
-    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-
-    const q = `
+    // ✅ NOTE:
+    // D1 is SQLite. We compute:
+    // - reactions_count: count(*) on reactions table
+    // - my_reaction: viewer's reaction type (or null)
+    //
+    // If you also need comments_count, add another subquery.
+    const sql = `
       SELECT
         p.id,
         p.user_id,
         p.content,
-
-        /* single media (compat) */
-        CASE
-          WHEN p.media_url LIKE 'data:%' THEN NULL
-          WHEN length(p.media_url) > 300 THEN NULL
-          ELSE p.media_url
-        END AS media_url,
-
-        CASE
-          WHEN p.media_url LIKE 'data:%' THEN NULL
-          WHEN length(p.media_url) > 300 THEN NULL
-          ELSE p.media_type
-        END AS media_type,
-
-        /* ✅ multi media (JSON strings) */
-        CASE
-          WHEN p.media_urls LIKE 'data:%' THEN NULL
-          WHEN length(p.media_urls) > 5000 THEN NULL
-          ELSE p.media_urls
-        END AS media_urls,
-
-        CASE
-          WHEN length(p.media_types) > 5000 THEN NULL
-          ELSE p.media_types
-        END AS media_types,
-
+        p.media_url,
+        p.media_type,
+        p.media_urls,
+        p.media_types,
         p.visibility,
-        p.created_at,
-        p.views,
+        p.type,
+        p.location,
+        p.feeling,
+        p.tagged_users,
+        p.background,
+        p.link_preview,
         p.shares,
+        p.views,
+        p.created_at,
 
-        /* reactions count */
-        (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
-
-        /* viewer reaction (safe if viewerId=0) */
-        (SELECT pr.type
-           FROM post_reactions pr
+        -- total reactions
+        (
+          SELECT COUNT(1)
+          FROM ${REACTIONS_TABLE} pr
           WHERE pr.post_id = p.id
-            AND pr.user_id = ?
+        ) AS reactions_count,
+
+        -- viewer reaction (single)
+        (
+          SELECT pr2.type
+          FROM ${REACTIONS_TABLE} pr2
+          WHERE pr2.post_id = p.id AND pr2.user_id = ?
+          ORDER BY pr2.id DESC
           LIMIT 1
-        ) AS my_reaction,
-
-        /* comments count */
-        (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comments_count,
-
-        /* author fields */
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.display_name, COALESCE(u.username, 'User')) AS name,
-
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role
+        ) AS my_reaction
 
       FROM posts p
-      LEFT JOIN users u ON u.id = p.user_id
-      ${whereSql}
-      ORDER BY p.created_at DESC
+      WHERE p.user_id = ?
+        AND ${visibilityWhere}
+        ${cursorWhere}
+      ORDER BY p.created_at DESC, p.id DESC
       LIMIT ?
     `;
 
-    // bind order: viewerId first (for my_reaction subquery), then where binds, then limit
-    const { results } = await env.DB.prepare(q).bind(viewerId || 0, ...binds, limit).all();
-    const rows = Array.isArray(results) ? results : [];
+    // Bind order matters (because viewer subquery uses viewerId first)
+    // We used params as: [userId, viewerId, viewerId, cursor..., limit+1]
+    // But SQL expects: my_reaction bind (viewerId) first, then userId, then cursor binds, then limit.
+    // So we must bind correctly:
+    const bindParams: any[] = [];
+    bindParams.push(viewerId || 0);
+    bindParams.push(userId);
 
-    // Parse JSON strings for media arrays
-    const posts = rows.map(post => {
-      let media_urls: string[] = [];
-      let media_types: string[] = [];
-      
-      try {
-        if (post.media_urls && typeof post.media_urls === 'string') {
-          media_urls = JSON.parse(post.media_urls);
-        }
-        if (post.media_types && typeof post.media_types === 'string') {
-          media_types = JSON.parse(post.media_types);
-        }
-      } catch (e) {
-        // Keep empty arrays if parsing fails
-      }
+    if (cursor) {
+      bindParams.push(cursor.t, cursor.t, cursor.id);
+    }
+    bindParams.push(limit + 1);
 
-      // Ensure arrays are of the same length
-      const validMediaCount = Math.min(media_urls.length, media_types.length);
-      const validMediaUrls = media_urls.slice(0, validMediaCount);
-      const validMediaTypes = media_types.slice(0, validMediaCount);
+    const res = await env.DB.prepare(sql).bind(...bindParams).all();
+    const rows = (res?.results || []) as any[];
+
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit).map((p: any) => {
+      const media_urls = safeJsonParseArray(p?.media_urls);
+      const media_types = safeJsonParseArray(p?.media_types);
+
+      const media_url = p?.media_url ?? (media_urls[0] ?? null);
+      const media_type = p?.media_type ?? (media_types[0] ?? null);
+
+      const reactions_count = Number(p?.reactions_count ?? 0);
+      const my_reaction = p?.my_reaction ?? null;
 
       return {
-        ...post,
-        media_urls: validMediaUrls,
-        media_types: validMediaTypes,
-        // Backward compatibility: if media_url is null but media_urls has items, use first
-        media_url: post.media_url || (validMediaUrls.length > 0 ? validMediaUrls[0] : null),
-        media_type: post.media_type || (validMediaTypes.length > 0 ? validMediaTypes[0] : null),
+        ...p,
+        id: Number(p?.id),
+        user_id: p?.user_id == null ? null : Number(p?.user_id),
+        content: p?.content ?? '',
+        media_url,
+        media_type,
+        media_urls: media_urls.length ? media_urls : (media_url ? [media_url] : []),
+        media_types: media_types.length ? media_types : (media_type ? [media_type] : []),
+        shares: Number(p?.shares ?? 0),
+        views: Number(p?.views ?? 0),
+        created_at: p?.created_at ?? new Date().toISOString(),
+        reactions_count,
+        reactionsCount: reactions_count, // compatibility with your App normalize
+        likesCount: reactions_count,     // compatibility with your UI
+        my_reaction,
+        myReaction: my_reaction,
       };
     });
 
-    // Determine next cursor for pagination
-    let nextCursor: string | null = null;
-    if (posts.length === limit) {
-      const lastPost = posts[posts.length - 1];
-      nextCursor = lastPost.created_at;
-    }
+    const last = page[page.length - 1];
+    const nextCursor = hasMore && last?.created_at && last?.id
+      ? encodeCursor({ t: String(last.created_at), id: Number(last.id) })
+      : null;
 
-    return json({
-      success: true,
-      userId,
-      viewerId: viewerId || 0,
-      limit,
-      cursor,
-      nextCursor,
-      hasMore: nextCursor !== null,
-      posts,
-    });
+    return json({ success: true, posts: page, nextCursor, hasMore });
   } catch (e: any) {
-    return json({ 
-      success: false, 
-      error: 'Failed to fetch posts',
-      message: e?.message || String(e) 
-    }, 500);
+    return json({ success: false, error: e?.message || 'Failed to fetch user posts' }, 500);
   }
 };
