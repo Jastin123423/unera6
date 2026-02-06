@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONALLY UPDATED WITH PERFORMANCE FIXES + PAGINATION
+// App.tsx - PROFESSIONALLY UPDATED WITH ALL FIXES
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -1096,6 +1096,27 @@ async function recordPlay(track: AudioTrack, userId: any) {
   return null;
 }
 
+/** ✅ ADDED: Helper to parse posts from any API response shape ---------- */
+const pickPostsArray = (res: any): any[] => {
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res?.posts)) return res.posts;
+  if (Array.isArray(res?.data)) return res.data;
+  if (Array.isArray(res?.results)) return res.results;
+  if (Array.isArray(res?.items)) return res.items;
+  if (Array.isArray(res?.feed)) return res.feed;
+  return [];
+};
+
+/** ✅ ADDED: Helper to extract cursor from any API response shape ---------- */
+const extractCursor = (res: any): string | null => {
+  return res?.nextCursor ?? res?.next_cursor ?? res?.cursor ?? null;
+};
+
+/** ✅ ADDED: Helper to extract hasMore from any API response shape ---------- */
+const extractHasMore = (res: any): boolean => {
+  return Boolean(res?.hasMore ?? res?.has_more ?? (extractCursor(res) ? true : false));
+};
+
 export default function App() {
   useLanguage();
 
@@ -1112,7 +1133,7 @@ export default function App() {
   const currentUserRef = useRef<User | null>(null);
   
   // ✅ FIXED: Initialize with placeholders to avoid TDZ error
-  const fetchPostsForHomeRef = useRef<(viewer: User | null) => Promise<void>>(
+  const fetchPostsForHomeRef = useRef<(viewer: User | null, opts?: { silent?: boolean }) => Promise<void>>(
     async () => {}
   );
   const fetchReelsRef = useRef<() => Promise<void>>(async () => {});
@@ -1383,7 +1404,7 @@ export default function App() {
     } finally {
       setPlaysLoading(false);
     }
-  }, [myTotalPlays]); // ✅ REMOVED: apiFetch from dependencies (it's a module-level constant)
+  }, [myTotalPlays]);
 
   /** ---------- ✅ UPDATED: Fetch UNERA Music songs with BOTH raw and fetchable URLs ---------- */
   const fetchSongs = useCallback(async () => {
@@ -1438,7 +1459,7 @@ export default function App() {
       console.error('Failed to fetch stories:', error);
       setStories([]);
     }
-  }, []); // ✅ EMPTY dependencies now
+  }, []);
 
   /** ---------- ✅ ADDED: Create Story Function ---------- */
   const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
@@ -1556,7 +1577,7 @@ export default function App() {
 
   // ✅ FIXED: Call fetchMyTotalPlays only after auth is hydrated
   useEffect(() => {
-    if (!authHydrated) return; // ✅ Wait until session restore is finished
+    if (!authHydrated) return;
 
     if (currentUser?.id) {
       fetchMyTotalPlays(Number(currentUser.id)).catch(() => {});
@@ -2068,7 +2089,7 @@ export default function App() {
           `&seen=${encodeURIComponent(seenParam)}`
       );
 
-      const rows = safeArray<any>(data?.feed);
+      const rows = pickPostsArray(data);
       const incoming = rows.map(normalizeFeedRowToPost);
 
       // push seen for the next chunks too (prevents repeats)
@@ -2082,8 +2103,8 @@ export default function App() {
         return merged;
       });
 
-      setFeedCursor(data?.nextCursor ?? null);
-      setFeedHasMore(!!data?.hasMore);
+      setFeedCursor(extractCursor(data));
+      setFeedHasMore(extractHasMore(data));
     } catch (e) {
       console.error("loadMoreHomeFeed failed:", e);
     } finally {
@@ -2103,8 +2124,8 @@ export default function App() {
 
       const res = await apiFetch(`/api/posts?${qs.toString()}`);
 
-      // res = { success:true, posts:[], nextCursor, hasMore }
-      const newRows = Array.isArray(res?.posts) ? res.posts : [];
+      // ✅ Use the helper to parse posts from any response shape
+      const newRows = pickPostsArray(res).map(normalizePost);
 
       setGuestPosts(prev => {
         const map = new Map<number, any>();
@@ -2112,8 +2133,8 @@ export default function App() {
         return Array.from(map.values());
       });
 
-      setGuestCursor(res?.nextCursor ?? null);
-      setGuestHasMore(!!res?.hasMore);
+      setGuestCursor(extractCursor(res));
+      setGuestHasMore(extractHasMore(res));
     } catch (e) {
       console.error("guest load more failed", e);
     } finally {
@@ -2123,8 +2144,8 @@ export default function App() {
 
   /** ---------- ✅ UPDATED: Fetch posts with pagination support ---------- */
   const fetchPostsForHome = useCallback(
-    async (viewer: User | null) => {
-      setIsFeedRefreshing(true);
+    async (viewer: User | null, opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setIsFeedRefreshing(true);
 
       try {
         const seed = getOrCreateSessionSeed(viewer?.id ?? null);
@@ -2137,7 +2158,7 @@ export default function App() {
           setFeedHasMore(true);
           
           const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=20&seed=${seed}`);
-          const rows = safeArray<any>(data?.feed);
+          const rows = pickPostsArray(data);
 
           if (!rows.length) {
             if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
@@ -2185,8 +2206,8 @@ export default function App() {
           });
 
           // ✅ SET PAGINATION STATE
-          setFeedCursor(data?.nextCursor ?? null);
-          setFeedHasMore(!!data?.hasMore);
+          setFeedCursor(extractCursor(data));
+          setFeedHasMore(extractHasMore(data));
 
           if (!feedHydrated) setFeedHydrated(true);
 
@@ -2200,12 +2221,17 @@ export default function App() {
         }
 
         // Guest feed fallback with pagination
+        // ✅ CRITICAL FIX: Guest refresh must always start from first page
+        setGuestCursor(null);
+        setGuestHasMore(true);
+        
         const qs = new URLSearchParams();
         qs.set("limit", "20");
-        if (guestCursor) qs.set("cursor", guestCursor);
+        // ❌ Don't use guestCursor here for refresh - only for loadMoreGuestPosts
         
         const p = await apiFetch(`/api/posts?${qs.toString()}`);
-        const normalized = safeArray(p?.posts).map(normalizePost);
+        const rows = pickPostsArray(p);
+        const normalized = rows.map(normalizePost);
 
         if (normalized.length) {
           const unseen = normalized.filter((x: any) => !seen.has(Number(x.id)));
@@ -2225,8 +2251,8 @@ export default function App() {
           });
 
           // ✅ SET GUEST PAGINATION STATE
-          setGuestCursor(p?.nextCursor ?? null);
-          setGuestHasMore(!!p?.hasMore);
+          setGuestCursor(extractCursor(p));
+          setGuestHasMore(extractHasMore(p));
         } else if (lastGoodPostsRef.current.length) {
           setGuestPosts(lastGoodPostsRef.current);
         }
@@ -2241,10 +2267,10 @@ export default function App() {
         if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
         if (!feedHydrated) setFeedHydrated(true);
       } finally {
-        setIsFeedRefreshing(false);
+        if (!opts?.silent) setIsFeedRefreshing(false);
       }
     },
-    [activeCommentsPostId, feedHydrated, guestCursor]
+    [activeCommentsPostId, feedHydrated]
   );
 
   // ✅ ✅ ✅ CRITICAL FIX: MOVE THE EFFECTS HERE, AFTER fetchPostsForHome IS DEFINED
@@ -2263,7 +2289,7 @@ export default function App() {
       const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
       const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`);
       
-      const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
+      const list = pickPostsArray(data);
       const normalized = list.map(normalizePost);
 
       // Always latest-first (already ordered by API, but keep safe)
@@ -2352,7 +2378,7 @@ export default function App() {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
     scheduleSilentRefreshRef.current = setTimeout(() => {
       if (document.visibilityState !== 'visible') return;
-      fetchPostsForHomeRef.current(currentUser);
+      fetchPostsForHomeRef.current(currentUser, { silent: true });
       fetchReelsRef.current();
     }, 8000);
   }, [currentUser]);
@@ -2492,29 +2518,19 @@ export default function App() {
       apiFetch('/api/groups').catch(() => []),
       apiFetch('/api/brands').catch(() => []),
       // ✅ CRITICAL FIX: Always normalize events when loading
-      apiFetch('/api/events').then(data => safeArray(data?.events ?? data).map(normalizeEvent)).catch(() => []),
+      apiFetch('/api/events').then(data => pickPostsArray(data).map(normalizeEvent)).catch(() => []),
       apiFetch('/api/chats').catch(() => []),
     ]);
 
     // ✅ FIXED: Handle different API response formats for products
     const prRaw = pr;
-    const prList =
-      Array.isArray(prRaw) ? prRaw :
-      Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
-      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
-      Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
-      Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
-      [];
+    const prList = pickPostsArray(prRaw);
 
     setProducts(prList.map(normalizeProduct));
     
     // ✅ FIXED: Handle new groups API response shape WITH NORMALIZATION
     const gRaw = g;
-    const gList = Array.isArray(gRaw)
-      ? gRaw
-      : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
-      : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
-      : [];
+    const gList = pickPostsArray(gRaw);
     
     // ✅ CRITICAL: Normalize groups to prevent crashes
     setGroups(gList.map(normalizeGroup));
@@ -2522,21 +2538,17 @@ export default function App() {
     setBrands(safeArray(b));
     
     // ✅ UPDATED: Normalize events (already normalized above)
-    // e is already normalized from Promise.all
     setEvents(e);
     
     setChats(safeArray(c));
-    
-    // ✅ FIX 7: REMOVED stories from here to prevent duplicate fetching
-    // Stories are now only fetched from fetchStories()
-  }, []); // ✅ EMPTY dependencies now
+  }, []);
 
   /** ---------- ✅ 2) Fetch group posts with viewerId ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
     try {
       const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
       const res = await apiFetch(`/api/group-posts?group_id=${groupId}&viewerId=${viewerId}`);
-      return safeArray((res as any)?.posts).map(normalizePost);
+      return pickPostsArray(res).map(normalizePost);
     } catch (error) {
       console.error('Failed to fetch group posts:', error);
       return [];
@@ -2666,7 +2678,7 @@ export default function App() {
         body: JSON.stringify({
           ...groupData,
           admin_id: meId,
-          description: String(groupData.description || "").trim(), // ✅ Ensure string, never null
+          description: String(groupData.description || "").trim(),
           created_at: new Date().toISOString(),
         }),
       });
@@ -2810,7 +2822,7 @@ export default function App() {
         fetchOtherData(), 
         fetchReels(),
         fetchSongs(),
-        fetchStories(), // ✅ Stories fetched separately to prevent loop
+        fetchStories(),
       ]);
     },
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
@@ -2844,12 +2856,11 @@ export default function App() {
       }
 
       await fetchData(viewer);
-      setAuthHydrated(true); // ✅ Mark auth as hydrated AFTER session restore
+      setAuthHydrated(true);
     };
 
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // ✅ EMPTY deps - prevents re-init loops
+  }, []);
 
   /** ✅ CLICK FREEZE FIX: Fixed Return detection effect (runs once + no leaks) ---------- */
   useEffect(() => {
@@ -2871,16 +2882,13 @@ export default function App() {
       if (away > FEED_RETURN_THRESHOLD_MS) {
         try { sessionStorage.removeItem(FEED_SESSION_KEY); } catch {}
 
-        // ✅ use refs (latest functions + latest user) without re-subscribing listeners
-        fetchPostsForHomeRef.current(currentUserRef.current);
+        fetchPostsForHomeRef.current(currentUserRef.current, { silent: true });
         fetchReelsRef.current();
       }
     };
 
-    // ✅ IMPORTANT: don't include "click" (too frequent + conflicts with UI)
     const activityEvents: (keyof WindowEventMap)[] = ['scroll', 'keydown', 'touchstart', 'pointerdown'];
 
-    // ✅ stable options
     const opts: AddEventListenerOptions = { passive: true };
 
     activityEvents.forEach((e) => window.addEventListener(e, markActive, opts));
@@ -2892,14 +2900,13 @@ export default function App() {
       activityEvents.forEach((e) => window.removeEventListener(e, markActive, opts));
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []); // ✅ EMPTY deps - runs once only
+  }, []);
 
   /** ---------- ✅ ADDED: Infinite Scroll for Home Feed ---------- */
   useEffect(() => {
     if (view !== 'home') return;
-    if (activeHashtag) return; // optional: don't load more during filters
+    if (activeHashtag) return;
     
-    // Determine which load more function to use based on auth status
     const hasMore = currentUser ? feedHasMore : guestHasMore;
     if (!hasMore) return;
 
@@ -2916,7 +2923,7 @@ export default function App() {
           }
         }
       },
-      { root: null, rootMargin: '600px 0px', threshold: 0.01 } // prefetch before bottom
+      { root: null, rootMargin: '600px 0px', threshold: 0.01 }
     );
 
     io.observe(el);
@@ -2934,7 +2941,7 @@ export default function App() {
       if (stopped) return;
       if (document.visibilityState !== 'visible') return;
       if (activeCommentsPostId != null) return;
-      await fetchPostsForHome(currentUser).catch(() => {});
+      await fetchPostsForHome(currentUser, { silent: true });
       await fetchReels().catch(() => {});
     };
 
@@ -2950,7 +2957,6 @@ export default function App() {
     async (userId: number) => {
       if (!requireAdmin('Verify user')) return;
 
-      // optimistic toggle
       setUsers((prev) =>
         prev.map((u: any) =>
           Number(u.id) === Number(userId) ? { ...u, is_verified: u.is_verified ? 0 : 1 } : u
@@ -2965,7 +2971,7 @@ export default function App() {
 
         await fetchUsersList();
       } catch (e: any) {
-        await fetchUsersList(); // rollback by refetch
+        await fetchUsersList();
         setLoginError(e?.message || 'Verify failed');
       }
     },
@@ -2994,7 +3000,6 @@ export default function App() {
     async (userId: number) => {
       if (!requireAdmin('Delete account')) return;
 
-      // optimistic remove
       setUsers((prev) => prev.filter((u: any) => Number(u.id) !== Number(userId)));
 
       try {
@@ -3006,7 +3011,7 @@ export default function App() {
         await fetchUsersList();
         fetchPostsForHome(currentUser).catch(() => {});
       } catch (e: any) {
-        await fetchUsersList(); // rollback
+        await fetchUsersList();
         setLoginError(e?.message || 'Delete failed');
       }
     },
@@ -3061,7 +3066,6 @@ export default function App() {
                        activeHashtag ? filteredPosts : posts;
       return Array.isArray(feedToRank) ? feedToRank : [];
     } else {
-      // Guest view
       return Array.isArray(guestPosts) ? guestPosts : [];
     }
   }, [currentUser, posts, filteredPosts, activeHashtag, guestPosts]);
@@ -3108,7 +3112,6 @@ export default function App() {
       setCurrentUser(normalized);
       setSelectedUserId(Number(normalized.id));
 
-      // Add user to users list
       setUsers((prev) => {
         const arr = safeArray(prev);
         const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
@@ -3116,7 +3119,6 @@ export default function App() {
         return [normalized, ...arr];
       });
 
-      // New session seed
       try {
         sessionStorage.removeItem(FEED_SESSION_KEY);
       } catch {}
@@ -3148,7 +3150,6 @@ export default function App() {
       const normalized = normalizeUser(data.user);
       if (!normalized?.id) throw new Error('Login failed: invalid user id');
 
-      // ✅ FIXED: Use finalUser consistently, don't setCurrentUser twice
       let finalUser = normalized;
       try {
         const fresh = await apiFetch(`/api/users?id=${normalized.id}`);
@@ -3158,7 +3159,6 @@ export default function App() {
       setCurrentUser(finalUser);
       localStorage.setItem(LS_USER_KEY, JSON.stringify(finalUser));
 
-      // new session seed
       try {
         sessionStorage.removeItem(FEED_SESSION_KEY);
       } catch {}
@@ -3200,10 +3200,8 @@ export default function App() {
       const meId = Number(currentUser.id);
       const targetId = Number(targetUserId);
 
-      // ✅ backend blocks self-follow
       if (!targetId || targetId === meId) return;
 
-      // ✅ CACHE-BASED: Check cache first for current state
       const cacheKey = `follow_cache_${meId}`;
       const cached = localStorage.getItem(cacheKey);
       let myFollowing: number[] = [];
@@ -3214,27 +3212,22 @@ export default function App() {
           myFollowing = parsed.following || [];
         } catch {}
       } else {
-        // Fallback to currentUser data
         myFollowing = safeArray<number>((currentUser as any).following);
       }
       
       const isFollowingNow = myFollowing.includes(targetId);
 
-      // Set loading state to prevent double clicks
       setFollowLoading(prev => ({ ...prev, [targetId]: true }));
 
-      // Save original state for potential rollback
       const originalUsers = [...users];
       const originalCurrentUser = { ...currentUser };
 
-      // ---------- optimistic update ----------
       setUsers((prev) => {
         const arr = safeArray(prev).map(normalizeUser);
 
         return arr.map((u) => {
           const uid = Number(u.id);
 
-          // update ME.following
           if (uid === meId) {
             const followingSet = new Set<number>(myFollowing);
             if (isFollowingNow) followingSet.delete(targetId);
@@ -3242,7 +3235,6 @@ export default function App() {
             return normalizeUser({ ...u, following: Array.from(followingSet) });
           }
 
-          // update TARGET.followers
           if (uid === targetId) {
             const followers = new Set<number>(safeArray<number>((u as any).followers));
             if (isFollowingNow) followers.delete(meId);
@@ -3254,7 +3246,6 @@ export default function App() {
         });
       });
 
-      // keep currentUser in sync + persist
       setCurrentUser((prev) => {
         if (!prev) return prev;
         const followingSet = new Set<number>(myFollowing);
@@ -3265,27 +3256,22 @@ export default function App() {
         return next;
       });
 
-      // ---------- API ----------
       try {
         if (isFollowingNow) {
-          // ✅ EXACTLY as in original code: Unfollow
           await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
             method: 'DELETE',
           });
         } else {
-          // ✅ EXACTLY as in original code: Follow
           await apiFetch('/api/user-follows', {
             method: 'POST',
             body: JSON.stringify({ follower_id: meId, following_id: targetId }),
           });
         }
 
-        // ✅ CACHE-BASED: Update cache instead of immediate API refresh
         const updatedFollowing = isFollowingNow 
           ? myFollowing.filter(id => id !== targetId)
           : [...myFollowing, targetId];
         
-        // Update cache
         localStorage.setItem(cacheKey, JSON.stringify({
           following: updatedFollowing,
           timestamp: Date.now()
@@ -3295,15 +3281,12 @@ export default function App() {
       } catch (e: any) {
         console.error('Follow toggle failed:', e);
 
-        // ✅ rollback using original state
         setUsers(originalUsers);
         setCurrentUser(originalCurrentUser);
         localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
         
-        // Show error message
         setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
       } finally {
-        // Clear loading state
         setFollowLoading(prev => ({ ...prev, [targetId]: false }));
       }
     },
@@ -3321,18 +3304,17 @@ export default function App() {
     setSelectedUserId(null);
     setProfilePosts([]);
     setReels([]);
-    setStories([]); // ✅ Clear stories on logout
-    setActiveStory(null); // ✅ Clear active story
-    setActiveHashtag(null); // ✅ Clear hashtag filter on logout
-    setLikedTracks([]); // ✅ Clear liked tracks on logout
-    setMyTotalPlays(0); // ✅ Clear total plays on logout
-    setPlayHistory([]); // ✅ Clear play history on logout
-    setTrackPlays({}); // ✅ Clear track plays on logout
-    setCurrentAudioTrack(null); // ✅ Clear current audio track
-    setIsAudioPlaying(false); // ✅ Stop audio playback
-    setSelectedReelSound(null); // ✅ Clear selected reel sound
-    setSongs([]); // ✅ Clear songs on logout
-    // ✅ Clear pagination states
+    setStories([]);
+    setActiveStory(null);
+    setActiveHashtag(null);
+    setLikedTracks([]);
+    setMyTotalPlays(0);
+    setPlayHistory([]);
+    setTrackPlays({});
+    setCurrentAudioTrack(null);
+    setIsAudioPlaying(false);
+    setSelectedReelSound(null);
+    setSongs([]);
     setFeedCursor(null);
     setFeedHasMore(true);
     setGuestCursor(null);
@@ -3371,7 +3353,7 @@ export default function App() {
   const createPost = useCallback(
     async (
       text: string,
-      files: File[] | File | null, // ✅ Changed from File | null to File[] | File | null
+      files: File[] | File | null,
       meta?: {
         type?: 'text' | 'image' | 'video';
         visibility?: string;
@@ -3387,7 +3369,6 @@ export default function App() {
       const trimmed = (text || '').trim();
       if (!trimmed && !files && !meta?.background) return;
 
-      // ✅ Convert input to array
       const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
 
       let media_urls: string[] = [];
@@ -3404,7 +3385,6 @@ export default function App() {
         }
       }
 
-      // backward compatibility (keep old fields too)
       const media_url = media_urls[0] ?? null;
       const media_type = media_types[0] ?? null;
 
@@ -3412,11 +3392,9 @@ export default function App() {
         user_id: currentUser!.id,
         content: trimmed,
 
-        // ✅ keep single (backward compatible)
         media_url,
         media_type,
 
-        // ✅ add multi
         media_urls: media_urls.length ? media_urls : undefined,
         media_types: media_types.length ? media_types : undefined,
 
@@ -3441,7 +3419,6 @@ export default function App() {
       const newPostRaw =
         data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
 
-      // ✅ ensure arrays exist immediately
       (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
       (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
 
@@ -3454,7 +3431,6 @@ export default function App() {
         return next;
       });
 
-      /** ✅ Keep profile posts updated when you create a post ---------- */
       setProfilePosts((prev) => {
         if (!currentUser) return prev;
         const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
@@ -3478,7 +3454,6 @@ export default function App() {
       if (!requireAuth('Reacting')) return;
       const meId = Number(currentUser!.id);
 
-      // ✅ Optimistic update (homepage)
       setPosts(prev => {
         const next = safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId));
         lastGoodPostsRef.current = next;
@@ -3486,10 +3461,8 @@ export default function App() {
         return next;
       });
 
-      // ✅ Optimistic update (profile list in App state)
       setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
 
-      // ✅ Update commentPostSnapshot if it's the same post
       setCommentPostSnapshot(prev =>
         prev && Number(prev.id) === Number(postId)
           ? applyOptimisticReaction(prev, postId, type, meId)
@@ -3526,7 +3499,6 @@ export default function App() {
 
           setPosts(prev => safeArray(prev).map(applyServerTruth));
           setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
-          // ✅ Update commentPostSnapshot with server truth
           setCommentPostSnapshot(prev => (prev ? applyServerTruth(prev) : prev));
         }
       } catch {
@@ -3563,7 +3535,6 @@ export default function App() {
           return next;
         });
 
-        /** ✅ Update profile posts when sharing ---------- */
         setProfilePosts((prev) => {
           return safeArray(prev).map((p: any) =>
             Number(p.id) === Number(activeSharePost.id)
@@ -3602,6 +3573,12 @@ export default function App() {
     setCommentPostSnapshot(found);
   };
 
+  /** ✅ ADDED: Handle video click for guest ---------- */
+  const handleVideoClick = useCallback((p: any) => {
+    setActiveReelId(p.id);
+    setView('reels');
+  }, []);
+
   const deletePost = useCallback(
     async (postId: number) => {
       if (!requireAuth('Deleting posts')) return;
@@ -3616,7 +3593,6 @@ export default function App() {
         return next;
       });
 
-      /** ✅ Keep profile posts updated when you delete ---------- */
       setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
 
       try {
@@ -3626,7 +3602,6 @@ export default function App() {
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
         
-        /** ✅ Rollback profile posts on error ---------- */
         setProfilePosts(prevProfilePosts);
         if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
       }
@@ -3652,7 +3627,6 @@ export default function App() {
         return next;
       });
 
-      /** ✅ Keep profile posts updated when you edit ---------- */
       setProfilePosts((prev) =>
         safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
       );
@@ -3664,7 +3638,6 @@ export default function App() {
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
         
-        /** ✅ Rollback profile posts on error ---------- */
         setProfilePosts(prevProfilePosts);
         if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
       }
@@ -3696,7 +3669,6 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
-      // ✅ ADDED: Validate file is an image
       if (!file.type || !file.type.startsWith('image/')) {
         setLoginError('Only image files are allowed.');
         return;
@@ -3717,7 +3689,6 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
-      // ✅ ADDED: Validate file is an image
       if (!file.type || !file.type.startsWith('image/')) {
         setLoginError('Only image files are allowed.');
         return;
@@ -3788,7 +3759,6 @@ export default function App() {
         <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
           {view === 'home' && (
             <div className="w-full pt-4 md:px-8 pb-10">
-              {/* ✅ ADDED: Hashtag filter chip */}
               {activeHashtag && (
                 <div className="mb-3 px-4">
                   <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
@@ -3806,10 +3776,9 @@ export default function App() {
                 </div>
               )}
 
-              {/* ✅ UPDATED: StoryReel with cache-based follow functionality */}
               <StoryReel
                 stories={stories}
-                onProfileClick={(id) => openProfile(id)}
+                onProfileClick={openProfile}
                 onCreateStory={() => {
                   if (!requireAuth('Creating stories')) return;
                   setShowCreateStoryModal(true);
@@ -3817,7 +3786,6 @@ export default function App() {
                 onViewStory={(s) => setActiveStory(s)}
                 currentUser={currentUser}
                 onRequestLogin={() => setView('login')}
-                // ✅ CACHE-BASED: Follow system props
                 onFollow={followUser}
                 checkIsFollowing={checkIsFollowing}
                 followLoading={followLoading}
@@ -3826,7 +3794,7 @@ export default function App() {
               {currentUser && (
                 <CreatePost
                   currentUser={currentUser}
-                  onProfileClick={(id) => openProfile(id)}
+                  onProfileClick={openProfile}
                   onClick={() => {
                     if (!requireAuth('Creating posts')) return;
                     setShowCreatePostModal(true);
@@ -3852,28 +3820,23 @@ export default function App() {
                     <Post
                       key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
                       post={post}
-                      author={getPostAuthor(post)} // ✅ Using optimized getPostAuthor
+                      author={getPostAuthor(post)}
                       currentUser={currentUser}
                       users={users}
-                      onProfileClick={(id) => openProfile(id)}
-                      onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                      onProfileClick={openProfile}
+                      onReact={onReactPost}
                       onShare={() => handleOpenShareSheet(post)}
                       onViewImage={setFullScreenImage}
-                      onOpenComments={(postId: number) => onOpenComments(postId)}
-                      onVideoClick={(p: any) => {
-                        setActiveReelId(p.id);
-                        setView('reels');
-                      }}
-                      // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+                      onOpenComments={onOpenComments}
+                      onVideoClick={handleVideoClick}
                       onPlayAudioTrack={onPlayTrack}
                       groups={groups}
                       brands={brands}
                       chats={chats}
-                      // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
                       onHashtagClick={handleHashtagClick}
-                      // ✅ CACHE-BASED: Pass follow status and handler
+                      authorId={postAuthorId}
                       isFollowing={isFollowing}
-                      onFollow={() => followUser(postAuthorId)}
+                      onFollow={followUser}
                       followLoading={followLoading[postAuthorId] || false}
                     />
                   );
@@ -3897,7 +3860,26 @@ export default function App() {
                 </div>
               )}
 
-              {/* ✅ LOAD MORE INDICATORS FOR PAGINATION */}
+              {/* ✅ LOAD MORE SKELETONS (Facebook-like) */}
+              {(currentUser ? feedLoadingMore : guestLoadingMore) && (
+                <div className="px-4">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="bg-[#242526] border border-[#3E4042] rounded-xl p-4 mb-3 animate-pulse">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-[#3A3B3C]" />
+                        <div className="flex-1">
+                          <div className="h-3 w-32 bg-[#3A3B3C] rounded mb-2" />
+                          <div className="h-2 w-20 bg-[#3A3B3C] rounded" />
+                        </div>
+                      </div>
+                      <div className="mt-4 h-3 w-full bg-[#3A3B3C] rounded" />
+                      <div className="mt-2 h-3 w-5/6 bg-[#3A3B3C] rounded" />
+                      <div className="mt-4 h-48 w-full bg-[#3A3B3C] rounded-xl" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {currentUser ? (
                 <>
                   {feedLoadingMore && (
@@ -3928,7 +3910,6 @@ export default function App() {
                 </>
               )}
 
-              {/* ✅ INFINITE SCROLL SENTINEL */}
               {(currentUser ? feedHasMore : guestHasMore) && (
                 <div id="feed-sentinel" className="h-10 w-full" />
               )}
@@ -3941,13 +3922,13 @@ export default function App() {
               reels={reels}
               users={users}
               currentUser={currentUser}
-              songs={songs} // ✅ ADDED: Pass UNERA Music songs
-              selectedSound={selectedReelSound} // ✅ ADDED: Pass selected sound
-              onPickSound={(sound: ReelSound | null) => setSelectedReelSound(sound)} // ✅ ADDED: Pass sound picker handler
-              onProfileClick={(id) => openProfile(id)}
+              songs={songs}
+              selectedSound={selectedReelSound}
+              onPickSound={(sound: ReelSound | null) => setSelectedReelSound(sound)}
+              onProfileClick={openProfile}
               onCreateReelClick={() => {
                 if (!requireAuth('Creating reels')) return;
-                setSelectedReelSound(null); // optional
+                setSelectedReelSound(null);
                 setShowCreateReelModal(true);
               }}
               onReact={reactToReel}
@@ -3965,7 +3946,6 @@ export default function App() {
               currentUser={currentUser}
               products={products}
               onNavigateHome={() => handleNavigate('home')}
-              // ✅ UPDATED: Use createProduct function instead of requireAuth
               onCreateProduct={createProduct}
               onViewProduct={setActiveProduct}
             />
@@ -3977,7 +3957,6 @@ export default function App() {
                 currentUser={currentUser}
                 groups={groups}
                 users={users}
-                // ✅ UPDATED: Real group functions instead of requireAuth placeholders
                 onCreateGroup={createGroup}
                 onJoinGroup={joinGroup}
                 onLeaveGroup={leaveGroup}
@@ -3986,18 +3965,16 @@ export default function App() {
                 onPostToGroup={createGroupPost}
                 onCreateGroupEvent={() => requireAuth('Creating events')}
                 onInviteToGroup={inviteToGroup}
-                onProfileClick={(id) => openProfile(id)}
+                onProfileClick={openProfile}
                 onLikePost={toggleGroupPostLike}
                 onOpenComments={() => requireAuth('Commenting')}
                 onSharePost={(post: any) => handleOpenShareSheet(post)}
                 onDeleteGroupPost={deleteGroupPost}
                 onRemoveMember={removeGroupMember}
                 onUpdateGroupSettings={updateGroupSettings}
-                // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
                 onPlayAudioTrack={onPlayTrack}
                 onFollow={followUser}
                 checkIsFollowing={checkIsFollowing}
-                // ✅ ADDED: Pass the missing group props that GroupsPage uses
                 fetchGroupPosts={fetchGroupPosts}
                 fetchGroupDetails={fetchGroupDetails}
                 fetchComments={fetchGroupPostComments}
@@ -4015,7 +3992,7 @@ export default function App() {
               users={users}
               onCreateBrand={() => requireAuth('Creating brands')}
               onFollowBrand={(id: number) => followUser(id)}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={openProfile}
               onPostAsBrand={() => requireAuth('Posting')}
               onReact={() => requireAuth('Reacting')}
               onShare={(post: any) => handleOpenShareSheet(post)}
@@ -4028,7 +4005,6 @@ export default function App() {
                 setCommentPostSnapshot(found);
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
-              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
@@ -4038,19 +4014,16 @@ export default function App() {
           {view === 'music' && (
             <MusicSystem
               currentUser={currentUser}
-              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayTrack={onPlayTrack}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={openProfile}
               likedTracks={likedTracks}
               onToggleLike={handleMusicSystemLikeSync}
               playHistory={playHistory}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
-              // ✅ ADDED: Pass additional props for MusicSystem
               users={users}
               currentTrack={currentAudioTrack}
               isPlaying={isAudioPlaying}
-              // ✅ FIXED: Pass myTotalPlays from App state (now persistent)
               myTotalPlays={currentUser?.id ? myTotalPlays : 0}
               playsLoading={playsLoading}
             />
@@ -4062,8 +4035,8 @@ export default function App() {
             <SuggestedProfilesPage
               currentUser={currentUser as any}
               users={users}
-              onFollow={(id: number) => followUser(id)}
-              onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              onProfileClick={openProfile}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
             />
@@ -4079,7 +4052,7 @@ export default function App() {
                 if (!requireAuth('Creating events')) return;
                 setShowCreateEventModal(true);
               }}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={openProfile}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
             />
@@ -4093,7 +4066,7 @@ export default function App() {
                 if (!requireAuth('Messaging')) return;
                 setActiveChatUser(users.find((u) => u.id === id) || null);
               }}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={openProfile}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
             />
@@ -4102,29 +4075,19 @@ export default function App() {
           {view === 'memories' && currentUser && (
             <MemoriesPage
               currentUser={currentUser}
-              // ✅ FIXED: Use allKnownPosts instead of just posts for better memory coverage
               posts={allKnownPosts}
               users={users}
-              onProfileClick={(id: number) => openProfile(id)}
-              // ✅ FIXED: Pass actual reaction handler instead of placeholder
-              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+              onProfileClick={openProfile}
+              onReact={onReactPost}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onViewImage={setFullScreenImage}
-              onOpenComments={(postId: number) => onOpenComments(postId)}
-              // ✅ FIXED: Pass proper video click handler to navigate to reels
-              onVideoClick={(p: any) => {
-                setActiveReelId(p.id);
-                setView('reels');
-              }}
-              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+              onOpenComments={onOpenComments}
+              onVideoClick={handleVideoClick}
               onPlayAudioTrack={onPlayTrack}
-              // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
               onHashtagClick={handleHashtagClick}
-              // ✅ CACHE-BASED: Pass follow system props
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              // ✅ ADDED: Pass groups, brands, chats if Post component needs them
               groups={groups}
               brands={brands}
               chats={chats}
@@ -4146,9 +4109,9 @@ export default function App() {
               users={users}
               posts={profilePosts}
               reels={reels}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={(id: number) => followUser(id)}
-              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+              onProfileClick={openProfile}
+              onFollow={followUser}
+              onReact={onReactPost}
               onComment={() => requireAuth('Commenting')}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onMessage={(id) => {
@@ -4163,20 +4126,14 @@ export default function App() {
               onEditPost={(postId: number, content: string) => editPost(postId, content)}
               getCommentAuthor={(id) => users.find((u) => u.id === id)}
               onViewImage={setFullScreenImage}
-              onOpenComments={(postId) => onOpenComments(postId)}
-              onVideoClick={(p) => {
-                setActiveReelId((p as any).id);
-                setView('reels');
-              }}
-              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+              onOpenComments={onOpenComments}
+              onVideoClick={handleVideoClick}
               onPlayAudioTrack={onPlayTrack}
               onCreateStoryClick={handleCreateStoryFromProfile}
-              // ✅ PROFESSIONALLY FIXED: Pass admin handlers with correct prop types
               onVerifyUser={(id) => verifyUser(id)}
               onRestrictUser={(id, duration) => suspendUser(id, duration)}
               onDeleteUser={(id) => deleteUserAccount(id)}
               onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
-              // ✅ CACHE-BASED: Pass follow status to UserProfile
               isFollowing={checkIsFollowing(Number(profileUser.id))}
               followLoading={followLoading[Number(profileUser.id)] || false}
             />
@@ -4205,7 +4162,7 @@ export default function App() {
           <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
             <RightSidebar
               contacts={users.filter((u) => u.id !== currentUser.id)}
-              onProfileClick={(id) => openProfile(id)}
+              onProfileClick={openProfile}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
@@ -4241,7 +4198,6 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           onClose={() => setShowCreatePostModal(false)}
-          // ✅ UPDATED: Accept File[] from Feed.tsx when it's updated
           onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
         />
       )}
@@ -4256,11 +4212,9 @@ export default function App() {
             setCommentPostSnapshot(null);
           }}
           onComment={() => {}}
-          // ✅ ADDED: Pass onLikeComment handler
           onLikeComment={handleLikeComment}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
-          onProfileClick={(id) => openProfile(id)}
-          // ✅ ADDED: Pass onHashtagClick handler for comments
+          onProfileClick={openProfile}
           onHashtagClick={handleHashtagClick}
           onFollow={followUser}
           checkIsFollowing={checkIsFollowing}
@@ -4286,7 +4240,6 @@ export default function App() {
         />
       )}
 
-      {/* ✅ CREATE REEL MODAL WITH FIX 2 IMPLEMENTED */}
       {showCreateReelModal && currentUser && (
         <CreateReelModal
           currentUser={currentUser}
@@ -4294,16 +4247,13 @@ export default function App() {
             setShowCreateReelModal(false);
           }}
           onCreate={(reelData: any) => {
-            // ✅ When creating a reel, use audio_fetch_url for trimming and audio_url for storage
             return createReel({
               ...reelData,
-              // ✅ Use the fetchable URL for trimming (audio_fetch_url)
               audioUrl:
                 reelData.audioUrl ||
                 (selectedReelSound?.songId && songs.find(s => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
                 selectedReelSound?.audioUrl ||
                 '',
-              // ✅ Store the raw URL (originalUrl) for re-trimming
               originalSoundId: selectedReelSound?.songId,
               songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
               audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
@@ -4317,13 +4267,11 @@ export default function App() {
         />
       )}
 
-      {/* ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH CACHE-BASED FOLLOW FUNCTIONALITY */}
       {activeStory && (
         <StoryViewerModal
           story={activeStory}
           onClose={() => setActiveStory(null)}
-          onProfileClick={(id) => openProfile(id)}
-          // ✅ CACHE-BASED: Pass follow system props
+          onProfileClick={openProfile}
           currentUser={currentUser}
           onFollow={followUser}
           checkIsFollowing={checkIsFollowing}
@@ -4331,7 +4279,6 @@ export default function App() {
         />
       )}
 
-      {/* ✅ CREATE STORY MODAL */}
       {showCreateStoryModal && currentUser && (
         <CreateStoryModal
           currentUser={currentUser}
@@ -4341,7 +4288,6 @@ export default function App() {
         />
       )}
 
-      {/* ✅ MOUNT THE GLOBAL AUDIO PLAYER ONCE */}
       {currentAudioTrack && (
         <GlobalAudioPlayer
           currentTrack={currentAudioTrack}
@@ -4351,22 +4297,18 @@ export default function App() {
           onPrevious={onPrevious}
           onClose={onClosePlayer}
           onDownload={(id) => {
-            // optional download logic
             console.log('Download track:', id);
           }}
           onLike={(id, type) => {
-            // Delegate to MusicSystem UI (or implement direct endpoints here)
             const k = `${type}:${String(id)}`;
             const nextLiked = !likedTracks.includes(k);
             handleMusicSystemLikeSync(k, nextLiked);
           }}
           onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
           isLiked={isPlayerLiked}
-          // ✅ ADDED: Pass owner info + total plays
           ownerUser={resolveTrackOwner(currentAudioTrack)}
           totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
           totalPlaysLoading={playsLoading}
-          // ✅ ADDED: onStarted callback
           onStarted={onStarted}
         />
       )}
