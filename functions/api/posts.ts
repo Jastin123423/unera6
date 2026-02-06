@@ -1,374 +1,226 @@
+// functions/api/posts.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
-type Env = {
-  DB: D1Database;
-};
+type Env = { DB: D1Database };
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,DELETE,PATCH,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
 
-const safeString = (v: any) => (typeof v === "string" ? v : "");
-const safeNumber = (v: any, fallback = 0) => {
+export const onRequestOptions: PagesFunction = async () =>
+  new Response(null, { status: 204, headers: cors });
+
+const str = (v: any) => String(v ?? '').trim();
+const toInt = (v: any, fallback = 0) => {
   const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
+  return Number.isFinite(n) ? Math.trunc(n) : fallback;
 };
 
-const isHttpUrl = (v: any) => {
-  if (typeof v !== "string") return false;
-  try {
-    const u = new URL(v);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
+const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
-const normalizeStringArray = (v: any): string[] => {
-  if (Array.isArray(v)) return v.map((x) => String(x || "").trim()).filter(Boolean);
-  if (typeof v === "string") {
-    // allow JSON string
+const safeJsonParseArray = (v: any): string[] => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map(String).filter(Boolean);
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return [];
     try {
-      const parsed = JSON.parse(v);
-      if (Array.isArray(parsed)) return parsed.map((x) => String(x || "").trim()).filter(Boolean);
-    } catch { }
+      const parsed = JSON.parse(s);
+      return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
   }
   return [];
 };
 
-const parseMediaArrays = (post: any) => {
-  let media_urls: string[] = [];
-  let media_types: string[] = [];
-
+// Cursor token: base64(JSON.stringify({ t: created_at, id }))
+type CursorPayload = { t: string; id: number };
+const encodeCursor = (p: CursorPayload) =>
+  btoa(unescape(encodeURIComponent(JSON.stringify(p))));
+const decodeCursor = (token: string): CursorPayload | null => {
   try {
-    if (post.media_urls && typeof post.media_urls === 'string') {
-      media_urls = JSON.parse(post.media_urls);
-    }
-    if (post.media_types && typeof post.media_types === 'string') {
-      media_types = JSON.parse(post.media_types);
-    }
-  } catch (e) {
-    // Keep empty arrays if parsing fails
-  }
-
-  // Ensure arrays are of the same length
-  const validMediaCount = Math.min(media_urls.length, media_types.length);
-  const validMediaUrls = media_urls.slice(0, validMediaCount);
-  const validMediaTypes = media_types.slice(0, validMediaCount);
-
-  return {
-    ...post,
-    media_urls: validMediaUrls,
-    media_types: validMediaTypes,
-    // Backward compatibility
-    media_url: post.media_url || (validMediaUrls.length > 0 ? validMediaUrls[0] : null),
-    media_type: post.media_type || (validMediaTypes.length > 0 ? validMediaTypes[0] : null),
-  };
-};
-
-export const onRequestOptions: PagesFunction = async () =>
-  new Response(null, { status: 204, headers: corsHeaders });
-
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
-  try {
-    if (!env.DB) return json({ error: "D1 binding missing. Set Pages D1 binding name to DB." }, 500);
-
-    const body = await request.json().catch(() => ({} as any));
-
-    const user_id = safeNumber(body.user_id, 0);
-    if (!user_id) return json({ error: "Login required (user_id missing)." }, 401);
-
-    const content = safeString(body.content).trim();
-
-    // single media (backward compatible)
-    const media_url = body.media_url ?? null;
-    const media_type = body.media_type ?? null;
-
-    // multi media (new)
-    const media_urls_arr = normalizeStringArray(body.media_urls);
-    const media_types_arr = normalizeStringArray(body.media_types);
-
-    // Validate and filter multi URLs
-    const filtered_urls = media_urls_arr
-      .filter((u) => !u.startsWith("data:"))
-      .filter((u) => isHttpUrl(u));
-
-    // Keep types aligned (best-effort)
-    const filtered_types: string[] = [];
-    for (let i = 0; i < filtered_urls.length; i++) {
-      const t = String(media_types_arr[i] || "").trim();
-      filtered_types.push(t || "");
-    }
-
-    // If multi provided but single missing, set single = first (compat)
-    const final_media_url =
-      typeof media_url === "string" && media_url.trim().length > 0
-        ? media_url
-        : (filtered_urls[0] ?? null);
-
-    const final_media_type =
-      typeof media_type === "string" && media_type.trim().length > 0
-        ? media_type
-        : (filtered_types[0] ?? null);
-
-    // ✅ Required: content OR any media
-    const hasSingle = typeof final_media_url === "string" && final_media_url.trim().length > 0;
-    const hasMulti = filtered_urls.length > 0;
-
-    if (!content && !hasSingle && !hasMulti) {
-      return json({ error: "content or media_url or media_urls is required" }, 400);
-    }
-
-    // ✅ BLOCK base64 uploads
-    if (typeof final_media_url === "string" && final_media_url.startsWith("data:")) {
-      return json(
-        {
-          error: "Media upload not supported in base64.",
-          message: "Upload to R2/Cloudflare Images and store a normal https URL in media_url/media_urls.",
-        },
-        413
-      );
-    }
-
-    // Optional: only allow normal URLs if media_url exists
-    if (typeof final_media_url === "string" && final_media_url.length > 0) {
-      if (!isHttpUrl(final_media_url)) {
-        return json({ error: "media_url must be a valid http/https URL" }, 400);
-      }
-    }
-
-    // store arrays as JSON text in D1
-    const media_urls_json = filtered_urls.length ? JSON.stringify(filtered_urls) : null;
-    const media_types_json = filtered_urls.length ? JSON.stringify(filtered_types) : null;
-
-    // ✅ Insert includes multi fields (requires columns exist in D1)
-    const result = await env.DB.prepare(
-      `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        user_id,
-        content || null,
-        final_media_url,
-        final_media_type,
-        media_urls_json,
-        media_types_json,
-        body.visibility || "public"
-      )
-      .run();
-
-    const post_id = result.meta?.last_row_id;
-
-    // Return a post object (helps UI show immediately)
-    return json(
-      {
-        success: true,
-        post_id,
-        post: {
-          id: post_id,
-          user_id,
-          content: content || "",
-          media_url: final_media_url,
-          media_type: final_media_type,
-          media_urls: filtered_urls,
-          media_types: filtered_types,
-          visibility: body.visibility || "public",
-          created_at: new Date().toISOString(),
-          views: 0,
-          shares: 0,
-          reactions_count: 0,
-          comments_count: 0,
-          my_reaction: null,
-        },
-      },
-      201
-    );
-  } catch (err: any) {
-    return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    const raw = decodeURIComponent(escape(atob(token)));
+    const p = JSON.parse(raw);
+    const t = String(p?.t ?? '').trim();
+    const id = Number(p?.id ?? NaN);
+    if (!t || !Number.isFinite(id)) return null;
+    return { t, id };
+  } catch {
+    return null;
   }
 };
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    if (!env.DB) return json({ error: "D1 binding missing. Set Pages D1 binding name to DB." }, 500);
+    if (!env.DB) return json({ success: false, error: 'DB binding missing (DB)' }, 500);
 
     const url = new URL(request.url);
 
-    const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 20)));
-    const cursor = safeString(url.searchParams.get("cursor")).trim();
-    const viewerId = safeNumber(url.searchParams.get("viewerId"), 0); // for my_reaction
+    // Pagination
+    const limit = clamp(toInt(url.searchParams.get('limit'), 20), 1, 50);
+    const cursorToken = str(url.searchParams.get('cursor'));
+    const cursor = cursorToken ? decodeCursor(cursorToken) : null;
 
-    const where: string[] = [];
-    const binds: any[] = [];
+    // ✅ Facebook-like guest logic:
+    // Guests can see ONLY public posts.
+    // (If you later add auth-aware logic, you can widen this for the owner.)
+    const where = cursor
+      ? `WHERE (visibility IS NULL OR visibility = 'public')
+           AND (created_at < ? OR (created_at = ? AND id < ?))`
+      : `WHERE (visibility IS NULL OR visibility = 'public')`;
 
-    // public only (match feeds behavior)
-    where.push(`(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`);
+    const params: any[] = cursor
+      ? [cursor.t, cursor.t, cursor.id, limit + 1]
+      : [limit + 1];
 
-    if (cursor) {
-      where.push(`p.created_at < ?`);
-      binds.push(cursor);
-    }
-
-    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-
-    const q = `
+    // ✅ IMPORTANT: Order by created_at + id for stable paging
+    const sql = `
       SELECT
-        p.id,
-        p.user_id,
-        p.content,
-
-        /* single media (compat) */
-        CASE
-          WHEN p.media_url LIKE 'data:%' THEN NULL
-          WHEN length(p.media_url) > 300 THEN NULL
-          ELSE p.media_url
-        END AS media_url,
-
-        CASE
-          WHEN p.media_url LIKE 'data:%' THEN NULL
-          WHEN length(p.media_url) > 300 THEN NULL
-          ELSE p.media_type
-        END AS media_type,
-
-        /* multi media (JSON strings) */
-        CASE
-          WHEN p.media_urls LIKE 'data:%' THEN NULL
-          WHEN length(p.media_urls) > 5000 THEN NULL
-          ELSE p.media_urls
-        END AS media_urls,
-
-        CASE
-          WHEN length(p.media_types) > 5000 THEN NULL
-          ELSE p.media_types
-        END AS media_types,
-
-        p.visibility,
-        p.created_at,
-        p.views,
-        p.shares,
-
-        /* reactions count */
-        (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
-
-        /* viewer reaction */
-        (SELECT pr.type
-           FROM post_reactions pr
-          WHERE pr.post_id = p.id
-            AND pr.user_id = ?
-          LIMIT 1
-        ) AS my_reaction,
-
-        /* comments count */
-        (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comments_count,
-
-        /* author fields */
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.display_name, COALESCE(u.username, 'User')) AS name,
-
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role
-
-      FROM posts p
-      LEFT JOIN users u ON u.id = p.user_id
-      ${whereSql}
-      ORDER BY p.created_at DESC
+        id,
+        user_id,
+        content,
+        media_url,
+        media_type,
+        media_urls,
+        media_types,
+        visibility,
+        type,
+        location,
+        feeling,
+        tagged_users,
+        background,
+        link_preview,
+        shares,
+        views,
+        created_at
+      FROM posts
+      ${where}
+      ORDER BY created_at DESC, id DESC
       LIMIT ?
     `;
 
-    // Bind order: viewerId, then where binds, then limit
-    const { results } = await env.DB.prepare(q).bind(viewerId, ...binds, limit).all();
-    const rows = Array.isArray(results) ? results : [];
+    const res = await env.DB.prepare(sql).bind(...params).all();
+    const rows = (res?.results || []) as any[];
 
-    // Parse media arrays for each post
-    const posts = rows.map(parseMediaArrays);
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit).map((p: any) => {
+      const media_urls = safeJsonParseArray(p?.media_urls);
+      const media_types = safeJsonParseArray(p?.media_types);
 
-    // Determine next cursor for pagination
-    let nextCursor: string | null = null;
-    if (posts.length === limit) {
-      const lastPost = posts[posts.length - 1];
-      nextCursor = lastPost.created_at;
-    }
+      // Backward compatibility: keep single if arrays empty
+      const media_url = p?.media_url ?? (media_urls[0] ?? null);
+      const media_type = p?.media_type ?? (media_types[0] ?? null);
 
-    // Check if there are more posts
-    let hasMore = false;
-    if (nextCursor) {
-      const qMore = `
-        SELECT p.id
-        FROM posts p
-        WHERE (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')
-          AND p.created_at < ?
-        ORDER BY p.created_at DESC
-        LIMIT 1
-      `;
+      return {
+        ...p,
+        id: Number(p?.id),
+        user_id: p?.user_id == null ? null : Number(p?.user_id),
+        content: p?.content ?? '',
+        media_url,
+        media_type,
+        media_urls: media_urls.length ? media_urls : (media_url ? [media_url] : []),
+        media_types: media_types.length ? media_types : (media_type ? [media_type] : []),
+        shares: Number(p?.shares ?? 0),
+        views: Number(p?.views ?? 0),
+        created_at: p?.created_at ?? new Date().toISOString(),
+        // Guest endpoint: no viewer, so no my_reaction fields here (App.tsx normalizes to null/0)
+      };
+    });
 
-      const more = await env.DB.prepare(qMore).bind(nextCursor).first();
-      hasMore = !!more;
-    }
+    const last = page[page.length - 1];
+    const nextCursor = hasMore && last?.created_at && last?.id
+      ? encodeCursor({ t: String(last.created_at), id: Number(last.id) })
+      : null;
 
-    return json({
-      success: true,
-      limit,
-      cursor: cursor || null,
-      nextCursor,
-      hasMore,
-      viewerId,
-      posts,
-    }, 200);
-  } catch (err: any) {
-    return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    return json({ success: true, posts: page, nextCursor, hasMore });
+  } catch (e: any) {
+    return json({ success: false, error: e?.message || 'Failed to fetch posts' }, 500);
   }
 };
 
-export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    if (!env.DB) return json({ error: "D1 binding missing. Set Pages D1 binding name to DB." }, 500);
+    if (!env.DB) return json({ success: false, error: 'DB binding missing (DB)' }, 500);
 
-    const url = new URL(request.url);
-    const postId = safeNumber(url.searchParams.get("postId"), 0);
-    const userId = safeNumber(url.searchParams.get("userId"), 0);
+    const body = await request.json().catch(() => ({}));
+    const user_id = toInt(body?.user_id, 0);
+    const content = str(body?.content);
+    const visibility = str(body?.visibility) || 'public';
 
-    if (!postId || !userId) {
-      return json({ error: "postId and userId are required" }, 400);
+    const media_url = body?.media_url ? str(body.media_url) : null;
+    const media_type = body?.media_type ? str(body.media_type) : null;
+
+    // Multi-media
+    const media_urls = Array.isArray(body?.media_urls) ? body.media_urls : undefined;
+    const media_types = Array.isArray(body?.media_types) ? body.media_types : undefined;
+
+    const created_at = str(body?.created_at) || new Date().toISOString();
+
+    if (!user_id) return json({ success: false, error: 'user_id is required' }, 400);
+    if (!content && !media_url && !(media_urls && media_urls.length) && !str(body?.background)) {
+      return json({ success: false, error: 'Post content or media is required' }, 400);
     }
 
-    // Check if post exists and belongs to user
-    const post = await env.DB.prepare(
-      "SELECT id FROM posts WHERE id = ? AND user_id = ?"
-    ).bind(postId, userId).first();
+    const insert = `
+      INSERT INTO posts (
+        user_id, content,
+        media_url, media_type,
+        media_urls, media_types,
+        visibility, type, location, feeling,
+        tagged_users, background, link_preview,
+        shares, views,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
-    if (!post) {
-      return json({ error: "Post not found or you don't have permission to delete it" }, 404);
-    }
+    const info = await env.DB.prepare(insert).bind(
+      user_id,
+      content || null,
+      media_url,
+      media_type,
+      media_urls ? JSON.stringify(media_urls) : null,
+      media_types ? JSON.stringify(media_types) : null,
+      visibility,
+      str(body?.type) || null,
+      body?.location ?? null,
+      body?.feeling ?? null,
+      body?.tagged_users ? JSON.stringify(body.tagged_users) : null,
+      body?.background ?? null,
+      body?.link_preview ? JSON.stringify(body.link_preview) : null,
+      toInt(body?.shares, 0),
+      toInt(body?.views, 0),
+      created_at
+    ).run();
 
-    // Delete post reactions first (foreign key constraint)
-    await env.DB.prepare("DELETE FROM post_reactions WHERE post_id = ?").bind(postId).run();
-
-    // Delete post comments first
-    await env.DB.prepare("DELETE FROM comments WHERE post_id = ?").bind(postId).run();
-
-    // Delete the post
-    await env.DB.prepare("DELETE FROM posts WHERE id = ? AND user_id = ?").bind(postId, userId).run();
+    const id = Number(info?.meta?.last_row_id ?? 0);
 
     return json({
       success: true,
-      message: "Post deleted successfully",
-      postId
-    }, 200);
-  } catch (err: any) {
-    return json({ error: "Failed to delete post", message: String(err?.message ?? err) }, 500);
+      post: {
+        id,
+        user_id,
+        content,
+        media_url,
+        media_type,
+        media_urls: media_urls?.length ? media_urls : (media_url ? [media_url] : []),
+        media_types: media_types?.length ? media_types : (media_type ? [media_type] : []),
+        visibility,
+        type: str(body?.type) || null,
+        shares: 0,
+        views: 0,
+        created_at,
+      },
+    });
+  } catch (e: any) {
+    return json({ success: false, error: e?.message || 'Failed to create post' }, 500);
   }
 };
