@@ -170,9 +170,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const cursor = cursorToken ? decodeCursor(cursorToken) : null;
 
     const where = cursor
-      ? `WHERE (p.visibility IS NULL OR p.visibility='public')
-           AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?))`
-      : `WHERE (p.visibility IS NULL OR p.visibility='public')`;
+  ? `WHERE LOWER(COALESCE(p.visibility,'public')) IN ('public','')
+       AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?))`
+  : `WHERE LOWER(COALESCE(p.visibility,'public')) IN ('public','')`;
 
     const params: any[] = cursor ? [cursor.t, cursor.t, cursor.id, limit + 1] : [limit + 1];
 
