@@ -1,6 +1,6 @@
 // Story.tsx - PROFESSIONAL FACEBOOK/WHATSAPP-LIKE STORIES
 // Features:
-// 1. Multi-story navigation within same user (like WhatsApp/Facebook)
+// 1. Multi-story navigation within same user (like WhatsApp/FB)
 // 2. Deduped unique viewers with proper reaction merging
 // 3. Professional full-screen viewers modal for authors (blue button)
 // 4. Media-ready progress timing (no skipping while loading)
@@ -355,8 +355,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   }, [story.id, story.type]);
 
   // ✅ CRITICAL FIX: Set mediaReady for fallback content (NO HOOK IN JSX!)
+  // ✅ BUG FIX: Fixed operator precedence issue
   useEffect(() => {
-    const noMedia = !story.type === 'text' && (!story.media_url || isBlob(story.media_url));
+    const noMedia = story.type !== 'text' && (!story.media_url || isBlob(story.media_url));
     if (noMedia) {
       const timer = setTimeout(() => setMediaReady(true), 100);
       return () => clearTimeout(timer);
@@ -745,7 +746,13 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               />
             )
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500">
+            <div 
+              className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsPaused(p => !p);
+              }}
+            >
               <span className="text-white font-bold text-2xl">Story Content</span>
             </div>
           )}
