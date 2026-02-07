@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONAL FIX WITH NO BLINKING
+// App.tsx - PROFESSIONAL FIX WITH NO BLINKING + FACEBOOK STORY UPGRADES
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -57,6 +57,27 @@ const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallb
 /** ---------- Constants ---------- */
 const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
 const LS_USER_KEY = 'user';
+
+/** ===== ✅ ADDED: FB-LIKE STORY SEEN SYSTEM ===== */
+const STORY_SEEN_KEY = 'unera_story_seen_v1';
+const STORY_SEEN_LIMIT = 2500;
+
+const readStorySeen = (): number[] => {
+  try {
+    const raw = localStorage.getItem(STORY_SEEN_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.map(Number).filter(Number.isFinite) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStorySeen = (ids: number[]) => {
+  try {
+    const dedup = Array.from(new Set(ids.map(Number).filter(Number.isFinite))).slice(0, STORY_SEEN_LIMIT);
+    localStorage.setItem(STORY_SEEN_KEY, JSON.stringify(dedup));
+  } catch {}
+};
 
 /** ---------- Error Boundary for Crash Protection ---------- */
 class ErrorBoundary extends React.Component<{ children: any }, { error: any }> {
@@ -1153,6 +1174,79 @@ export default function App() {
   const usersInFlightRef = useRef(false);
   const otherDataInFlightRef = useRef(false);
 
+  /** ===== ✅ ADDED: Facebook-like Story Seen System State ===== */
+  const [seenStoryIds, setSeenStoryIds] = useState<Set<number>>(() => new Set(readStorySeen()));
+  const [storyMuted, setStoryMuted] = useState(true); // FB defaults muted
+
+  /** ✅ ADDED: Helper to mark story as seen ---------- */
+  const markStorySeen = useCallback((storyId: number) => {
+    const id = Number(storyId);
+    if (!id) return;
+
+    setSeenStoryIds(prev => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      writeStorySeen(Array.from(next));
+      return next;
+    });
+  }, []);
+
+  /** ✅ ADDED: Facebook-like story ordering (unseen first, then newest) ---------- */
+  const orderedStories = useMemo(() => {
+    const list = safeArray(stories);
+
+    // Unseen first
+    const unseen = list.filter(s => !seenStoryIds.has(Number(s.id)));
+    const seen = list.filter(s => seenStoryIds.has(Number(s.id)));
+
+    // Newest first inside each bucket
+    const byTimeDesc = (a: any, b: any) => String(b?.created_at || '').localeCompare(String(a?.created_at || ''));
+
+    unseen.sort(byTimeDesc);
+    seen.sort(byTimeDesc);
+
+    return [...unseen, ...seen];
+  }, [stories, seenStoryIds]);
+
+  /** ✅ ADDED: Preload story media for instant opening ---------- */
+  const preloadStoryMedia = useCallback((s: Story) => {
+    const url = String(s?.media_url || '');
+    if (!url) return;
+
+    // Image preload
+    if (s.type === 'image') {
+      const img = new Image();
+      img.src = url;
+      return;
+    }
+
+    // Video preload (metadata is enough to feel instant)
+    if (s.type === 'video') {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.src = url;
+      return;
+    }
+  }, []);
+
+  /** ✅ ADDED: Auto-advance + next story logic (Facebook feel) ---------- */
+  const getNextStory = useCallback((current: Story | null) => {
+    if (!current) return null;
+    const list = orderedStories;
+    const idx = list.findIndex(s => Number(s.id) === Number(current.id));
+    if (idx < 0) return null;
+    return list[idx + 1] || null;
+  }, [orderedStories]);
+
+  const goNextStory = useCallback(() => {
+    setActiveStory(prev => {
+      const next = getNextStory(prev);
+      if (next) markStorySeen(Number(next.id));
+      return next;
+    });
+  }, [getNextStory, markStorySeen]);
+
   /** ---------- ✅ FIXED: Keep refs in sync with state ---------- */
   useEffect(() => {
     usersRef.current = users;
@@ -1361,7 +1455,7 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- ✅ FIXED: Fetch Stories with deduplication and no double state updates ---------- */
+  /** ✅ UPDATED: Fetch Stories with deduplication, seen tracking, and proper merging ---------- */
   const fetchStories = useCallback(async () => {
     if (storiesInFlightRef.current) return;
     storiesInFlightRef.current = true;
@@ -1389,8 +1483,22 @@ export default function App() {
         return st;
       });
 
-      // Update stories FIRST, then users (separate updates to prevent nested renders)
-      setStories(normalizedStories);
+      // ✅ UPDATED: Keep local "truth" (liked_by_me / seen / any UI flags) on refetch
+      setStories(prev => {
+        const map = new Map<number, Story>();
+        safeArray(prev).forEach(st => map.set(Number(st.id), st));
+
+        return normalizedStories.map(ns => {
+          const old = map.get(Number(ns.id));
+          if (!old) return ns;
+
+          return {
+            ...ns,
+            liked_by_me: ns.liked_by_me ?? old.liked_by_me, // keep local truth
+          };
+        });
+      });
+      
       setUsers(Array.from(map.values()));
       
     } catch (error) {
@@ -3189,6 +3297,7 @@ const createEvent = useCallback(async (eventData: any) => {
 
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
+    localStorage.removeItem(STORY_SEEN_KEY);
 
     try {
       sessionStorage.removeItem(FEED_SESSION_KEY);
@@ -3200,6 +3309,8 @@ const createEvent = useCallback(async (eventData: any) => {
     setReels([]);
     setStories([]); // ✅ Clear stories on logout
     setActiveStory(null); // ✅ Clear active story
+    setSeenStoryIds(new Set()); // ✅ Clear seen story IDs
+    setStoryMuted(true); // ✅ Reset story muted state
     setActiveHashtag(null); // ✅ Clear hashtag filter on logout
     setLikedTracks([]); // ✅ Clear liked tracks on logout
     setMyTotalPlays(0); // ✅ Clear total plays on logout
@@ -3687,18 +3798,23 @@ const createEvent = useCallback(async (eventData: any) => {
                 </div>
               )}
 
-              {/* ✅ UPDATED: StoryReel with follow functionality */}
+              {/* ✅ UPDATED: StoryReel with Facebook-like features */}
               <StoryReel
-                stories={stories}
+                stories={orderedStories} // ✅ Use ordered stories (unseen first)
                 onProfileClick={(id) => openProfile(id)}
                 onCreateStory={() => {
                   if (!requireAuth('Creating stories')) return;
                   setShowCreateStoryModal(true);
                 }}
-                onViewStory={(s) => setActiveStory(s)}
+                onViewStory={(s) => {
+                  setActiveStory(s);
+                  markStorySeen(Number(s.id)); // ✅ Mark as seen when opened
+                }}
                 currentUser={currentUser}
                 onRequestLogin={() => setView('login')}
-                // ✅ ADDED: Follow system props
+                // ✅ ADDED: Facebook-like story features
+                seenStoryIds={seenStoryIds} // ✅ Pass seen IDs for ring styling
+                onStoryHover={(s: Story) => preloadStoryMedia(s)} // ✅ Preload on hover/touch
                 onFollow={followUser}
                 checkIsFollowing={checkIsFollowing}
                 followLoading={followLoading}
@@ -4161,13 +4277,18 @@ const createEvent = useCallback(async (eventData: any) => {
         />
       )}
 
-      {/* ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH FOLLOW FUNCTIONALITY */}
+      {/* ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH FACEBOOK FEATURES */}
       {activeStory && (
         <StoryViewerModal
           story={activeStory}
           onClose={() => setActiveStory(null)}
           onProfileClick={(id) => openProfile(id)}
-          // ✅ ADDED: Pass follow system props
+          // ✅ ADDED: Facebook-like features
+          onStorySeen={(id: number) => markStorySeen(id)} // ✅ Mark as seen
+          onNext={goNextStory} // ✅ Auto-advance to next story
+          muted={storyMuted} // ✅ Mute state
+          onToggleMute={() => setStoryMuted(m => !m)} // ✅ Toggle mute
+          // ✅ ADDED: Follow system props
           currentUser={currentUser}
           onFollow={followUser}
           checkIsFollowing={checkIsFollowing}
