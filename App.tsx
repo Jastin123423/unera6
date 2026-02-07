@@ -474,7 +474,7 @@ const normalizeEvent = (e: any): Event => {
   } as any;
 };
 
-/** ✅ UPDATED: Normalize story data with safe user merging ---------- */
+/** ✅ ✅ UPDATED: Normalize story data with backend field matching ---------- */
 const normalizeStory = (s: any, existingUser?: User): Story => {
   const resolvedId = safeNumber(s?.id ?? s?.story_id ?? 0);
   const userId = safeNumber(s?.user_id ?? s?.userId ?? 0);
@@ -502,6 +502,12 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
     liked_by_me: Boolean(s?.liked_by_me ?? s?.likedByMe ?? false),
     user: storyUser, // ✅ Use safely merged user
     views: safeArray(s?.views),
+    
+    // ✅ ✅ ADDED: Backend-compatible fields for reactions
+    views_count: safeNumber(s?.views_count ?? s?.viewsCount, 0),
+    reactions_count: safeNumber(s?.reactions_count ?? s?.reactionsCount, 0),
+    my_reaction: s?.my_reaction ?? s?.myReaction ?? null,
+    reaction_breakdown: s?.reaction_breakdown ?? {},
   } as any;
 };
 
@@ -1189,7 +1195,7 @@ export default function App() {
   const [seenStoryIds, setSeenStoryIds] = useState<Set<number>>(() => new Set(readStorySeen()));
   const [storyMuted, setStoryMuted] = useState(true); // FB defaults muted
 
-  /** ✅ ADDED: Helper to mark story as seen ---------- */
+  /** ✅ UPDATED: Helper to mark story as seen ---------- */
   const markStorySeen = useCallback((storyId: number) => {
     const id = Number(storyId);
     if (!id) return;
@@ -1203,7 +1209,7 @@ export default function App() {
     });
   }, []);
 
-  /** ✅ ADDED: Facebook-like story ordering (unseen first, then newest) ---------- */
+  /** ✅ UPDATED: Facebook-like story ordering (unseen first, then newest) ---------- */
   const orderedStories = useMemo(() => {
     const list = safeArray(stories);
 
@@ -1220,7 +1226,7 @@ export default function App() {
     return [...unseen, ...seen];
   }, [stories, seenStoryIds]);
 
-  /** ✅ ADDED: Preload story media for instant opening ---------- */
+  /** ✅ UPDATED: Preload story media for instant opening ---------- */
   const preloadStoryMedia = useCallback((s: Story) => {
     const url = String(s?.media_url || '');
     if (!url) return;
@@ -1241,18 +1247,18 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ ADDED: Derived active story from activeStoryId ---------- */
+  /** ✅ UPDATED: Derived active story from activeStoryId ---------- */
   const activeStory = useMemo(() => {
     if (!activeStoryId) return null;
     return orderedStories.find(s => Number(s.id) === Number(activeStoryId)) || null;
   }, [activeStoryId, orderedStories]);
 
-  /** ✅ ADDED: Helper to close story viewer ---------- */
+  /** ✅ UPDATED: Helper to close story viewer ---------- */
   const closeStoryViewer = useCallback(() => {
     setActiveStoryId(null);
   }, []);
 
-  /** ✅ ADDED: Auto-advance + next story logic (Facebook feel) ---------- */
+  /** ✅ UPDATED: Auto-advance + next story logic (Facebook feel) ---------- */
   const getNextStory = useCallback((current: Story | null) => {
     if (!current) return null;
     const list = orderedStories;
@@ -1276,7 +1282,7 @@ export default function App() {
     });
   }, [getNextStory, markStorySeen, orderedStories]);
 
-  /** ✅ ADDED: Handle previous story navigation ---------- */
+  /** ✅ UPDATED: Handle previous story navigation ---------- */
   const goPrevStory = useCallback(() => {
     setActiveStoryId(prevId => {
       if (!prevId) return null;
@@ -1293,7 +1299,7 @@ export default function App() {
     });
   }, [orderedStories, markStorySeen]);
 
-  /** ✅ ADDED: Handle story next navigation with all required logic ---------- */
+  /** ✅ UPDATED: Handle story next navigation ---------- */
   const handleStoryNext = useCallback(() => {
     if (!activeStoryId) return;
     
@@ -1315,7 +1321,7 @@ export default function App() {
     }
   }, [activeStoryId, orderedStories, closeStoryViewer, markStorySeen, preloadStoryMedia]);
 
-  /** ✅ ADDED: Handle story previous navigation ---------- */
+  /** ✅ UPDATED: Handle story previous navigation ---------- */
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
     
@@ -1534,13 +1540,15 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ UPDATED: Fetch Stories with deduplication, seen tracking, and proper merging ---------- */
+  /** ✅ ✅ UPDATED: Fetch Stories with viewerId and proper backend field matching ---------- */
   const fetchStories = useCallback(async () => {
     if (storiesInFlightRef.current) return;
     storiesInFlightRef.current = true;
     
     try {
-      const data = await apiFetch('/api/stories');
+      // ✅ ✅ FIX: Pass viewerId to get my_reaction correctly
+      const viewerId = currentUser?.id || 0;
+      const data = await apiFetch(`/api/stories?viewerId=${viewerId}`);
       const storiesList = safeArray(data?.stories ?? data);
       
       // snapshot users once
@@ -1575,6 +1583,9 @@ export default function App() {
             ...ns,
             liked_by_me: ns.liked_by_me ?? old.liked_by_me, // keep local truth
             views: ns.views ?? old.views, // keep existing views
+            views_count: ns.views_count ?? old.views_count ?? 0,
+            reactions_count: ns.reactions_count ?? old.reactions_count ?? 0,
+            my_reaction: ns.my_reaction ?? old.my_reaction ?? null,
           };
         });
       });
@@ -1584,50 +1595,63 @@ export default function App() {
     } catch (error) {
       console.error('Failed to fetch stories:', error);
       // ✅ FIXED: Don't clear stories on transient error
-      // setStories([]);
     } finally {
       storiesInFlightRef.current = false;
     }
-  }, []);
+  }, [currentUser]);
 
-  /** ✅ ADDED: Story reaction handler ---------- */
+  /** ✅ ✅ UPDATED: Story reaction handler with proper backend endpoint ---------- */
   const reactToStory = useCallback(async (storyId: number, reaction: string) => {
     if (!requireAuth('Reacting to stories')) return;
     if (!currentUser) return;
 
     try {
-      // Optimistic update
-      setStories(prev =>
-        prev.map(story => {
-          if (Number(story.id) !== Number(storyId)) return story;
-          
-          // Update views with reaction
-          const updatedViews = story.views ? [...story.views] : [];
-          const existingViewIndex = updatedViews.findIndex(v => 
-            Number(v.user_id) === Number(currentUser.id)
-          );
-          
-          if (existingViewIndex >= 0) {
-            updatedViews[existingViewIndex] = {
-              ...updatedViews[existingViewIndex],
-              reaction: reaction as any
-            };
-          }
-          
-          return {
-            ...story,
-            views: updatedViews
-          };
-        })
-      );
-
-      await apiFetch(`/api/stories/${storyId}/react`, {
+      // ✅ ✅ FIX: Use /react endpoint instead of /like
+      const response = await apiFetch(`/api/stories/${storyId}/react`, {
         method: 'POST',
         body: JSON.stringify({ 
           user_id: currentUser.id, 
           reaction: reaction 
         }),
       });
+
+      // ✅ ✅ FIX: Update story with backend response
+      if (response?.story) {
+        const updatedStory = normalizeStory(response.story, currentUser);
+        
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            return {
+              ...story,
+              my_reaction: updatedStory.my_reaction,
+              reactions_count: updatedStory.reactions_count,
+              reaction_breakdown: updatedStory.reaction_breakdown || {},
+              liked_by_me: Boolean(updatedStory.my_reaction),
+            };
+          })
+        );
+      } else {
+        // Fallback optimistic update
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            const currentReaction = story.my_reaction;
+            const isSameReaction = currentReaction === reaction;
+            
+            return {
+              ...story,
+              my_reaction: isSameReaction ? null : reaction,
+              reactions_count: isSameReaction 
+                ? Math.max(0, (story.reactions_count || 0) - 1)
+                : (story.reactions_count || 0) + 1,
+              liked_by_me: isSameReaction ? false : true,
+            };
+          })
+        );
+      }
 
     } catch (error) {
       console.error('Failed to react to story:', error);
@@ -1675,7 +1699,7 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ ADDED: View story callback ---------- */
+  /** ✅ ✅ UPDATED: View story callback with backend-compatible fields ---------- */
   const viewStory = useCallback(async (storyId: number) => {
     if (!requireAuth('Viewing stories')) return;
     if (!currentUser) return;
@@ -1687,12 +1711,21 @@ export default function App() {
         body: JSON.stringify({ user_id: currentUser.id }),
       });
 
-      // Refresh stories to update view counts (safe)
-      fetchStories().catch(() => {});
+      // Optimistically update view count
+      setStories(prev =>
+        prev.map(story => {
+          if (Number(story.id) !== Number(storyId)) return story;
+          
+          return {
+            ...story,
+            views_count: (story.views_count || 0) + 1,
+          };
+        })
+      );
     } catch (error) {
       console.error('Failed to record story view:', error);
     }
-  }, [currentUser, requireAuth, fetchStories]);
+  }, [currentUser, requireAuth]);
 
   /** ✅ UPDATED: Open story viewer function ---------- */
   const openStoryViewer = useCallback((story: Story) => {
@@ -1719,32 +1752,59 @@ export default function App() {
     if (next) preloadStoryMedia(next);
   }, [currentUser, viewStory, markStorySeen, preloadStoryMedia, orderedStories]);
 
-  /** ✅ ADDED: Handle story like function ---------- */
+  /** ✅ ✅ UPDATED: Handle story like function using /react endpoint ---------- */
   const likeStory = useCallback(async (storyId: number) => {
     if (!requireAuth('Liking stories')) return;
     if (!currentUser) return;
 
     try {
-      // Optimistic update
-      setStories(prev =>
-        prev.map(story => {
-          if (Number(story.id) !== Number(storyId)) return story;
-          
-          return {
-            ...story,
-            liked_by_me: !story.liked_by_me
-          };
-        })
-      );
-
-      await apiFetch(`/api/stories/${storyId}/like`, {
+      // ✅ ✅ FIX: Use /react endpoint with 'like' reaction
+      const response = await apiFetch(`/api/stories/${storyId}/react`, {
         method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id }),
+        body: JSON.stringify({ 
+          user_id: currentUser.id, 
+          reaction: 'like' 
+        }),
       });
+
+      if (response?.story) {
+        const updatedStory = normalizeStory(response.story, currentUser);
+        
+        // Update with backend response
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            return {
+              ...story,
+              liked_by_me: updatedStory.my_reaction === 'like',
+              my_reaction: updatedStory.my_reaction,
+              reactions_count: updatedStory.reactions_count,
+            };
+          })
+        );
+      } else {
+        // Optimistic update
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            const currentlyLiked = story.liked_by_me;
+            
+            return {
+              ...story,
+              liked_by_me: !currentlyLiked,
+              my_reaction: !currentlyLiked ? 'like' : null,
+              reactions_count: currentlyLiked 
+                ? Math.max(0, (story.reactions_count || 0) - 1)
+                : (story.reactions_count || 0) + 1,
+            };
+          })
+        );
+      }
 
     } catch (error) {
       console.error('Failed to like story:', error);
-      // Don't call fetchStories here to avoid circular dependency
     }
   }, [currentUser, requireAuth]);
 
@@ -3031,7 +3091,7 @@ const createEvent = useCallback(async (eventData: any) => {
         fetchOtherData(), 
         fetchReels(),
         fetchSongs(), // ✅ ADDED: Fetch UNERA Music songs
-        fetchStories(), // ✅ ADDED: Fetch stories
+        fetchStories(), // ✅ UPDATED: Fetch stories with viewerId
       ]);
     },
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
@@ -3075,7 +3135,7 @@ const createEvent = useCallback(async (eventData: any) => {
         fetchOtherData(),
         fetchReels(),
         fetchSongs(),
-        fetchStories(),
+        fetchStories(), // ✅ UPDATED: Pass viewerId
       ]);
       
       if (!mounted) return;
@@ -4009,18 +4069,18 @@ const createEvent = useCallback(async (eventData: any) => {
               {/* ✅ UPDATED: StoryReel with Facebook-like features */}
               <StoryReel
                 stories={orderedStories} // ✅ Use ordered stories (unseen first)
-                onProfileClick={(id) => openProfile(id)}
+                onProfileClick={(id) => openProfile(id)} // Available ✅
                 onCreateStory={() => {
                   if (!requireAuth('Creating stories')) return;
-                  setShowCreateStoryModal(true);
+                  setShowCreateStoryModal(true); // Available ✅
                 }}
                 onViewStory={openStoryViewer} // ✅ UPDATED: Use new helper
-                currentUser={currentUser}
-                onRequestLogin={() => setView('login')}
+                currentUser={currentUser} // Available ✅
+                onRequestLogin={() => setView('login')} // Available ✅
                 // ✅ ADDED: Facebook-like story features
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-                followLoading={followLoading}
+                onFollow={followUser} // Available ✅
+                checkIsFollowing={checkIsFollowing} // Available ✅
+                followLoading={followLoading} // Available ✅
               />
 
               {currentUser && (
@@ -4480,7 +4540,7 @@ const createEvent = useCallback(async (eventData: any) => {
         />
       )}
 
-      {/* ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH FACEBOOK FEATURES */}
+      {/* ✅ ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH BACKEND-COMPATIBLE FIELDS */}
       {activeStoryId && activeStory && (
         <StoryViewerModal
           story={activeStory}
@@ -4501,6 +4561,9 @@ const createEvent = useCallback(async (eventData: any) => {
           onReaction={reactToStory}
           onNext={handleStoryNext}
           onPrev={handleStoryPrev}
+          // ✅ ADDED: Pass story muted state
+          muted={storyMuted}
+          onToggleMute={() => setStoryMuted(!storyMuted)}
         />
       )}
 
