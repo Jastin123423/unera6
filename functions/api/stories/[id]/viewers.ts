@@ -40,19 +40,29 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       .first();
     if (!exists?.id) return json({ success: false, error: "Story not found" }, 404);
 
+    // ✅ Include viewer reaction (if any) by joining story_reactions on (story_id,user_id)
+    // Note: sr.reaction will be NULL for viewers who didn't react.
     const q = `
       SELECT
         sv.id,
         sv.story_id,
         sv.user_id,
         sv.created_at as viewed_at,
+
         u.username,
         u.name,
         u.profile_image_url,
         u.is_verified,
-        u.role
+        u.role,
+
+        sr.reaction as reaction
+
       FROM story_views sv
       LEFT JOIN users u ON u.id = sv.user_id
+      LEFT JOIN story_reactions sr
+        ON sr.story_id = sv.story_id
+       AND sr.user_id = sv.user_id
+
       WHERE sv.story_id = ?
       ORDER BY sv.created_at DESC
       LIMIT ? OFFSET ?
