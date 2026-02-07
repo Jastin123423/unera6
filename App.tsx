@@ -1144,8 +1144,8 @@ export default function App() {
   // ✅ ADDED: Reel sound state (TikTok style)
   const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
 
-  // ✅ ADDED: Story states
-  const [activeStory, setActiveStory] = useState<Story | null>(null);
+  // ✅ ADDED: Story states - UPDATED: Using activeStoryId instead of activeStory
+  const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -1230,6 +1230,37 @@ export default function App() {
     }
   }, []);
 
+  /** ✅ ADDED: Derived active story from activeStoryId ---------- */
+  const activeStory = useMemo(() => {
+    if (!activeStoryId) return null;
+    return orderedStories.find(s => Number(s.id) === Number(activeStoryId)) || null;
+  }, [activeStoryId, orderedStories]);
+
+  /** ✅ ADDED: Helper to open story viewer ---------- */
+  const openStoryViewer = useCallback((s: Story) => {
+    const id = Number(s?.id);
+    if (!id) return;
+
+    // open viewer
+    setActiveStoryId(id);
+
+    // mark seen immediately
+    markStorySeen(id);
+
+    // preload current + next for instant swipe
+    preloadStoryMedia(s);
+    const next = (() => {
+      const idx = orderedStories.findIndex(x => Number(x.id) === id);
+      return idx >= 0 ? orderedStories[idx + 1] : null;
+    })();
+    if (next) preloadStoryMedia(next);
+  }, [markStorySeen, preloadStoryMedia, orderedStories]);
+
+  /** ✅ ADDED: Helper to close story viewer ---------- */
+  const closeStoryViewer = useCallback(() => {
+    setActiveStoryId(null);
+  }, []);
+
   /** ✅ ADDED: Auto-advance + next story logic (Facebook feel) ---------- */
   const getNextStory = useCallback((current: Story | null) => {
     if (!current) return null;
@@ -1240,12 +1271,19 @@ export default function App() {
   }, [orderedStories]);
 
   const goNextStory = useCallback(() => {
-    setActiveStory(prev => {
-      const next = getNextStory(prev);
-      if (next) markStorySeen(Number(next.id));
-      return next;
+    setActiveStoryId(prevId => {
+      if (!prevId) return null;
+      const currentStory = orderedStories.find(s => Number(s.id) === Number(prevId));
+      if (!currentStory) return null;
+      
+      const next = getNextStory(currentStory);
+      if (next) {
+        markStorySeen(Number(next.id));
+        return Number(next.id);
+      }
+      return null;
     });
-  }, [getNextStory, markStorySeen]);
+  }, [getNextStory, markStorySeen, orderedStories]);
 
   /** ---------- ✅ FIXED: Keep refs in sync with state ---------- */
   useEffect(() => {
@@ -3308,7 +3346,7 @@ const createEvent = useCallback(async (eventData: any) => {
     setProfilePosts([]);
     setReels([]);
     setStories([]); // ✅ Clear stories on logout
-    setActiveStory(null); // ✅ Clear active story
+    setActiveStoryId(null); // ✅ UPDATED: Clear active story ID
     setSeenStoryIds(new Set()); // ✅ Clear seen story IDs
     setStoryMuted(true); // ✅ Reset story muted state
     setActiveHashtag(null); // ✅ Clear hashtag filter on logout
@@ -3806,10 +3844,7 @@ const createEvent = useCallback(async (eventData: any) => {
                   if (!requireAuth('Creating stories')) return;
                   setShowCreateStoryModal(true);
                 }}
-                onViewStory={(s) => {
-                  setActiveStory(s);
-                  markStorySeen(Number(s.id)); // ✅ Mark as seen when opened
-                }}
+                onViewStory={openStoryViewer} // ✅ UPDATED: Use new helper
                 currentUser={currentUser}
                 onRequestLogin={() => setView('login')}
                 // ✅ ADDED: Facebook-like story features
@@ -4278,14 +4313,25 @@ const createEvent = useCallback(async (eventData: any) => {
       )}
 
       {/* ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH FACEBOOK FEATURES */}
-      {activeStory && (
+      {activeStoryId && (
         <StoryViewerModal
-          story={activeStory}
-          onClose={() => setActiveStory(null)}
+          // ✅ UPDATED: Pass stories array and activeStoryId for navigation
+          stories={orderedStories}
+          activeStoryId={activeStoryId}
+          onClose={closeStoryViewer}
+          // ✅ ADDED: Keep App in sync when viewer changes story internally
+          onStoryChange={(nextId: number) => {
+            const id = Number(nextId);
+            if (!id) return;
+            setActiveStoryId(id);
+            markStorySeen(id);
+
+            const st = orderedStories.find(x => Number(x.id) === id);
+            if (st) preloadStoryMedia(st);
+          }}
           onProfileClick={(id) => openProfile(id)}
           // ✅ ADDED: Facebook-like features
           onStorySeen={(id: number) => markStorySeen(id)} // ✅ Mark as seen
-          onNext={goNextStory} // ✅ Auto-advance to next story
           muted={storyMuted} // ✅ Mute state
           onToggleMute={() => setStoryMuted(m => !m)} // ✅ Toggle mute
           // ✅ ADDED: Follow system props
