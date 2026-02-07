@@ -1,4 +1,4 @@
-// App.tsx - PROFESSIONAL FIX WITH NO BLINKING + FACEBOOK STORY UPGRADES
+// App.tsx - PROFESSIONAL FIX WITHOUT BLINKING + FACEBOOK STORY UPGRADES
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
