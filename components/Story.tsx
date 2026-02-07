@@ -1,12 +1,11 @@
-// Story.tsx - ADVANCED STORIES WITH AUTHOR/VIEWER DIFFERENTIATION
+// Story.tsx - PROFESSIONAL FACEBOOK/WHATSAPP-LIKE STORIES
 // Features:
-// 1. Multi-photo/video upload with dots + thumbnail picker
-// 2. Video stories with real duration (capped)
-// 3. Author-specific view: Shows views count and reactions, hides write messages/likes
-// 4. Viewer-specific view: Shows write messages and likes like normal
-// 5. Viewers bottom-sheet with names + avatars + reaction types
-// 6. StoryReel shows per-user story count dots (like FB)
-// 7. Professional role-based UI with proper TypeScript interfaces
+// 1. Multi-story navigation within same user (like WhatsApp/FB)
+// 2. Deduped unique viewers with proper reaction merging
+// 3. Professional full-screen viewers modal for authors (blue button)
+// 4. Media-ready progress timing (no skipping while loading)
+// 5. Comprehensive analytics dashboard for authors
+// 6. Preserves all existing APIs and logic
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
@@ -70,7 +69,7 @@ export interface StoryType {
   user?: User;
   views?: StoryViewer[];
   analytics?: StoryAnalytics;
-  is_owner?: boolean; // Added for role-based UI
+  liked_by_me?: boolean;
 }
 
 export interface CreateStoryData {
@@ -208,6 +207,50 @@ const getReactionEmoji = (reaction?: string | null): string => {
   }
 };
 
+const getReactionColor = (reaction?: string | null): string => {
+  switch (reaction) {
+    case 'like': return 'text-blue-400';
+    case 'love': return 'text-red-400';
+    case 'wow': return 'text-yellow-400';
+    case 'haha': return 'text-yellow-500';
+    case 'sad': return 'text-blue-300';
+    case 'angry': return 'text-red-500';
+    default: return 'text-white/60';
+  }
+};
+
+// ✅ DEDUPE VIEWERS: Unique + merge reactions + sort by most recent
+const dedupeViewers = (arr: StoryViewer[]): StoryViewer[] => {
+  const map = new Map<number, StoryViewer>();
+
+  for (const v of arr || []) {
+    const uid = Number(v.user?.id ?? v.user_id ?? 0);
+    if (!uid) continue;
+
+    const prev = map.get(uid);
+    if (!prev) {
+      map.set(uid, v);
+      continue;
+    }
+
+    // Keep whichever has a reaction, or the most recent viewed_at
+    const prevHasReaction = !!prev.reaction;
+    const nextHasReaction = !!v.reaction;
+
+    if (!prevHasReaction && nextHasReaction) {
+      map.set(uid, v);
+    } else {
+      const a = new Date(prev.viewed_at || 0).getTime();
+      const b = new Date(v.viewed_at || 0).getTime();
+      if (b > a) map.set(uid, v);
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) =>
+    String(b.viewed_at || '').localeCompare(String(a.viewed_at || ''))
+  );
+};
+
 // -------------------- STORY VIEWER COMPONENT --------------------
 interface StoryViewerProps {
   story: StoryType;
@@ -258,7 +301,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const [showHeartAnim, setShowHeartAnim] = useState(false);
   const [storyDurationMs, setStoryDurationMs] = useState<number>(5000);
   
-  // Viewers sheet
+  // ✅ CRITICAL: Media ready state to prevent skipping
+  const [mediaReady, setMediaReady] = useState(false);
+  
+  // Viewers system
   const [showViewers, setShowViewers] = useState(false);
   const [loadingViewers, setLoadingViewers] = useState(false);
   const [viewers, setViewers] = useState<StoryViewer[]>([]);
@@ -277,7 +323,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // Determine if current user is the author
   const isAuthor = currentUser && currentUser.id === user.id;
@@ -323,6 +369,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     frozenUserStoriesRef.current = list;
     didAdvanceRef.current = false;
     setProgress(0);
+    setMediaReady(false); // Reset media ready state
   }, [story.id, story.user_id]);
 
   const userStories = frozenUserStoriesRef.current;
@@ -343,8 +390,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id]);
 
-  // Progress timer
+  // ✅ PROGRESS TIMER: Only starts when media is ready
   useEffect(() => {
+    if (!mediaReady) return; // CRITICAL: Don't start timer until media is ready
+
     setProgress(0);
     didAdvanceRef.current = false;
 
@@ -370,7 +419,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }, tickMs);
 
     return () => clearInterval(timer);
-  }, [story.id, isPaused, onNext, storyDurationMs]);
+  }, [story.id, isPaused, onNext, storyDurationMs, mediaReady]);
 
   // Music
   useEffect(() => {
@@ -440,7 +489,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     setViewersError('');
     try {
       const data = await onFetchViewers(story.id);
-      setViewers(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setViewers(dedupeViewers(list));
     } catch (e: any) {
       setViewersError(e?.message || 'Failed to load viewers');
       setViewers([]);
@@ -546,9 +596,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   e.stopPropagation();
                   openAnalytics();
                 }}
-                className="flex items-center gap-2 bg-white/10 hover:bg-white/15 transition-all px-3 py-2 rounded-full border border-white/10"
+                className="flex items-center gap-2 bg-[#1877F2] hover:bg-[#166FE5] transition-all px-3 py-2 rounded-full shadow-lg"
               >
-                <i className="fas fa-chart-line text-white/80"></i>
+                <i className="fas fa-chart-line text-white/90"></i>
                 <span className="text-white font-bold text-xs">
                   {totalViews}
                 </span>
@@ -558,10 +608,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   e.stopPropagation();
                   openViewers();
                 }}
-                className="flex items-center gap-2 bg-white/10 hover:bg-white/15 transition-all px-3 py-2 rounded-full border border-white/10"
+                className="flex items-center gap-2 bg-[#1877F2] hover:bg-[#166FE5] transition-all px-4 py-2 rounded-full shadow-lg"
               >
-                <i className="fas fa-eye text-white/80"></i>
-                <span className="text-white font-bold text-xs">
+                <i className="fas fa-eye text-white/90"></i>
+                <span className="text-white font-black text-xs">
                   {uniqueViewers}
                 </span>
               </button>
@@ -642,10 +692,12 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 autoPlay
                 muted={false}
                 controls={false}
+                onCanPlay={() => setMediaReady(true)}
                 onLoadedMetadata={(e) => {
                   const v = e.currentTarget;
                   const ms = Number.isFinite(v.duration) ? v.duration * 1000 : 7000;
                   setStoryDurationMs(clamp(ms, 5000, 15000));
+                  setMediaReady(true);
                   v.play().catch(() => {});
                 }}
                 onEnded={() => {
@@ -657,7 +709,13 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 }}
               />
             ) : (
-              <img src={story.media_url} alt="Story" className="w-full h-full object-cover" />
+              <img 
+                src={story.media_url} 
+                alt="Story" 
+                className="w-full h-full object-cover"
+                onLoad={() => setMediaReady(true)}
+                onError={() => setMediaReady(true)}
+              />
             )
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500">
@@ -668,6 +726,13 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           {showHeartAnim && (
             <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
               <i className="fas fa-heart text-white text-9xl drop-shadow-lg animate-pop-heart"></i>
+            </div>
+          )}
+
+          {/* Loading indicator when media not ready */}
+          {!mediaReady && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20">
+              <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
             </div>
           )}
 
@@ -758,80 +823,73 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         )}
 
-        {/* Viewers Bottom Sheet */}
+        {/* ✅ PROFESSIONAL FULL-SCREEN VIEWERS MODAL (for authors) */}
         {showViewers && (
-          <div
-            className="absolute inset-0 z-[400] bg-black/60 flex items-end"
-            onClick={() => setShowViewers(false)}
-          >
-            <div
-              className="w-full bg-[#18191A] rounded-t-3xl border-t border-white/10 p-4 pb-6 max-h-[70%] overflow-hidden animate-slide-up"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <i className="fas fa-eye text-white/70"></i>
-                  <h3 className="text-white font-black text-[16px]">
-                    {isAuthor ? 'Story Viewers' : 'Viewed By'}
-                  </h3>
-                  <span className="text-white/60 text-xs font-bold">
-                    ({viewers.length})
-                  </span>
-                </div>
-                <button
-                  onClick={() => setShowViewers(false)}
-                  className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center"
-                >
-                  <i className="fas fa-times text-white/80"></i>
-                </button>
-              </div>
+          <div className="absolute inset-0 z-[500] bg-black/70 backdrop-blur-sm">
+            <div className="absolute inset-0" onClick={() => setShowViewers(false)} />
 
-              {loadingViewers ? (
-                <div className="py-10 flex items-center justify-center text-white/70">
-                  <i className="fas fa-spinner fa-spin mr-2"></i> Loading viewers...
-                </div>
-              ) : viewersError ? (
-                <div className="py-10 text-center text-red-300 font-bold">{viewersError}</div>
-              ) : viewers.length === 0 ? (
-                <div className="py-10 text-center text-white/60 font-bold">No viewers yet</div>
-              ) : (
-                <div className="overflow-y-auto max-h-[55vh] pr-1">
-                  {viewers.map((v: StoryViewer) => {
-                    const id = Number(v?.user?.id || v?.user_id || 0);
-                    const name = pickBestName(v?.user?.name, v?.user?.username, `User ${id || ''}`);
-                    const img = v?.user?.profile_image_url || getDefaultProfilePicture(name, id);
+            <div className="relative w-full h-full flex items-center justify-center p-4 sm:p-8">
+              <div className="w-full max-w-[560px] bg-[#18191A] rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                  <div className="flex items-center gap-2">
+                    <i className="fas fa-eye text-[#1877F2]"></i>
+                    <h3 className="text-white font-black text-[16px]">Story Viewers</h3>
+                    <span className="text-white/60 text-xs font-bold">({viewers.length})</span>
+                  </div>
 
-                    return (
-                      <div
-                        key={`${id}-${v.viewed_at}`}
-                        className="flex items-center gap-3 p-3 rounded-2xl hover:bg-white/5 transition-all"
-                      >
-                        <img
-                          src={img}
-                          className="w-12 h-12 rounded-full object-cover border border-white/10"
-                          alt=""
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-white font-black truncate">{name}</p>
-                          <div className="flex items-center gap-2">
-                            <p className="text-white/60 text-xs font-bold">
-                              {formatStoryTime(v.viewed_at)}
-                            </p>
-                            {v.reaction && (
-                              <span className="text-sm">{getReactionEmoji(v.reaction)}</span>
-                            )}
+                  <button
+                    onClick={() => setShowViewers(false)}
+                    className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center"
+                  >
+                    <i className="fas fa-times text-white/80"></i>
+                  </button>
+                </div>
+
+                {loadingViewers ? (
+                  <div className="py-10 flex items-center justify-center text-white/70">
+                    <i className="fas fa-spinner fa-spin mr-2"></i> Loading viewers...
+                  </div>
+                ) : viewersError ? (
+                  <div className="py-10 text-center text-red-300 font-bold">{viewersError}</div>
+                ) : viewers.length === 0 ? (
+                  <div className="py-10 text-center text-white/60 font-bold">No viewers yet</div>
+                ) : (
+                  <div className="max-h-[70vh] overflow-y-auto p-2">
+                    {viewers.map((v) => {
+                      const id = Number(v?.user?.id || v?.user_id || 0);
+                      const name = pickBestName(v?.user?.name, v?.user?.username, `User ${id || ''}`);
+                      const img = v?.user?.profile_image_url || getDefaultProfilePicture(name, id);
+
+                      return (
+                        <div
+                          key={`${id}-${v.viewed_at}`}
+                          className="flex items-center gap-3 p-3 rounded-2xl hover:bg-white/5 transition-all cursor-pointer"
+                          onClick={() => id && onProfileClick && onProfileClick(id)}
+                        >
+                          <img src={img} className="w-12 h-12 rounded-full object-cover border border-white/10" alt="" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white font-black truncate">{name}</p>
+                            <p className="text-white/60 text-xs font-bold">{formatStoryTime(v.viewed_at)}</p>
                           </div>
-                        </div>
-                        {isAuthor && v.reaction && (
-                          <div className="text-xl" title={`Reacted with ${v.reaction}`}>
+
+                          <div className={`text-2xl ${getReactionColor(v.reaction)}`}>
                             {getReactionEmoji(v.reaction)}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="p-4 border-t border-white/10 flex justify-end">
+                  <button
+                    onClick={() => setShowViewers(false)}
+                    className="px-6 py-2 rounded-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-black"
+                  >
+                    Done
+                  </button>
                 </div>
-              )}
+              </div>
             </div>
           </div>
         )}
@@ -895,7 +953,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                         {Object.entries(analytics.reaction_breakdown).map(([reaction, count]) => (
                           <div key={reaction} className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <span className="text-xl">{getReactionEmoji(reaction)}</span>
+                              <span className={`text-xl ${getReactionColor(reaction)}`}>
+                                {getReactionEmoji(reaction)}
+                              </span>
                               <span className="text-white capitalize">{reaction}</span>
                             </div>
                             <span className="text-white font-bold">{count}</span>
@@ -1553,7 +1613,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   );
 };
 
-// -------------------- STORY VIEWER MODAL --------------------
+// -------------------- ADVANCED STORY VIEWER MODAL WITH MULTI-STORY NAVIGATION --------------------
 interface StoryViewerModalProps {
   story: StoryType;
   onClose: () => void;
@@ -1571,22 +1631,24 @@ interface StoryViewerModalProps {
   onReaction?: (storyId: number, reaction: string) => void;
 }
 
-export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
-  story,
-  onClose,
-  onProfileClick,
-  currentUser,
-  onFollow,
-  checkIsFollowing,
-  followLoading,
-  allStories = [],
-  onFetchViewers,
-  onFetchAnalytics,
-  viewersCount,
-  onReply,
-  onLike,
-  onReaction,
-}) => {
+export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
+  const {
+    story,
+    onClose,
+    onProfileClick,
+    currentUser,
+    onFollow,
+    checkIsFollowing,
+    followLoading,
+    allStories = [],
+    onFetchViewers,
+    onFetchAnalytics,
+    viewersCount,
+    onReply,
+    onLike,
+    onReaction,
+  } = props;
+
   const user: User = mergeUserSafe(story.user, {
     id: story.user_id,
     name: pickBestName(
@@ -1611,37 +1673,58 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
     created_at: null,
   });
 
+  // ✅ Build list of this author's stories (oldest -> newest)
+  const userStories = useMemo(() => {
+    const list = (allStories?.length ? allStories : [story])
+      .filter(s => Number(s.user_id) === Number(story.user_id))
+      .slice()
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+
+    // fallback if empty
+    return list.length ? list : [story];
+  }, [allStories, story.id, story.user_id]);
+
+  const [activeIndex, setActiveIndex] = useState(() => {
+    const idx = userStories.findIndex(s => Number(s.id) === Number(story.id));
+    return idx >= 0 ? idx : 0;
+  });
+
+  // ✅ When a new "story" is opened from reel, sync index
+  useEffect(() => {
+    const idx = userStories.findIndex(s => Number(s.id) === Number(story.id));
+    setActiveIndex(idx >= 0 ? idx : 0);
+  }, [story.id, userStories]);
+
+  const activeStory = userStories[activeIndex] || story;
+
   const handleNext = () => {
+    const next = activeIndex + 1;
+    if (next < userStories.length) {
+      setActiveIndex(next);
+      return;
+    }
+    // finished this user's stories => close
     onClose();
   };
 
   const handlePrev = () => {
+    const prev = activeIndex - 1;
+    if (prev >= 0) {
+      setActiveIndex(prev);
+      return;
+    }
     onClose();
   };
 
-  const handleReply = (storyId: number, text: string) => {
-    if (onReply) {
-      onReply(storyId, text);
-    }
-  };
-
-  const handleLike = (storyId: number) => {
-    if (onLike) {
-      onLike(storyId);
-    }
-  };
-
-  const handleReaction = (storyId: number, reaction: string) => {
-    if (onReaction) {
-      onReaction(storyId, reaction);
-    }
-  };
+  const handleReply = (storyId: number, text: string) => onReply?.(storyId, text);
+  const handleLike = (storyId: number) => onLike?.(storyId);
+  const handleReaction = (storyId: number, reaction: string) => onReaction?.(storyId, reaction);
 
   const isFollowing = user.id && checkIsFollowing ? checkIsFollowing(Number(user.id)) : false;
 
   return (
     <StoryViewer
-      story={story}
+      story={activeStory}
       user={user}
       currentUser={currentUser || null}
       onClose={onClose}
@@ -1652,7 +1735,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
       onReaction={handleReaction}
       onFollow={onFollow}
       isFollowing={isFollowing}
-      allStories={allStories.length ? allStories : [story]}
+      allStories={userStories}
       onFetchViewers={onFetchViewers}
       onFetchAnalytics={onFetchAnalytics}
       viewersCount={viewersCount}
