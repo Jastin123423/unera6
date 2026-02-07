@@ -34,35 +34,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     const userId = toInt(body.user_id, 0);
     if (!userId) return json({ success: false, error: "user_id is required" }, 400);
 
-    // Ensure story exists (optional but helpful)
+    // Ensure story exists (optional but helps debugging)
     const exists = await env.DB.prepare(`SELECT id FROM stories WHERE id = ? LIMIT 1`)
       .bind(storyId)
       .first();
 
     if (!exists?.id) return json({ success: false, error: "Story not found" }, 404);
 
-    // Check if already viewed
-    const existing = await env.DB.prepare(
-      `SELECT id FROM story_views WHERE story_id = ? AND user_id = ? LIMIT 1`
+    // ✅ Insert view without throwing on duplicates
+    // UNIQUE(story_id, user_id) will prevent duplicates
+    const insertRes = await env.DB.prepare(
+      `INSERT OR IGNORE INTO story_views (story_id, user_id) VALUES (?, ?)`
     )
       .bind(storyId, userId)
-      .first();
+      .run();
 
-    let viewed = false;
-
-    if (!existing?.id) {
-      // Insert view (dedup safe: UNIQUE(story_id, user_id))
-      // If two requests race, UNIQUE may throw; we handle it below.
-      try {
-        await env.DB.prepare(`INSERT INTO story_views (story_id, user_id) VALUES (?, ?)`)
-          .bind(storyId, userId)
-          .run();
-        viewed = true;
-      } catch (e: any) {
-        // If UNIQUE constraint hit, treat as already viewed
-        viewed = false;
-      }
-    }
+    // D1 returns meta.changes = 1 if inserted, 0 if ignored (already viewed)
+    const viewed = Number(insertRes?.meta?.changes ?? 0) > 0;
 
     const countRow = await env.DB.prepare(
       `SELECT COUNT(*) as views_count FROM story_views WHERE story_id = ?`
@@ -76,6 +64,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       views_count: Number((countRow as any)?.views_count ?? 0),
     });
   } catch (err: any) {
-    return json({ success: false, error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    // ✅ If anything fails, you will SEE it now.
+    return json(
+      { success: false, error: "Backend crash", message: String(err?.message ?? err) },
+      500
+    );
   }
 };
