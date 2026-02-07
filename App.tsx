@@ -1549,7 +1549,7 @@ export default function App() {
     try {
       // ✅ ✅ FIX: Pass viewerId to get my_reaction correctly
       const viewerId = currentUser?.id || 0;
-      const data = await apiFetch(`/api/stories?viewerId=${viewerId}`);
+      const data = await apiFetch(`/api/stories/${storyId}/viewers?limit=200`);
       const storiesList = safeArray(data?.stories ?? data);
       
       // snapshot users once
