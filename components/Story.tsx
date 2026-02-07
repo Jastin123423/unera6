@@ -1,6 +1,6 @@
 // Story.tsx - PROFESSIONAL FACEBOOK/WHATSAPP-LIKE STORIES
 // Features:
-// 1. Multi-story navigation within same user (like WhatsApp/FB)
+// 1. Multi-story navigation within same user (like WhatsApp/Facebook)
 // 2. Deduped unique viewers with proper reaction merging
 // 3. Professional full-screen viewers modal for authors (blue button)
 // 4. Media-ready progress timing (no skipping while loading)
@@ -276,6 +276,9 @@ interface StoryViewerProps {
   
   // Analytics (for author)
   onFetchAnalytics?: (storyId: number) => Promise<StoryAnalytics>;
+
+  // ✅ FIX 1: Add missing prop
+  onProfileClick?: (id: number) => void;
 }
 
 export const StoryViewer: React.FC<StoryViewerProps> = ({
@@ -294,6 +297,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   onFetchViewers,
   viewersCount,
   onFetchAnalytics,
+  onProfileClick, // ✅ FIX 1: Added
 }) => {
   const [progress, setProgress] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -337,6 +341,19 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
+  // ✅ FIX 4: Update userReaction when story changes
+  useEffect(() => {
+    const r = story.views?.find(v => Number(v.user_id) === Number(currentUser?.id))?.reaction || null;
+    setUserReaction(r);
+  }, [story.id, currentUser?.id, story.views]);
+
+  // ✅ FIX 2: Set mediaReady for text stories
+  useEffect(() => {
+    if (story.type === 'text') {
+      setMediaReady(true);
+    }
+  }, [story.id, story.type]);
+
   useEffect(() => {
     const bestName = pickBestName(
       (story as any)?.user?.name,
@@ -358,7 +375,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       name: bestName,
       image: bestImage || getDefaultProfilePicture(bestName, id),
     };
-  }, [story.id]);
+  }, [story.id, user]);
 
   useEffect(() => {
     const list = allStories
@@ -370,7 +387,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     didAdvanceRef.current = false;
     setProgress(0);
     setMediaReady(false); // Reset media ready state
-  }, [story.id, story.user_id]);
+  }, [story.id, story.user_id, allStories]);
 
   const userStories = frozenUserStoriesRef.current;
   const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
@@ -388,7 +405,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     } else {
       setStoryDurationMs(5000);
     }
-  }, [story.id]);
+  }, [story.id, storyIsVideo]);
 
   // PROGRESS TIMER: Only starts when media is ready
   useEffect(() => {
@@ -720,6 +737,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500">
               <span className="text-white font-bold text-2xl">Story Content</span>
+              {/* ✅ FIX 2: Ensure mediaReady for fallback content */}
+              {!mediaReady && useEffect(() => {
+                const timer = setTimeout(() => setMediaReady(true), 100);
+                return () => clearTimeout(timer);
+              }, [])}
             </div>
           )}
 
@@ -1014,8 +1036,14 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     [stories]
   );
 
+  // ✅ FIX 3: Keep newest story per user
   const uniqueUserStories: StoryType[] = useMemo(() => {
-    return Array.from(new Map<number, StoryType>(sortedStories.map((s) => [s.user_id, s])).values());
+    const m = new Map<number, StoryType>();
+    for (const s of sortedStories) {
+      const uid = Number(s.user_id);
+      if (!m.has(uid)) m.set(uid, s); // Keep newest (already sorted newest first)
+    }
+    return Array.from(m.values());
   }, [sortedStories]);
 
   const userStoryCounts = useMemo(() => {
@@ -1286,12 +1314,13 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       newItems.push({ file, url, kind });
     });
 
-    setPicks((prev) => {
-      const merged = [...prev, ...newItems];
-      return merged.slice(0, 30);
+    // ✅ FIX 5: Fix stale picks reference
+    setPicks(prev => {
+      const merged = [...prev, ...newItems].slice(0, 30);
+      if (prev.length === 0) setActivePick(0);
+      return merged;
     });
     setMode('media');
-    setActivePick((prev) => (picks.length === 0 ? 0 : prev));
   };
 
   const removePick = (index: number) => {
@@ -1739,6 +1768,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       onFetchViewers={onFetchViewers}
       onFetchAnalytics={onFetchAnalytics}
       viewersCount={viewersCount}
+      onProfileClick={onProfileClick} // ✅ FIX 1: Pass the prop
     />
   );
 };
