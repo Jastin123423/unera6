@@ -46,17 +46,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!user_id) return json({ success: false, error: "user_id is required" }, 400);
 
-    // ✅ UPDATED: allow video
+    // ✅ allow video
     if (type !== "text" && type !== "image" && type !== "video") {
       return json({ success: false, error: "type must be text, image, or video" }, 400);
     }
 
     // Validation
-    if (type === "text" && !text_content)
+    if (type === "text" && !text_content) {
       return json({ success: false, error: "text_content is required" }, 400);
+    }
 
-    if ((type === "image" || type === "video") && !media_url)
+    if ((type === "image" || type === "video") && !media_url) {
       return json({ success: false, error: "media_url is required" }, 400);
+    }
 
     // ✅ Default expires_at = now + 24h if missing
     const expiresExpr = expires_at_raw ? "?" : "datetime('now','+24 hours')";
@@ -75,20 +77,40 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const result = await env.DB.prepare(stmt).bind(...bindArgs).run();
     const story_id = Number(result.meta?.last_row_id);
 
-    // return full story with author fields
+    // ✅ return full story with author fields + counts (so UI has everything immediately)
     const story = await env.DB.prepare(
       `
       SELECT
         s.*,
         u.username as author_name,
-        u.profile_image_url as author_image
+        u.profile_image_url as author_image,
+
+        -- NEW
+        (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
+        (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
+        (SELECT sr.reaction
+           FROM story_reactions sr
+          WHERE sr.story_id = s.id
+            AND sr.user_id = ?
+          LIMIT 1
+        ) AS my_reaction,
+
+        -- OLD (keep for backward compat)
+        (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
+        (SELECT 1
+           FROM story_reactions sr
+          WHERE sr.story_id = s.id
+            AND sr.user_id = ?
+          LIMIT 1
+        ) AS liked_by_me
+
       FROM stories s
       LEFT JOIN users u ON u.id = s.user_id
       WHERE s.id = ?
       LIMIT 1
     `
     )
-      .bind(story_id)
+      .bind(user_id, user_id, story_id)
       .first();
 
     return json({ success: true, story }, 201);
@@ -110,8 +132,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         u.username as author_name,
         u.profile_image_url as author_image,
 
-        (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
+        -- NEW
+        (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
+        (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
+        (SELECT sr.reaction
+           FROM story_reactions sr
+          WHERE sr.story_id = s.id
+            AND sr.user_id = ?
+          LIMIT 1
+        ) AS my_reaction,
 
+        -- OLD (keep for backward compat)
+        (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
         (SELECT 1
            FROM story_reactions sr
           WHERE sr.story_id = s.id
@@ -126,7 +158,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT 500
     `;
 
-    const { results } = await env.DB.prepare(q).bind(viewerId || 0).all();
+    // viewerId is used twice (my_reaction + liked_by_me)
+    const { results } = await env.DB.prepare(q).bind(viewerId || 0, viewerId || 0).all();
     return json(Array.isArray(results) ? results : []);
   } catch (err: any) {
     return json({ success: false, error: "Backend crash", message: String(err?.message ?? err) }, 500);
