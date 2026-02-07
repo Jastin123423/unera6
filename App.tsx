@@ -1600,73 +1600,28 @@ export default function App() {
     }
   }, [currentUser]);
 
-  /** ✅ ✅ UPDATED: Story reaction handler with proper backend endpoint ---------- */
-  const reactToStory = useCallback(async (storyId: number, reaction: string) => {
-    if (!requireAuth('Reacting to stories')) return;
-    if (!currentUser) return;
-
-    try {
-      // ✅ ✅ FIX: Use /react endpoint instead of /like
-      const response = await apiFetch(`/api/stories/${storyId}/react`, {
-        method: 'POST',
-        body: JSON.stringify({ 
-          user_id: currentUser.id, 
-          reaction: reaction 
-        }),
-      });
-
-      // ✅ ✅ FIX: Update story with backend response
-      if (response?.story) {
-        const updatedStory = normalizeStory(response.story, currentUser);
-        
-        setStories(prev =>
-          prev.map(story => {
-            if (Number(story.id) !== Number(storyId)) return story;
-            
-            return {
-              ...story,
-              my_reaction: updatedStory.my_reaction,
-              reactions_count: updatedStory.reactions_count,
-              reaction_breakdown: updatedStory.reaction_breakdown || {},
-              liked_by_me: Boolean(updatedStory.my_reaction),
-            };
-          })
-        );
-      } else {
-        // Fallback optimistic update
-        setStories(prev =>
-          prev.map(story => {
-            if (Number(story.id) !== Number(storyId)) return story;
-            
-            const currentReaction = story.my_reaction;
-            const isSameReaction = currentReaction === reaction;
-            
-            return {
-              ...story,
-              my_reaction: isSameReaction ? null : reaction,
-              reactions_count: isSameReaction 
-                ? Math.max(0, (story.reactions_count || 0) - 1)
-                : (story.reactions_count || 0) + 1,
-              liked_by_me: isSameReaction ? false : true,
-            };
-          })
-        );
-      }
-
-    } catch (error) {
-      console.error('Failed to react to story:', error);
-      // Don't call fetchStories here to avoid circular dependency
-    }
-  }, [currentUser, requireAuth]);
-
-  /** ✅ ADDED: Fetch story viewers ---------- */
+  /** ✅ ✅ FIXED: Story viewers fetch with proper user object ---------- */
   const fetchStoryViewers = useCallback(async (storyId: number) => {
     try {
       const data = await apiFetch(`/api/stories/${storyId}/viewers`);
       const viewers = safeArray(data?.viewers ?? data);
-      return viewers.map((viewer: any) => ({
-        ...viewer,
-        user: viewer.user ? normalizeUser(viewer.user) : undefined
+      
+      // ✅ CRITICAL FIX: Wrap user fields into user object that Story.tsx expects
+      return viewers.map((v: any) => ({
+        id: v.id,
+        story_id: v.story_id,
+        user_id: v.user_id,
+        viewed_at: v.viewed_at,
+        reaction: v.reaction ?? null,
+        // ✅ WRAP user fields into user object (Story.tsx expects v.user?.name)
+        user: normalizeUser({
+          id: v.user_id,
+          username: v.username,
+          name: v.name,
+          profile_image_url: v.profile_image_url,
+          is_verified: v.is_verified,
+          role: v.role,
+        }),
       }));
     } catch (error) {
       console.error('Failed to fetch story viewers:', error);
@@ -1805,6 +1760,65 @@ export default function App() {
 
     } catch (error) {
       console.error('Failed to like story:', error);
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ✅ ✅ UPDATED: Story reaction handler with proper backend endpoint ---------- */
+  const reactToStory = useCallback(async (storyId: number, reaction: string) => {
+    if (!requireAuth('Reacting to stories')) return;
+    if (!currentUser) return;
+
+    try {
+      // ✅ ✅ FIX: Use /react endpoint instead of /like
+      const response = await apiFetch(`/api/stories/${storyId}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          user_id: currentUser.id, 
+          reaction: reaction 
+        }),
+      });
+
+      // ✅ ✅ FIX: Update story with backend response
+      if (response?.story) {
+        const updatedStory = normalizeStory(response.story, currentUser);
+        
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            return {
+              ...story,
+              my_reaction: updatedStory.my_reaction,
+              reactions_count: updatedStory.reactions_count,
+              reaction_breakdown: updatedStory.reaction_breakdown || {},
+              liked_by_me: Boolean(updatedStory.my_reaction),
+            };
+          })
+        );
+      } else {
+        // Fallback optimistic update
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            const currentReaction = story.my_reaction;
+            const isSameReaction = currentReaction === reaction;
+            
+            return {
+              ...story,
+              my_reaction: isSameReaction ? null : reaction,
+              reactions_count: isSameReaction 
+                ? Math.max(0, (story.reactions_count || 0) - 1)
+                : (story.reactions_count || 0) + 1,
+              liked_by_me: isSameReaction ? false : true,
+            };
+          })
+        );
+      }
+
+    } catch (error) {
+      console.error('Failed to react to story:', error);
+      // Don't call fetchStories here to avoid circular dependency
     }
   }, [currentUser, requireAuth]);
 
@@ -4066,21 +4080,27 @@ const createEvent = useCallback(async (eventData: any) => {
                 </div>
               )}
 
-              {/* ✅ UPDATED: StoryReel with Facebook-like features */}
+              {/* ✅ ✅ UPDATED: StoryReel with ALL required props for Story.tsx */}
               <StoryReel
                 stories={orderedStories} // ✅ Use ordered stories (unseen first)
-                onProfileClick={(id) => openProfile(id)} // Available ✅
+                onProfileClick={(id) => openProfile(id)}
                 onCreateStory={() => {
                   if (!requireAuth('Creating stories')) return;
-                  setShowCreateStoryModal(true); // Available ✅
+                  setShowCreateStoryModal(true);
                 }}
-                onViewStory={openStoryViewer} // ✅ UPDATED: Use new helper
-                currentUser={currentUser} // Available ✅
-                onRequestLogin={() => setView('login')} // Available ✅
-                // ✅ ADDED: Facebook-like story features
-                onFollow={followUser} // Available ✅
-                checkIsFollowing={checkIsFollowing} // Available ✅
-                followLoading={followLoading} // Available ✅
+                onViewStory={openStoryViewer} // ✅ Required by Story.tsx
+                currentUser={currentUser} // ✅ Required by Story.tsx
+                onRequestLogin={() => setView('login')}
+                onFollow={followUser}
+                checkIsFollowing={checkIsFollowing}
+                followLoading={followLoading}
+                // ✅ ✅ ADDED: REQUIRED PROPS FOR STORY.TSX
+                onFetchViewers={fetchStoryViewers} // ✅ Required for viewers list
+                onReaction={reactToStory} // ✅ Required for reactions
+                onReply={replyToStory} // ✅ Required for replies
+                onToggleMute={() => setStoryMuted(!storyMuted)} // ✅ Required for mute toggle
+                muted={storyMuted} // ✅ Required for mute state
+                // Story.tsx uses story.views_count automatically
               />
 
               {currentUser && (
