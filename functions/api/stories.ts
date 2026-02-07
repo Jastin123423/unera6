@@ -1,5 +1,6 @@
 // functions/api/stories.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
+
 type Env = { DB: D1Database };
 
 const cors = {
@@ -14,7 +15,11 @@ export const onRequestOptions: PagesFunction = async () =>
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: {
+      ...cors,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
   });
 
 const toInt = (v: any, fallback = 0) => {
@@ -24,50 +29,99 @@ const toInt = (v: any, fallback = 0) => {
 
 const toStr = (v: any, fallback = "") => (typeof v === "string" ? v : fallback);
 
+const toOptStr = (v: any) => {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s ? s : null;
+};
+
+const toOptInt = (v: any) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+};
+
+const isStoryType = (t: string) => t === "text" || t === "image" || t === "video";
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => ({} as any));
 
     const user_id = toInt(body.user_id, 0);
-    const type = toStr(body.type, "");
-    const media_url = body.media_url ? toStr(body.media_url) : null;
-    const text_content = body.text_content ? toStr(body.text_content) : null;
-    const background_style = body.background_style ? toStr(body.background_style) : null;
-    const music_url = body.music_url ? toStr(body.music_url) : null;
-    const music_title = body.music_title ? toStr(body.music_title) : null;
+    const type = toStr(body.type, "").trim();
+
+    const media_url = toOptStr(body.media_url);
+    const text_content = toOptStr(body.text_content);
+    const background_style = toOptStr(body.background_style);
+
+    const music_url = toOptStr(body.music_url);
+    const music_title = toOptStr(body.music_title);
+
+    // ✅ NEW: video support / metadata (optional)
+    const media_thumb_url = toOptStr(body.media_thumb_url);
+    const media_type = toOptStr(body.media_type); // e.g. video/mp4, image/webp
+    const duration = toOptInt(body.duration); // seconds
+    const width = toOptInt(body.width);
+    const height = toOptInt(body.height);
 
     // client can send, but we also safely default
     const expires_at_raw = typeof body.expires_at === "string" ? body.expires_at.trim() : "";
 
-    if (!user_id) return json({ error: "user_id is required" }, 400);
-    if (type !== "text" && type !== "image") return json({ error: "type must be text or image" }, 400);
+    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
+    if (!user_id) return json({ success: false, error: "user_id is required" }, 400);
+    if (!isStoryType(type))
+      return json({ success: false, error: "type must be text, image, or video" }, 400);
 
-    if (type === "text" && !text_content) return json({ error: "text_content is required" }, 400);
-    if (type === "image" && !media_url) return json({ error: "media_url is required" }, 400);
+    if (type === "text" && !text_content)
+      return json({ success: false, error: "text_content is required" }, 400);
+
+    if ((type === "image" || type === "video") && !media_url)
+      return json({ success: false, error: "media_url is required" }, 400);
 
     // ✅ Default expires_at = now + 24h if missing
     const expiresExpr = expires_at_raw ? "?" : "datetime('now','+24 hours')";
 
+    // NOTE:
+    // This expects your stories table to include these columns:
+    // media_thumb_url, media_type, duration, width, height
+    // If you didn't add them, remove them from the query below.
     const stmt = `
       INSERT INTO stories
-      (user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ${expiresExpr})
+      (user_id, type, media_url, text_content, background_style, music_url, music_title,
+       media_thumb_url, media_type, duration, width, height, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ${expiresExpr})
     `;
 
-    const bindArgs = expires_at_raw
-      ? [user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at_raw]
-      : [user_id, type, media_url, text_content, background_style, music_url, music_title];
+    const commonArgs = [
+      user_id,
+      type,
+      media_url,
+      text_content,
+      background_style,
+      music_url,
+      music_title,
+      media_thumb_url,
+      media_type,
+      duration,
+      width,
+      height,
+    ];
+
+    const bindArgs = expires_at_raw ? [...commonArgs, expires_at_raw] : commonArgs;
 
     const result = await env.DB.prepare(stmt).bind(...bindArgs).run();
     const story_id = Number(result.meta?.last_row_id);
 
-    // ✅ return full story with author fields
+    // ✅ return full story with author fields + like info for this author (liked_by_me for creator = 0 by default)
     const story = await env.DB.prepare(
       `
       SELECT
         s.*,
         u.username as author_name,
-        u.profile_image_url as author_image
+        u.profile_image_url as author_image,
+
+        (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
+
+        0 AS liked_by_me
       FROM stories s
       LEFT JOIN users u ON u.id = s.user_id
       WHERE s.id = ?
@@ -79,12 +133,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     return json({ success: true, story }, 201);
   } catch (err: any) {
-    return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    return json({ success: false, error: "Backend crash", message: String(err?.message ?? err) }, 500);
   }
 };
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
+    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
+
     const url = new URL(request.url);
     const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
@@ -113,6 +169,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const { results } = await env.DB.prepare(q).bind(viewerId || 0).all();
     return json(Array.isArray(results) ? results : []);
   } catch (err: any) {
-    return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    return json({ success: false, error: "Backend crash", message: String(err?.message ?? err) }, 500);
   }
 };
