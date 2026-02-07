@@ -6,6 +6,7 @@
 // 4. Media-ready progress timing (no skipping while loading)
 // 5. Comprehensive analytics dashboard for authors
 // 6. Preserves all existing APIs and logic
+// 7. Keyboard shortcuts, swipe gestures, and performance optimizations
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
@@ -70,6 +71,12 @@ export interface StoryType {
   views?: StoryViewer[];
   analytics?: StoryAnalytics;
   liked_by_me?: boolean;
+  
+  // Backend-compatible reaction fields
+  views_count?: number;
+  reactions_count?: number;
+  my_reaction?: string | null;
+  reaction_breakdown?: Record<string, number>;
 }
 
 export interface CreateStoryData {
@@ -219,6 +226,18 @@ const getReactionColor = (reaction?: string | null): string => {
   }
 };
 
+const getReactionName = (reaction?: string | null): string => {
+  switch (reaction) {
+    case 'like': return 'Like';
+    case 'love': return 'Love';
+    case 'wow': return 'Wow';
+    case 'haha': return 'Haha';
+    case 'sad': return 'Sad';
+    case 'angry': return 'Angry';
+    default: return 'Viewed';
+  }
+};
+
 // DEDUPE VIEWERS: Unique + merge reactions + sort by most recent
 const dedupeViewers = (arr: StoryViewer[]): StoryViewer[] => {
   const map = new Map<number, StoryViewer>();
@@ -277,8 +296,12 @@ interface StoryViewerProps {
   // Analytics (for author)
   onFetchAnalytics?: (storyId: number) => Promise<StoryAnalytics>;
 
-  // ✅ FIX: Add missing prop
+  // Profile navigation
   onProfileClick?: (id: number) => void;
+  
+  // Mute controls
+  muted?: boolean;
+  onToggleMute?: () => void;
 }
 
 export const StoryViewer: React.FC<StoryViewerProps> = ({
@@ -298,14 +321,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   viewersCount,
   onFetchAnalytics,
   onProfileClick,
+  muted = true,
+  onToggleMute,
 }) => {
   const [progress, setProgress] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [showHeartAnim, setShowHeartAnim] = useState(false);
   const [storyDurationMs, setStoryDurationMs] = useState<number>(5000);
+  const [touchStart, setTouchStart] = useState<number | null>(null);
   
-  // CRITICAL: Media ready state to prevent skipping
+  // Media ready state to prevent skipping
   const [mediaReady, setMediaReady] = useState(false);
   
   // Viewers system
@@ -322,7 +348,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   // Reactions
   const [showReactions, setShowReactions] = useState(false);
   const [userReaction, setUserReaction] = useState<string | null>(
-    story.views?.find(v => v.user_id === currentUser?.id)?.reaction || null
+    story.my_reaction ?? story.views?.find(v => v.user_id === currentUser?.id)?.reaction ?? null
   );
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -341,21 +367,83 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
-  // ✅ FIX 4: Update userReaction when story changes
+  // Keyboard shortcuts
   useEffect(() => {
-    const r = story.views?.find(v => Number(v.user_id) === Number(currentUser?.id))?.reaction || null;
-    setUserReaction(r);
-  }, [story.id, currentUser?.id, story.views]);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target === inputRef.current) return;
+      
+      switch (e.key) {
+        case 'ArrowRight':
+        case ' ':
+          e.preventDefault();
+          onNext?.();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          onPrev?.();
+          break;
+        case 'Escape':
+          e.preventDefault();
+          onClose();
+          break;
+        case 'm':
+        case 'M':
+          e.preventDefault();
+          onToggleMute?.();
+          break;
+        case 'p':
+        case 'P':
+          e.preventDefault();
+          setIsPaused(p => !p);
+          break;
+        case 'r':
+        case 'R':
+          e.preventDefault();
+          if (!isAuthor) setShowReactions(p => !p);
+          break;
+      }
+    };
 
-  // ✅ FIX 2: Set mediaReady for text stories
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onNext, onPrev, onClose, onToggleMute, isAuthor]);
+
+  // Touch gestures for mobile
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStart(e.touches[0].clientX);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStart) return;
+    
+    const touchEnd = e.changedTouches[0].clientX;
+    const diff = touchStart - touchEnd;
+    const threshold = 50;
+    
+    if (Math.abs(diff) > threshold) {
+      if (diff > 0) onNext?.();
+      else onPrev?.();
+    }
+    
+    setTouchStart(null);
+  };
+
+  // Update userReaction when story changes
+  useEffect(() => {
+    const r = story.my_reaction ?? story.views?.find(v => Number(v.user_id) === Number(currentUser?.id))?.reaction ?? null;
+    setUserReaction(r);
+  }, [story.id, currentUser?.id, story.views, story.my_reaction]);
+
+  // Set mediaReady for text stories
   useEffect(() => {
     if (story.type === 'text') {
       setMediaReady(true);
+    } else {
+      setMediaReady(false);
     }
   }, [story.id, story.type]);
 
-  // ✅ CRITICAL FIX: Set mediaReady for fallback content (NO HOOK IN JSX!)
-  // ✅ BUG FIX: Fixed operator precedence issue
+  // Set mediaReady for fallback content
   useEffect(() => {
     const noMedia = story.type !== 'text' && (!story.media_url || isBlob(story.media_url));
     if (noMedia) {
@@ -363,6 +451,27 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       return () => clearTimeout(timer);
     }
   }, [story.id, story.type, story.media_url]);
+
+  // Preload next story media
+  useEffect(() => {
+    const userStories = frozenUserStoriesRef.current;
+    const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
+    
+    if (currentIndex < userStories.length - 1) {
+      const nextStory = userStories[currentIndex + 1];
+      if (nextStory?.media_url && !isBlob(nextStory.media_url)) {
+        // Preload next story media
+        if (isVideoUrl(nextStory.media_url)) {
+          const video = document.createElement('video');
+          video.preload = 'metadata';
+          video.src = nextStory.media_url;
+        } else {
+          const img = new Image();
+          img.src = nextStory.media_url;
+        }
+      }
+    }
+  }, [story.id]);
 
   useEffect(() => {
     const bestName = pickBestName(
@@ -396,7 +505,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     frozenUserStoriesRef.current = list;
     didAdvanceRef.current = false;
     setProgress(0);
-    // ✅ CRITICAL FIX: Don't override text story mediaReady
     setMediaReady(story.type === 'text');
   }, [story.id, story.user_id, allStories, story.type]);
 
@@ -410,6 +518,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const storyIsVideo = story.type === 'video' || (!storyIsText && isVideoUrl(story.media_url));
   const storyIsImage = !storyIsText && !storyIsVideo;
 
+  const totalViews = story.views_count || viewersCount || story.analytics?.total_views || 0;
+  const reactionsCount = story.reactions_count || story.analytics?.views_with_reactions || 0;
+
   useEffect(() => {
     if (storyIsVideo) {
       setStoryDurationMs(7000);
@@ -418,9 +529,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, storyIsVideo]);
 
-  // PROGRESS TIMER: Only starts when media is ready
+  // Progress timer: Only starts when media is ready
   useEffect(() => {
-    if (!mediaReady) return; // Don't start timer until media is ready
+    if (!mediaReady) return;
 
     setProgress(0);
     didAdvanceRef.current = false;
@@ -453,7 +564,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   useEffect(() => {
     if (story.music_url && !isBlob(story.music_url)) {
       audioRef.current = new Audio(story.music_url);
-      audioRef.current.volume = 0.5;
+      audioRef.current.volume = muted ? 0 : 0.5;
       audioRef.current.play().catch(() => {});
     }
     return () => {
@@ -462,7 +573,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         audioRef.current = null;
       }
     };
-  }, [story.id, story.music_url]);
+  }, [story.id, story.music_url, muted]);
 
   // Pause/play video
   useEffect(() => {
@@ -473,9 +584,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     if (isPaused) {
       v.pause();
     } else {
+      v.muted = muted;
       v.play().catch(() => {});
     }
-  }, [isPaused, storyIsVideo]);
+  }, [isPaused, storyIsVideo, muted]);
 
   const handleSendReply = () => {
     if (replyText.trim() && onReply && !isAuthor) {
@@ -483,6 +595,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       setReplyText('');
       setIsPaused(false);
 
+      // Show success toast
       const toast = document.createElement('div');
       toast.className =
         'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
@@ -542,7 +655,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   };
 
   const frozenAuthor = frozenAuthorRef.current;
-  const totalViews = viewersCount || story.analytics?.total_views || 0;
   const uniqueViewers = story.analytics?.unique_viewers || viewers.length || 0;
 
   return (
@@ -555,17 +667,33 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         }}
       />
 
-      <div
+      {/* Close button */}
+      <button
         className="absolute top-4 right-4 z-[300] cursor-pointer w-10 h-10 flex items-center justify-center hover:bg-white/10 rounded-full transition-colors"
         onClick={(e) => {
           e.stopPropagation();
           onClose();
         }}
+        aria-label="Close story viewer"
       >
         <i className="fas fa-times text-[#E4E6EB] text-2xl"></i>
-      </div>
+      </button>
 
-      <div className="relative w-full max-w-[420px] h-full sm:h-[92vh] bg-black sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl">
+      {/* Keyboard shortcut hints (only show briefly on first load) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="absolute top-20 left-4 z-30 bg-black/50 text-white/60 text-xs p-2 rounded-lg backdrop-blur-sm">
+          <div>← → Navigate</div>
+          <div>Space Next</div>
+          <div>ESC Close</div>
+          <div>M Mute</div>
+        </div>
+      )}
+
+      <div 
+        className="relative w-full max-w-[420px] h-full sm:h-[92vh] bg-black sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {/* Progress bars */}
         <div className="absolute top-0 left-0 right-0 p-3 z-30 flex gap-1.5">
           {userStories.map((_, i) => (
@@ -583,37 +711,44 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         {/* Header */}
         <div className="absolute top-4 left-0 right-0 p-4 z-30 flex items-center justify-between mt-2">
           <div className="flex items-center gap-3">
-            <img
-              src={frozenAuthor.image}
-              alt={frozenAuthor.name}
-              className="w-12 h-12 rounded-full border-2 border-[#1877F2] object-cover shadow-lg"
-            />
-            <div className="flex flex-col">
-              <div className="flex items-center gap-3">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onProfileClick?.(frozenAuthor.id);
+              }}
+              className="flex items-center gap-3 hover:opacity-90 transition-opacity"
+            >
+              <img
+                src={frozenAuthor.image}
+                alt={frozenAuthor.name}
+                className="w-12 h-12 rounded-full border-2 border-[#1877F2] object-cover shadow-lg"
+              />
+              <div className="flex flex-col items-start">
                 <span className="text-white font-bold text-[17px] drop-shadow-md">
                   {frozenAuthor.name}
                 </span>
-                {currentUser &&
-                  frozenAuthor.id > 0 &&
-                  frozenAuthor.id !== currentUser.id &&
-                  onFollow && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onFollow(frozenAuthor.id);
-                      }}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold ${
-                        isFollowing ? 'bg-[#3A3B3C] text-white' : 'bg-[#1877F2] text-white'
-                      } hover:opacity-90 transition-all active:scale-95 border-none`}
-                    >
-                      {isFollowing ? 'Following' : 'Follow'}
-                    </button>
-                  )}
+                <span className="text-white/70 text-[12px] drop-shadow-md">
+                  {formatStoryTime((story as any).created_at)}
+                </span>
               </div>
-              <span className="text-white/70 text-[12px] drop-shadow-md">
-                {formatStoryTime((story as any).created_at)}
-              </span>
-            </div>
+            </button>
+            
+            {currentUser &&
+              frozenAuthor.id > 0 &&
+              frozenAuthor.id !== currentUser.id &&
+              onFollow && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onFollow(frozenAuthor.id);
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                    isFollowing ? 'bg-[#3A3B3C] text-white' : 'bg-[#1877F2] text-white'
+                  } hover:opacity-90 transition-all active:scale-95 border-none`}
+                >
+                  {isFollowing ? 'Following' : 'Follow'}
+                </button>
+              )}
           </div>
 
           {/* Author-only buttons */}
@@ -625,6 +760,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   openAnalytics();
                 }}
                 className="flex items-center gap-2 bg-[#1877F2] hover:bg-[#166FE5] transition-all px-3 py-2 rounded-full shadow-lg"
+                aria-label="View analytics"
               >
                 <i className="fas fa-chart-line text-white/90"></i>
                 <span className="text-white font-bold text-xs">
@@ -637,6 +773,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   openViewers();
                 }}
                 className="flex items-center gap-2 bg-[#1877F2] hover:bg-[#166FE5] transition-all px-4 py-2 rounded-full shadow-lg"
+                aria-label="View viewers"
               >
                 <i className="fas fa-eye text-white/90"></i>
                 <span className="text-white font-black text-xs">
@@ -645,8 +782,19 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               </button>
             </div>
           ) : (
-            // Non-author view
             <div className="flex gap-2">
+              {onToggleMute && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleMute();
+                  }}
+                  className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/15 rounded-full"
+                  aria-label={muted ? "Unmute" : "Mute"}
+                >
+                  <i className={`fas ${muted ? 'fa-volume-mute' : 'fa-volume-up'} text-white/80`}></i>
+                </button>
+              )}
               {onFetchViewers && (
                 <button
                   onClick={(e) => {
@@ -654,6 +802,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                     openViewers();
                   }}
                   className="flex items-center gap-2 bg-white/10 hover:bg-white/15 transition-all px-3 py-2 rounded-full border border-white/10"
+                  aria-label="View viewers"
                 >
                   <i className="fas fa-eye text-white/80"></i>
                   <span className="text-white font-bold text-xs">
@@ -665,6 +814,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 <button
                   onClick={() => setShowReactions(!showReactions)}
                   className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/15 rounded-full text-xl"
+                  aria-label="Change reaction"
                 >
                   {getReactionEmoji(userReaction)}
                 </button>
@@ -680,20 +830,22 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         )}
 
-        {/* Tap zones */}
+        {/* Tap zones for navigation */}
         <div
-          className="absolute inset-y-0 left-0 w-1/4 z-10"
+          className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
             onPrev?.();
           }}
+          aria-label="Previous story"
         />
         <div
-          className="absolute inset-y-0 right-0 w-1/4 z-10"
+          className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
             onNext?.();
           }}
+          aria-label="Next story"
         />
 
         {/* Content */}
@@ -718,7 +870,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 className="w-full h-full object-cover"
                 playsInline
                 autoPlay
-                muted={false}
+                muted={muted}
                 controls={false}
                 onCanPlay={() => setMediaReady(true)}
                 onLoadedMetadata={(e) => {
@@ -734,6 +886,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsPaused((p) => !p);
+                }}
+                onError={(e) => {
+                  console.error('Video playback failed:', e);
+                  setMediaReady(true);
                 }}
               />
             ) : (
@@ -770,6 +926,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           )}
 
+          {/* Play/pause indicator for videos */}
+          {storyIsVideo && isPaused && (
+            <div className="absolute inset-0 flex items-center justify-center z-30">
+              <div className="w-20 h-20 bg-black/50 rounded-full flex items-center justify-center">
+                <i className="fas fa-pause text-white text-3xl"></i>
+              </div>
+            </div>
+          )}
+
           {/* Reaction selector */}
           {showReactions && !isAuthor && (
             <div className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-lg rounded-full p-2 flex gap-2 z-50 border border-white/10">
@@ -778,6 +943,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   key={reaction}
                   onClick={() => handleReaction(reaction)}
                   className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-2xl transition-transform hover:scale-125 active:scale-110"
+                  aria-label={`React with ${reaction}`}
                 >
                   {getReactionEmoji(reaction)}
                 </button>
@@ -803,11 +969,13 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   if (!replyText) setIsPaused(false);
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendReply()}
+                aria-label="Reply to story"
               />
               {replyText.trim() && (
                 <button
                   onClick={handleSendReply}
                   className="w-8 h-8 rounded-full bg-[#1877F2] flex items-center justify-center shadow-lg transition-transform active:scale-90"
+                  aria-label="Send reply"
                 >
                   <i className="fas fa-location-arrow text-white text-sm -rotate-45 ml-[-2px] mt-[-1px]"></i>
                 </button>
@@ -818,12 +986,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               <button
                 onClick={() => setShowReactions(!showReactions)}
                 className="w-12 h-12 flex items-center justify-center cursor-pointer active:scale-125 transition-transform"
+                aria-label="Show reactions"
               >
                 <i className="fas fa-smile text-white/80 text-2xl"></i>
               </button>
               <button
                 onClick={handleLike}
                 className="w-12 h-12 flex items-center justify-center cursor-pointer active:scale-125 transition-transform"
+                aria-label={hasLiked ? "Unlike story" : "Like story"}
               >
                 <i
                   className={`fas fa-heart ${
@@ -848,7 +1018,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 </div>
                 <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
                   <div className="text-white font-black text-lg">
-                    {story.analytics?.views_with_reactions || 0}
+                    {reactionsCount}
                   </div>
                   <div className="text-white/60 text-xs">Reactions</div>
                 </div>
@@ -874,6 +1044,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   <button
                     onClick={() => setShowViewers(false)}
                     className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center"
+                    aria-label="Close viewers modal"
                   >
                     <i className="fas fa-times text-white/80"></i>
                   </button>
@@ -906,8 +1077,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                             <p className="text-white/60 text-xs font-bold">{formatStoryTime(v.viewed_at)}</p>
                           </div>
 
-                          <div className={`text-2xl ${getReactionColor(v.reaction)}`}>
-                            {getReactionEmoji(v.reaction)}
+                          <div className="flex flex-col items-end gap-1">
+                            <div className={`text-2xl ${getReactionColor(v.reaction)}`}>
+                              {getReactionEmoji(v.reaction)}
+                            </div>
+                            {v.reaction && (
+                              <span className="text-white/60 text-[10px] font-bold">
+                                {getReactionName(v.reaction)}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
@@ -946,6 +1124,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 <button
                   onClick={() => setShowAnalytics(false)}
                   className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center"
+                  aria-label="Close analytics"
                 >
                   <i className="fas fa-times text-white/80"></i>
                 </button>
@@ -1048,12 +1227,12 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     [stories]
   );
 
-  // ✅ FIX 3: Keep newest story per user
+  // Keep newest story per user
   const uniqueUserStories: StoryType[] = useMemo(() => {
     const m = new Map<number, StoryType>();
     for (const s of sortedStories) {
       const uid = Number(s.user_id);
-      if (!m.has(uid)) m.set(uid, s); // Keep newest (already sorted newest first)
+      if (!m.has(uid)) m.set(uid, s);
     }
     return Array.from(m.values());
   }, [sortedStories]);
@@ -1085,6 +1264,14 @@ export const StoryReel: React.FC<StoryReelProps> = ({
       <div
         className="min-w-[110px] sm:min-w-[140px] h-[210px] sm:h-[250px] bg-[#242526] rounded-2xl shadow-md overflow-hidden cursor-pointer relative group flex-shrink-0 border border-[#3E4042]"
         onClick={() => (currentUser ? onCreateStory?.() : onRequestLogin())}
+        aria-label="Create new story"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            currentUser ? onCreateStory?.() : onRequestLogin();
+          }
+        }}
       >
         <img
           src={
@@ -1142,6 +1329,14 @@ export const StoryReel: React.FC<StoryReelProps> = ({
             key={story.id}
             className="min-w-[110px] sm:min-w-[140px] h-[210px] sm:h-[250px] relative rounded-2xl overflow-hidden cursor-pointer flex-shrink-0 group shadow-lg border border-white/10"
             onClick={() => onViewStory(story)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                onViewStory(story);
+              }
+            }}
+            aria-label={`View ${author.name}'s story`}
           >
             {isText ? (
               <div
@@ -1180,15 +1375,16 @@ export const StoryReel: React.FC<StoryReelProps> = ({
 
             <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors"></div>
 
-            <div
+            <button
               className="absolute top-3 left-3 w-9 h-9 rounded-full border-4 border-[#1877F2] overflow-hidden z-10 shadow-md"
               onClick={(e) => {
                 e.stopPropagation();
                 onProfileClick(story.user_id);
               }}
+              aria-label={`Go to ${author.name}'s profile`}
             >
               <img src={author.profile_image_url} alt="" className="w-full h-full object-cover" />
-            </div>
+            </button>
 
             {/* Follow button */}
             {currentUser && !isMe && author.id > 0 && onFollow && (
@@ -1205,6 +1401,7 @@ export const StoryReel: React.FC<StoryReelProps> = ({
                   className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs border ${
                     isFollowing ? 'bg-[#3A3B3C] border-[#4E4F50]' : 'bg-[#1877F2] border-[#1877F2]'
                   } ${isLoading ? 'opacity-60' : 'hover:opacity-90'}`}
+                  aria-label={isFollowing ? `Unfollow ${author.name}` : `Follow ${author.name}`}
                 >
                   {isLoading ? (
                     <i className="fas fa-spinner fa-spin"></i>
@@ -1326,7 +1523,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       newItems.push({ file, url, kind });
     });
 
-    // ✅ FIX 5: Fix stale picks reference
     setPicks(prev => {
       const merged = [...prev, ...newItems].slice(0, 30);
       if (prev.length === 0) setActivePick(0);
@@ -1336,13 +1532,20 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   };
 
   const removePick = (index: number) => {
-    setPicks((prev) => {
+    setPicks(prev => {
       const next = prev.slice();
       const removed = next.splice(index, 1);
       cleanupPickUrls(removed);
-      // ✅ FIX: Fix stale picks.length reference
+      
+      // Update activePick based on new array length
       const newLength = next.length;
-      setActivePick(i => Math.max(0, Math.min(i, newLength - 1)));
+      setActivePick(current => {
+        if (newLength === 0) return 0;
+        if (current >= newLength) return newLength - 1;
+        if (current > index) return current - 1;
+        return current;
+      });
+      
       return next;
     });
   };
@@ -1366,21 +1569,41 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     }
   };
 
+  // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
       cleanupPickUrls(picks);
-      if (selectedMusic?.url && selectedMusic.url.startsWith('blob:')) URL.revokeObjectURL(selectedMusic.url);
+      if (selectedMusic?.url && selectedMusic.url.startsWith('blob:')) {
+        URL.revokeObjectURL(selectedMusic.url);
+      }
+      if (audioFile && audioFile.type.startsWith('audio/')) {
+        // Note: File objects don't create blob URLs unless we explicitly create them
+        // But if you create a blob URL from audioFile, clean it up here
+      }
     };
-  }, [picks, selectedMusic?.url, cleanupPickUrls]);
+  }, [picks, selectedMusic?.url, audioFile, cleanupPickUrls]);
+
+  // Keyboard shortcuts for modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'Enter' && canShare) handleCreate();
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, canShare, handleCreate]);
 
   const active = picks[activePick];
 
   return (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
+      {/* Header */}
       <div className="flex justify-between items-center p-4 bg-black/60 backdrop-blur-lg absolute top-0 w-full z-40 border-b border-white/5">
         <button
           onClick={onClose}
           className="text-white font-bold text-sm bg-white/10 px-4 py-2 rounded-full hover:bg-white/20 transition-all"
+          aria-label="Discard and close"
         >
           Discard
         </button>
@@ -1389,11 +1612,13 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           onClick={handleCreate}
           disabled={!canShare}
           className="bg-[#1877F2] text-white px-6 py-2 rounded-full font-black text-sm disabled:opacity-50 disabled:bg-gray-600 transition-all"
+          aria-label="Share story"
         >
           Share
         </button>
       </div>
 
+      {/* Main content area */}
       <div
         className="flex-1 flex items-center justify-center relative overflow-hidden mt-16 mb-24"
         style={{ background: mode === 'text' ? background : '#000' }}
@@ -1405,11 +1630,19 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             value={text}
             onChange={(e) => setText(e.target.value)}
             className="bg-transparent text-white text-4xl font-bold text-center w-full max-w-lg outline-none resize-none placeholder-white/40 px-10 h-[40vh] flex items-center justify-center"
+            aria-label="Story text"
           />
         ) : (
           <div
             className="w-full h-full flex items-center justify-center bg-[#000]"
             onClick={() => picks.length === 0 && fileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if ((e.key === 'Enter' || e.key === ' ') && picks.length === 0) {
+                fileInputRef.current?.click();
+              }
+            }}
           >
             {picks.length > 0 && active ? (
               <div className="relative w-full h-full">
@@ -1430,6 +1663,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
                     removePick(activePick);
                   }}
                   className="absolute top-4 left-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white"
+                  aria-label="Remove media"
                 >
                   <i className="fas fa-trash-alt"></i>
                 </button>
@@ -1467,6 +1701,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               accept="image/*,video/*"
               multiple
               onChange={handleFileChange}
+              aria-label="Select media files"
             />
           </div>
         )}
@@ -1480,14 +1715,17 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               <p className="text-xs font-black text-white leading-tight">{selectedMusic.title}</p>
               <p className="text-[10px] text-white/70">{selectedMusic.artist}</p>
             </div>
-            <i
-              className="fas fa-times-circle text-white/50 cursor-pointer hover:text-white"
+            <button
               onClick={() => {
                 if (selectedMusic.url.startsWith('blob:')) URL.revokeObjectURL(selectedMusic.url);
                 setSelectedMusic(null);
                 setAudioFile(null);
               }}
-            ></i>
+              className="text-white/50 hover:text-white"
+              aria-label="Remove music"
+            >
+              <i className="fas fa-times-circle"></i>
+            </button>
           </div>
         )}
 
@@ -1501,6 +1739,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
                   className={`relative w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 border ${
                     i === activePick ? 'border-[#1877F2]' : 'border-white/10'
                   }`}
+                  aria-label={`Select story ${i + 1}`}
                 >
                   {p.kind === 'video' ? (
                     <video src={p.url} className="w-full h-full object-cover" muted playsInline />
@@ -1518,6 +1757,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="w-16 h-16 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex-shrink-0 flex items-center justify-center"
+                aria-label="Add more media"
               >
                 <i className="fas fa-plus text-white"></i>
               </button>
@@ -1526,11 +1766,12 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         )}
       </div>
 
+      {/* Bottom toolbar */}
       <div className="absolute bottom-0 w-full bg-black/80 backdrop-blur-2xl border-t border-white/10 z-40 p-4 pb-8 flex flex-col gap-4">
         {mode === 'text' && (
           <div className="flex gap-3 overflow-x-auto scrollbar-hide px-2 py-1">
             {STORY_COLORS.map((col, idx) => (
-              <div
+              <button
                 key={idx}
                 onClick={() => setBackground(col)}
                 className={`w-10 h-10 rounded-full flex-shrink-0 cursor-pointer border-2 transition-transform hover:scale-110 ${
@@ -1539,6 +1780,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
                     : 'border-transparent'
                 }`}
                 style={{ background: col }}
+                aria-label={`Background color ${idx + 1}`}
               />
             ))}
           </div>
@@ -1551,6 +1793,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${
                 mode === 'text' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-white/60'
               }`}
+              aria-label="Text story mode"
             >
               <i className="fas fa-font"></i> Text
             </button>
@@ -1559,6 +1802,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${
                 mode === 'media' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-white/60'
               }`}
+              aria-label="Media story mode"
             >
               <i className="fas fa-photo-video"></i> Media
             </button>
@@ -1569,6 +1813,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               onClick={() => fileInputRef.current?.click()}
               className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
               title="Add photos/videos"
+              aria-label="Add media"
             >
               <i className="fas fa-plus text-lg"></i>
             </button>
@@ -1580,6 +1825,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
                   ? 'bg-[#45BD62] text-white shadow-[0_0_15px_rgba(69,189,98,0.4)]'
                   : 'bg-white/10 text-white/80 hover:bg-white/20'
               }`}
+              aria-label="Add music"
             >
               <i className="fas fa-music text-lg"></i>
             </button>
@@ -1587,6 +1833,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         </div>
       </div>
 
+      {/* Music picker modal */}
       {showMusicPicker && (
         <div className="fixed inset-0 z-[250] bg-[#18191A] animate-slide-up flex flex-col font-sans">
           <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
@@ -1598,9 +1845,10 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           </div>
 
           <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
-            <div
+            <button
               onClick={() => audioInputRef.current?.click()}
               className="p-4 bg-[#263951] rounded-xl flex items-center gap-4 cursor-pointer hover:bg-[#2A3F5A] transition-all border border-[#2D88FF]/20"
+              aria-label="Upload music"
             >
               <div className="w-12 h-12 bg-[#1877F2] rounded-full flex items-center justify-center shadow-lg">
                 <i className="fas fa-cloud-upload-alt text-white"></i>
@@ -1609,7 +1857,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
                 <p className="text-white font-bold">Upload Music</p>
                 <p className="text-[#B0B3B8] text-xs">Choose a file from your device</p>
               </div>
-            </div>
+            </button>
 
             <input
               type="file"
@@ -1617,6 +1865,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               className="hidden"
               accept="audio/*"
               onChange={handleAudioUpload}
+              aria-label="Select audio file"
             />
 
             <div className="h-px bg-[#3E4042] my-2"></div>
@@ -1626,7 +1875,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
             <div className="flex flex-col gap-2">
               {songs.map((song) => (
-                <div
+                <button
                   key={song.id}
                   onClick={() => {
                     setSelectedMusic({
@@ -1639,6 +1888,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
                     setShowMusicPicker(false);
                   }}
                   className="p-3 bg-[#242526] hover:bg-[#3A3B3C] rounded-xl flex items-center gap-4 cursor-pointer transition-all border border-transparent hover:border-[#1877F2]/30"
+                  aria-label={`Select ${song.title} by ${song.artist_name}`}
                 >
                   <img src={song.cover_image_url} className="w-14 h-14 rounded-lg object-cover shadow-md" alt="" />
                   <div className="flex-1 overflow-hidden">
@@ -1646,7 +1896,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
                     <p className="text-[#B0B3B8] text-sm truncate">{song.artist_name}</p>
                   </div>
                   <i className="fas fa-play-circle text-2xl text-[#1877F2]"></i>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -1672,6 +1922,8 @@ interface StoryViewerModalProps {
   onReply?: (storyId: number, text: string) => void;
   onLike?: (storyId: number) => void;
   onReaction?: (storyId: number, reaction: string) => void;
+  muted?: boolean;
+  onToggleMute?: () => void;
 }
 
 export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
@@ -1690,6 +1942,8 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     onReply,
     onLike,
     onReaction,
+    muted = true,
+    onToggleMute,
   } = props;
 
   const user: User = mergeUserSafe(story.user, {
@@ -1723,7 +1977,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       .slice()
       .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 
-    // fallback if empty
     return list.length ? list : [story];
   }, [allStories, story.id, story.user_id]);
 
@@ -1746,7 +1999,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       setActiveIndex(next);
       return;
     }
-    // finished this user's stories => close
     onClose();
   };
 
@@ -1783,6 +2035,8 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       onFetchAnalytics={onFetchAnalytics}
       viewersCount={viewersCount}
       onProfileClick={onProfileClick}
+      muted={muted}
+      onToggleMute={onToggleMute}
     />
   );
 };
