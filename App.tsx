@@ -1604,7 +1604,7 @@ export default function App() {
   /** ✅ ✅ FIXED: Story viewers fetch with proper user object ---------- */
   const fetchStoryViewers = useCallback(async (storyId: number) => {
     try {
-      const data = await apiFetch(`/api/stories/${storyId}/viewers`);
+      const data = await apiFetch(`/api/stories/${storyId}/viewers?limit=200`)
       const viewers = safeArray(data?.viewers ?? data);
       
       // ✅ CRITICAL FIX: Wrap user fields into user object that Story.tsx expects
