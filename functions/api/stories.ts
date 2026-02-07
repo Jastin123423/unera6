@@ -1,7 +1,6 @@
-
-
 // functions/api/stories.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
+
 type Env = { DB: D1Database };
 
 const cors = {
@@ -28,28 +27,41 @@ const toStr = (v: any, fallback = "") => (typeof v === "string" ? v : fallback);
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
+    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
+
     const body = await request.json().catch(() => ({} as any));
 
     const user_id = toInt(body.user_id, 0);
-    const type = toStr(body.type, "");
-    const media_url = body.media_url ? toStr(body.media_url) : null;
-    const text_content = body.text_content ? toStr(body.text_content) : null;
-    const background_style = body.background_style ? toStr(body.background_style) : null;
-    const music_url = body.music_url ? toStr(body.music_url) : null;
-    const music_title = body.music_title ? toStr(body.music_title) : null;
+    const type = toStr(body.type, "").trim();
+
+    const media_url = body.media_url ? toStr(body.media_url).trim() : null;
+    const text_content = body.text_content ? toStr(body.text_content).trim() : null;
+    const background_style = body.background_style ? toStr(body.background_style).trim() : null;
+
+    const music_url = body.music_url ? toStr(body.music_url).trim() : null;
+    const music_title = body.music_title ? toStr(body.music_title).trim() : null;
 
     // client can send, but we also safely default
     const expires_at_raw = typeof body.expires_at === "string" ? body.expires_at.trim() : "";
 
-    if (!user_id) return json({ error: "user_id is required" }, 400);
-    if (type !== "text" && type !== "image") return json({ error: "type must be text or image" }, 400);
+    if (!user_id) return json({ success: false, error: "user_id is required" }, 400);
 
-    if (type === "text" && !text_content) return json({ error: "text_content is required" }, 400);
-    if (type === "image" && !media_url) return json({ error: "media_url is required" }, 400);
+    // ✅ UPDATED: allow video
+    if (type !== "text" && type !== "image" && type !== "video") {
+      return json({ success: false, error: "type must be text, image, or video" }, 400);
+    }
+
+    // Validation
+    if (type === "text" && !text_content)
+      return json({ success: false, error: "text_content is required" }, 400);
+
+    if ((type === "image" || type === "video") && !media_url)
+      return json({ success: false, error: "media_url is required" }, 400);
 
     // ✅ Default expires_at = now + 24h if missing
     const expiresExpr = expires_at_raw ? "?" : "datetime('now','+24 hours')";
 
+    // ✅ IMPORTANT: Keep INSERT columns EXACTLY matching your current DB table
     const stmt = `
       INSERT INTO stories
       (user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at)
@@ -63,7 +75,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const result = await env.DB.prepare(stmt).bind(...bindArgs).run();
     const story_id = Number(result.meta?.last_row_id);
 
-    // ✅ return full story with author fields
+    // return full story with author fields
     const story = await env.DB.prepare(
       `
       SELECT
@@ -81,12 +93,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     return json({ success: true, story }, 201);
   } catch (err: any) {
-    return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    return json({ success: false, error: "Backend crash", message: String(err?.message ?? err) }, 500);
   }
 };
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
+    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
+
     const url = new URL(request.url);
     const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
@@ -115,8 +129,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const { results } = await env.DB.prepare(q).bind(viewerId || 0).all();
     return json(Array.isArray(results) ? results : []);
   } catch (err: any) {
-    return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    return json({ success: false, error: "Backend crash", message: String(err?.message ?? err) }, 500);
   }
 };
-
-    
