@@ -277,7 +277,7 @@ interface StoryViewerProps {
   // Analytics (for author)
   onFetchAnalytics?: (storyId: number) => Promise<StoryAnalytics>;
 
-  // ✅ FIX 1: Add missing prop
+  // ✅ FIX: Add missing prop
   onProfileClick?: (id: number) => void;
 }
 
@@ -297,7 +297,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   onFetchViewers,
   viewersCount,
   onFetchAnalytics,
-  onProfileClick, // ✅ FIX 1: Added
+  onProfileClick,
 }) => {
   const [progress, setProgress] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -354,6 +354,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, story.type]);
 
+  // ✅ CRITICAL FIX: Set mediaReady for fallback content (NO HOOK IN JSX!)
+  useEffect(() => {
+    const noMedia = !story.type === 'text' && (!story.media_url || isBlob(story.media_url));
+    if (noMedia) {
+      const timer = setTimeout(() => setMediaReady(true), 100);
+      return () => clearTimeout(timer);
+    }
+  }, [story.id, story.type, story.media_url]);
+
   useEffect(() => {
     const bestName = pickBestName(
       (story as any)?.user?.name,
@@ -386,8 +395,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     frozenUserStoriesRef.current = list;
     didAdvanceRef.current = false;
     setProgress(0);
-    setMediaReady(false); // Reset media ready state
-  }, [story.id, story.user_id, allStories]);
+    // ✅ CRITICAL FIX: Don't override text story mediaReady
+    setMediaReady(story.type === 'text');
+  }, [story.id, story.user_id, allStories, story.type]);
 
   const userStories = frozenUserStoriesRef.current;
   const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
@@ -737,11 +747,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500">
               <span className="text-white font-bold text-2xl">Story Content</span>
-              {/* ✅ FIX 2: Ensure mediaReady for fallback content */}
-              {!mediaReady && useEffect(() => {
-                const timer = setTimeout(() => setMediaReady(true), 100);
-                return () => clearTimeout(timer);
-              }, [])}
             </div>
           )}
 
@@ -1328,9 +1333,11 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       const next = prev.slice();
       const removed = next.splice(index, 1);
       cleanupPickUrls(removed);
+      // ✅ FIX: Fix stale picks.length reference
+      const newLength = next.length;
+      setActivePick(i => Math.max(0, Math.min(i, newLength - 1)));
       return next;
     });
-    setActivePick((i) => Math.max(0, Math.min(i, picks.length - 2)));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1768,7 +1775,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       onFetchViewers={onFetchViewers}
       onFetchAnalytics={onFetchAnalytics}
       viewersCount={viewersCount}
-      onProfileClick={onProfileClick} // ✅ FIX 1: Pass the prop
+      onProfileClick={onProfileClick}
     />
   );
 };
