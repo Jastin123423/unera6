@@ -4447,6 +4447,7 @@ const createEvent = useCallback(async (eventData: any) => {
   </div>
 )}
 
+
           {view === 'birthdays' && (
             <BirthdaysPage
               currentUser={currentUser as any}
