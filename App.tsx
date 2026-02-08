@@ -23,7 +23,8 @@ import {
   SuggestedProfilesPage,
 } from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
-import { CreateEventModal } from './components/Events';
+import { EventsPage } from './components/MenuPages';
+
 import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
