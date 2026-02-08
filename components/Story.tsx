@@ -1,4 +1,4 @@
-// Story.tsx - PROFESSIONAL - UPDATED
+// Story.tsx - PROFESSIONAL - UPDATED WITH WORKING TAP ZONES
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
@@ -347,6 +347,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   // Cache for last media URL to prevent blink
   const lastMediaUrlRef = useRef<string | null>(null);
   const cachedViewsCountRef = useRef<number>(0);
+  
+  // Prevent rapid navigation
+  const isNavigatingRef = useRef(false);
+  const navigationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -379,6 +383,33 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, story.media_url]);
 
+  // Cleanup navigation timeout
+  useEffect(() => {
+    return () => {
+      if (navigationTimeoutRef.current) {
+        clearTimeout(navigationTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Safe navigation function
+  const safeNavigate = (direction: 'next' | 'prev') => {
+    if (isNavigatingRef.current) return;
+    
+    isNavigatingRef.current = true;
+    
+    if (direction === 'next' && onNext) {
+      onNext();
+    } else if (direction === 'prev' && onPrev) {
+      onPrev();
+    }
+    
+    // Allow navigation again after 300ms
+    navigationTimeoutRef.current = setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 300);
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -388,11 +419,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         case 'ArrowRight':
         case ' ':
           e.preventDefault();
-          onNext?.();
+          safeNavigate('next');
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          onPrev?.();
+          safeNavigate('prev');
           break;
         case 'Escape':
           e.preventDefault();
@@ -440,8 +471,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const threshold = 50;
     
     if (Math.abs(diff) > threshold) {
-      if (diff > 0) onNext?.();
-      else onPrev?.();
+      if (diff > 0) safeNavigate('next');
+      else safeNavigate('prev');
     }
     
     setTouchStart(null);
@@ -571,14 +602,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         if (next >= 100 && !didAdvanceRef.current) {
           didAdvanceRef.current = true;
           clearInterval(timer);
-          onNext?.();
+          safeNavigate('next');
         }
         return next;
       });
     }, tickMs);
 
     return () => clearInterval(timer);
-  }, [story.id, isPaused, onNext, storyDurationMs, mediaReady]);
+  }, [story.id, isPaused, storyDurationMs, mediaReady]);
 
   // Music
   useEffect(() => {
@@ -863,23 +894,44 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         )}
 
-        {/* Tap zones for navigation - No visible buttons */}
-        <div
-          className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPrev?.();
-          }}
-          aria-label="Previous story"
-        />
-        <div
-          className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNext?.();
-          }}
-          aria-label="Next story"
-        />
+        {/* HIGH PRIORITY TAP ZONES - NO VISIBLE BUTTONS */}
+        <div className="absolute inset-0 z-20" style={{ pointerEvents: 'none' }}>
+          {/* Left zone - Previous (33% of screen) */}
+          <div
+            className="absolute top-0 left-0 h-full w-1/3"
+            style={{ pointerEvents: 'auto' }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              safeNavigate('prev');
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              safeNavigate('prev');
+            }}
+            aria-label="Previous story"
+            title="Previous story (or press ←)"
+          />
+          
+          {/* Right zone - Next (33% of screen) */}
+          <div
+            className="absolute top-0 right-0 h-full w-1/3"
+            style={{ pointerEvents: 'auto' }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              safeNavigate('next');
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              safeNavigate('next');
+            }}
+            aria-label="Next story"
+            title="Next story (or press →)"
+          />
+        </div>
 
         {/* Content */}
         <div
@@ -900,7 +952,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               <video
                 ref={videoRef}
                 src={story.media_url}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover z-10"
                 playsInline
                 autoPlay
                 muted={muted}
@@ -914,7 +966,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   v.play().catch(() => {});
                 }}
                 onEnded={() => {
-                  onNext?.();
+                  safeNavigate('next');
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -927,7 +979,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               />
             ) : (
               // UPDATED: Facebook-style image display
-              <div className="absolute inset-0">
+              <div className="absolute inset-0 z-10">
                 {/* Soft blurred background */}
                 <div
                   className="absolute inset-0 blur-3xl scale-110 opacity-40"
@@ -952,7 +1004,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             )
           ) : (
             <div 
-              className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500"
+              className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 z-10"
               onClick={(e) => {
                 e.stopPropagation();
                 setIsPaused(p => !p);
