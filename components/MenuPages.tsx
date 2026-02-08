@@ -1,8 +1,7 @@
 return (
   <div className="min-h-screen bg-[#18191A] text-[#E4E6EB]">
     <div className="p-2 bg-red-600 text-white font-bold">
-      EVENTS PAGE RENDERED (inside full UI)
-    </div>
+      
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Event, Group, Product, Post as PostType, AudioTrack } from '../types';
