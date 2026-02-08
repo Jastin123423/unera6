@@ -1,675 +1,504 @@
+// EventsPage.tsx - Updated with API integration
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { User, Event } from '../types';
 
-
-
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { User, Event as EventType } from '../types';
-
-
-
-// -------------------- SAFE HELPERS --------------------
-const safeString = (v: any) => (typeof v === 'string' ? v : v == null ? '' : String(v));
-
-const safeNumber = (v: any, fallback = 0) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
+// --- HELPER FUNCTIONS ---
+const linkify = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    return text.split(urlRegex).map((part, i) => {
+        if (part.match(urlRegex)) {
+            return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-[#1877F2] hover:underline" onClick={e => e.stopPropagation()}>{part}</a>;
+        }
+        return part;
+    });
 };
 
-const safeArray = <T,>(v: any): T[] => {
-  if (Array.isArray(v)) return v as T[];
-  if (typeof v === 'string') {
-    const s = v.trim();
-    if (!s) return [];
-    // Try JSON array
-    try {
-      const parsed = JSON.parse(s);
-      if (Array.isArray(parsed)) return parsed as T[];
-    } catch {
-      // If it's a comma-separated string, you can optionally split:
-      // return s.split(',').map(x => x.trim()).filter(Boolean) as any;
+const shuffleArray = (array: any[]) => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
-  }
-  return [];
+    return shuffled;
 };
 
-const normalizeEvent = (e: any): EventType => {
-  // normalize key fields to prevent crashes
-  const attendees = safeArray<number>(e?.attendees);
-  const interestedIds = safeArray<number>(e?.interestedIds);
+// --- NORMALIZATION HELPER ---
+const safeArr = (v: any): number[] => (Array.isArray(v) ? v.map(Number) : []);
 
+const normalizeEvent = (e: any) => {
+  const dateStr = e?.event_date ?? e?.date ?? "";
   return {
     ...e,
-    id: safeNumber(e?.id),
-    title: safeString(e?.title),
-    description: safeString(e?.description),
-    date: safeString(e?.date || e?.event_date),
-    time: safeString(e?.time || e?.event_time),
-    location: safeString(e?.location),
-    image: safeString(e?.image || e?.cover_url),
-    visibility: safeString(e?.visibility || 'public') as any,
+    // ID safety
+    id: Number(e?.id ?? 0),
 
-    organizerId: safeNumber(e?.organizerId ?? e?.organizer_id),
-    organizer_name: safeString(e?.organizer_name ?? e?.organizerName ?? e?.organizer),
-    organizer_avatar: safeString(e?.organizer_avatar ?? e?.organizerAvatar ?? e?.organizer_profile_image),
+    // unify date
+    date: dateStr,
 
-    attendees,
-    interestedIds,
-  } as EventType;
+    // unify image
+    image: e?.cover_url ?? e?.image ?? e?.cover_image ?? "",
+
+    // unify attendance arrays
+    attendees: safeArr(e?.attendees ?? e?.attendee_ids),
+    interestedIds: safeArr(e?.interestedIds ?? e?.interested_ids),
+
+    // unify organizer
+    organizerId: Number(e?.organizerId ?? e?.creator_id ?? e?.user_id ?? 0),
+
+    // fallback fields used in UI
+    time: e?.time ?? e?.event_time ?? "",
+    location: e?.location ?? "",
+    title: e?.title ?? "Untitled event",
+    description: e?.description ?? "",
+    visibility: e?.visibility ?? "worldwide",
+  };
 };
 
-// ========== EVENT CARD COMPONENT ==========
-interface EventCardProps {
-  event: EventType;
-  currentUser: User | null;
-  onJoinEvent: (eventId: number) => Promise<any>;
-  onInterestedEvent: (eventId: number) => Promise<any>;
-  onProfileClick: (id: number) => void;
-  onFollow: (userId: number) => Promise<void>;
-  checkIsFollowing: (userId: number) => boolean;
+interface EventsPageProps { 
+    events: Event[]; 
+    currentUser: User | null; 
+    onJoinEvent: (eventId: number) => Promise<void>; 
+    onInterestedEvent: (eventId: number) => Promise<void>;
+    onCreateEventClick: () => void; 
+    onProfileClick: (id: number) => void;
+    onFollow: (id: number) => Promise<void>;
+    checkIsFollowing: (id: number) => boolean;
 }
 
-const EventCard: React.FC<EventCardProps> = ({
-  event,
-  currentUser,
-  onJoinEvent,
-  onInterestedEvent,
-  onProfileClick,
-  onFollow,
-  checkIsFollowing
-}) => {
-  const [loading, setLoading] = useState<'join' | 'interested' | null>(null);
-  const [attendeesCount, setAttendeesCount] = useState(safeArray<number>(event.attendees).length);
-  const [interestedCount, setInterestedCount] = useState(safeArray<number>(event.interestedIds).length);
-  const [isJoined, setIsJoined] = useState(false);
-  const [isInterested, setIsInterested] = useState(false);
+const CompactEventCard: React.FC<{ 
+    event: any, // Changed to any to accept normalized events
+    currentUser: User | null, 
+    onClick: () => void,
+    onJoin: (e: React.MouseEvent) => void,
+    onInterested: (e: React.MouseEvent) => void,
+    isWide?: boolean
+}> = ({ event, currentUser, onClick, onJoin, onInterested, isWide }) => {
+    // Safe date parsing
+    const date = new Date(event.date || event.event_date || event.created_at || Date.now());
+    
+    // Safe array access
+    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
+    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
+    
+    const isAttending = currentUser && attendees.includes(currentUser.id);
+    const isInterested = currentUser && interestedIds.includes(currentUser.id);
 
-  // Keep local UI in sync when events/currentUser updates
-  useEffect(() => {
-    const attendees = safeArray<number>(event.attendees);
-    const interested = safeArray<number>(event.interestedIds);
-    setAttendeesCount(attendees.length);
-    setInterestedCount(interested.length);
-
-    const uid = currentUser?.id;
-    setIsJoined(uid ? attendees.includes(uid) : false);
-    setIsInterested(uid ? interested.includes(uid) : false);
-  }, [event, currentUser]);
-
-  const isMyEvent = useMemo(() => {
-    return !!(currentUser && safeNumber(event.organizerId) === safeNumber(currentUser.id));
-  }, [currentUser, event.organizerId]);
-
-  const formatDate = useCallback((dateString: string) => {
-    const ds = safeString(dateString);
-    if (!ds) return '';
-    try {
-      const date = new Date(ds);
-      if (Number.isNaN(date.getTime())) return ds;
-      return date.toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
-    } catch {
-      return ds;
-    }
-  }, []);
-
-  const formatTime = useCallback((timeString: string) => {
-    const ts = safeString(timeString);
-    if (!ts) return '';
-    try {
-      const [hours, minutes] = ts.split(':');
-      const hour = parseInt(hours, 10);
-      if (!Number.isFinite(hour)) return ts;
-      const ampm = hour >= 12 ? 'PM' : 'AM';
-      const displayHour = hour % 12 || 12;
-      return `${displayHour}:${minutes || '00'} ${ampm}`;
-    } catch {
-      return ts;
-    }
-  }, []);
-
-  const handleJoin = async () => {
-    if (!currentUser) return;
-    setLoading('join');
-    try {
-      await onJoinEvent(event.id);
-      // optimistic UI
-      if (!isJoined) {
-        setIsJoined(true);
-        setIsInterested(false);
-        setAttendeesCount(prev => prev + 1);
-        if (isInterested) setInterestedCount(prev => Math.max(0, prev - 1));
-      }
-    } catch (error) {
-      console.error('Failed to join event:', error);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const handleInterested = async () => {
-    if (!currentUser) return;
-    setLoading('interested');
-    try {
-      await onInterestedEvent(event.id);
-      if (!isInterested) {
-        setIsInterested(true);
-        setIsJoined(false);
-        setInterestedCount(prev => prev + 1);
-        if (isJoined) setAttendeesCount(prev => Math.max(0, prev - 1));
-      }
-    } catch (error) {
-      console.error('Failed to mark as interested:', error);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const handleLeave = async () => {
-    if (!currentUser) return;
-    setLoading('join');
-    try {
-      await onJoinEvent(event.id); // toggle or leave endpoint
-      if (isJoined) {
-        setIsJoined(false);
-        setAttendeesCount(prev => Math.max(0, prev - 1));
-      }
-    } catch (error) {
-      console.error('Failed to leave event:', error);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const handleRemoveInterest = async () => {
-    if (!currentUser) return;
-    setLoading('interested');
-    try {
-      await onInterestedEvent(event.id); // toggle or remove endpoint
-      if (isInterested) {
-        setIsInterested(false);
-        setInterestedCount(prev => Math.max(0, prev - 1));
-      }
-    } catch (error) {
-      console.error('Failed to remove interest:', error);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const organizerName = safeString((event as any).organizer_name);
-  const organizerAvatar = safeString((event as any).organizer_avatar);
-
-  return (
-    <div className="bg-[#242526] border border-[#3E4042] rounded-xl overflow-hidden mb-4">
-      {/* Event Image */}
-      <div className="relative h-48 md:h-56">
-        <img
-          src={safeString(event.image) || 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80'}
-          alt={safeString(event.title) || 'Event'}
-          className="w-full h-full object-cover"
-        />
-        {event.visibility === 'invite_only' && (
-          <div className="absolute top-3 right-3 bg-[#00000080] backdrop-blur-sm px-3 py-1 rounded-full">
-            <span className="text-white text-xs font-medium flex items-center gap-1">
-              <i className="fas fa-lock text-xs"></i>
-              Invite Only
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Event Content */}
-      <div className="p-4">
-        {/* Event Date & Time */}
-        <div className="flex items-center gap-2 text-[#B0B3B8] text-sm mb-3">
-          <div className="flex items-center gap-1">
-            <i className="fas fa-calendar text-[#E4E6EB]"></i>
-            <span>{formatDate(safeString(event.date))}</span>
-          </div>
-          <span className="text-[#3E4042]">•</span>
-          <div className="flex items-center gap-1">
-            <i className="fas fa-clock text-[#E4E6EB]"></i>
-            <span>{formatTime(safeString(event.time))}</span>
-          </div>
-          <span className="text-[#3E4042]">•</span>
-          <div className="flex items-center gap-1">
-            <i className="fas fa-map-marker-alt text-[#E4E6EB]"></i>
-            <span>{safeString(event.location) || 'Online'}</span>
-          </div>
-        </div>
-
-        {/* Event Title & Description */}
-        <h3 className="text-[#E4E6EB] font-semibold text-lg mb-2 line-clamp-1">
-          {safeString(event.title)}
-        </h3>
-        <p className="text-[#B0B3B8] text-sm mb-4 line-clamp-2">
-          {safeString(event.description)}
-        </p>
-
-        {/* Organizer Info */}
-        <div className="flex items-center justify-between mb-4">
-          <div
-            className="flex items-center gap-2 cursor-pointer hover:bg-[#3A3B3C] p-2 rounded-lg transition-colors"
-            onClick={() => onProfileClick(safeNumber(event.organizerId))}
-          >
-            <img
-              src={
-                organizerAvatar ||
-                `https://ui-avatars.com/api/?name=${encodeURIComponent(organizerName || 'Organizer')}&background=1877F2&color=fff&size=32&bold=true`
-              }
-              alt={organizerName || 'Organizer'}
-              className="w-8 h-8 rounded-full object-cover"
-            />
-            <div>
-              <p className="text-[#E4E6EB] text-sm font-medium">{organizerName || 'Organizer'}</p>
-              <p className="text-[#B0B3B8] text-xs">Organizer</p>
-            </div>
-          </div>
-
-          {currentUser && !isMyEvent && (
-            <button
-              onClick={() => onFollow(safeNumber(event.organizerId))}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                checkIsFollowing(safeNumber(event.organizerId))
-                  ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                  : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-              }`}
-            >
-              {checkIsFollowing(safeNumber(event.organizerId)) ? 'Following' : 'Follow'}
-            </button>
-          )}
-        </div>
-
-        {/* Stats */}
-        <div className="flex items-center justify-between text-[#B0B3B8] text-sm mb-4">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1">
-              <i className="fas fa-users"></i>
-              <span>{attendeesCount} going</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <i className="far fa-thumbs-up"></i>
-              <span>{interestedCount} interested</span>
-            </div>
-          </div>
-          {event.visibility === 'public' && (
-            <div className="flex items-center gap-1 text-[#45BD62]">
-              <i className="fas fa-globe"></i>
-              <span>Public</span>
-            </div>
-          )}
-        </div>
-
-        {/* Action Buttons */}
-        {currentUser && !isMyEvent && (
-          <div className="flex gap-2">
-            {isJoined ? (
-              <button
-                onClick={handleLeave}
-                disabled={loading === 'join'}
-                className="flex-1 bg-[#3A3B3C] text-[#E4E6EB] py-2.5 rounded-lg font-medium hover:bg-[#4E4F50] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading === 'join' ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-[#E4E6EB] border-t-transparent rounded-full animate-spin"></div>
-                    Leaving...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-check"></i>
-                    Going
-                  </>
-                )}
-              </button>
-            ) : (
-              <button
-                onClick={handleJoin}
-                disabled={loading === 'join'}
-                className="flex-1 bg-[#1877F2] text-white py-2.5 rounded-lg font-medium hover:bg-[#166FE5] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading === 'join' ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Joining...
-                  </>
-                ) : (
-                  'Join Event'
-                )}
-              </button>
-            )}
-
-            {isInterested ? (
-              <button
-                onClick={handleRemoveInterest}
-                disabled={loading === 'interested'}
-                className="flex-1 bg-[#3A3B3C] text-[#E4E6EB] py-2.5 rounded-lg font-medium hover:bg-[#4E4F50] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading === 'interested' ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-[#E4E6EB] border-t-transparent rounded-full animate-spin"></div>
-                    Removing...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-thumbs-up"></i>
-                    Interested
-                  </>
-                )}
-              </button>
-            ) : (
-              <button
-                onClick={handleInterested}
-                disabled={loading === 'interested'}
-                className="flex-1 bg-[#3A3B3C] text-[#E4E6EB] py-2.5 rounded-lg font-medium hover:bg-[#4E4F50] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading === 'interested' ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-[#E4E6EB] border-t-transparent rounded-full animate-spin"></div>
-                    Marking...
-                  </>
-                ) : (
-                  'Interested'
-                )}
-              </button>
-            )}
-          </div>
-        )}
-
-        {isMyEvent && (
-          <div className="flex gap-2">
-            <button className="flex-1 bg-[#3A3B3C] text-[#E4E6EB] py-2.5 rounded-lg font-medium hover:bg-[#4E4F50] transition-colors flex items-center justify-center gap-2">
-              <i className="fas fa-edit"></i>
-              Edit Event
-            </button>
-            <button className="flex-1 bg-[#3A3B3C] text-[#E4E6EB] py-2.5 rounded-lg font-medium hover:bg-[#4E4F50] transition-colors flex items-center justify-center gap-2">
-              <i className="fas fa-chart-bar"></i>
-              View Analytics
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ========== EVENTS PAGE ==========
-interface EventsPageProps {
-  events: EventType[];
-  currentUser: User | null;
-  onJoinEvent: (eventId: number) => Promise<any>;
-  onInterestedEvent: (eventId: number) => Promise<any>;
-  onCreateEventClick: () => void;
-  onProfileClick: (id: number) => void;
-  onFollow: (userId: number) => Promise<void>;
-  checkIsFollowing: (userId: number) => boolean;
-}
-
-export const EventsPage: React.FC<EventsPageProps> = ({
-  events,
-  currentUser,
-  onJoinEvent,
-  onInterestedEvent,
-  onCreateEventClick,
-  onProfileClick,
-  onFollow,
-  checkIsFollowing
-}) => {
-  const [filter, setFilter] = useState<'all' | 'upcoming' | 'past' | 'joined'>('all');
-  const [search, setSearch] = useState('');
-
-  const normalizedEvents = useMemo(() => {
-    const arr = Array.isArray(events) ? events : [];
-    return arr.map(normalizeEvent).filter(e => e.id); // remove invalid
-  }, [events]);
-
-  const filteredEvents = useMemo(() => {
-    let filtered = [...normalizedEvents];
-
-    // Apply date filter
-    const now = new Date();
-    switch (filter) {
-      case 'upcoming':
-        filtered = filtered.filter(event => {
-          const d = new Date(safeString(event.date));
-          return !Number.isNaN(d.getTime()) ? d >= now : true;
-        });
-        break;
-      case 'past':
-        filtered = filtered.filter(event => {
-          const d = new Date(safeString(event.date));
-          return !Number.isNaN(d.getTime()) ? d < now : false;
-        });
-        break;
-      case 'joined':
-        if (currentUser) {
-          filtered = filtered.filter(event => safeArray<number>(event.attendees).includes(currentUser.id));
-        } else {
-          filtered = [];
-        }
-        break;
-    }
-
-    // Apply search filter
-    if (search.trim()) {
-      const query = search.toLowerCase();
-      filtered = filtered.filter(event => {
-        const title = safeString(event.title).toLowerCase();
-        const desc = safeString(event.description).toLowerCase();
-        const loc = safeString(event.location).toLowerCase();
-        const org = safeString((event as any).organizer_name).toLowerCase();
-        return title.includes(query) || desc.includes(query) || loc.includes(query) || org.includes(query);
-      });
-    }
-
-    // Sort by date (upcoming first)
-    return filtered.sort((a, b) => {
-      const dateA = new Date(safeString(a.date)).getTime();
-      const dateB = new Date(safeString(b.date)).getTime();
-      const nowMs = Date.now();
-
-      const aValid = Number.isFinite(dateA);
-      const bValid = Number.isFinite(dateB);
-
-      // invalid dates go last
-      if (!aValid && bValid) return 1;
-      if (aValid && !bValid) return -1;
-      if (!aValid && !bValid) return 0;
-
-      const aIsUpcoming = dateA >= nowMs;
-      const bIsUpcoming = dateB >= nowMs;
-
-      if (aIsUpcoming && !bIsUpcoming) return -1;
-      if (!aIsUpcoming && bIsUpcoming) return 1;
-
-      return aIsUpcoming ? dateA - dateB : dateB - dateA;
-    });
-  }, [normalizedEvents, filter, search, currentUser]);
-
-  const getEventStats = useMemo(() => {
-    const now = new Date();
-    const upcoming = normalizedEvents.filter(e => {
-      const d = new Date(safeString(e.date));
-      return !Number.isNaN(d.getTime()) && d >= now;
-    }).length;
-
-    const past = normalizedEvents.filter(e => {
-      const d = new Date(safeString(e.date));
-      return !Number.isNaN(d.getTime()) && d < now;
-    }).length;
-
-    const joined = currentUser
-      ? normalizedEvents.filter(e => safeArray<number>(e.attendees).includes(currentUser.id)).length
-      : 0;
-
-    return { upcoming, past, joined, total: normalizedEvents.length };
-  }, [normalizedEvents, currentUser]);
-
-  return (
-    <div className="min-h-screen bg-[#18191A] text-[#E4E6EB]">
-      {/* Header */}
-      <div className="sticky top-14 z-10 bg-[#242526] border-b border-[#3E4042]">
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold">Events</h1>
-              <p className="text-[#B0B3B8] text-sm mt-1">
-                Discover and join events in your community
-              </p>
-            </div>
-
-            {currentUser && (
-              <button
-                onClick={onCreateEventClick}
-                className="bg-[#1877F2] text-white px-4 py-2.5 rounded-lg font-medium hover:bg-[#166FE5] transition-colors flex items-center justify-center gap-2 whitespace-nowrap"
-              >
-                <i className="fas fa-plus"></i>
-                Create Event
-              </button>
-            )}
-          </div>
-
-          {/* Search */}
-          <div className="mt-4">
-            <div className="relative">
-              <i className="fas fa-search absolute left-4 top-1/2 transform -translate-y-1/2 text-[#B0B3B8]"></i>
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search events by name, location, or organizer..."
-                className="w-full bg-[#3A3B3C] border border-[#4E4F50] rounded-lg pl-12 pr-4 py-3 text-[#E4E6EB] placeholder-[#B0B3B8] focus:outline-none focus:border-[#1877F2]"
-              />
-            </div>
-          </div>
-
-          {/* Stats & Filters */}
-          <div className="flex flex-wrap items-center justify-between gap-4 mt-6">
-            {/* Stats */}
-            <div className="flex flex-wrap gap-4">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-[#3A3B3C] rounded-lg">
-                <span className="text-[#1877F2] font-medium">{getEventStats.total}</span>
-                <span className="text-[#B0B3B8] text-sm">Total</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-[#3A3B3C] rounded-lg">
-                <span className="text-[#45BD62] font-medium">{getEventStats.upcoming}</span>
-                <span className="text-[#B0B3B8] text-sm">Upcoming</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-[#3A3B3C] rounded-lg">
-                <span className="text-[#F3425F] font-medium">{getEventStats.past}</span>
-                <span className="text-[#B0B3B8] text-sm">Past</span>
-              </div>
-              {currentUser && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#3A3B3C] rounded-lg">
-                  <span className="text-[#F7B928] font-medium">{getEventStats.joined}</span>
-                  <span className="text-[#B0B3B8] text-sm">Joined</span>
+    return (
+        <div 
+            onClick={onClick}
+            className={`bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] flex flex-col hover:bg-[#3A3B3C] transition-all cursor-pointer shadow-md group ${isWide ? 'w-[260px] shrink-0' : 'w-full'}`}
+        >
+            <div className="h-32 relative overflow-hidden">
+                <img src={event.image || ''} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
+                <div className="absolute top-2 left-2 bg-white/95 text-black rounded-lg px-2 py-1 text-center shadow-lg min-w-[36px]">
+                    <div className="text-[8px] font-black uppercase text-[#1877F2] leading-none">{date.toLocaleString('default', { month: 'short' })}</div>
+                    <div className="text-[14px] font-black leading-tight">{date.getDate()}</div>
                 </div>
-              )}
+                {event.visibility === 'targeted' && (
+                    <div className="absolute top-2 right-2 bg-[#45BD62] text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg uppercase tracking-tighter">
+                        Local
+                    </div>
+                )}
+            </div>
+            
+            <div className="p-3 flex flex-col flex-1">
+                <h3 className="text-[14px] font-bold text-[#E4E6EB] line-clamp-1 mb-1 leading-tight group-hover:text-[#1877F2] transition-colors">{event.title}</h3>
+                <p className="text-[11px] text-[#B0B3B8] font-medium truncate mb-1">
+                    {date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} • {event.time}
+                </p>
+                <div className="flex items-center gap-1 text-[10px] font-bold text-[#B0B3B8] mb-3">
+                    <i className="fas fa-users text-[#45BD62] text-[9px]"></i>
+                    <span>{attendees.length} going • {interestedIds.length} interested</span>
+                </div>
+
+                <div className="mt-auto flex gap-1.5">
+                    <button 
+                        onClick={onInterested}
+                        disabled={!!isAttending}
+                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1 border ${
+                            isInterested 
+                            ? 'bg-[#FAB400]/20 text-[#FAB400] border-[#FAB400]/30' 
+                            : isAttending 
+                                ? 'opacity-30 cursor-not-allowed' 
+                                : 'bg-[#3A3B3C] text-[#E4E6EB] border-transparent hover:bg-[#4E4F50]'
+                        }`}
+                    >
+                        <i className={`${isInterested ? 'fas' : 'far'} fa-star text-[9px]`}></i>
+                        <span>Interested</span>
+                    </button>
+                    <button 
+                        onClick={onJoin}
+                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1 shadow-md ${
+                            isAttending 
+                            ? 'bg-[#45BD62] text-white' 
+                            : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                        }`}
+                    >
+                        <i className={`fas ${isAttending ? 'fa-check' : 'fa-plus'} text-[9px]`}></i>
+                        <span>{isAttending ? 'Going' : 'Going'}</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const EventDetailsModal: React.FC<{ 
+    event: any, // Changed to any to accept normalized events
+    currentUser: User | null, 
+    onClose: () => void, 
+    onJoin: () => void, 
+    onInterested: () => void,
+    onProfileClick: (id: number) => void 
+}> = ({ event, currentUser, onClose, onJoin, onInterested, onProfileClick }) => {
+    // Safe date parsing
+    const date = new Date(event.date || event.event_date || event.created_at || Date.now());
+    
+    // Safe array access
+    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
+    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
+    
+    const isAttending = currentUser && attendees.includes(currentUser.id);
+    const isInterested = currentUser && interestedIds.includes(currentUser.id);
+
+    return (
+        <div className="fixed inset-0 z-[600] bg-black/90 flex items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-md" onClick={onClose}>
+            <div className="bg-[#242526] w-full max-w-[700px] h-full sm:h-auto sm:max-h-[90vh] sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl border border-[#3E4042]" onClick={e => e.stopPropagation()}>
+                <div className="relative h-[250px] sm:h-[350px] shrink-0">
+                    <img src={event.image || ''} className="w-full h-full object-cover" alt="" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#242526] via-transparent to-transparent"></div>
+                    <button onClick={onClose} className="absolute top-4 right-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-all border border-white/10">
+                        <i className="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div className="p-6 overflow-y-auto flex-1">
+                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6">
+                        <div>
+                            <p className="text-[#F3425F] font-black uppercase text-sm tracking-widest mb-1">
+                                {date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                            </p>
+                            <h2 className="text-3xl font-black text-white leading-tight">{event.title}</h2>
+                            <div className="flex items-center gap-2 text-[#B0B3B8] font-bold mt-2">
+                                <i className="fas fa-location-dot text-[#1877F2]"></i>
+                                <span>{event.location}</span>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 w-full sm:w-auto">
+                            <button 
+                                onClick={onInterested}
+                                disabled={!!isAttending}
+                                className={`flex-1 sm:px-6 py-2.5 rounded-xl font-black text-[15px] transition-all flex items-center justify-center gap-2 ${
+                                    isInterested 
+                                    ? 'bg-[#FAB400]/20 text-[#FAB400] border border-[#FAB400]/30' 
+                                    : isAttending ? 'opacity-30 cursor-not-allowed' : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                                }`}
+                            >
+                                <i className={`${isInterested ? 'fas' : 'far'} fa-star`}></i>
+                                <span>Interested</span>
+                            </button>
+                            <button 
+                                onClick={onJoin}
+                                className={`flex-1 sm:px-8 py-2.5 rounded-xl font-black text-[15px] transition-all flex items-center justify-center gap-2 shadow-lg ${
+                                    isAttending 
+                                    ? 'bg-[#45BD62] text-white' 
+                                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                                }`}
+                            >
+                                <i className={`fas ${isAttending ? 'fa-check' : 'fa-plus'}`}></i>
+                                <span>{isAttending ? 'Going' : 'Going'}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="md:col-span-2 space-y-6">
+                            <div>
+                                <h3 className="text-white font-black uppercase text-xs tracking-widest mb-3 pb-2 border-b border-[#3E4042] w-fit pr-8">Description</h3>
+                                <p className="text-[#E4E6EB] text-[16px] leading-relaxed whitespace-pre-wrap">
+                                    {event.description ? linkify(event.description) : 'No description provided for this event.'}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="space-y-6">
+                            <div className="bg-[#18191A] p-4 rounded-xl border border-[#3E4042]">
+                                <h4 className="text-xs font-black text-[#B0B3B8] uppercase tracking-widest mb-4">Event Details</h4>
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-clock text-[#1877F2]"></i></div>
+                                        <div>
+                                            <p className="text-white text-sm font-bold">{event.time}</p>
+                                            <p className="text-[10px] text-[#B0B3B8] font-bold">Standard Time</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-users text-[#45BD62]"></i></div>
+                                        <div>
+                                            <p className="text-white text-sm font-bold">{attendees.length} Attendees</p>
+                                            <p className="text-[10px] text-[#B0B3B8] font-bold">{interestedIds.length} interested</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-globe text-[#A033FF]"></i></div>
+                                        <div>
+                                            <p className="text-white text-sm font-bold capitalize">{event.visibility || 'Worldwide'}</p>
+                                            <p className="text-[10px] text-[#B0B3B8] font-bold">Visibility Scope</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const EventsPage: React.FC<EventsPageProps> = ({ 
+    events, 
+    currentUser, 
+    onJoinEvent, 
+    onInterestedEvent, 
+    onCreateEventClick,
+    onProfileClick,
+    onFollow,
+    checkIsFollowing 
+}) => {
+    const [selectedCategory, setSelectedCategory] = useState('All');
+    const [selectedEvent, setSelectedEvent] = useState<any | null>(null); // Changed to any
+    const [shuffledEvents, setShuffledEvents] = useState<any[]>([]); // Changed to any[]
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    
+    const categories = ['All', 'Discover', 'Hosting', 'Upcoming'];
+
+    // Normalize events
+    const safeEvents = useMemo(() => {
+        const list = Array.isArray(events) ? events : [];
+        return list.map(normalizeEvent);
+    }, [events]);
+
+    // Filter logic with normalized events
+    const filteredEvents = useMemo(() => {
+        let visible = safeEvents.filter(event => {
+            if (!event.visibility || event.visibility === 'worldwide') return true;
+            if (event.visibility === 'targeted') {
+                if (!currentUser) return false;
+                const userLoc = currentUser.location?.toLowerCase() || '';
+                const eventLoc = event.location?.toLowerCase() || '';
+                const userRegion = userLoc.split(',').pop()?.trim() || userLoc;
+                const eventRegion = eventLoc.split(',').pop()?.trim() || eventLoc;
+                return userLoc.includes(eventRegion) || eventLoc.includes(userRegion) || userRegion === eventRegion;
+            }
+            return true;
+        });
+
+        if (selectedCategory === 'Hosting' && currentUser) {
+            return visible.filter(e => e.organizerId === currentUser.id);
+        }
+        if (selectedCategory === 'Upcoming' && currentUser) {
+            return visible.filter(e =>
+                e.attendees.includes(currentUser.id) ||
+                e.interestedIds.includes(currentUser.id)
+            );
+        }
+        return visible;
+    }, [safeEvents, selectedCategory, currentUser]);
+
+    // Shuffle only on category change to create the "rotating" feel
+    useEffect(() => {
+        setShuffledEvents(shuffleArray(filteredEvents));
+    }, [filteredEvents]);
+
+    // Split events into chunks for alternating layout
+    const alternatingChunks = useMemo(() => {
+        const chunks = [];
+        let i = 0;
+        let isGrid = true;
+        
+        while (i < shuffledEvents.length) {
+            const count = isGrid ? 4 : 4;
+            chunks.push({
+                type: isGrid ? 'grid' : 'slider',
+                items: shuffledEvents.slice(i, i + count)
+            });
+            i += count;
+            isGrid = !isGrid;
+        }
+        return chunks;
+    }, [shuffledEvents]);
+
+    const handleJoinEvent = async (e: React.MouseEvent, eventId: number) => {
+        e.stopPropagation();
+        if (!currentUser) return;
+        
+        setLoading(true);
+        try {
+            await onJoinEvent(eventId);
+        } catch (err: any) {
+            setError(err.message || 'Failed to join event');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleInterestedEvent = async (e: React.MouseEvent, eventId: number) => {
+        e.stopPropagation();
+        if (!currentUser) return;
+        
+        setLoading(true);
+        try {
+            await onInterestedEvent(eventId);
+        } catch (err: any) {
+            setError(err.message || 'Failed to mark interest');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="w-full max-w-[1000px] mx-auto p-4 font-sans pb-24 animate-fade-in">
+            {/* Error Display */}
+            {error && (
+                <div className="mb-4 p-3 bg-red-500/20 border border-red-500/40 rounded-lg text-red-200 text-sm">
+                    <div className="flex items-center gap-2">
+                        <i className="fas fa-exclamation-triangle"></i>
+                        <span>{error}</span>
+                        <button 
+                            onClick={() => setError('')} 
+                            className="ml-auto text-xs hover:text-white"
+                        >
+                            <i className="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Loading Overlay */}
+            {loading && (
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
+                    <div className="bg-[#242526] p-6 rounded-xl border border-[#3E4042] flex items-center gap-3">
+                        <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-white font-medium">Processing...</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Minimal Header */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-[#242526] p-6 rounded-2xl border border-[#3E4042] shadow-xl">
+                <div>
+                    <h1 className="text-3xl font-black text-[#E4E6EB]">Events</h1>
+                    <p className="text-[#B0B3B8] text-sm font-bold uppercase tracking-widest mt-1">Happening in your community</p>
+                </div>
+                {currentUser && (
+                    <button 
+                        onClick={onCreateEventClick}
+                        disabled={loading}
+                        className="bg-[#1877F2] hover:bg-[#166FE5] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95"
+                    >
+                        <i className="fas fa-calendar-plus text-xl"></i>
+                        <span>Create Event</span>
+                    </button>
+                )}
             </div>
 
             {/* Filter Tabs */}
-            <div className="flex flex-wrap gap-2">
-              {[
-                { key: 'all', label: 'All Events', icon: 'fas fa-globe' },
-                { key: 'upcoming', label: 'Upcoming', icon: 'fas fa-calendar-alt' },
-                { key: 'past', label: 'Past Events', icon: 'fas fa-history' },
-                ...(currentUser ? [{ key: 'joined', label: 'My Events', icon: 'fas fa-user-check' }] : [])
-              ].map(({ key, label, icon }) => (
-                <button
-                  key={key}
-                  onClick={() => setFilter(key as any)}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
-                    filter === key
-                      ? 'bg-[#1877F2] text-white'
-                      : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                  }`}
-                >
-                  <i className={icon}></i>
-                  {label}
-                </button>
-              ))}
+            <div className="flex gap-2 mb-10 overflow-x-auto scrollbar-hide">
+                {categories.map(cat => (
+                    <button 
+                        key={cat}
+                        onClick={() => setSelectedCategory(cat)}
+                        disabled={loading}
+                        className={`px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest border transition-all ${
+                            selectedCategory === cat 
+                            ? 'bg-[#1877F2] border-[#1877F2] text-white shadow-lg' 
+                            : 'bg-[#242526] border-[#3E4042] text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                        } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                        {cat}
+                    </button>
+                ))}
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Events Grid */}
-      <div className="max-w-4xl mx-auto px-4 py-6">
-        {filteredEvents.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredEvents.map((event) => (
-              <EventCard
-                key={event.id}
-                event={event}
-                currentUser={currentUser}
-                onJoinEvent={onJoinEvent}
-                onInterestedEvent={onInterestedEvent}
-                onProfileClick={onProfileClick}
-                onFollow={onFollow}
-                checkIsFollowing={checkIsFollowing}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-20">
-            <div className="w-24 h-24 mx-auto mb-6 bg-[#3A3B3C] rounded-full flex items-center justify-center">
-              <i className="fas fa-calendar-times text-4xl text-[#B0B3B8]"></i>
-            </div>
-            <h3 className="text-xl font-medium text-[#E4E6EB] mb-2">
-              {search ? 'No events found' : 'No events available'}
-            </h3>
-            <p className="text-[#B0B3B8] mb-6 max-w-md mx-auto">
-              {search
-                ? 'Try searching with different keywords or clear your search'
-                : currentUser
-                ? 'Be the first to create an event!'
-                : 'Sign in to see and join events'}
-            </p>
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="px-4 py-2 bg-[#3A3B3C] text-[#E4E6EB] rounded-lg hover:bg-[#4E4F50] transition-colors"
-              >
-                Clear Search
-              </button>
+            {shuffledEvents.length > 0 ? (
+                <div className="space-y-16">
+                    {alternatingChunks.map((chunk, idx) => (
+                        <div key={idx} className="animate-fade-in">
+                            {chunk.type === 'slider' ? (
+                                <div className="relative">
+                                    <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide">
+                                        {chunk.items.map((event: any) => (
+                                            <CompactEventCard 
+                                                key={event.id}
+                                                event={event}
+                                                currentUser={currentUser}
+                                                isWide={true}
+                                                onClick={() => setSelectedEvent(event)}
+                                                onJoin={(e) => handleJoinEvent(e, event.id)}
+                                                onInterested={(e) => handleInterestedEvent(e, event.id)}
+                                            />
+                                        ))}
+                                    </div>
+                                    <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-[#242526] rounded-full flex items-center justify-center shadow-lg border border-[#3E4042] hidden md:flex opacity-50"><i className="fas fa-chevron-left text-[10px]"></i></div>
+                                    <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-[#242526] rounded-full flex items-center justify-center shadow-lg border border-[#3E4042] hidden md:flex opacity-50"><i className="fas fa-chevron-right text-[10px]"></i></div>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    {chunk.items.map((event: any) => (
+                                        <CompactEventCard 
+                                            key={event.id}
+                                            event={event}
+                                            currentUser={currentUser}
+                                            onClick={() => setSelectedEvent(event)}
+                                            onJoin={(e) => handleJoinEvent(e, event.id)}
+                                            onInterested={(e) => handleInterestedEvent(e, event.id)}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="p-20 text-center text-[#B0B3B8] bg-[#242526] rounded-3xl border border-[#3E4042] shadow-inner">
+                    <div className="w-24 h-24 bg-[#3A3B3C] rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i className="fas fa-calendar-xmark text-5xl opacity-20"></i>
+                    </div>
+                    <h3 className="text-xl font-black text-[#E4E6EB] mb-2">No events found</h3>
+                    <p className="max-w-xs mx-auto font-medium">
+                        {selectedCategory === 'Hosting' 
+                            ? 'You haven\'t created any events yet.' 
+                            : selectedCategory === 'Upcoming'
+                            ? 'You\'re not attending or interested in any upcoming events.'
+                            : 'Try changing your filters or check back later for new gatherings.'}
+                    </p>
+                    {selectedCategory !== 'All' && (
+                        <button 
+                            onClick={() => setSelectedCategory('All')}
+                            className="mt-4 px-6 py-2 bg-[#1877F2] hover:bg-[#166FE5] text-white rounded-lg font-medium transition-colors"
+                        >
+                            View All Events
+                        </button>
+                    )}
+                </div>
             )}
-            {!currentUser && (
-              <button
-                onClick={() => onProfileClick(0)}
-                className="px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
-              >
-                Sign In to View Events
-              </button>
-            )}
-          </div>
-        )}
-      </div>
 
-      {/* Empty State for No Events */}
-      {normalizedEvents.length === 0 && currentUser && (
-        <div className="max-w-4xl mx-auto px-4 py-10">
-          <div className="bg-[#242526] border border-[#3E4042] rounded-xl p-8 text-center">
-            <div className="w-20 h-20 mx-auto mb-6 bg-[#3A3B3C] rounded-full flex items-center justify-center">
-              <i className="fas fa-calendar-plus text-3xl text-[#1877F2]"></i>
-            </div>
-            <h3 className="text-xl font-medium text-[#E4E6EB] mb-2">No events yet</h3>
-            <p className="text-[#B0B3B8] mb-6">
-              Start planning your first event and invite your friends!
-            </p>
-            <button
-              onClick={onCreateEventClick}
-              className="bg-[#1877F2] text-white px-6 py-3 rounded-lg font-medium hover:bg-[#166FE5] transition-colors inline-flex items-center gap-2"
-            >
-              <i className="fas fa-plus"></i>
-              Create Your First Event
-            </button>
-          </div>
+            {/* Event Detail Modal */}
+            {selectedEvent && (
+                <EventDetailsModal 
+                    event={selectedEvent}
+                    currentUser={currentUser}
+                    onClose={() => setSelectedEvent(null)}
+                    onJoin={() => onJoinEvent(selectedEvent.id)}
+                    onInterested={() => onInterestedEvent(selectedEvent.id)}
+                    onProfileClick={onProfileClick}
+                />
+            )}
         </div>
-      )}
-  
-  </div>  
+    );
 };
 
+// Export both named and default (Pattern B)
+export { EventsPage };
 export default EventsPage;
