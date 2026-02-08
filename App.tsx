@@ -4437,6 +4437,7 @@ const createEvent = useCallback(async (eventData: any) => {
       EVENTS DEBUG: if you can see this, EventsPage is not covered
     </div>
 
+  <ErrorBoundary>
     <EventsPage
       events={events}
       currentUser={currentUser as any}
@@ -4450,7 +4451,7 @@ const createEvent = useCallback(async (eventData: any) => {
       onFollow={followUser}
       checkIsFollowing={checkIsFollowing}
     />
-  </div>
+  </ErrorBoundary>
 )}
 
 
