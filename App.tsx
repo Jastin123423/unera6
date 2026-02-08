@@ -10,8 +10,7 @@ import {
   CommentsSheet,
   CreatePostModal,
   SuggestedProductsWidget,
-  ShareBottomSheet,
-} from './components/Feed';
+  ShareBottomSheet,} from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
