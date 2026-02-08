@@ -1,3 +1,5 @@
+
+
 //App.tsx 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -13,17 +15,17 @@ import {
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
-
 import { ReelsFeed, CreateReelModal } from './components/Reels';
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
+  EventsPage,
   BirthdaysPage,
   MemoriesPage,
   SettingsPage,
   SuggestedProfilesPage,
 } from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
-import EventsPage from './components/EventsPage';
+import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
@@ -3369,7 +3371,7 @@ const createEvent = useCallback(async (eventData: any) => {
       } catch (e: any) {
         setLoginError(e?.message || 'Suspend failed');
       }
-    }
+    },
     [requireModOrAdmin, fetchUsersList]
   );
 
@@ -4422,24 +4424,23 @@ const createEvent = useCallback(async (eventData: any) => {
               followLoading={followLoading}
             />
           )}
-     
+
           {view === 'events' && (
-  <ErrorBoundary>
-    <EventsPage
-      events={events}
-      currentUser={currentUser as any}
-      onJoinEvent={joinEvent}
-      onInterestedEvent={markEventInterested}
-      onCreateEventClick={() => {
-        if (!requireAuth('Creating events')) return;
-        setShowCreateEventModal(true);
-      }}
-      onProfileClick={(id) => openProfile(id)}
-      onFollow={followUser}
-      checkIsFollowing={checkIsFollowing}
-    />
-  </ErrorBoundary>
-)}
+            <EventsPage
+              events={events}
+              currentUser={currentUser as any}
+              onJoinEvent={joinEvent}
+              onInterestedEvent={markEventInterested}
+              onCreateEventClick={() => {
+                if (!requireAuth('Creating events')) return;
+                setShowCreateEventModal(true);
+              }}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+            />
+          )}
+
           {view === 'birthdays' && (
             <BirthdaysPage
               currentUser={currentUser as any}
