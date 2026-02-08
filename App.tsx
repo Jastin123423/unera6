@@ -4422,25 +4422,24 @@ const createEvent = useCallback(async (eventData: any) => {
               followLoading={followLoading}
             />
           )}
-          <div className="text-white text-xs opacity-60 px-3 py-2">
-  view = {String(view)}
-</div>
+     
           {view === 'events' && (
-            <EventsPage
-              events={events}
-              currentUser={currentUser as any}
-              onJoinEvent={joinEvent}
-              onInterestedEvent={markEventInterested}
-              onCreateEventClick={() => {
-                if (!requireAuth('Creating events')) return;
-                setShowCreateEventModal(true);
-              }}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-            />
-          )}
-
+  <ErrorBoundary>
+    <EventsPage
+      events={events}
+      currentUser={currentUser as any}
+      onJoinEvent={joinEvent}
+      onInterestedEvent={markEventInterested}
+      onCreateEventClick={() => {
+        if (!requireAuth('Creating events')) return;
+        setShowCreateEventModal(true);
+      }}
+      onProfileClick={(id) => openProfile(id)}
+      onFollow={followUser}
+      checkIsFollowing={checkIsFollowing}
+    />
+  </ErrorBoundary>
+)}
           {view === 'birthdays' && (
             <BirthdaysPage
               currentUser={currentUser as any}
