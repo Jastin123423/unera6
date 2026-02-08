@@ -4425,8 +4425,12 @@ const createEvent = useCallback(async (eventData: any) => {
             />
           )}
 
-          {view === 'events' && (
-  <ErrorBoundary>
+         {view === 'events' && (
+  <div style={{ position: "relative", zIndex: 999999 }}>
+    <div className="p-4 bg-red-600 text-white font-bold">
+      EVENTS DEBUG: if you can see this, EventsPage is not covered
+    </div>
+
     <EventsPage
       events={events}
       currentUser={currentUser as any}
@@ -4440,7 +4444,7 @@ const createEvent = useCallback(async (eventData: any) => {
       onFollow={followUser}
       checkIsFollowing={checkIsFollowing}
     />
-  </ErrorBoundary>
+  </div>
 )}
 
           {view === 'birthdays' && (
