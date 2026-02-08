@@ -4422,6 +4422,9 @@ const createEvent = useCallback(async (eventData: any) => {
               followLoading={followLoading}
             />
           )}
+          <div className="text-white text-xs opacity-60 px-3 py-2">
+  view = {String(view)}
+</div>
 
           {view === 'events' && (
             <EventsPage
