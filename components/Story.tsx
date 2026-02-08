@@ -1,6 +1,7 @@
-// Story.tsx - PROFESSIONAL - UPDATED WITH WORKING TAP ZONES
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+
+// -------------------- ADDED: Import ranking utility --------------------
+import { rankStoriesForReel } from '../utils/ranking';
 
 // -------------------- TYPES --------------------
 export interface User {
@@ -323,7 +324,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const [replyText, setReplyText] = useState('');
   const [showHeartAnim, setShowHeartAnim] = useState(false);
   const [storyDurationMs, setStoryDurationMs] = useState<number>(5000);
-  const [touchStart, setTouchStart] = useState<number | null>(null);
+  
+  // ✅ REMOVED: touchStart state (UPDATE 1)
   
   // Media ready state to prevent skipping
   const [mediaReady, setMediaReady] = useState(false);
@@ -352,6 +354,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const isNavigatingRef = useRef(false);
   const navigationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ✅ ADDED: Navigation lock and pointer handlers (UPDATE 2)
+  const navLockRef = useRef(0);
+  const pointerDownRef = useRef<{ x: number; y: number; t: number } | null>(null);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -367,6 +373,67 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     image: '',
     id: Number(story.user_id) || 0,
   });
+
+  // ✅ ADDED: Navigation lock function (UPDATE 2)
+  const lockNav = () => {
+    const now = Date.now();
+    if (now - navLockRef.current < 450) return false; // block double-fire
+    navLockRef.current = now;
+    return true;
+  };
+
+  // ✅ ADDED: Interactive target check (UPDATE 2)
+  const isInteractiveTarget = (el: EventTarget | null) => {
+    const node = el as HTMLElement | null;
+    if (!node) return false;
+    return !!node.closest(
+      'button,a,input,textarea,select,[role="button"],[data-no-nav="true"]'
+    );
+  };
+
+  // ✅ ADDED: Pointer handlers (UPDATE 2)
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (isInteractiveTarget(e.target)) return;
+    pointerDownRef.current = { x: e.clientX, y: e.clientY, t: Date.now() };
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    const start = pointerDownRef.current;
+    pointerDownRef.current = null;
+
+    if (!start) return;
+    if (isInteractiveTarget(e.target)) return;
+
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    const dt = Date.now() - start.t;
+
+    // swipe
+    const SWIPE_X = 40;
+    const SWIPE_Y = 30;
+    if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < SWIPE_Y) {
+      if (!lockNav()) return;
+      if (dx < 0) safeNavigate('next');
+      else safeNavigate('prev');
+      return;
+    }
+
+    // tap
+    const TAP_MOVE = 12;
+    const TAP_TIME = 350;
+    if (Math.abs(dx) <= TAP_MOVE && Math.abs(dy) <= TAP_MOVE && dt <= TAP_TIME) {
+      if (!lockNav()) return;
+
+      const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const x = e.clientX - box.left;
+      const ratio = x / box.width;
+
+      // left -> prev, right -> next, middle -> pause/play
+      if (ratio < 0.35) safeNavigate('prev');
+      else if (ratio > 0.65) safeNavigate('next');
+      else setIsPaused(p => !p);
+    }
+  };
 
   // Cache views count to prevent blinking
   useEffect(() => {
@@ -392,9 +459,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, []);
 
-  // Safe navigation function
+  // ✅ UPDATED: Safe navigation function with lock (UPDATE 5)
   const safeNavigate = (direction: 'next' | 'prev') => {
     if (isNavigatingRef.current) return;
+    if (!lockNav()) return; // ✅ Added navigation lock
     
     isNavigatingRef.current = true;
     
@@ -458,25 +526,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onNext, onPrev, onClose, onToggleMute, isAuthor, onDeleteStory]);
 
-  // Touch gestures for mobile
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStart(e.touches[0].clientX);
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStart) return;
-    
-    const touchEnd = e.changedTouches[0].clientX;
-    const diff = touchStart - touchEnd;
-    const threshold = 50;
-    
-    if (Math.abs(diff) > threshold) {
-      if (diff > 0) safeNavigate('next');
-      else safeNavigate('prev');
-    }
-    
-    setTouchStart(null);
-  };
+  // ✅ REMOVED: handleTouchStart and handleTouchEnd functions (UPDATE 1)
 
   // Update userReaction when story changes
   useEffect(() => {
@@ -546,17 +596,33 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, [story.id, user]);
 
+  // ✅ ADDED: Helper function for stable list comparison (UPDATE 4)
+  const sameIdList = (a: StoryType[], b: StoryType[]) => {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (Number(a[i]?.id) !== Number(b[i]?.id)) return false;
+    }
+    return true;
+  };
+
+  // ✅ UPDATED: Stable list effect without allStories dependency (UPDATE 4)
   useEffect(() => {
-    const list = allStories
+    const nextList = (allStories || [])
       .filter((s) => Number(s.user_id) === Number(story.user_id))
       .slice()
       .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 
-    frozenUserStoriesRef.current = list;
+    const prevList = frozenUserStoriesRef.current;
+
+    if (!sameIdList(prevList, nextList)) {
+      frozenUserStoriesRef.current = nextList.length ? nextList : [story];
+    }
+
+    // reset only because story changed, not because stories updated
     didAdvanceRef.current = false;
     setProgress(0);
     setMediaReady(story.type === 'text');
-  }, [story.id, story.user_id, allStories, story.type]);
+  }, [story.id, story.user_id]); // ✅ no allStories dependency
 
   const userStories = frozenUserStoriesRef.current;
   const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
@@ -635,10 +701,12 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     if (isPaused) {
       v.pause();
     } else {
-      v.muted = muted;
+      // ✅ UPDATED: Always mute video when music exists (UPDATE 6)
+      const forceMuteVideo = !!(story.music_url && !isBlob(story.music_url));
+      v.muted = forceMuteVideo ? true : muted;
       v.play().catch(() => {});
     }
-  }, [isPaused, storyIsVideo, muted]);
+  }, [isPaused, storyIsVideo, muted, story.music_url]);
 
   const handleSendReply = () => {
     if (replyText.trim() && onReply && !isAuthor) {
@@ -751,10 +819,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         </div>
       )}
 
-      <div 
+      {/* ✅ UPDATED: Container with pointer handlers (UPDATE 3) */}
+      <div
         className="relative w-full max-w-[420px] h-full sm:h-[92vh] bg-black sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
       >
         {/* Progress bars */}
         <div className="absolute top-0 left-0 right-0 p-3 z-30 flex gap-1.5">
@@ -894,44 +963,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         )}
 
-        {/* HIGH PRIORITY TAP ZONES - NO VISIBLE BUTTONS */}
-        <div className="absolute inset-0 z-20" style={{ pointerEvents: 'none' }}>
-          {/* Left zone - Previous (33% of screen) */}
-          <div
-            className="absolute top-0 left-0 h-full w-1/3"
-            style={{ pointerEvents: 'auto' }}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              safeNavigate('prev');
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              safeNavigate('prev');
-            }}
-            aria-label="Previous story"
-            title="Previous story (or press ←)"
-          />
-          
-          {/* Right zone - Next (33% of screen) */}
-          <div
-            className="absolute top-0 right-0 h-full w-1/3"
-            style={{ pointerEvents: 'auto' }}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              safeNavigate('next');
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              safeNavigate('next');
-            }}
-            aria-label="Next story"
-            title="Next story (or press →)"
-          />
-        </div>
+        {/* ✅ REMOVED: High priority tap zones (UPDATE 1) */}
 
         {/* Content */}
         <div
@@ -955,7 +987,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 className="w-full h-full object-cover z-10"
                 playsInline
                 autoPlay
-                muted={muted}
+                // ✅ UPDATED: Always mute video when music exists (UPDATE 6)
+                muted={!!(story.music_url && !isBlob(story.music_url)) ? true : muted}
                 controls={false}
                 onCanPlay={() => setMediaReady(true)}
                 onLoadedMetadata={(e) => {
@@ -963,6 +996,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   const ms = Number.isFinite(v.duration) ? v.duration * 1000 : 7000;
                   setStoryDurationMs(clamp(ms, 5000, 15000));
                   setMediaReady(true);
+                  // ✅ UPDATED: Force mute when music exists
+                  const forceMuteVideo = !!(story.music_url && !isBlob(story.music_url));
+                  v.muted = forceMuteVideo ? true : muted;
                   v.play().catch(() => {});
                 }}
                 onEnded={() => {
@@ -1331,15 +1367,11 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     [stories]
   );
 
-  // Keep newest story per user
-  const uniqueUserStories: StoryType[] = useMemo(() => {
-    const m = new Map<number, StoryType>();
-    for (const s of sortedStories) {
-      const uid = Number(s.user_id);
-      if (!m.has(uid)) m.set(uid, s);
-    }
-    return Array.from(m.values());
-  }, [sortedStories]);
+  // ✅ UPDATED: Use rankStoriesForReel for proper ranking (UPDATE: StoryReel ranking)
+  const uniqueUserStories: StoryType[] = useMemo(
+    () => rankStoriesForReel(stories, currentUser),
+    [stories, currentUser?.id, (currentUser as any)?.following]
+  );
 
   const userStoryCounts = useMemo(() => {
     const m = new Map<number, number>();
