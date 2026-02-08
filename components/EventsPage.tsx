@@ -1,29 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { User, Event as EventType } from '../types';
 
-{view === 'events' && (
-  <div style={{ position: "relative", zIndex: 999999 }}>
-    <div className="p-4 bg-red-600 text-white font-bold">
-      EVENTS DEBUG: if you can see this, EventsPage is not covered
-    </div>
-
-    <EventsPage
-      events={events}
-      currentUser={currentUser as any}
-      onJoinEvent={joinEvent}
-      onInterestedEvent={markEventInterested}
-      onCreateEventClick={() => {
-        if (!requireAuth('Creating events')) return;
-        setShowCreateEventModal(true);
-      }}
-      onProfileClick={(id) => openProfile(id)}
-      onFollow={followUser}
-      checkIsFollowing={checkIsFollowing}
-    />
-  </div>
-)}
-
-
 // -------------------- SAFE HELPERS --------------------
 const safeString = (v: any) => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
