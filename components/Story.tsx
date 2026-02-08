@@ -325,8 +325,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const [showHeartAnim, setShowHeartAnim] = useState(false);
   const [storyDurationMs, setStoryDurationMs] = useState<number>(5000);
   
-  // ✅ REMOVED: touchStart state (UPDATE 1)
-  
   // Media ready state to prevent skipping
   const [mediaReady, setMediaReady] = useState(false);
   
@@ -354,9 +352,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const isNavigatingRef = useRef(false);
   const navigationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ✅ ADDED: Navigation lock and pointer handlers (UPDATE 2)
+  // ✅ ADDED: Navigation lock and pointer handlers
   const navLockRef = useRef(0);
   const pointerDownRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  
+  // ✅ ADDED: Hold finger to pause refs
+  const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pausedByHoldRef = useRef(false);
+  const pauseWasAlreadyOnRef = useRef(false);
+  
+  // ✅ ADDED: Viewers resume state ref
+  const viewersResumeRef = useRef<'resume' | 'keepPaused'>('resume');
 
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -374,7 +380,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
-  // ✅ ADDED: Navigation lock function (UPDATE 2)
+  // ✅ ADDED: Navigation lock function
   const lockNav = () => {
     const now = Date.now();
     if (now - navLockRef.current < 450) return false; // block double-fire
@@ -382,7 +388,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     return true;
   };
 
-  // ✅ ADDED: Interactive target check (UPDATE 2)
+  // ✅ ADDED: Interactive target check
   const isInteractiveTarget = (el: EventTarget | null) => {
     const node = el as HTMLElement | null;
     if (!node) return false;
@@ -391,15 +397,57 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     );
   };
 
-  // ✅ ADDED: Pointer handlers (UPDATE 2)
+  // ✅ UPDATED: Pointer down handler with long-press timer
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isInteractiveTarget(e.target)) return;
+
     pointerDownRef.current = { x: e.clientX, y: e.clientY, t: Date.now() };
+
+    // Long-press pause (FB behavior)
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+
+    pauseWasAlreadyOnRef.current = isPaused;
+
+    holdTimerRef.current = setTimeout(() => {
+      pausedByHoldRef.current = true;
+      setIsPaused(true);
+    }, 220); // 180–260 feels FB-like
   };
 
+  // ✅ ADDED: Pointer move handler to cancel long-press on drag
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const start = pointerDownRef.current;
+    if (!start) return;
+
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+
+    // if user starts dragging, cancel the long-press timer
+    const DRAG_CANCEL = 12;
+    if (Math.abs(dx) > DRAG_CANCEL || Math.abs(dy) > DRAG_CANCEL) {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+    }
+  };
+
+  // ✅ UPDATED: Pointer up handler without double lock
   const handlePointerUp = (e: React.PointerEvent) => {
     const start = pointerDownRef.current;
     pointerDownRef.current = null;
+
+    // stop hold timer
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+
+    // If we paused via long-press, resume on release (unless user was already paused)
+    if (pausedByHoldRef.current) {
+      pausedByHoldRef.current = false;
+      if (!pauseWasAlreadyOnRef.current) setIsPaused(false);
+    }
 
     if (!start) return;
     if (isInteractiveTarget(e.target)) return;
@@ -412,7 +460,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const SWIPE_X = 40;
     const SWIPE_Y = 30;
     if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < SWIPE_Y) {
-      if (!lockNav()) return;
       if (dx < 0) safeNavigate('next');
       else safeNavigate('prev');
       return;
@@ -422,8 +469,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const TAP_MOVE = 12;
     const TAP_TIME = 350;
     if (Math.abs(dx) <= TAP_MOVE && Math.abs(dy) <= TAP_MOVE && dt <= TAP_TIME) {
-      if (!lockNav()) return;
-
       const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
       const x = e.clientX - box.left;
       const ratio = x / box.width;
@@ -432,6 +477,54 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       if (ratio < 0.35) safeNavigate('prev');
       else if (ratio > 0.65) safeNavigate('next');
       else setIsPaused(p => !p);
+    }
+  };
+
+  // ✅ ADDED: Pointer cancel handler
+  const handlePointerCancel = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (pausedByHoldRef.current) {
+      pausedByHoldRef.current = false;
+      if (!pauseWasAlreadyOnRef.current) setIsPaused(false);
+    }
+    pointerDownRef.current = null;
+  };
+
+  // ✅ UPDATED: Close viewers with resume logic
+  const closeViewers = () => {
+    setShowViewers(false);
+    // resume only if user wasn't already paused before opening viewers
+    if (viewersResumeRef.current === 'resume') setIsPaused(false);
+  };
+
+  // ✅ UPDATED: Open viewers with pause logic
+  const openViewers = async () => {
+    if (!onFetchViewers) return;
+
+    // pause while viewers is open/loading
+    const wasPaused = isPaused;
+    setIsPaused(true);
+
+    setShowViewers(true);
+    setLoadingViewers(true);
+    setViewersError('');
+
+    try {
+      const data = await onFetchViewers(story.id);
+      const list = Array.isArray(data) ? data : [];
+      setViewers(dedupeViewers(list));
+    } catch (e: any) {
+      setViewersError(e?.message || 'Failed to load viewers');
+      setViewers([]);
+    } finally {
+      setLoadingViewers(false);
+
+      // IMPORTANT: don't resume yet — keep paused while modal is visible
+      // we resume when user closes the viewers modal
+      viewersResumeRef.current = wasPaused ? 'keepPaused' : 'resume';
     }
   };
 
@@ -456,10 +549,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       if (navigationTimeoutRef.current) {
         clearTimeout(navigationTimeoutRef.current);
       }
+      // Cleanup hold timer
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+      }
     };
   }, []);
 
-  // ✅ UPDATED: Safe navigation function with lock (UPDATE 5)
+  // ✅ UPDATED: Safe navigation function with lock
   const safeNavigate = (direction: 'next' | 'prev') => {
     if (isNavigatingRef.current) return;
     if (!lockNav()) return; // ✅ Added navigation lock
@@ -525,8 +622,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onNext, onPrev, onClose, onToggleMute, isAuthor, onDeleteStory]);
-
-  // ✅ REMOVED: handleTouchStart and handleTouchEnd functions (UPDATE 1)
 
   // Update userReaction when story changes
   useEffect(() => {
@@ -596,7 +691,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, [story.id, user]);
 
-  // ✅ ADDED: Helper function for stable list comparison (UPDATE 4)
+  // ✅ ADDED: Helper function for stable list comparison
   const sameIdList = (a: StoryType[], b: StoryType[]) => {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
@@ -605,7 +700,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     return true;
   };
 
-  // ✅ UPDATED: Stable list effect without allStories dependency (UPDATE 4)
+  // ✅ UPDATED: Stable list effect without allStories dependency
   useEffect(() => {
     const nextList = (allStories || [])
       .filter((s) => Number(s.user_id) === Number(story.user_id))
@@ -701,7 +796,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     if (isPaused) {
       v.pause();
     } else {
-      // ✅ UPDATED: Always mute video when music exists (UPDATE 6)
+      // ✅ UPDATED: Always mute video when music exists
       const forceMuteVideo = !!(story.music_url && !isBlob(story.music_url));
       v.muted = forceMuteVideo ? true : muted;
       v.play().catch(() => {});
@@ -734,28 +829,31 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   };
 
-  const handleReaction = (reaction: string) => {
-    if (onReaction && !isAuthor) {
-      onReaction(story.id, reaction);
-      setUserReaction(reaction);
-      setShowReactions(false);
-    }
-  };
+  // ✅ UPDATED: Reaction handler with pause/resume
+  const handleReaction = async (reaction: string) => {
+    if (!onReaction || isAuthor) return;
 
-  const openViewers = async () => {
-    if (!onFetchViewers) return;
-    setShowViewers(true);
-    setLoadingViewers(true);
-    setViewersError('');
+    // pause right away
+    const wasPaused = isPaused;
+    setIsPaused(true);
+
+    // optimistically update UI
+    setUserReaction(reaction);
+    setShowReactions(false);
+
     try {
-      const data = await onFetchViewers(story.id);
-      const list = Array.isArray(data) ? data : [];
-      setViewers(dedupeViewers(list));
-    } catch (e: any) {
-      setViewersError(e?.message || 'Failed to load viewers');
-      setViewers([]);
+      const maybePromise = onReaction(story.id, reaction);
+
+      // if parent returns a promise, wait for it
+      if (maybePromise && typeof (maybePromise as any).then === 'function') {
+        await (maybePromise as any);
+      } else {
+        // otherwise, give a tiny delay so it feels stable (no blink)
+        await new Promise(r => setTimeout(r, 250));
+      }
     } finally {
-      setLoadingViewers(false);
+      // resume only if user wasn't already paused manually
+      if (!wasPaused) setIsPaused(false);
     }
   };
 
@@ -819,12 +917,39 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         </div>
       )}
 
-      {/* ✅ UPDATED: Container with pointer handlers (UPDATE 3) */}
+      {/* ✅ UPDATED: Container with all pointer handlers */}
       <div
         className="relative w-full max-w-[420px] h-full sm:h-[92vh] bg-black sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl"
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
       >
+        {/* ✅ ADDED: Facebook-like transparent nav buttons */}
+        <button
+          type="button"
+          aria-label="Previous story"
+          className="absolute left-2 top-1/2 -translate-y-1/2 z-[120] w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 backdrop-blur-md flex items-center justify-center"
+          onClick={(e) => {
+            e.stopPropagation();
+            safeNavigate('prev');
+          }}
+        >
+          <i className="fas fa-chevron-left text-white/90"></i>
+        </button>
+
+        <button
+          type="button"
+          aria-label="Next story"
+          className="absolute right-2 top-1/2 -translate-y-1/2 z-[120] w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 backdrop-blur-md flex items-center justify-center"
+          onClick={(e) => {
+            e.stopPropagation();
+            safeNavigate('next');
+          }}
+        >
+          <i className="fas fa-chevron-right text-white/90"></i>
+        </button>
+
         {/* Progress bars */}
         <div className="absolute top-0 left-0 right-0 p-3 z-30 flex gap-1.5">
           {userStories.map((_, i) => (
@@ -963,8 +1088,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         )}
 
-        {/* ✅ REMOVED: High priority tap zones (UPDATE 1) */}
-
         {/* Content */}
         <div
           className="flex-1 flex items-center justify-center bg-[#111] relative"
@@ -987,7 +1110,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 className="w-full h-full object-cover z-10"
                 playsInline
                 autoPlay
-                // ✅ UPDATED: Always mute video when music exists (UPDATE 6)
+                // ✅ UPDATED: Always mute video when music exists
                 muted={!!(story.music_url && !isBlob(story.music_url)) ? true : muted}
                 controls={false}
                 onCanPlay={() => setMediaReady(true)}
@@ -1172,7 +1295,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         {/* PROFESSIONAL FULL-SCREEN VIEWERS MODAL (for authors) */}
         {showViewers && (
           <div className="absolute inset-0 z-[500] bg-black/70 backdrop-blur-sm">
-            <div className="absolute inset-0" onClick={() => setShowViewers(false)} />
+            <div className="absolute inset-0" onClick={closeViewers} />
 
             <div className="relative w-full h-full flex items-center justify-center p-4 sm:p-8">
               <div className="w-full max-w-[560px] bg-[#18191A] rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
@@ -1184,7 +1307,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   </div>
 
                   <button
-                    onClick={() => setShowViewers(false)}
+                    onClick={closeViewers}
                     className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center"
                     aria-label="Close viewers modal"
                   >
@@ -1245,7 +1368,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
                 <div className="p-4 border-t border-white/10 flex justify-end">
                   <button
-                    onClick={() => setShowViewers(false)}
+                    onClick={closeViewers}
                     className="px-6 py-2 rounded-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-black"
                   >
                     Done
@@ -1367,7 +1490,7 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     [stories]
   );
 
-  // ✅ UPDATED: Use rankStoriesForReel for proper ranking (UPDATE: StoryReel ranking)
+  // ✅ UPDATED: Use rankStoriesForReel for proper ranking
   const uniqueUserStories: StoryType[] = useMemo(
     () => rankStoriesForReel(stories, currentUser),
     [stories, currentUser?.id, (currentUser as any)?.following]
