@@ -356,6 +356,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const navLockRef = useRef(0);
   const pointerDownRef = useRef<{ x: number; y: number; t: number } | null>(null);
   
+  // ✅ ADDED: Navigation timestamp ref for single-shot navigation
+  const lastNavAtRef = useRef(0);
+  
   // ✅ ADDED: Hold finger to pause refs
   const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pausedByHoldRef = useRef(false);
@@ -566,8 +569,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, []);
 
-  // ✅ UPDATED: Safe navigation function with progress interval cleanup
+  // ✅ UPDATED: Safe navigation function with progress interval cleanup and single-shot protection
   const safeNavigate = (direction: 'next' | 'prev') => {
+    const now = Date.now();
+
+    // ✅ Hard block: never allow 2 navigations within 650ms
+    if (now - lastNavAtRef.current < 650) return;
+    lastNavAtRef.current = now;
+
     if (isNavigatingRef.current) return;
     if (!lockNav()) return; // ✅ Added navigation lock
     
@@ -739,12 +748,13 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     return true;
   };
 
-  // ✅ UPDATED: Stable list effect without allStories dependency
+  // ✅ UPDATED: Stable list effect with NEWEST FIRST order and proper cleanup
   useEffect(() => {
     const nextList = (allStories || [])
       .filter((s) => Number(s.user_id) === Number(story.user_id))
       .slice()
-      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+      // ✅ NEWEST FIRST (New -> Old -> Older -> Oldest)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 
     const prevList = frozenUserStoriesRef.current;
 
@@ -755,8 +765,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     // reset only because story changed, not because stories updated
     didAdvanceRef.current = false;
     setProgress(0);
+    
+    // ✅ Clear progress interval on story change
+    if (progressIntervalRef.current) {
+      window.clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+
     setMediaReady(story.type === 'text');
-  }, [story.id, story.user_id]); // ✅ no allStories dependency
+  }, [story.id, story.user_id, allStories]); // ✅ Added allStories dependency
 
   const userStories = frozenUserStoriesRef.current;
   const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
@@ -983,7 +1000,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
-        {/* ✅ ADDED: Facebook-like transparent nav buttons */}
+        {/* ✅ ADDED: Facebook-like transparent nav buttons with pointer event blocking */}
         <button
           type="button"
           aria-label="Previous story"
@@ -992,6 +1009,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             e.stopPropagation();
             safeNavigate('prev');
           }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
         >
           <i className="fas fa-chevron-left text-white/90"></i>
         </button>
@@ -1004,6 +1023,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             e.stopPropagation();
             safeNavigate('next');
           }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
         >
           <i className="fas fa-chevron-right text-white/90"></i>
         </button>
@@ -1543,11 +1564,13 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     [stories]
   );
 
-  // ✅ UPDATED: Use rankStoriesForReel for proper ranking
-  const uniqueUserStories: StoryType[] = useMemo(
-    () => rankStoriesForReel(stories, currentUser),
-    [stories, currentUser?.id, (currentUser as any)?.following]
-  );
+  // ✅ UPDATED: Use rankStoriesForReel with NEWEST FIRST order
+  const uniqueUserStories: StoryType[] = useMemo(() => {
+    const ranked = rankStoriesForReel(stories, currentUser) || [];
+
+    // ✅ ensure NEWEST is left-most
+    return ranked.slice().sort((a, b) => toTime(b.created_at) - toTime(a.created_at));
+  }, [stories, currentUser?.id, (currentUser as any)?.following]);
 
   const userStoryCounts = useMemo(() => {
     const m = new Map<number, number>();
