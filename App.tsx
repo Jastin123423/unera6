@@ -4426,20 +4426,22 @@ const createEvent = useCallback(async (eventData: any) => {
           )}
 
           {view === 'events' && (
-            <EventsPage
-              events={events}
-              currentUser={currentUser as any}
-              onJoinEvent={joinEvent}
-              onInterestedEvent={markEventInterested}
-              onCreateEventClick={() => {
-                if (!requireAuth('Creating events')) return;
-                setShowCreateEventModal(true);
-              }}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-            />
-          )}
+  <ErrorBoundary>
+    <EventsPage
+      events={events}
+      currentUser={currentUser as any}
+      onJoinEvent={joinEvent}
+      onInterestedEvent={markEventInterested}
+      onCreateEventClick={() => {
+        if (!requireAuth('Creating events')) return;
+        setShowCreateEventModal(true);
+      }}
+      onProfileClick={(id) => openProfile(id)}
+      onFollow={followUser}
+      checkIsFollowing={checkIsFollowing}
+    />
+  </ErrorBoundary>
+)}
 
           {view === 'birthdays' && (
             <BirthdaysPage
