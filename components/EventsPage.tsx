@@ -1,10 +1,3 @@
-return (
-  <div className="p-4 bg-red-600 text-white font-bold">
-    EVENTS PAGE RENDERED
-  </div>
-);
-
-
 
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
