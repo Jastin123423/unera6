@@ -1096,8 +1096,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           ))}
         </div>
 
-        {/* Header */}
-        <div className="absolute top-4 left-0 right-0 p-4 z-30 flex items-center justify-between mt-2">
+        {/* ✅ FIXED: Header with data-no-nav to prevent navigation interference */}
+        <div 
+          className="absolute top-4 left-0 right-0 p-4 z-30 flex items-center justify-between mt-2" 
+          data-no-nav="true"
+        >
           <div className="flex items-center gap-3">
             <button
               onClick={(e) => {
@@ -1214,117 +1217,111 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           )}
         </div>
 
-        {story.music_title && (
-          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/20 flex items-center gap-2 animate-bounce">
-            <i className="fas fa-music text-xs text-white"></i>
-            <span className="text-white text-xs font-bold whitespace-nowrap">{story.music_title}</span>
-          </div>
-        )}
+        {/* ✅ REMOVED: Music title display block (Facebook-style) */}
 
-        {/* Content */}
-        <div
-          className="flex-1 flex items-center justify-center bg-[#111] relative"
-          onDoubleClick={isAuthor ? undefined : handleLike}
-        >
-          {storyIsText ? (
-            <div
-              className="w-full h-full flex items-center justify-center p-10 text-center"
-              style={{ background: (story as any).background_style }}
-            >
-              <span className="text-white font-bold text-4xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] whitespace-pre-wrap">
-                {(story as any).text_content}
-              </span>
-            </div>
-          ) : story.media_url && !isBlob(story.media_url) ? (
-            storyIsVideo ? (
-              <video
-                ref={videoRef}
-                src={story.media_url}
-                className="w-full h-full object-cover z-10"
-                playsInline
-                autoPlay
-                preload="auto"
-                // ✅ UPDATED: Always mute video when music exists
-                muted={!!(story.music_url && !isBlob(story.music_url)) ? true : muted}
-                controls={false}
-                onCanPlay={() => setMediaReady(true)}
-                onLoadedMetadata={(e) => {
-                  const v = e.currentTarget;
-                  const ms = Number.isFinite(v.duration) ? v.duration * 1000 : 7000;
-                  setStoryDurationMs(clamp(ms, 5000, 15000));
-                  setMediaReady(true);
-                  // ✅ UPDATED: Force mute when music exists
-                  const forceMuteVideo = !!(story.music_url && !isBlob(story.music_url));
-                  v.muted = forceMuteVideo ? true : muted;
-                  v.play().catch(() => {});
-                }}
-                onEnded={() => {
-                  safeNavigate('next');
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsPaused((p) => !p);
-                }}
-                onError={(e) => {
-                  console.error('Video playback failed:', e);
-                  setMediaReady(true);
-                }}
-              />
-            ) : (
-              // UPDATED: Facebook-style image display
-              <div className="absolute inset-0 z-10">
-                {/* Soft blurred background */}
-                <div
-                  className="absolute inset-0 blur-3xl scale-110 opacity-40"
-                  style={{
-                    backgroundImage: `url(${story.media_url})`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
+        {/* ✅ FIXED: Content area with proper tap zones */}
+        <div className="flex-1 bg-[#111] relative">
+          {/* Tap-capture layer (only this should catch navigation taps) */}
+          <div
+            className="absolute inset-0 z-[5]"
+            onDoubleClick={isAuthor ? undefined : handleLike}
+          />
+
+          {/* Actual media sits above capture layer */}
+          <div className="absolute inset-0 z-[10] flex items-center justify-center">
+            {storyIsText ? (
+              <div
+                className="w-full h-full flex items-center justify-center p-10 text-center"
+                style={{ background: (story as any).background_style }}
+              >
+                <span className="text-white font-bold text-4xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] whitespace-pre-wrap">
+                  {(story as any).text_content}
+                </span>
+              </div>
+            ) : story.media_url && !isBlob(story.media_url) ? (
+              storyIsVideo ? (
+                <video
+                  ref={videoRef}
+                  src={story.media_url}
+                  className="w-full h-full object-cover z-10"
+                  playsInline
+                  autoPlay
+                  preload="auto"
+                  // ✅ UPDATED: Always mute video when music exists
+                  muted={!!(story.music_url && !isBlob(story.music_url)) ? true : muted}
+                  controls={false}
+                  onCanPlay={() => setMediaReady(true)}
+                  onLoadedMetadata={(e) => {
+                    const v = e.currentTarget;
+                    const ms = Number.isFinite(v.duration) ? v.duration * 1000 : 7000;
+                    setStoryDurationMs(clamp(ms, 5000, 15000));
+                    setMediaReady(true);
+                    // ✅ UPDATED: Force mute when music exists
+                    const forceMuteVideo = !!(story.music_url && !isBlob(story.music_url));
+                    v.muted = forceMuteVideo ? true : muted;
+                    v.play().catch(() => {});
+                  }}
+                  onEnded={() => {
+                    safeNavigate('next');
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsPaused((p) => !p);
+                  }}
+                  onError={(e) => {
+                    console.error('Video playback failed:', e);
+                    setMediaReady(true);
                   }}
                 />
+              ) : (
+                // UPDATED: Facebook-style image display
+                <div className="absolute inset-0 z-10">
+                  {/* Soft blurred background */}
+                  <div
+                    className="absolute inset-0 blur-3xl scale-110 opacity-40"
+                    style={{
+                      backgroundImage: `url(${story.media_url})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }}
+                  />
 
-                {/* Main image - no zoom/crop */}
-                <img
-                  src={story.media_url}
-                  alt="Story"
-                  className="relative w-full h-full object-contain"
-                  loading="eager"
-                  decoding="async"
-                  onLoad={() => setMediaReady(true)}
-                  onError={() => setMediaReady(true)}
-                />
+                  {/* Main image - no zoom/crop */}
+                  <img
+                    src={story.media_url}
+                    alt="Story"
+                    className="relative w-full h-full object-contain"
+                    loading="eager"
+                    decoding="async"
+                    onLoad={() => setMediaReady(true)}
+                    onError={() => setMediaReady(true)}
+                  />
+                </div>
+              )
+            ) : (
+              <div 
+                className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsPaused(p => !p);
+                }}
+              >
+                <span className="text-white font-bold text-2xl">Story Content</span>
               </div>
-            )
-          ) : (
-            <div 
-              className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 z-10"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsPaused(p => !p);
-              }}
-            >
-              <span className="text-white font-bold text-2xl">Story Content</span>
-            </div>
-          )}
+            )}
+          </div>
 
           {showHeartAnim && (
-            <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center z-[40] pointer-events-none">
               <i className="fas fa-heart text-white text-9xl drop-shadow-lg animate-pop-heart"></i>
             </div>
           )}
 
-          {/* ✅ ADDED: Loading indicator when media not ready */}
-          {!mediaReady && story.type !== 'text' && (
-            <div className="absolute inset-0 flex items-center justify-center z-30">
-              <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center">
-                <i className="fas fa-spinner fa-spin text-white text-2xl"></i>
-              </div>
-            </div>
-          )}
+          {/* ✅ REMOVED: Middle spinner preloader */}
 
           {/* Play/pause indicator for videos */}
           {storyIsVideo && isPaused && (
-            <div className="absolute inset-0 flex items-center justify-center z-30">
+            <div className="absolute inset-0 flex items-center justify-center z-[30] pointer-events-none">
               <div className="w-20 h-20 bg-black/50 rounded-full flex items-center justify-center">
                 <i className="fas fa-pause text-white text-3xl"></i>
               </div>
@@ -1333,13 +1330,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
           {/* Reaction selector */}
           {showReactions && !isAuthor && (
-            <div className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-lg rounded-full p-2 flex gap-2 z-50 border border-white/10">
+            <div
+              className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-lg rounded-full p-2 flex gap-2 z-[200] border border-white/10 pointer-events-auto"
+              data-no-nav="true"
+            >
               {['like', 'love', 'wow', 'haha', 'sad', 'angry'].map((reaction) => (
                 <button
                   key={reaction}
                   onClick={() => handleReaction(reaction)}
                   className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-2xl transition-transform hover:scale-125 active:scale-110"
                   aria-label={`React with ${reaction}`}
+                  data-no-nav="true"
                 >
                   {getReactionEmoji(reaction)}
                 </button>
@@ -1350,8 +1351,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
         {/* Bottom actions - DIFFERENT FOR AUTHOR VS VIEWER */}
         {!isAuthor ? (
-          // VIEWER VIEW: Show reply and like buttons
-          <div className="absolute bottom-0 left-0 right-0 p-4 z-20 flex items-center gap-3 bg-gradient-to-t from-black/80 to-transparent pt-12">
+          // ✅ FIXED: VIEWER VIEW with data-no-nav to prevent navigation interference
+          <div 
+            className="absolute bottom-0 left-0 right-0 p-4 z-20 flex items-center gap-3 bg-gradient-to-t from-black/80 to-transparent pt-12"
+            data-no-nav="true"
+          >
             <div className="flex-1 flex items-center gap-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-5 py-3.5 focus-within:bg-white/20 transition-all shadow-xl">
               <input
                 ref={inputRef}
@@ -1400,8 +1404,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           </div>
         ) : (
-          // AUTHOR VIEW: Show analytics summary
-          <div className="absolute bottom-0 left-0 right-0 p-4 z-20 flex items-center justify-between bg-gradient-to-t from-black/80 to-transparent pt-12">
+          // ✅ FIXED: AUTHOR VIEW with data-no-nav to prevent navigation interference
+          <div 
+            className="absolute bottom-0 left-0 right-0 p-4 z-20 flex items-center justify-between bg-gradient-to-t from-black/80 to-transparent pt-12"
+            data-no-nav="true"
+          >
             <div className="flex-1">
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
