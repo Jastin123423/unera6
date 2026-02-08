@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -8,7 +7,8 @@ import {
   CommentsSheet,
   CreatePostModal,
   SuggestedProductsWidget,
-  ShareBottomSheet,} from './components/Feed';
+  ShareBottomSheet,
+} from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
@@ -43,6 +43,7 @@ import {
   Brand,
   Song,
 } from './types';
+import { EventsPage } from './components/EventsPage';
 
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
@@ -473,31 +474,48 @@ const normalizePost = (p: any): PostType => {
   } as any;
 };
 
-/** ✅ UPDATED: Normalize event data with safe arrays ---------- */
+/** ✅ ✅ UPDATED: Normalize event data - FIXED DATE/TIME MISMATCH ---------- */
+const DEFAULT_EVENT_COVER =
+  'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
+
+const toISO = (d: any) => {
+  const dt = new Date(d);
+  return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
+};
+
+const toDateOnly = (d: any) => toISO(d).split('T')[0];
+
+const toTimeHM = (d: any) => {
+  // Prefer an explicit time string if it looks like HH:MM
+  const s = String(d ?? '').trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (m) return `${m[1].padStart(2, '0')}:${m[2]}`;
+
+  // Otherwise derive from a date
+  const dt = new Date(d);
+  if (!Number.isFinite(dt.getTime())) return '12:00';
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mm = String(dt.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+};
+
 const normalizeEvent = (e: any): Event => {
   const id = safeNumber(e?.id ?? e?.event_id ?? 0);
 
-  // DB column is event_date
-  const date = safeString(e?.date ?? e?.event_date ?? new Date().toISOString());
+  const rawEventDate = e?.event_date ?? e?.date ?? new Date().toISOString();
+  const date = toDateOnly(rawEventDate);
 
-  const time =
-    safeString(
-      e?.time ?? e?.event_time ?? '',
-      ''
-    ) || (() => {
-      const d = new Date(date);
-      return Number.isFinite(d.getTime())
-        ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : '';
-    })();
+  // time preference order: explicit event_time/time -> else derive from event_date
+  const rawTime = e?.event_time ?? e?.time ?? '';
+  const time = rawTime ? toTimeHM(rawTime) : toTimeHM(rawEventDate);
 
-  const attendees =
+  const attendeesRaw =
     Array.isArray(e?.attendees) ? e.attendees :
     Array.isArray(e?.attendee_ids) ? e.attendee_ids :
     Array.isArray(e?.attendees_ids) ? e.attendees_ids :
     [];
 
-  const interestedIds =
+  const interestedRaw =
     Array.isArray(e?.interestedIds) ? e.interestedIds :
     Array.isArray(e?.interested_ids) ? e.interested_ids :
     Array.isArray(e?.interested) ? e.interested :
@@ -506,28 +524,29 @@ const normalizeEvent = (e: any): Event => {
   return {
     ...e,
     id,
+
     title: safeString(e?.title, 'Untitled Event'),
     description: safeString(e?.description, ''),
-    date,                          // UI field
-    time,                          // UI field
     location: safeString(e?.location, ''),
-    image: safeString(
-      e?.image ?? e?.cover_url ?? '',
-      'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80'
-    ),
 
-    visibility: (safeString(e?.visibility, 'worldwide') as any),
+    // ✅ UI-safe fields
+    date,       // YYYY-MM-DD
+    time,       // HH:MM
+    image: safeString(e?.image ?? e?.cover_url ?? e?.cover_image ?? '', DEFAULT_EVENT_COVER),
+    visibility: safeString(e?.visibility, 'worldwide') as any,
 
-    // DB columns are creator_*
-    organizerId: safeNumber(e?.organizerId ?? e?.creator_id ?? 0),
+    organizerId: safeNumber(e?.organizerId ?? e?.creator_id ?? e?.user_id ?? 0),
     organizer_name: safeString(e?.organizer_name ?? e?.creator_name ?? ''),
     organizer_avatar: safeString(e?.organizer_avatar ?? e?.creator_avatar ?? ''),
 
-    // ALWAYS arrays (prevents blank screens)
-    attendees: safeArray(attendees).map(Number).filter(Number.isFinite),
-    interestedIds: safeArray(interestedIds).map(Number).filter(Number.isFinite),
+    attendees: safeArray(attendeesRaw).map(Number).filter(Number.isFinite),
+    interestedIds: safeArray(interestedRaw).map(Number).filter(Number.isFinite),
 
-    created_at: safeString(e?.created_at ?? '', new Date().toISOString()),
+    // keep original backend field too (optional)
+    event_date: toISO(rawEventDate),
+    event_time: time,
+
+    created_at: safeString(e?.created_at ?? e?.createdAt ?? '', new Date().toISOString()),
   } as any;
 };
 
@@ -2743,134 +2762,174 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-// ================== EVENTS API INTEGRATIONS (FIXED) ====================
-// ✅ Fix #2: ALWAYS normalize inside optimistic updates
-// This prevents blank screens when some events use attendee_ids / interested_ids / cover_url / event_date etc.
-
-const joinEvent = useCallback(async (eventId: number) => {
-  if (!requireAuth('Joining events')) return;
-  if (!currentUser) return;
-
-  try {
-    const res = await apiFetch(`/api/events/${eventId}/attend`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: currentUser.id }),
-    });
-
-    if (res?.success) {
-      setEvents(prev =>
-        safeArray(prev).map(ev => {
-          const event = normalizeEvent(ev); // ✅ important
-
-          if (Number(event.id) !== Number(eventId)) return event;
-
-          const nextAttendees = [...safeArray(event.attendees), Number(currentUser.id)]
-            .filter((v, i, a) => a.indexOf(v) === i);
-
-          const nextInterested = safeArray(event.interestedIds).filter(
-            id => Number(id) !== Number(currentUser.id)
-          );
-
-          return {
-            ...event,
-            attendees: nextAttendees,
-            interestedIds: nextInterested,
-          };
-        })
-      );
+  /** ==================== ✅ CONSOLIDATED EVENTS API ==================== */
+  
+  /** ✅ ADDED: Fetch events helper ---------- */
+  const fetchEvents = useCallback(async (): Promise<Event[]> => {
+    try {
+      const data = await apiFetch('/api/events');
+      const list = safeArray(data?.events ?? data);
+      return list.map(normalizeEvent);
+    } catch (err) {
+      console.error('❌ fetchEvents failed:', err);
+      return [];
     }
+  }, []);
 
-    return res;
-  } catch (error: any) {
-    console.error('Failed to join event:', error);
-    setLoginError(error?.message || 'Failed to join event');
-    throw error;
-  }
-}, [currentUser, requireAuth]);
+  /** ✅ ADDED: Optimistic state updater ---------- */
+  const updateEventState = useCallback((
+    eventId: number,
+    action: 'join' | 'leave' | 'interested' | 'uninterested',
+    userId: number
+  ) => {
+    setEvents(prev =>
+      safeArray(prev).map(ev => {
+        const e = normalizeEvent(ev);
+        if (Number(e.id) !== Number(eventId)) return e;
 
-const markEventInterested = useCallback(async (eventId: number) => {
-  if (!requireAuth('Marking event as interested')) return;
-  if (!currentUser) return;
+        const attendees = new Set(e.attendees);
+        const interested = new Set(e.interestedIds);
 
-  try {
-    const res = await apiFetch(`/api/events/${eventId}/interested`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: currentUser.id }),
-    });
+        if (action === 'join') { attendees.add(userId); interested.delete(userId); }
+        if (action === 'leave') { attendees.delete(userId); }
+        if (action === 'interested') { interested.add(userId); attendees.delete(userId); }
+        if (action === 'uninterested') { interested.delete(userId); }
 
-    if (res?.success) {
-      setEvents(prev =>
-        safeArray(prev).map(ev => {
-          const event = normalizeEvent(ev); // ✅ important
+        return {
+          ...e,
+          attendees: Array.from(attendees),
+          interestedIds: Array.from(interested),
+        };
+      })
+    );
+  }, []);
 
-          if (Number(event.id) !== Number(eventId)) return event;
+  /** ✅ ADDED: Join Event (optimistic + rollback) ---------- */
+  const joinEvent = useCallback(async (eventId: number) => {
+    if (!requireAuth('Joining events')) return;
+    if (!currentUser) return;
 
-          const nextInterested = [...safeArray(event.interestedIds), Number(currentUser.id)]
-            .filter((v, i, a) => a.indexOf(v) === i);
+    updateEventState(eventId, 'join', currentUser.id);
 
-          const nextAttendees = safeArray(event.attendees).filter(
-            id => Number(id) !== Number(currentUser.id)
-          );
+    try {
+      const res = await apiFetch(`/api/events/${eventId}/attend`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
 
-          return {
-            ...event,
-            interestedIds: nextInterested,
-            attendees: nextAttendees,
-          };
-        })
-      );
+      // If API returns updated event, merge it
+      const returned = res?.event ?? res?.data?.event ?? null;
+      if (returned) {
+        const normalized = normalizeEvent(returned);
+        setEvents((prev: any) => {
+          const arr = safeArray(prev);
+          const idx = arr.findIndex((x: any) => safeNumber(x?.id) === normalized.id);
+          if (idx >= 0) {
+            const copy = [...arr];
+            copy[idx] = normalized;
+            return copy;
+          }
+          return [normalized, ...arr];
+        });
+      } else {
+        // otherwise, refresh quietly
+        fetchEvents().then(setEvents).catch(() => {});
+      }
+
+      return res;
+    } catch (err: any) {
+      console.error('❌ joinEvent failed:', err);
+      updateEventState(eventId, 'leave', currentUser.id);
+      fetchEvents().then(setEvents).catch(() => {});
+      setLoginError(err?.message || 'Failed to join event');
+      throw err;
     }
+  }, [apiFetch, currentUser, requireAuth, updateEventState, fetchEvents]);
 
-    return res;
-  } catch (error: any) {
-    console.error('Failed to mark event as interested:', error);
-    setLoginError(error?.message || 'Failed to mark interest');
-    throw error;
-  }
-}, [currentUser, requireAuth]);
+  /** ✅ ADDED: Mark Interested (optimistic + rollback) ---------- */
+  const markEventInterested = useCallback(async (eventId: number) => {
+    if (!requireAuth('Marking event as interested')) return;
+    if (!currentUser) return;
 
-const createEvent = useCallback(async (eventData: any) => {
-  if (!requireAuth('Creating events')) return;
-  if (!currentUser) return;
+    updateEventState(eventId, 'interested', currentUser.id);
 
-  try {
+    try {
+      const res = await apiFetch(`/api/events/${eventId}/interested`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+      const returned = res?.event ?? res?.data?.event ?? null;
+      if (returned) {
+        const normalized = normalizeEvent(returned);
+        setEvents((prev: any) => {
+          const arr = safeArray(prev);
+          const idx = arr.findIndex((x: any) => safeNumber(x?.id) === normalized.id);
+          if (idx >= 0) {
+            const copy = [...arr];
+            copy[idx] = normalized;
+            return copy;
+          }
+          return [normalized, ...arr];
+        });
+      } else {
+        fetchEvents().then(setEvents).catch(() => {});
+      }
+
+      return res;
+    } catch (err: any) {
+      console.error('❌ markEventInterested failed:', err);
+      updateEventState(eventId, 'uninterested', currentUser.id);
+      fetchEvents().then(setEvents).catch(() => {});
+      setLoginError(err?.message || 'Failed to mark interest');
+      throw err;
+    }
+  }, [apiFetch, currentUser, requireAuth, updateEventState, fetchEvents]);
+
+  /** ✅ ADDED: Create Event (accepts BOTH UI formats) ---------- */
+  const createEvent = useCallback(async (eventData: any) => {
+    if (!requireAuth('Creating events')) return;
+    if (!currentUser) return;
+
+    // Accept both:
+    // A) { date:'YYYY-MM-DD', time:'HH:MM' }
+    // B) { event_date: ISO, event_time:'HH:MM' }
+    const uiDate = safeString(eventData?.date ?? '', '');
+    const uiTime = safeString(eventData?.time ?? '', '');
+    const apiISO = safeString(eventData?.event_date ?? '', '');
+    const apiTime = safeString(eventData?.event_time ?? '', '');
+
+    const eventDateISO =
+      apiISO ||
+      (() => {
+        const d = uiDate || new Date().toISOString().split('T')[0];
+        const t = uiTime || '12:00';
+        try {
+          return new Date(`${d}T${t}:00`).toISOString();
+        } catch {
+          return new Date().toISOString();
+        }
+      })();
+
     const payload = {
       title: safeString(eventData?.title).trim(),
       description: safeString(eventData?.description).trim(),
-
-      // ✅ Map UI date/time -> DB columns
-      event_date: safeString(eventData?.event_date ?? eventData?.date),
-      event_time: safeString(eventData?.event_time ?? eventData?.time),
-
+      event_date: eventDateISO,
+      event_time: apiTime || uiTime || '12:00',
       location: safeString(eventData?.location).trim(),
       visibility: safeString(eventData?.visibility, 'worldwide'),
-
-      // ✅ Map UI image -> DB cover_url
-      cover_url: safeString(eventData?.cover_url ?? eventData?.image),
-
-      // ✅ creator fields (your backend uses creator_* in types)
+      cover_url: safeString(eventData?.cover_url ?? eventData?.image ?? eventData?.cover ?? '', DEFAULT_EVENT_COVER) || DEFAULT_EVENT_COVER,
       creator_id: Number(currentUser.id),
       creator_name: safeString(currentUser.name),
       creator_avatar: safeString(currentUser.profile_image_url),
     };
 
-    const res = await apiFetch('/api/events', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    const res = await apiFetch('/api/events', { method: 'POST', body: JSON.stringify(payload) });
 
-    // ✅ normalize whatever backend returns
     const newEvent = normalizeEvent(res?.event ?? res);
-
-    // ✅ store normalized always
-    setEvents(prev => [newEvent, ...safeArray(prev).map(normalizeEvent)]);
+    setEvents((prev: any) => [newEvent, ...safeArray(prev)]);
     return newEvent;
-  } catch (error: any) {
-    console.error('Failed to create event:', error);
-    setLoginError(error?.message || 'Failed to create event');
-    throw error;
-  }
-}, [currentUser, requireAuth]);
+  }, [apiFetch, currentUser, requireAuth]);
 
   // ==================== GROUPS BACKEND INTEGRATIONS ====================
 
@@ -2881,12 +2940,10 @@ const createEvent = useCallback(async (eventData: any) => {
     
     try {
       // ✅ FIXED: REMOVED stories from Promise.all - stories are fetched separately
-      const [pr, g, b, e, c] = await Promise.all([
+      const [pr, g, b, c] = await Promise.all([
         apiFetch('/api/products').catch(() => []),
         apiFetch('/api/groups').catch(() => []),
         apiFetch('/api/brands').catch(() => []),
-        // ✅ CRITICAL FIX: Always normalize events when loading
-        apiFetch('/api/events').then(data => safeArray(data?.events ?? data).map(normalizeEvent)).catch(() => []),
         apiFetch('/api/chats').catch(() => []),
       ]);
 
@@ -2915,9 +2972,9 @@ const createEvent = useCallback(async (eventData: any) => {
       
       setBrands(safeArray(b));
       
-      // ✅ UPDATED: Normalize events (already normalized above)
-      // e is already normalized from Promise.all
-      setEvents(e);
+      // ✅ FIXED: Fetch events separately using the new fetchEvents helper
+      const eventsData = await fetchEvents().catch(() => []);
+      setEvents(eventsData);
       
       setChats(safeArray(c));
     } catch (error) {
@@ -2926,7 +2983,7 @@ const createEvent = useCallback(async (eventData: any) => {
     } finally {
       otherDataInFlightRef.current = false;
     }
-  }, []); // ✅ FIXED: Empty dependency array - stable function
+  }, [fetchEvents]); // ✅ FIXED: Add fetchEvents dependency
 
   /** ---------- ✅ 2) Fetch group posts with viewerId ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
@@ -3711,6 +3768,7 @@ const createEvent = useCallback(async (eventData: any) => {
     setIsAudioPlaying(false); // ✅ Stop audio playback
     setSelectedReelSound(null); // ✅ Clear selected reel sound
     setSongs([]); // ✅ Clear songs on logout
+    setEvents([]); // ✅ Clear events on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
