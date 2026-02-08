@@ -364,6 +364,12 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   // ✅ ADDED: Viewers resume state ref
   const viewersResumeRef = useRef<'resume' | 'keepPaused'>('resume');
 
+  // ✅ ADDED: Progress interval ref to stop auto-advance when user navigates
+  const progressIntervalRef = useRef<number | null>(null);
+
+  // ✅ ADDED: Preload cache for instant loading
+  const preloadReadyRef = useRef<Map<string, boolean>>(new Map());
+
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -543,7 +549,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, story.media_url]);
 
-  // Cleanup navigation timeout
+  // Cleanup navigation timeout and intervals
   useEffect(() => {
     return () => {
       if (navigationTimeoutRef.current) {
@@ -553,23 +559,30 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       if (holdTimerRef.current) {
         clearTimeout(holdTimerRef.current);
       }
+      // Cleanup progress interval
+      if (progressIntervalRef.current) {
+        window.clearInterval(progressIntervalRef.current);
+      }
     };
   }, []);
 
-  // ✅ UPDATED: Safe navigation function with lock
+  // ✅ UPDATED: Safe navigation function with progress interval cleanup
   const safeNavigate = (direction: 'next' | 'prev') => {
     if (isNavigatingRef.current) return;
     if (!lockNav()) return; // ✅ Added navigation lock
     
-    isNavigatingRef.current = true;
-    
-    if (direction === 'next' && onNext) {
-      onNext();
-    } else if (direction === 'prev' && onPrev) {
-      onPrev();
+    // ✅ stop auto progress so it can't fire during manual nav
+    didAdvanceRef.current = true;
+    if (progressIntervalRef.current) {
+      window.clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
     }
-    
-    // Allow navigation again after 300ms
+
+    isNavigatingRef.current = true;
+
+    if (direction === 'next' && onNext) onNext();
+    else if (direction === 'prev' && onPrev) onPrev();
+
     navigationTimeoutRef.current = setTimeout(() => {
       isNavigatingRef.current = false;
     }, 300);
@@ -629,14 +642,21 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     setUserReaction(r);
   }, [story.id, currentUser?.id, story.views, story.my_reaction]);
 
-  // Set mediaReady for text stories
+  // ✅ UPDATED: Set mediaReady instantly if preloaded, otherwise false
   useEffect(() => {
     if (story.type === 'text') {
+      setMediaReady(true);
+      return;
+    }
+
+    const url = story.media_url || '';
+    if (url && !isBlob(url) && preloadReadyRef.current.get(url)) {
+      // ✅ already preloaded, show instantly (no loader)
       setMediaReady(true);
     } else {
       setMediaReady(false);
     }
-  }, [story.id, story.type]);
+  }, [story.id, story.type, story.media_url]);
 
   // Set mediaReady for fallback content
   useEffect(() => {
@@ -647,24 +667,43 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, story.type, story.media_url]);
 
-  // Preload next story media
+  // ✅ UPDATED: Preload next story media with cache marking
   useEffect(() => {
     const userStories = frozenUserStoriesRef.current;
     const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
-    
-    if (currentIndex < userStories.length - 1) {
-      const nextStory = userStories[currentIndex + 1];
-      if (nextStory?.media_url && !isBlob(nextStory.media_url)) {
-        // Preload next story media
-        if (isVideoUrl(nextStory.media_url)) {
-          const video = document.createElement('video');
-          video.preload = 'metadata';
-          video.src = nextStory.media_url;
-        } else {
-          const img = new Image();
-          img.src = nextStory.media_url;
-        }
+
+    const preload = async (url: string) => {
+      if (!url || isBlob(url)) return;
+      if (preloadReadyRef.current.get(url)) return;
+
+      if (isVideoUrl(url)) {
+        const v = document.createElement('video');
+        v.preload = 'auto';
+        v.src = url;
+
+        const mark = () => preloadReadyRef.current.set(url, true);
+        v.addEventListener('loadedmetadata', mark, { once: true });
+        v.addEventListener('canplay', mark, { once: true });
+        v.load();
+      } else {
+        const img = new Image();
+        img.src = url;
+
+        // best effort decode (faster instant render)
+        try {
+          // @ts-ignore
+          if (img.decode) await img.decode();
+        } catch {}
+        preloadReadyRef.current.set(url, true);
       }
+    };
+
+    // preload next 2 items (FB-like)
+    if (currentIndex >= 0) {
+      const next1 = userStories[currentIndex + 1]?.media_url;
+      const next2 = userStories[currentIndex + 2]?.media_url;
+      if (next1) preload(next1);
+      if (next2) preload(next2);
     }
   }, [story.id]);
 
@@ -741,7 +780,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, storyIsVideo]);
 
-  // Progress timer: Only starts when media is ready
+  // ✅ UPDATED: Progress timer with proper interval cleanup
   useEffect(() => {
     if (!mediaReady) return;
 
@@ -751,7 +790,13 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const tickMs = 50;
     const duration = clamp(storyDurationMs || 5000, 1000, 30_000);
 
-    const timer = setInterval(() => {
+    // clear previous interval if any
+    if (progressIntervalRef.current) {
+      window.clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+
+    const timer = window.setInterval(() => {
       if (isPaused) return;
 
       setProgress((prev) => {
@@ -762,14 +807,27 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
         if (next >= 100 && !didAdvanceRef.current) {
           didAdvanceRef.current = true;
-          clearInterval(timer);
+
+          // stop interval before navigating
+          if (progressIntervalRef.current) {
+            window.clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+
           safeNavigate('next');
         }
         return next;
       });
     }, tickMs);
 
-    return () => clearInterval(timer);
+    progressIntervalRef.current = timer;
+
+    return () => {
+      if (progressIntervalRef.current) {
+        window.clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+    };
   }, [story.id, isPaused, storyDurationMs, mediaReady]);
 
   // Music
@@ -1110,6 +1168,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 className="w-full h-full object-cover z-10"
                 playsInline
                 autoPlay
+                preload="auto"
                 // ✅ UPDATED: Always mute video when music exists
                 muted={!!(story.music_url && !isBlob(story.music_url)) ? true : muted}
                 controls={false}
@@ -1179,13 +1238,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           )}
 
-          {/* UPDATED: Small loading spinner instead of full overlay */}
-          {!mediaReady && (
-            <div className="absolute top-24 right-4 z-40 bg-black/40 backdrop-blur-md rounded-full px-3 py-2 flex items-center gap-2 border border-white/10">
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              <span className="text-white/70 text-xs font-bold">Loading</span>
-            </div>
-          )}
+          {/* ✅ REMOVED: Small loading spinner (instant loading instead) */}
 
           {/* Play/pause indicator for videos */}
           {storyIsVideo && isPaused && (
@@ -2233,12 +2286,13 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     created_at: null,
   });
 
-  // Build list of this author's stories (oldest -> newest)
+  // ✅ UPDATED: Build list of this author's stories with NEWEST FIRST
   const userStories = useMemo(() => {
     const list = (allStories?.length ? allStories : [story])
       .filter(s => Number(s.user_id) === Number(story.user_id))
       .slice()
-      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+      // ✅ NEWEST FIRST (opens newest first, next goes older)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 
     return list.length ? list : [story];
   }, [allStories, story.id, story.user_id]);
