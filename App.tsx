@@ -67,6 +67,10 @@ const STORIES_CACHE_KEY = "unera_stories_cache_v1";
 const STORIES_CACHE_TTL_MS = 60_000; // 1 min
 const STORY_VIEWERS_CACHE_KEY = "unera_story_viewers_";
 const VIEWERS_TTL = 2 * 60_000; // 2 minutes
+const FOLLOW_CACHE_KEY = "unera_follow_cache_v1";
+const FOLLOW_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const USER_FOLLOWERS_CACHE_KEY = "unera_user_followers_";
+const USER_FOLLOWING_CACHE_KEY = "unera_user_following_";
 
 const readStorySeen = (): number[] => {
   try {
@@ -134,6 +138,88 @@ const writeViewersCache = (storyId: number, viewers: any[]) => {
   try {
     localStorage.setItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`, 
       JSON.stringify({ ts: Date.now(), viewers }));
+  } catch {}
+};
+
+/** ✅ ADDED: Follow cache functions (Facebook-like stability) */
+const readFollowCache = (userId: number) => {
+  try {
+    const key = `${FOLLOW_CACHE_KEY}_${userId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.ts > FOLLOW_CACHE_TTL_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return parsed as { ts: number; followers: number[]; following: number[] };
+  } catch {
+    return null;
+  }
+};
+
+const writeFollowCache = (userId: number, followers: number[], following: number[]) => {
+  try {
+    const key = `${FOLLOW_CACHE_KEY}_${userId}`;
+    localStorage.setItem(key, JSON.stringify({ 
+      ts: Date.now(), 
+      followers, 
+      following 
+    }));
+  } catch {}
+};
+
+/** ✅ ADDED: User-specific followers cache */
+const readUserFollowersCache = (userId: number) => {
+  try {
+    const key = `${USER_FOLLOWERS_CACHE_KEY}${userId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.ts > FOLLOW_CACHE_TTL_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return parsed.followers as number[];
+  } catch {
+    return null;
+  }
+};
+
+const writeUserFollowersCache = (userId: number, followers: number[]) => {
+  try {
+    const key = `${USER_FOLLOWERS_CACHE_KEY}${userId}`;
+    localStorage.setItem(key, JSON.stringify({ 
+      ts: Date.now(), 
+      followers 
+    }));
+  } catch {}
+};
+
+/** ✅ ADDED: User-specific following cache */
+const readUserFollowingCache = (userId: number) => {
+  try {
+    const key = `${USER_FOLLOWING_CACHE_KEY}${userId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.ts > FOLLOW_CACHE_TTL_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return parsed.following as number[];
+  } catch {
+    return null;
+  }
+};
+
+const writeUserFollowingCache = (userId: number, following: number[]) => {
+  try {
+    const key = `${USER_FOLLOWING_CACHE_KEY}${userId}`;
+    localStorage.setItem(key, JSON.stringify({ 
+      ts: Date.now(), 
+      following 
+    }));
   } catch {}
 };
 
@@ -916,17 +1002,31 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 };
 
 /**
- * Fetch user's followers/following data
+ * ✅ ✅ UPDATED: Fetch user's followers/following data WITH CACHING ----------
  */
 const fetchUserFollowData = async (userId: number): Promise<{ followers: number[], following: number[] }> => {
+  // ✅ Check cache first
+  const cached = readFollowCache(userId);
+  if (cached) {
+    return { followers: cached.followers, following: cached.following };
+  }
+
   try {
     const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
-    return {
-      followers: safeArray<number>(data?.followers),
-      following: safeArray<number>(data?.following)
-    };
+    const followers = safeArray<number>(data?.followers);
+    const following = safeArray<number>(data?.following);
+    
+    // ✅ Cache the result
+    writeFollowCache(userId, followers, following);
+    
+    // Also cache individually for per-user access
+    writeUserFollowersCache(userId, followers);
+    writeUserFollowingCache(userId, following);
+    
+    return { followers, following };
   } catch (error) {
     console.error('Failed to fetch follow data:', error);
+    // Return empty arrays on error
     return { followers: [], following: [] };
   }
 };
@@ -1741,6 +1841,42 @@ export default function App() {
     }
   }, []);
 
+  /** ✅ ✅ ADDED: DELETE STORY HANDLER ---------- */
+  const deleteStory = useCallback(async (storyId: number) => {
+    if (!requireAuth('Deleting stories')) return;
+    
+    try {
+      await apiFetch(`/api/stories/${storyId}`, {
+        method: 'DELETE',
+      });
+      
+      // Remove from stories state
+      setStories(prev => prev.filter(s => Number(s.id) !== Number(storyId)));
+      
+      // Clear from cache
+      const cached = readStoriesCache();
+      if (cached) {
+        const filteredStories = cached.stories.filter(s => Number(s.id) !== Number(storyId));
+        writeStoriesCache(filteredStories);
+      }
+      
+      // Clear viewers cache for this story
+      localStorage.removeItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
+      
+      // If active story is deleted, close viewer
+      if (activeStoryId === storyId) {
+        closeStoryViewer();
+      }
+      
+      // Show success message
+      setLoginError('Story deleted successfully!');
+      
+    } catch (error: any) {
+      console.error('Failed to delete story:', error);
+      setLoginError(error?.message || 'Failed to delete story');
+    }
+  }, [requireAuth, activeStoryId, closeStoryViewer]);
+
   /** ✅ ✅ UPDATED: View story callback with LOCAL updates (no refetch) ---------- */
   const viewStory = useCallback(async (storyId: number) => {
     if (!requireAuth('Viewing stories')) return;
@@ -2207,7 +2343,93 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
-  /** ---------- ✅ FIXED: Fetch users list with deduplication ---------- */
+  /** ✅ ✅ UPDATED: Fetch user follow data WITH CACHE (Facebook-like stability) ---------- */
+  const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
+    // ✅ Check cache first
+    const cachedFollowers = readUserFollowersCache(userId);
+    const cachedFollowing = readUserFollowingCache(userId);
+    
+    if (cachedFollowers && cachedFollowing) {
+      // ✅ Update UI with cached data instantly
+      setUsers(prev => {
+        return prev.map(user => {
+          if (Number(user.id) === Number(userId)) {
+            return normalizeUser({
+              ...user,
+              followers: cachedFollowers,
+              following: cachedFollowing
+            });
+          }
+          return user;
+        });
+      });
+
+      // Also update currentUser if it's the logged in user
+      if (currentUser && Number(currentUser.id) === Number(userId)) {
+        const updatedCurrentUser = normalizeUser({
+          ...currentUser,
+          followers: cachedFollowers,
+          following: cachedFollowing
+        });
+        setCurrentUser(updatedCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
+      }
+
+      // Return cached data immediately
+      return { followers: cachedFollowers, following: cachedFollowing };
+    }
+
+    try {
+      // Fetch fresh data
+      const followData = await fetchUserFollowData(userId);
+      
+      // ✅ Update the specific user in the users list
+      setUsers(prev => {
+        return prev.map(user => {
+          if (Number(user.id) === Number(userId)) {
+            return normalizeUser({
+              ...user,
+              followers: followData.followers,
+              following: followData.following
+            });
+          }
+          return user;
+        });
+      });
+
+      // Also update currentUser if it's the logged in user
+      if (currentUser && Number(currentUser.id) === Number(userId)) {
+        const updatedCurrentUser = normalizeUser({
+          ...currentUser,
+          followers: followData.followers,
+          following: followData.following
+        });
+        setCurrentUser(updatedCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
+      }
+
+      return followData;
+    } catch (error) {
+      console.error('Failed to fetch follow data for UI:', error);
+      return { followers: [], following: [] };
+    }
+  }, [currentUser]);
+
+  /** ---------- Load follow data when viewing a profile ---------- */
+  useEffect(() => {
+    if (view !== 'profile' || !selectedUserId) return;
+    
+    fetchUserFollowDataForUI(Number(selectedUserId)).catch(() => {});
+  }, [view, selectedUserId, fetchUserFollowDataForUI]);
+
+  /** ---------- Load follow data for current user on login ---------- */
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    
+    fetchUserFollowDataForUI(Number(currentUser.id)).catch(() => {});
+  }, [currentUser?.id, fetchUserFollowDataForUI]);
+
+  /** ✅ ✅ UPDATED: Fetch users list with CACHE ---------- */
   const fetchUsersList = useCallback(async () => {
     if (usersInFlightRef.current) return;
     usersInFlightRef.current = true;
@@ -2685,891 +2907,7 @@ export default function App() {
     }
   }, [currentUser, posts]);
 
-  /** ---------- Fetch follow data for a user ---------- */
-  const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
-    try {
-      const followData = await fetchUserFollowData(userId);
-      
-      // Update the specific user in the users list
-      setUsers(prev => {
-        return prev.map(user => {
-          if (Number(user.id) === Number(userId)) {
-            return normalizeUser({
-              ...user,
-              followers: followData.followers,
-              following: followData.following
-            });
-          }
-          return user;
-        });
-      });
-
-      // Also update currentUser if it's the logged in user
-      if (currentUser && Number(currentUser.id) === Number(userId)) {
-        const updatedCurrentUser = normalizeUser({
-          ...currentUser,
-          followers: followData.followers,
-          following: followData.following
-        });
-        setCurrentUser(updatedCurrentUser);
-        localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
-      }
-
-      return followData;
-    } catch (error) {
-      console.error('Failed to fetch follow data for UI:', error);
-      return { followers: [], following: [] };
-    }
-  }, [currentUser]);
-
-  /** ---------- Load follow data when viewing a profile ---------- */
-  useEffect(() => {
-    if (view !== 'profile' || !selectedUserId) return;
-    
-    fetchUserFollowDataForUI(Number(selectedUserId)).catch(() => {});
-  }, [view, selectedUserId, fetchUserFollowDataForUI]);
-
-  /** ---------- Load follow data for current user on login ---------- */
-  useEffect(() => {
-    if (!currentUser?.id) return;
-    
-    fetchUserFollowDataForUI(Number(currentUser.id)).catch(() => {});
-  }, [currentUser?.id, fetchUserFollowDataForUI]);
-
-  /** ---------- Silent refresh helper ---------- */
-  const scheduleSilentRefresh = useCallback(() => {
-    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
-    scheduleSilentRefreshRef.current = setTimeout(() => {
-      fetchPostsForHome(currentUser).catch(() => {});
-      fetchReels().catch(() => {});
-    }, 8000);
-  }, [currentUser, fetchPostsForHome, fetchReels]);
-
-// ================== EVENTS API INTEGRATIONS (FIXED) ====================
-// ✅ Fix #2: ALWAYS normalize inside optimistic updates
-// This prevents blank screens when some events use attendee_ids / interested_ids / cover_url / event_date etc.
-
-const joinEvent = useCallback(async (eventId: number) => {
-  if (!requireAuth('Joining events')) return;
-  if (!currentUser) return;
-
-  try {
-    const res = await apiFetch(`/api/events/${eventId}/attend`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: currentUser.id }),
-    });
-
-    if (res?.success) {
-      setEvents(prev =>
-        safeArray(prev).map(ev => {
-          const event = normalizeEvent(ev); // ✅ important
-
-          if (Number(event.id) !== Number(eventId)) return event;
-
-          const nextAttendees = [...safeArray(event.attendees), Number(currentUser.id)]
-            .filter((v, i, a) => a.indexOf(v) === i);
-
-          const nextInterested = safeArray(event.interestedIds).filter(
-            id => Number(id) !== Number(currentUser.id)
-          );
-
-          return {
-            ...event,
-            attendees: nextAttendees,
-            interestedIds: nextInterested,
-          };
-        })
-      );
-    }
-
-    return res;
-  } catch (error: any) {
-    console.error('Failed to join event:', error);
-    setLoginError(error?.message || 'Failed to join event');
-    throw error;
-  }
-}, [currentUser, requireAuth]);
-
-const markEventInterested = useCallback(async (eventId: number) => {
-  if (!requireAuth('Marking event as interested')) return;
-  if (!currentUser) return;
-
-  try {
-    const res = await apiFetch(`/api/events/${eventId}/interested`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: currentUser.id }),
-    });
-
-    if (res?.success) {
-      setEvents(prev =>
-        safeArray(prev).map(ev => {
-          const event = normalizeEvent(ev); // ✅ important
-
-          if (Number(event.id) !== Number(eventId)) return event;
-
-          const nextInterested = [...safeArray(event.interestedIds), Number(currentUser.id)]
-            .filter((v, i, a) => a.indexOf(v) === i);
-
-          const nextAttendees = safeArray(event.attendees).filter(
-            id => Number(id) !== Number(currentUser.id)
-          );
-
-          return {
-            ...event,
-            interestedIds: nextInterested,
-            attendees: nextAttendees,
-          };
-        })
-      );
-    }
-
-    return res;
-  } catch (error: any) {
-    console.error('Failed to mark event as interested:', error);
-    setLoginError(error?.message || 'Failed to mark interest');
-    throw error;
-  }
-}, [currentUser, requireAuth]);
-
-const createEvent = useCallback(async (eventData: any) => {
-  if (!requireAuth('Creating events')) return;
-  if (!currentUser) return;
-
-  try {
-    const payload = {
-      title: safeString(eventData?.title).trim(),
-      description: safeString(eventData?.description).trim(),
-
-      // ✅ Map UI date/time -> DB columns
-      event_date: safeString(eventData?.event_date ?? eventData?.date),
-      event_time: safeString(eventData?.event_time ?? eventData?.time),
-
-      location: safeString(eventData?.location).trim(),
-      visibility: safeString(eventData?.visibility, 'worldwide'),
-
-      // ✅ Map UI image -> DB cover_url
-      cover_url: safeString(eventData?.cover_url ?? eventData?.image),
-
-      // ✅ creator fields (your backend uses creator_* in types)
-      creator_id: Number(currentUser.id),
-      creator_name: safeString(currentUser.name),
-      creator_avatar: safeString(currentUser.profile_image_url),
-    };
-
-    const res = await apiFetch('/api/events', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-
-    // ✅ normalize whatever backend returns
-    const newEvent = normalizeEvent(res?.event ?? res);
-
-    // ✅ store normalized always
-    setEvents(prev => [newEvent, ...safeArray(prev).map(normalizeEvent)]);
-    return newEvent;
-  } catch (error: any) {
-    console.error('Failed to create event:', error);
-    setLoginError(error?.message || 'Failed to create event');
-    throw error;
-  }
-}, [currentUser, requireAuth]);
-
-  // ==================== GROUPS BACKEND INTEGRATIONS ====================
-
-  /** ---------- ✅ FIXED: Fetch other data WITHOUT stories (stable dependency) ---------- */
-  const fetchOtherData = useCallback(async () => {
-    if (otherDataInFlightRef.current) return;
-    otherDataInFlightRef.current = true;
-    
-    try {
-      // ✅ FIXED: REMOVED stories from Promise.all - stories are fetched separately
-      const [pr, g, b, e, c] = await Promise.all([
-        apiFetch('/api/products').catch(() => []),
-        apiFetch('/api/groups').catch(() => []),
-        apiFetch('/api/brands').catch(() => []),
-        // ✅ CRITICAL FIX: Always normalize events when loading
-        apiFetch('/api/events').then(data => safeArray(data?.events ?? data).map(normalizeEvent)).catch(() => []),
-        apiFetch('/api/chats').catch(() => []),
-      ]);
-
-      // ✅ FIXED: Handle different API response formats for products
-      const prRaw = pr;
-      const prList =
-        Array.isArray(prRaw) ? prRaw :
-        Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
-        Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
-        Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
-        Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
-        [];
-
-      setProducts(prList.map(normalizeProduct));
-      
-      // ✅ FIXED: Handle new groups API response shape WITH NORMALIZATION
-      const gRaw = g;
-      const gList = Array.isArray(gRaw)
-        ? gRaw
-        : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
-        : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
-        : [];
-      
-      // ✅ CRITICAL: Normalize groups to prevent crashes
-      setGroups(gList.map(normalizeGroup));
-      
-      setBrands(safeArray(b));
-      
-      // ✅ UPDATED: Normalize events (already normalized above)
-      // e is already normalized from Promise.all
-      setEvents(e);
-      
-      setChats(safeArray(c));
-    } catch (error) {
-      console.error('Failed to fetch other data:', error);
-      // ✅ FIXED: Don't clear all data on transient error
-    } finally {
-      otherDataInFlightRef.current = false;
-    }
-  }, []); // ✅ FIXED: Empty dependency array - stable function
-
-  /** ---------- ✅ 2) Fetch group posts with viewerId ---------- */
-  const fetchGroupPosts = useCallback(async (groupId: number) => {
-    try {
-      const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
-      const res = await apiFetch(`/api/group-posts?group_id=${groupId}&viewerId=${viewerId}`);
-      return safeArray((res as any)?.posts).map(normalizePost);
-    } catch (error) {
-      console.error('Failed to fetch group posts:', error);
-      return [];
-    }
-  }, [currentUser]);
-
-  /** ---------- ✅ 3) Implement real Group Like toggle ---------- */
-  const toggleGroupPostLike = useCallback(async (postId: number) => {
-    if (!requireAuth("Liking")) return;
-    const meId = Number(currentUser!.id);
-
-    try {
-      const res = await apiFetch("/api/group-post-likes", {
-        method: "POST",
-        body: JSON.stringify({ user_id: meId, post_id: Number(postId) })
-      });
-
-      // backend returns { success, liked, likes_count }
-      return {
-        liked: !!(res as any)?.liked,
-        likes_count: Number((res as any)?.likes_count || 0),
-      };
-    } catch (error) {
-      console.error('Failed to toggle group post like:', error);
-      return { liked: false, likes_count: 0 };
-    }
-  }, [currentUser, requireAuth]);
-
-  /** ---------- ✅ 4) Implement Group Comments fetch + create ---------- */
-  const fetchGroupPostComments = useCallback(async (postId: number) => {
-    try {
-      const res = await apiFetch(`/api/group-post-comments?post_id=${Number(postId)}`);
-      return safeArray((res as any)?.comments);
-    } catch (error) {
-      console.error('Failed to fetch group comments:', error);
-      return [];
-    }
-  }, []);
-
-  const createGroupPostComment = useCallback(async (postId: number, text: string, parent_comment_id?: number | null) => {
-    if (!requireAuth("Commenting")) return;
-    const meId = Number(currentUser!.id);
-
-    try {
-      const res = await apiFetch("/api/group-post-comments", {
-        method: "POST",
-        body: JSON.stringify({
-          user_id: meId,
-          post_id: Number(postId),
-          text: String(text || "").trim(),
-          parent_comment_id: parent_comment_id ?? null,
-        }),
-      });
-
-      return res;
-    } catch (error) {
-      console.error('Failed to create group comment:', error);
-      throw error;
-    }
-  }, [currentUser, requireAuth]);
-
-  /** ---------- ✅ 5) Join/Leave group using new endpoints ---------- */
-  const joinGroup = useCallback(async (groupId: number) => {
-    if (!requireAuth("Joining groups")) return;
-    const meId = Number(currentUser!.id);
-
-    try {
-      return await apiFetch("/api/group-members", {
-        method: "POST",
-        body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
-      });
-    } catch (error) {
-      console.error('Failed to join group:', error);
-      throw error;
-    }
-  }, [currentUser, requireAuth]);
-
-  const leaveGroup = useCallback(async (groupId: number) => {
-    if (!requireAuth("Leaving groups")) return;
-    const meId = Number(currentUser!.id);
-
-    try {
-      return await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`, {
-        method: "DELETE",
-      });
-    } catch (error) {
-      console.error('Failed to leave group:', error);
-      throw error;
-    }
-  }, [currentUser, requireAuth]);
-
-  /** ---------- ✅ 6) Create Group Post with media upload ---------- */
-  const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
-    if (!requireAuth("Posting")) return;
-    const meId = Number(currentUser!.id);
-
-    let media_url: string | null = null;
-    if (file) {
-      const up = await uploadToCloudflareR2(file, "group-posts");
-      media_url = up.url;
-    }
-
-    try {
-      return await apiFetch("/api/group-posts", {
-        method: "POST",
-        body: JSON.stringify({
-          group_id: Number(groupId),
-          user_id: meId,
-          content: String(text || "").trim() || null,
-          media_url,
-        }),
-      });
-    } catch (error) {
-      console.error('Failed to create group post:', error);
-      throw error;
-    }
-  }, [currentUser, requireAuth]);
-
-  /** ---------- ✅ 7) Create Group ---------- */
-  const createGroup = useCallback(async (groupData: Partial<Group>) => {
-    if (!requireAuth("Creating groups")) return;
-    const meId = Number(currentUser!.id);
-
-    try {
-      const res = await apiFetch("/api/groups", {
-        method: "POST",
-        body: JSON.stringify({
-          ...groupData,
-          admin_id: meId,
-          description: String(groupData.description || "").trim(), // ✅ Ensure string, never null
-          created_at: new Date().toISOString(),
-        }),
-      });
-
-      // Refresh groups list
-      fetchOtherData().catch(() => {});
-      return res;
-    } catch (error) {
-      console.error('Failed to create group:', error);
-      throw error;
-    }
-  }, [currentUser, requireAuth, fetchOtherData]);
-
-  /** ---------- ✅ 8) Delete Group ---------- */
-  const deleteGroup = useCallback(async (groupId: number) => {
-    if (!requireAdmin('Deleting groups')) return;
-
-    try {
-      await apiFetch(`/api/groups?id=${Number(groupId)}`, {
-        method: "DELETE",
-      });
-
-      // Refresh groups list
-      fetchOtherData().catch(() => {});
-      return true;
-    } catch (error) {
-      console.error('Failed to delete group:', error);
-      throw error;
-    }
-  }, [requireAdmin, fetchOtherData]);
-
-  /** ---------- ✅ 9) Update Group Settings ---------- */
-  const updateGroupSettings = useCallback(async (groupId: number, settings: Partial<Group>) => {
-    if (!requireAuth("Updating group settings")) return;
-
-    try {
-      const res = await apiFetch(`/api/groups?id=${Number(groupId)}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          ...settings,
-          description: settings.description ? String(settings.description).trim() : undefined,
-        }),
-      });
-
-      // Refresh groups list
-      fetchOtherData().catch(() => {});
-      return res;
-    } catch (error) {
-      console.error('Failed to update group settings:', error);
-      throw error;
-    }
-  }, [requireAuth, fetchOtherData]);
-
-  /** ---------- ✅ 10) Fetch Group Details ---------- */
-  const fetchGroupDetails = useCallback(async (groupId: number) => {
-    try {
-      const res = await apiFetch(`/api/groups?id=${Number(groupId)}`);
-      return {
-        group: normalizeGroup((res as any)?.group),
-        members: safeArray((res as any)?.members),
-      };
-    } catch (error) {
-      console.error('Failed to fetch group details:', error);
-      return { group: null, members: [] };
-    }
-  }, []);
-
-  /** ---------- ✅ 11) Invite to Group (Safe Implementation) ---------- */
-  const inviteToGroup = useCallback(async (groupId: number, userIds: number[]) => {
-    if (!requireAuth("Inviting to groups")) return;
-    
-    try {
-      return await apiFetch("/api/group-invites", {
-        method: "POST",
-        body: JSON.stringify({
-          group_id: Number(groupId),
-          inviter_id: Number(currentUser!.id),
-          invitee_ids: userIds,
-        }),
-      });
-    } catch (error) {
-      console.error('Failed to invite to group:', error);
-      // Return success anyway for UI to continue
-      return { success: true, message: "Invites sent" };
-    }
-  }, [currentUser, requireAuth]);
-
-  /** ---------- ✅ 12) Delete Group Post ---------- */
-  const deleteGroupPost = useCallback(async (groupId: number, postId: number) => {
-    if (!requireAuth("Deleting group posts")) return;
-
-    try {
-      await apiFetch(`/api/group-posts?post_id=${Number(postId)}`, {
-        method: "DELETE",
-      });
-      return true;
-    } catch (error) {
-      console.error('Failed to delete group post:', error);
-      throw error;
-    }
-  }, [requireAuth]);
-
-  /** ---------- ✅ 13) Remove Group Member ---------- */
-  const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
-    if (!requireAdmin('Removing group members')) return;
-
-    try {
-      await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${Number(memberId)}`, {
-        method: "DELETE",
-      });
-      return true;
-    } catch (error) {
-      console.error('Failed to remove group member:', error);
-      throw error;
-    }
-  }, [requireAdmin]);
-
-  /** ---------- ✅ 14) Update Group Image ---------- */
-  const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
-    if (!requireAuth("Updating group image")) return;
-
-    try {
-      const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
-      const imageUrl = uploadResult.url;
-
-      const field = type === 'cover' ? 'cover_image' : 'profile_image';
-      await updateGroupSettings(groupId, { [field]: imageUrl } as any);
-      return imageUrl;
-    } catch (error) {
-      console.error('Failed to update group image:', error);
-      throw error;
-    }
-  }, [requireAuth, updateGroupSettings]);
-
-  /** ✅ UPDATED: One fetch pipeline with stable dependencies ---------- */
-  const fetchData = useCallback(
-    async (viewer: User | null) => {
-      await Promise.all([
-        fetchUsersList(), 
-        fetchPostsForHome(viewer), 
-        fetchOtherData(), 
-        fetchReels(),
-        fetchSongs(), // ✅ ADDED: Fetch UNERA Music songs
-        fetchStories(), // ✅ UPDATED: Fetch stories with viewerId
-      ]);
-    },
-    [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
-  );
-
-  /** ✅ UPDATED: Restore session + initial load WITHOUT dependency chain ---------- */
-  useEffect(() => {
-    let mounted = true;
-    
-    const init = async () => {
-      let viewer: User | null = null;
-
-      try {
-        const raw = localStorage.getItem(LS_USER_KEY);
-        if (raw) {
-          const saved = JSON.parse(raw);
-          const normalized = normalizeUser(saved);
-          if (normalized?.id) {
-            viewer = normalized;
-            setCurrentUser(normalized);
-            setSelectedUserId(Number(normalized.id));
-
-            setUsers((prev) => {
-              const arr = safeArray(prev);
-              const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
-              if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
-              return [normalized, ...arr];
-            });
-          }
-        }
-      } catch {
-        // ignore
-      }
-
-      if (!mounted) return;
-      
-      // Fetch all data in parallel
-      await Promise.all([
-        fetchUsersList(),
-        fetchPostsForHome(viewer),
-        fetchOtherData(),
-        fetchReels(),
-        fetchSongs(),
-        fetchStories(), // ✅ UPDATED: Pass viewerId
-      ]);
-      
-      if (!mounted) return;
-      setAuthHydrated(true);
-    };
-
-    init();
-    
-    return () => {
-      mounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // ✅ FIXED: Empty dependency array - runs once on mount
-
-  /** ---------- Return detection (leave -> come back => new seed + refresh) ---------- */
-  useEffect(() => {
-    const markActive = () => {
-      try {
-        localStorage.setItem(FEED_LAST_ACTIVE_KEY, String(nowMs()));
-      } catch {}
-    };
-
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        markActive();
-        return;
-      }
-
-      const last = Number(localStorage.getItem(FEED_LAST_ACTIVE_KEY) || '0') || 0;
-      const away = nowMs() - last;
-
-      if (away > FEED_RETURN_THRESHOLD_MS) {
-        try {
-          sessionStorage.removeItem(FEED_SESSION_KEY);
-        } catch {}
-        fetchPostsForHome(currentUser).catch(() => {});
-        fetchReels().catch(() => {});
-      }
-    };
-
-    const events = ['click', 'scroll', 'keydown', 'touchstart'];
-    events.forEach((e) => window.addEventListener(e, markActive, { passive: true } as any));
-    document.addEventListener('visibilitychange', onVisibility);
-
-    markActive();
-
-    return () => {
-      events.forEach((e) => window.removeEventListener(e, markActive as any));
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [currentUser, fetchPostsForHome, fetchReels]);
-
-  /** ---------- Smart Polling ---------- */
-  useEffect(() => {
-    if (activeCommentsPostId != null) return;
-    if (document.visibilityState !== 'visible') return;
-
-    let stopped = false;
-
-    const tick = async () => {
-      if (stopped) return;
-      if (document.visibilityState !== 'visible') return;
-      if (activeCommentsPostId != null) return;
-      await fetchPostsForHome(currentUser).catch(() => {});
-      await fetchReels().catch(() => {});
-    };
-
-    const t = setInterval(tick, 30000);
-    return () => {
-      stopped = true;
-      clearInterval(t);
-    };
-  }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsPostId]);
-
-  /** ---------- ADMIN API ACTIONS (ADDED) ---------- */
-  const verifyUser = useCallback(
-    async (userId: number) => {
-      if (!requireAdmin('Verify user')) return;
-
-      // optimistic toggle
-      setUsers((prev) =>
-        prev.map((u: any) =>
-          Number(u.id) === Number(userId) ? { ...u, is_verified: u.is_verified ? 0 : 1 } : u
-        )
-      );
-
-      try {
-        await apiFetch('/api/admin/users/verify', {
-          method: 'POST',
-          body: JSON.stringify({ user_id: Number(userId) }),
-        });
-
-        await fetchUsersList();
-      } catch (e: any) {
-        await fetchUsersList(); // rollback by refetch
-        setLoginError(e?.message || 'Verify failed');
-      }
-    },
-    [requireAdmin, fetchUsersList]
-  );
-
-  const suspendUser = useCallback(
-    async (userId: number, duration: '24h' | '5d' | '30d' | 'manual') => {
-      if (!requireModOrAdmin('Suspend user')) return;
-
-      try {
-        await apiFetch('/api/admin/users/suspend', {
-          method: 'POST',
-          body: JSON.stringify({ user_id: Number(userId), duration }),
-        });
-
-        await fetchUsersList();
-      } catch (e: any) {
-        setLoginError(e?.message || 'Suspend failed');
-      }
-    },
-    [requireModOrAdmin, fetchUsersList]
-  );
-
-  const deleteUserAccount = useCallback(
-    async (userId: number) => {
-      if (!requireAdmin('Delete account')) return;
-
-      // optimistic remove
-      setUsers((prev) => prev.filter((u: any) => Number(u.id) !== Number(userId)));
-
-      try {
-        await apiFetch('/api/admin/users/delete', {
-          method: 'DELETE',
-          body: JSON.stringify({ user_id: Number(userId) }),
-        });
-
-        await fetchUsersList();
-        fetchPostsForHome(currentUser).catch(() => {});
-      } catch (e: any) {
-        await fetchUsersList(); // rollback
-        setLoginError(e?.message || 'Delete failed');
-      }
-    },
-    [requireAdmin, fetchUsersList, fetchPostsForHome, currentUser]
-  );
-
-  const setModeratorRole = useCallback(
-    async (userId: number, role: 'moderator' | 'user') => {
-      if (!requireAdmin('Change user role')) return;
-
-      try {
-        await apiFetch('/api/admin/users/role', {
-          method: 'POST',
-          body: JSON.stringify({ user_id: Number(userId), role }),
-        });
-
-        await fetchUsersList();
-      } catch (e: any) {
-        setLoginError(e?.message || 'Role change failed');
-      }
-    },
-    [requireAdmin, fetchUsersList]
-  );
-
-  /** ---------- ✅ ADDED: Hashtag filtering logic ---------- */
-  const handleHashtagClick = useCallback((tag: string) => {
-    const cleanedTag = tag.startsWith('#') ? tag.toLowerCase() : `#${tag.toLowerCase()}`;
-    setActiveHashtag(cleanedTag);
-    setView('home');
-    window.scrollTo(0, 0);
-  }, []);
-
-  const clearHashtag = useCallback(() => {
-    setActiveHashtag(null);
-  }, []);
-
-  // ✅ Filter posts based on active hashtag
-  const filteredPosts = useMemo(() => {
-    if (!activeHashtag) return posts;
-    
-    const tagWithoutHash = activeHashtag.replace('#', '').toLowerCase();
-    return posts.filter((p: any) => {
-      const content = String(p.content || '').toLowerCase();
-      return content.includes(`#${tagWithoutHash}`) || content.includes(` ${tagWithoutHash} `);
-    });
-  }, [posts, activeHashtag]);
-
-  /** ---------- Derived ---------- */
-  const rankedPosts = useMemo(() => {
-    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
-                     activeHashtag ? filteredPosts : posts;
-    return Array.isArray(feedToRank) ? feedToRank : [];
-  }, [posts, filteredPosts, activeHashtag]);
-
-  /** ✅ Updated activePost resolver to include profilePosts ---------- */
-  const activePost = useMemo(() => {
-    if (activeCommentsPostId == null) return null;
-
-    if (commentPostSnapshot && Number((commentPostSnapshot as any)?.id) === Number(activeCommentsPostId)) {
-      return commentPostSnapshot;
-    }
-
-    const source = view === 'profile' ? profilePosts : posts;
-    return source.find((p: any) => Number(p.id) === Number(activeCommentsPostId)) || null;
-  }, [posts, profilePosts, view, activeCommentsPostId, commentPostSnapshot]);
-
-  const profileUser = useMemo(() => {
-    if (selectedUserId) {
-      return users.find((u) => Number(u.id) === Number(selectedUserId)) || null;
-    }
-    return currentUser || null;
-  }, [selectedUserId, users, currentUser]);
-
-  /** ---------- Handle user registration ---------- */
-  const handleRegister = useCallback(async (userData: any) => {
-    try {
-      setLoginError('');
-
-      const res = await fetch('/api/users/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userData),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Registration failed');
-      if (!data?.user) throw new Error('Registration failed: user missing');
-
-      const normalized = normalizeUser(data.user);
-      if (!normalized?.id) throw new Error('Registration failed: invalid user id');
-
-      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
-
-      setCurrentUser(normalized);
-      setSelectedUserId(Number(normalized.id));
-
-      // Add user to users list
-      setUsers((prev) => {
-        const arr = safeArray(prev);
-        const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
-        if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
-        return [normalized, ...arr];
-      });
-
-      // New session seed
-      try {
-        sessionStorage.removeItem(FEED_SESSION_KEY);
-      } catch {}
-
-      setView('home');
-      await fetchPostsForHome(normalized);
-      await fetchReels();
-
-    } catch (error: any) {
-      setLoginError(error?.message || 'Registration failed');
-    }
-  }, [fetchPostsForHome, fetchReels]);
-
-  /** ---------- Login (PROFESSIONALLY FIXED) ---------- */
-  const handleLogin = async (email: string, password: string) => {
-    try {
-      setLoginError('');
-
-      const res = await fetch('/api/users/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Login failed');
-      if (!data?.user) throw new Error('Login failed: user missing');
-
-      const normalized = normalizeUser(data.user);
-      if (!normalized?.id) throw new Error('Login failed: invalid user id');
-
-      // ✅ FIXED: Use finalUser consistently, don't setCurrentUser twice
-      let finalUser = normalized;
-      try {
-        const fresh = await apiFetch(`/api/users?id=${normalized.id}`);
-        finalUser = normalizeUser({ ...normalized, ...fresh });
-      } catch {}
-
-      setCurrentUser(finalUser);
-      localStorage.setItem(LS_USER_KEY, JSON.stringify(finalUser));
-
-      // new session seed
-      try {
-        sessionStorage.removeItem(FEED_SESSION_KEY);
-      } catch {}
-
-      setUsers((prev) => {
-        const arr = safeArray(prev);
-        const exists = arr.some((x) => Number(x.id) === Number(finalUser.id));
-        if (exists) return arr.map((x) => (Number(x.id) === Number(finalUser.id) ? finalUser : x));
-        return [finalUser, ...arr];
-      });
-
-      setSelectedUserId(Number(finalUser.id));
-      setView('home');
-
-      await fetchPostsForHome(finalUser);
-      await fetchReels();
-    } catch (error: any) {
-      setLoginError(error?.message || 'Login failed');
-    }
-  };
-
-  /** ✅ ADDED: Handle comment likes ---------- */
-  const handleLikeComment = async (commentId: number) => {
-    if (!currentUser) return;
-
-    await fetch(`/api/comments/${commentId}/like`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: currentUser.id }),
-    });
-  };
-
-  /** ✅ FIXED: Follow User with EXACT same API structure as original working code ---------- */
+  /** ✅ ✅ UPDATED: Follow User with CACHE support (Facebook-like stability) ---------- */
   const followUser = useCallback(
     async (targetUserId: number) => {
       if (!requireAuth('Following')) return;
@@ -3581,9 +2919,10 @@ const createEvent = useCallback(async (eventData: any) => {
       // ✅ backend blocks self-follow
       if (!targetId || targetId === meId) return;
 
-      // ✅ TRUE follow state comes from my "following"
-      const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
-      const isFollowingNow = myFollowing.has(targetId);
+      // ✅ TRUE follow state comes from my "following" (check cache first)
+      const myFollowingCache = readUserFollowingCache(meId);
+      const myFollowingSet = new Set<number>(myFollowingCache || safeArray<number>((currentUser as any).following));
+      const isFollowingNow = myFollowingSet.has(targetId);
 
       // Set loading state to prevent double clicks
       setFollowLoading(prev => ({ ...prev, [targetId]: true }));
@@ -3604,7 +2943,13 @@ const createEvent = useCallback(async (eventData: any) => {
             const following = new Set<number>(safeArray<number>((u as any).following));
             if (isFollowingNow) following.delete(targetId);
             else following.add(targetId);
-            return normalizeUser({ ...u, following: Array.from(following) });
+            
+            const updatedUser = normalizeUser({ ...u, following: Array.from(following) });
+            
+            // ✅ Update cache immediately
+            writeUserFollowingCache(meId, Array.from(following));
+            
+            return updatedUser;
           }
 
           // update TARGET.followers
@@ -3612,7 +2957,13 @@ const createEvent = useCallback(async (eventData: any) => {
             const followers = new Set<number>(safeArray<number>((u as any).followers));
             if (isFollowingNow) followers.delete(meId);
             else followers.add(meId);
-            return normalizeUser({ ...u, followers: Array.from(followers) });
+            
+            const updatedUser = normalizeUser({ ...u, followers: Array.from(followers) });
+            
+            // ✅ Update cache immediately
+            writeUserFollowersCache(targetId, Array.from(followers));
+            
+            return updatedUser;
           }
 
           return u;
@@ -3627,6 +2978,10 @@ const createEvent = useCallback(async (eventData: any) => {
         else following.add(targetId);
         const next = normalizeUser({ ...prev, following: Array.from(following) });
         localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
+        
+        // ✅ Update cache
+        writeUserFollowingCache(meId, Array.from(following));
+        
         return next;
       });
 
@@ -3645,7 +3000,7 @@ const createEvent = useCallback(async (eventData: any) => {
           });
         }
 
-        // ✅ Refresh follow data from server for consistency
+        // ✅ Refresh follow data from server for consistency (will update cache)
         fetchUserFollowDataForUI(targetId).catch(() => {});
         fetchUserFollowDataForUI(meId).catch(() => {});
 
@@ -3672,22 +3027,67 @@ const createEvent = useCallback(async (eventData: any) => {
     [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
   );
 
-  /** ✅ SIMPLIFIED & RELIABLE: Check if current user is following a specific user ---------- */
+  /** ✅ SIMPLIFIED & RELIABLE: Check if current user is following a specific user WITH CACHE ---------- */
   const checkIsFollowing = useCallback((targetUserId: number): boolean => {
     if (!currentUser || !targetUserId) return false;
     
-    // Direct check of current user's following array
+    // ✅ Check cache first
+    const cachedFollowing = readUserFollowingCache(Number(currentUser.id));
+    if (cachedFollowing) {
+      return cachedFollowing.includes(Number(targetUserId));
+    }
+    
+    // Fallback to state
     const myFollowing = safeArray<number>((currentUser as any).following);
     return myFollowing.includes(Number(targetUserId));
   }, [currentUser]);
 
+  /** ✅ ✅ ADDED: Get follower count with cache ---------- */
+  const getFollowerCount = useCallback((userId: number): number => {
+    // Check cache first
+    const cachedFollowers = readUserFollowersCache(userId);
+    if (cachedFollowers) {
+      return cachedFollowers.length;
+    }
+    
+    // Fallback to state
+    const user = users.find(u => Number(u.id) === Number(userId));
+    return user ? safeArray<number>(user.followers).length : 0;
+  }, [users]);
+
+  /** ✅ ✅ ADDED: Get following count with cache ---------- */
+  const getFollowingCount = useCallback((userId: number): number => {
+    // Check cache first
+    const cachedFollowing = readUserFollowingCache(userId);
+    if (cachedFollowing) {
+      return cachedFollowing.length;
+    }
+    
+    // Fallback to state
+    const user = users.find(u => Number(u.id) === Number(userId));
+    return user ? safeArray<number>(user.following).length : 0;
+  }, [users]);
+
+  /** ---------- Silent refresh helper ---------- */
+  const scheduleSilentRefresh = useCallback(() => {
+    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
+    scheduleSilentRefreshRef.current = setTimeout(() => {
+      fetchPostsForHome(currentUser).catch(() => {});
+      fetchReels().catch(() => {});
+    }, 8000);
+  }, [currentUser, fetchPostsForHome, fetchReels]);
+
+  /** ---------- Handle logout with cache cleanup ---------- */
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
     localStorage.removeItem(STORY_SEEN_KEY);
     localStorage.removeItem(STORIES_CACHE_KEY); // ✅ Clear stories cache on logout
     // Clear all viewer caches
     Object.keys(localStorage).forEach(key => {
-      if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
+      if (key.startsWith(STORY_VIEWERS_CACHE_KEY) || 
+          key.startsWith(FOLLOW_CACHE_KEY) ||
+          key.startsWith(USER_FOLLOWERS_CACHE_KEY) ||
+          key.startsWith(USER_FOLLOWING_CACHE_KEY)) {
         localStorage.removeItem(key);
       }
     });
@@ -4671,7 +4071,7 @@ const createEvent = useCallback(async (eventData: any) => {
         />
       )}
 
-      {/* ✅ ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH BACKEND-COMPATIBLE FIELDS */}
+      {/* ✅ ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH DELETE HANDLER ---------- */}
       {activeStoryId && activeStory && (
         <StoryViewerModal
           story={activeStory}
@@ -4695,6 +4095,8 @@ const createEvent = useCallback(async (eventData: any) => {
           // ✅ ADDED: Pass story muted state
           muted={storyMuted}
           onToggleMute={() => setStoryMuted(!storyMuted)}
+          // ✅ ADDED: Pass delete handler
+          onDeleteStory={deleteStory}
         />
       )}
 
