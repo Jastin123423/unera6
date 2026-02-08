@@ -286,3 +286,62 @@ export const rankFeed = (posts: Post[], viewer: User | null, users: User[], seed
 
   return constrained.map((x) => x.post);
 };
+// ✅ Story reel ranking (newest story per user) — matches your system fields
+// Priority: Me first -> Unviewed first -> Following -> Most recent
+export const rankStoriesForReel = <T extends { user_id: any; created_at: any }>(
+  stories: T[],
+  viewer: User | null
+): T[] => {
+  if (!Array.isArray(stories) || stories.length === 0) return [];
+
+  const meId = safeNumber((viewer as any)?.id, 0);
+  const following = new Set<number>(safeArray<number>((viewer as any)?.following));
+
+  const toTime = (d: any) => {
+    const t = new Date(String(d ?? "")).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  const isViewedByMe = (s: any) => {
+    const v = s?.viewed_by_me;
+    return v === true || v === 1 || v === "1";
+  };
+
+  // 1) sort all stories newest -> oldest
+  const sorted = [...stories].sort((a, b) => toTime(b.created_at) - toTime(a.created_at));
+
+  // 2) pick newest story per user (reel cards)
+  const latestByUser = new Map<number, T>();
+  for (const s of sorted) {
+    const uid = safeNumber((s as any)?.user_id, 0);
+    if (!uid) continue;
+    if (!latestByUser.has(uid)) latestByUser.set(uid, s);
+  }
+
+  const ranked = Array.from(latestByUser.values())
+    .map((latest) => {
+      const uid = safeNumber((latest as any)?.user_id, 0);
+      const isMe = !!meId && uid === meId;
+      const unviewed = !!meId && !isMe && !isViewedByMe(latest);
+      const isFollowing = !!meId && !!uid && following.has(uid);
+      const newestTime = toTime((latest as any)?.created_at);
+
+      return { latest, isMe, unviewed, isFollowing, newestTime };
+    })
+    .sort((a, b) => {
+      // Me first
+      if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
+      // Unviewed first
+      if (a.unviewed !== b.unviewed) return a.unviewed ? -1 : 1;
+      // Following next
+      if (a.isFollowing !== b.isFollowing) return a.isFollowing ? -1 : 1;
+      // Most recent newest story
+      return b.newestTime - a.newestTime;
+    })
+    .map((x) => x.latest);
+
+  return ranked;
+};
+
+
+
