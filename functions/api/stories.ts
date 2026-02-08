@@ -41,17 +41,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const music_url = body.music_url ? toStr(body.music_url).trim() : null;
     const music_title = body.music_title ? toStr(body.music_title).trim() : null;
 
-    // client can send, but we also safely default
     const expires_at_raw = typeof body.expires_at === "string" ? body.expires_at.trim() : "";
 
     if (!user_id) return json({ success: false, error: "user_id is required" }, 400);
 
-    // ✅ allow video
     if (type !== "text" && type !== "image" && type !== "video") {
       return json({ success: false, error: "type must be text, image, or video" }, 400);
     }
 
-    // Validation
     if (type === "text" && !text_content) {
       return json({ success: false, error: "text_content is required" }, 400);
     }
@@ -60,10 +57,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: "media_url is required" }, 400);
     }
 
-    // ✅ Default expires_at = now + 24h if missing
     const expiresExpr = expires_at_raw ? "?" : "datetime('now','+24 hours')";
 
-    // ✅ IMPORTANT: Keep INSERT columns EXACTLY matching your current DB table
     const stmt = `
       INSERT INTO stories
       (user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at)
@@ -77,7 +72,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const result = await env.DB.prepare(stmt).bind(...bindArgs).run();
     const story_id = Number(result.meta?.last_row_id);
 
-    // ✅ return full story with author fields + counts (so UI has everything immediately)
     const story = await env.DB.prepare(
       `
       SELECT
@@ -85,7 +79,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         u.username as author_name,
         u.profile_image_url as author_image,
 
-        -- NEW
         (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
         (SELECT sr.reaction
@@ -95,7 +88,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           LIMIT 1
         ) AS my_reaction,
 
-        -- OLD (keep for backward compat)
+        -- viewed_by_me for the creator themselves (true right away if they "view" is not recorded)
+        EXISTS(
+          SELECT 1 FROM story_views sv2
+          WHERE sv2.story_id = s.id
+            AND sv2.user_id = ?
+        ) AS viewed_by_me,
+
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
         (SELECT 1
            FROM story_reactions sr
@@ -110,7 +109,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT 1
     `
     )
-      .bind(user_id, user_id, story_id)
+      .bind(user_id, user_id, user_id, story_id)
       .first();
 
     return json({ success: true, story }, 201);
@@ -132,9 +131,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         u.username as author_name,
         u.profile_image_url as author_image,
 
-        -- NEW
+        -- counts
         (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
+
+        -- viewer-specific fields
         (SELECT sr.reaction
            FROM story_reactions sr
           WHERE sr.story_id = s.id
@@ -142,7 +143,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           LIMIT 1
         ) AS my_reaction,
 
-        -- OLD (keep for backward compat)
+        EXISTS(
+          SELECT 1 FROM story_views sv2
+          WHERE sv2.story_id = s.id
+            AND sv2.user_id = ?
+        ) AS viewed_by_me,
+
+        -- OLD (backward compat)
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
         (SELECT 1
            FROM story_reactions sr
@@ -158,8 +165,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT 500
     `;
 
-    // viewerId is used twice (my_reaction + liked_by_me)
-    const { results } = await env.DB.prepare(q).bind(viewerId || 0, viewerId || 0).all();
+    // viewerId used 3 times (my_reaction, viewed_by_me, liked_by_me)
+    const { results } = await env.DB
+      .prepare(q)
+      .bind(viewerId || 0, viewerId || 0, viewerId || 0)
+      .all();
+
     return json(Array.isArray(results) ? results : []);
   } catch (err: any) {
     return json({ success: false, error: "Backend crash", message: String(err?.message ?? err) }, 500);
