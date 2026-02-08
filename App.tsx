@@ -3369,7 +3369,7 @@ const createEvent = useCallback(async (eventData: any) => {
       } catch (e: any) {
         setLoginError(e?.message || 'Suspend failed');
       }
-    },
+    }
     [requireModOrAdmin, fetchUsersList]
   );
 
@@ -4425,7 +4425,6 @@ const createEvent = useCallback(async (eventData: any) => {
           <div className="text-white text-xs opacity-60 px-3 py-2">
   view = {String(view)}
 </div>
-
           {view === 'events' && (
             <EventsPage
               events={events}
