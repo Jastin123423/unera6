@@ -1,12 +1,4 @@
-// Story.tsx - PROFESSIONAL FACEBOOK/WHATSAPP-LIKE STORIES
-// Features:
-// 1. Multi-story navigation within same user (like WhatsApp/FB)
-// 2. Deduped unique viewers with proper reaction merging
-// 3. Professional full-screen viewers modal for authors
-// 4. Media-ready progress timing (no skipping while loading)
-// 5. Delete story functionality for authors
-// 6. Preserves all existing APIs and logic
-// 7. Keyboard shortcuts, swipe gestures, and performance optimizations
+// Story.tsx - PROFESSIONAL - UPDATED
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
@@ -352,6 +344,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     story.my_reaction ?? story.views?.find(v => v.user_id === currentUser?.id)?.reaction ?? null
   );
 
+  // Cache for last media URL to prevent blink
+  const lastMediaUrlRef = useRef<string | null>(null);
+  const cachedViewsCountRef = useRef<number>(0);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -367,6 +363,21 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     image: '',
     id: Number(story.user_id) || 0,
   });
+
+  // Cache views count to prevent blinking
+  useEffect(() => {
+    const totalViews = story.views_count || viewersCount || story.analytics?.total_views || 0;
+    if (totalViews > 0) {
+      cachedViewsCountRef.current = totalViews;
+    }
+  }, [story.id, story.views_count, viewersCount, story.analytics?.total_views]);
+
+  // Cache last media URL
+  useEffect(() => {
+    if (story.media_url && !isBlob(story.media_url)) {
+      lastMediaUrlRef.current = story.media_url;
+    }
+  }, [story.id, story.media_url]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -526,7 +537,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const storyIsVideo = story.type === 'video' || (!storyIsText && isVideoUrl(story.media_url));
   const storyIsImage = !storyIsText && !storyIsVideo;
 
-  const totalViews = story.views_count || viewersCount || story.analytics?.total_views || 0;
+  // Use cached views count to prevent blinking
+  const totalViews = story.views_count || viewersCount || story.analytics?.total_views || cachedViewsCountRef.current;
   const reactionsCount = story.reactions_count || story.analytics?.views_with_reactions || 0;
 
   useEffect(() => {
@@ -770,10 +782,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               )}
           </div>
 
-          {/* Author-only buttons - ✅ REMOVED analytics, KEPT viewers, ADDED delete */}
+          {/* Author-only buttons */}
           {isAuthor ? (
             <div className="flex gap-2">
-              {/* Viewers button */}
+              {/* Viewers button - Using cached count */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -784,7 +796,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               >
                 <i className="fas fa-eye text-white/90"></i>
                 <span className="text-white font-black text-xs">
-                  {uniqueViewers}
+                  {uniqueViewers > 0 ? uniqueViewers : cachedViewsCountRef.current || 0}
                 </span>
               </button>
               
@@ -802,7 +814,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               </button>
             </div>
           ) : (
-            // Non-author view (unchanged)
+            // Non-author view
             <div className="flex gap-2">
               {onToggleMute && (
                 <button
@@ -851,9 +863,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         )}
 
-        {/* Tap zones for navigation */}
+        {/* Tap zones for navigation - No visible buttons */}
         <div
-          className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer"
+          className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
             onPrev?.();
@@ -861,7 +873,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           aria-label="Previous story"
         />
         <div
-          className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer"
+          className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
             onNext?.();
@@ -914,13 +926,29 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 }}
               />
             ) : (
-              <img 
-                src={story.media_url} 
-                alt="Story" 
-                className="w-full h-full object-cover"
-                onLoad={() => setMediaReady(true)}
-                onError={() => setMediaReady(true)}
-              />
+              // UPDATED: Facebook-style image display
+              <div className="absolute inset-0">
+                {/* Soft blurred background */}
+                <div
+                  className="absolute inset-0 blur-3xl scale-110 opacity-40"
+                  style={{
+                    backgroundImage: `url(${story.media_url})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }}
+                />
+
+                {/* Main image - no zoom/crop */}
+                <img
+                  src={story.media_url}
+                  alt="Story"
+                  className="relative w-full h-full object-contain"
+                  loading="eager"
+                  decoding="async"
+                  onLoad={() => setMediaReady(true)}
+                  onError={() => setMediaReady(true)}
+                />
+              </div>
             )
           ) : (
             <div 
@@ -940,10 +968,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           )}
 
-          {/* Loading indicator when media not ready */}
+          {/* UPDATED: Small loading spinner instead of full overlay */}
           {!mediaReady && (
-            <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20">
-              <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
+            <div className="absolute top-24 right-4 z-40 bg-black/40 backdrop-blur-md rounded-full px-3 py-2 flex items-center gap-2 border border-white/10">
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              <span className="text-white/70 text-xs font-bold">Loading</span>
             </div>
           )}
 
@@ -1025,16 +1054,20 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           </div>
         ) : (
-          // AUTHOR VIEW: Show analytics summary (removed from header, kept at bottom)
+          // AUTHOR VIEW: Show analytics summary
           <div className="absolute bottom-0 left-0 right-0 p-4 z-20 flex items-center justify-between bg-gradient-to-t from-black/80 to-transparent pt-12">
             <div className="flex-1">
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
-                  <div className="text-white font-black text-lg">{totalViews}</div>
+                  <div className="text-white font-black text-lg">
+                    {totalViews > 0 ? totalViews : cachedViewsCountRef.current || 0}
+                  </div>
                   <div className="text-white/60 text-xs">Total Views</div>
                 </div>
                 <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
-                  <div className="text-white font-black text-lg">{uniqueViewers}</div>
+                  <div className="text-white font-black text-lg">
+                    {uniqueViewers > 0 ? uniqueViewers : totalViews || 0}
+                  </div>
                   <div className="text-white/60 text-xs">Unique Viewers</div>
                 </div>
                 <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
@@ -1085,6 +1118,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                       const id = Number(v?.user?.id || v?.user_id || 0);
                       const name = pickBestName(v?.user?.name, v?.user?.username, `User ${id || ''}`);
                       const img = v?.user?.profile_image_url || getDefaultProfilePicture(name, id);
+                      
+                      // UPDATED: Read reaction from multiple possible fields
+                      const reaction =
+                        (v as any)?.reaction ??
+                        (v as any)?.reaction_type ??
+                        (v as any)?.my_reaction ??
+                        v.reaction ??
+                        null;
 
                       return (
                         <div
@@ -1099,12 +1140,12 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                           </div>
 
                           <div className="flex flex-col items-end gap-1">
-                            <div className={`text-2xl ${getReactionColor(v.reaction)}`}>
-                              {getReactionEmoji(v.reaction)}
+                            <div className={`text-2xl ${getReactionColor(reaction)}`}>
+                              {getReactionEmoji(reaction)}
                             </div>
-                            {v.reaction && (
+                            {reaction && (
                               <span className="text-white/60 text-[10px] font-bold">
-                                {getReactionName(v.reaction)}
+                                {getReactionName(reaction)}
                               </span>
                             )}
                           </div>
