@@ -13,19 +13,17 @@ import {
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
+
 import { ReelsFeed, CreateReelModal } from './components/Reels';
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
-  EventsPage,
   BirthdaysPage,
   MemoriesPage,
   SettingsPage,
   SuggestedProfilesPage,
 } from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
-
-
-
+import EventsPage from './components/EventsPage';
 import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
