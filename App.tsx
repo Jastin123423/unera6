@@ -62,6 +62,12 @@ const LS_USER_KEY = 'user';
 const STORY_SEEN_KEY = 'unera_story_seen_v1';
 const STORY_SEEN_LIMIT = 2500;
 
+/** ===== ✅ ADDED: CACHE CONSTANTS ===== */
+const STORIES_CACHE_KEY = "unera_stories_cache_v1";
+const STORIES_CACHE_TTL_MS = 60_000; // 1 min
+const STORY_VIEWERS_CACHE_KEY = "unera_story_viewers_";
+const VIEWERS_TTL = 2 * 60_000; // 2 minutes
+
 const readStorySeen = (): number[] => {
   try {
     const raw = localStorage.getItem(STORY_SEEN_KEY);
@@ -76,6 +82,58 @@ const writeStorySeen = (ids: number[]) => {
   try {
     const dedup = Array.from(new Set(ids.map(Number).filter(Number.isFinite))).slice(0, STORY_SEEN_LIMIT);
     localStorage.setItem(STORY_SEEN_KEY, JSON.stringify(dedup));
+  } catch {}
+};
+
+/** ✅ ADDED: Stories cache functions */
+const readStoriesCache = () => {
+  try {
+    const raw = localStorage.getItem(STORIES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.ts || !Array.isArray(parsed?.stories)) return null;
+    
+    // Check if cache is expired
+    if (Date.now() - parsed.ts > STORIES_CACHE_TTL_MS) {
+      localStorage.removeItem(STORIES_CACHE_KEY);
+      return null;
+    }
+    
+    return parsed as { ts: number; stories: any[] };
+  } catch {
+    return null;
+  }
+};
+
+const writeStoriesCache = (stories: any[]) => {
+  try {
+    localStorage.setItem(STORIES_CACHE_KEY, JSON.stringify({ 
+      ts: Date.now(), 
+      stories: stories.map(s => normalizeStory(s)) 
+    }));
+  } catch {}
+};
+
+/** ✅ ADDED: Viewers cache functions */
+const readViewersCache = (storyId: number) => {
+  try {
+    const raw = localStorage.getItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.ts > VIEWERS_TTL) {
+      localStorage.removeItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
+      return null;
+    }
+    return parsed.viewers as any[];
+  } catch {
+    return null;
+  }
+};
+
+const writeViewersCache = (storyId: number, viewers: any[]) => {
+  try {
+    localStorage.setItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`, 
+      JSON.stringify({ ts: Date.now(), viewers }));
   } catch {}
 };
 
@@ -1210,22 +1268,32 @@ export default function App() {
     });
   }, []);
 
-  /** ✅ UPDATED: Facebook-like story ordering (unseen first, then newest) ---------- */
+  /** ✅ UPDATED: Facebook-like story ordering with enhanced algorithm ---------- */
   const orderedStories = useMemo(() => {
     const list = safeArray(stories);
 
-    // Unseen first
-    const unseen = list.filter(s => !seenStoryIds.has(Number(s.id)));
-    const seen = list.filter(s => seenStoryIds.has(Number(s.id)));
+    // ✅ Enhanced scoring: unseen first, your story first, then others
+    const scoreStory = (s: any) => {
+      const isMine = currentUser && Number(s.user_id) === Number(currentUser.id);
+      const unseen = !seenStoryIds.has(Number(s.id));
+      
+      // Base scores
+      const mineBoost = isMine ? 100 : 0;
+      const unseenBoost = unseen ? 50 : 0;
+      
+      // Recency factor (newer stories first)
+      const t = new Date(s.created_at || 0).getTime() || 0;
+      const recencyFactor = t / 1e13; // small factor to break ties
+      
+      // Interaction boost (if we have follow data)
+      const isFollowing = currentUser && safeArray<number>(currentUser.following).includes(Number(s.user_id));
+      const followBoost = isFollowing ? 30 : 0;
+      
+      return mineBoost + unseenBoost + followBoost + recencyFactor;
+    };
 
-    // Newest first inside each bucket
-    const byTimeDesc = (a: any, b: any) => String(b?.created_at || '').localeCompare(String(a?.created_at || ''));
-
-    unseen.sort(byTimeDesc);
-    seen.sort(byTimeDesc);
-
-    return [...unseen, ...seen];
-  }, [stories, seenStoryIds]);
+    return [...list].sort((a, b) => scoreStory(b) - scoreStory(a));
+  }, [stories, seenStoryIds, currentUser]);
 
   /** ✅ UPDATED: Preload story media for instant opening ---------- */
   const preloadStoryMedia = useCallback((s: Story) => {
@@ -1541,16 +1609,26 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ ✅ UPDATED: Fetch Stories with viewerId and proper backend field matching ---------- */
+  /** ✅ ✅ UPDATED: Fetch Stories with CACHE + MERGE updates (no blink) ---------- */
   const fetchStories = useCallback(async () => {
     if (storiesInFlightRef.current) return;
     storiesInFlightRef.current = true;
     
     try {
-      // ✅ ✅ FIX: Pass viewerId to get my_reaction correctly
+      // ✅ STEP 1: Show cached stories instantly (no loader)
+      const cached = readStoriesCache();
+      if (cached?.stories?.length) {
+        const cachedList = cached.stories;
+        setStories(prev => (prev.length ? prev : cachedList.map(s => normalizeStory(s))));
+      }
+
+      // ✅ STEP 2: Fetch fresh data in background
       const viewerId = currentUser?.id || 0;
       const data = await apiFetch(`/api/stories?viewerId=${viewerId}`);
       const storiesList = safeArray(data?.stories ?? data);
+      
+      // ✅ STEP 3: Update cache with fresh data
+      writeStoriesCache(storiesList);
       
       // snapshot users once
       const prevUsers = usersRef.current;
@@ -1571,7 +1649,7 @@ export default function App() {
         return st;
       });
 
-      // ✅ UPDATED: Keep local "truth" (liked_by_me / seen / any UI flags) on refetch
+      // ✅ STEP 4: Merge instead of replace (prevents blinking)
       setStories(prev => {
         const map = new Map<number, Story>();
         safeArray(prev).forEach(st => map.set(Number(st.id), st));
@@ -1581,12 +1659,12 @@ export default function App() {
           if (!old) return ns;
 
           return {
-            ...ns,
-            liked_by_me: ns.liked_by_me ?? old.liked_by_me, // keep local truth
-            views: ns.views ?? old.views, // keep existing views
-            views_count: ns.views_count ?? old.views_count ?? 0,
-            reactions_count: ns.reactions_count ?? old.reactions_count ?? 0,
-            my_reaction: ns.my_reaction ?? old.my_reaction ?? null,
+            ...old,          // keep UI state
+            ...ns,           // refresh backend fields
+            liked_by_me: ns.liked_by_me ?? old.liked_by_me,
+            my_reaction: ns.my_reaction ?? old.my_reaction,
+            views_count: ns.views_count ?? old.views_count,
+            reactions_count: ns.reactions_count ?? old.reactions_count,
           };
         });
       });
@@ -1601,14 +1679,18 @@ export default function App() {
     }
   }, [currentUser]);
 
-  /** ✅ ✅ FIXED: Story viewers fetch with proper user object ---------- */
+  /** ✅ ✅ UPDATED: Story viewers fetch with CACHE ---------- */
   const fetchStoryViewers = useCallback(async (storyId: number) => {
+    // ✅ Check cache first
+    const cached = readViewersCache(storyId);
+    if (cached) return cached;
+
     try {
       const data = await apiFetch(`/api/stories/${storyId}/viewers?limit=200`)
       const viewers = safeArray(data?.viewers ?? data);
       
       // ✅ CRITICAL FIX: Wrap user fields into user object that Story.tsx expects
-      return viewers.map((v: any) => ({
+      const formattedViewers = viewers.map((v: any) => ({
         id: v.id,
         story_id: v.story_id,
         user_id: v.user_id,
@@ -1624,6 +1706,10 @@ export default function App() {
           role: v.role,
         }),
       }));
+
+      // ✅ Cache the result
+      writeViewersCache(storyId, formattedViewers);
+      return formattedViewers;
     } catch (error) {
       console.error('Failed to fetch story viewers:', error);
       return [];
@@ -1655,31 +1741,46 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ ✅ UPDATED: View story callback with backend-compatible fields ---------- */
+  /** ✅ ✅ UPDATED: View story callback with LOCAL updates (no refetch) ---------- */
   const viewStory = useCallback(async (storyId: number) => {
     if (!requireAuth('Viewing stories')) return;
     if (!currentUser) return;
 
+    // ✅ OPTIMISTIC: Update views_count locally immediately (no blink)
+    setStories(prev =>
+      prev.map(story => {
+        if (Number(story.id) !== Number(storyId)) return story;
+        
+        return {
+          ...story,
+          views_count: (story.views_count || 0) + 1,
+        };
+      })
+    );
+
     try {
-      // Record view
-      await apiFetch(`/api/stories/${storyId}/view`, {
+      // Record view in background
+      const res = await apiFetch(`/api/stories/${storyId}/view`, {
         method: 'POST',
         body: JSON.stringify({ user_id: currentUser.id }),
       });
 
-      // Optimistically update view count
-      setStories(prev =>
-        prev.map(story => {
-          if (Number(story.id) !== Number(storyId)) return story;
-          
-          return {
-            ...story,
-            views_count: (story.views_count || 0) + 1,
-          };
-        })
-      );
+      // ✅ SYNC: Update with exact count from backend
+      if (res?.views_count !== undefined) {
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            return {
+              ...story,
+              views_count: Number(res.views_count ?? story.views_count),
+            };
+          })
+        );
+      }
     } catch (error) {
       console.error('Failed to record story view:', error);
+      // Keep optimistic update even if API fails
     }
   }, [currentUser, requireAuth]);
 
@@ -1691,7 +1792,7 @@ export default function App() {
     // Open viewer
     setActiveStoryId(id);
 
-    // Record view
+    // Record view with local update
     if (currentUser) {
       viewStory(id);
     }
@@ -1708,10 +1809,28 @@ export default function App() {
     if (next) preloadStoryMedia(next);
   }, [currentUser, viewStory, markStorySeen, preloadStoryMedia, orderedStories]);
 
-  /** ✅ ✅ UPDATED: Handle story like function using /react endpoint ---------- */
+  /** ✅ ✅ UPDATED: Handle story like function with LOCAL updates ---------- */
   const likeStory = useCallback(async (storyId: number) => {
     if (!requireAuth('Liking stories')) return;
     if (!currentUser) return;
+
+    // ✅ OPTIMISTIC: Update locally first
+    setStories(prev =>
+      prev.map(story => {
+        if (Number(story.id) !== Number(storyId)) return story;
+        
+        const currentlyLiked = story.liked_by_me;
+        
+        return {
+          ...story,
+          liked_by_me: !currentlyLiked,
+          my_reaction: !currentlyLiked ? 'like' : null,
+          reactions_count: currentlyLiked 
+            ? Math.max(0, (story.reactions_count || 0) - 1)
+            : (story.reactions_count || 0) + 1,
+        };
+      })
+    );
 
     try {
       // ✅ ✅ FIX: Use /react endpoint with 'like' reaction
@@ -1739,24 +1858,6 @@ export default function App() {
             };
           })
         );
-      } else {
-        // Optimistic update
-        setStories(prev =>
-          prev.map(story => {
-            if (Number(story.id) !== Number(storyId)) return story;
-            
-            const currentlyLiked = story.liked_by_me;
-            
-            return {
-              ...story,
-              liked_by_me: !currentlyLiked,
-              my_reaction: !currentlyLiked ? 'like' : null,
-              reactions_count: currentlyLiked 
-                ? Math.max(0, (story.reactions_count || 0) - 1)
-                : (story.reactions_count || 0) + 1,
-            };
-          })
-        );
       }
 
     } catch (error) {
@@ -1764,10 +1865,29 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ✅ ✅ UPDATED: Story reaction handler with proper backend endpoint ---------- */
+  /** ✅ ✅ UPDATED: Story reaction handler with LOCAL updates ---------- */
   const reactToStory = useCallback(async (storyId: number, reaction: string) => {
     if (!requireAuth('Reacting to stories')) return;
     if (!currentUser) return;
+
+    // ✅ OPTIMISTIC: Update locally first
+    setStories(prev =>
+      prev.map(story => {
+        if (Number(story.id) !== Number(storyId)) return story;
+        
+        const currentReaction = story.my_reaction;
+        const isSameReaction = currentReaction === reaction;
+        
+        return {
+          ...story,
+          my_reaction: isSameReaction ? null : reaction,
+          reactions_count: isSameReaction 
+            ? Math.max(0, (story.reactions_count || 0) - 1)
+            : (story.reactions_count || 0) + 1,
+          liked_by_me: isSameReaction ? false : true,
+        };
+      })
+    );
 
     try {
       // ✅ ✅ FIX: Use /react endpoint instead of /like
@@ -1796,30 +1916,10 @@ export default function App() {
             };
           })
         );
-      } else {
-        // Fallback optimistic update
-        setStories(prev =>
-          prev.map(story => {
-            if (Number(story.id) !== Number(storyId)) return story;
-            
-            const currentReaction = story.my_reaction;
-            const isSameReaction = currentReaction === reaction;
-            
-            return {
-              ...story,
-              my_reaction: isSameReaction ? null : reaction,
-              reactions_count: isSameReaction 
-                ? Math.max(0, (story.reactions_count || 0) - 1)
-                : (story.reactions_count || 0) + 1,
-              liked_by_me: isSameReaction ? false : true,
-            };
-          })
-        );
       }
 
     } catch (error) {
       console.error('Failed to react to story:', error);
-      // Don't call fetchStories here to avoid circular dependency
     }
   }, [currentUser, requireAuth]);
 
@@ -1893,6 +1993,9 @@ export default function App() {
       // Add to stories list
       setStories(prev => [newStory, ...prev]);
 
+      // Update cache
+      writeStoriesCache([newStory, ...stories]);
+
       // Show success
       setLoginError('Story created successfully!');
       
@@ -1900,7 +2003,7 @@ export default function App() {
       console.error('Failed to create story:', error);
       setLoginError(error?.message || 'Failed to create story');
     }
-  }, [currentUser, requireAuth]);
+  }, [currentUser, requireAuth, stories]);
 
   // ✅ FIXED: Call fetchMyTotalPlays only after auth is hydrated
   useEffect(() => {
@@ -3581,6 +3684,13 @@ const createEvent = useCallback(async (eventData: any) => {
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
     localStorage.removeItem(STORY_SEEN_KEY);
+    localStorage.removeItem(STORIES_CACHE_KEY); // ✅ Clear stories cache on logout
+    // Clear all viewer caches
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
+        localStorage.removeItem(key);
+      }
+    });
 
     try {
       sessionStorage.removeItem(FEED_SESSION_KEY);
