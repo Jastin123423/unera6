@@ -4431,8 +4431,6 @@ return (
       EVENTS PAGE RENDERED (inside full UI)
     </div>
 {view === 'events' && (
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { User, Event as EventType } from '../types';
 
 //-------------------- SAFE HELPERS --------------------
 const safeString = (v: any) => (typeof v === 'string' ? v : v == null ? '' : String(v));
