@@ -1,6 +1,12 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { User, Event as EventType } from '../types';
 
+return (
+  <div className="p-4 bg-red-600 text-white font-bold">
+    EVENTS PAGE RENDERED
+  </div>
+);
+
 // -------------------- SAFE HELPERS --------------------
 const safeString = (v: any) => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
