@@ -34,14 +34,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     const limit = Math.min(Math.max(toInt(url.searchParams.get("limit"), 50), 1), 200);
     const offset = Math.max(toInt(url.searchParams.get("offset"), 0), 0);
 
-    // Make sure story exists
     const exists = await env.DB.prepare(`SELECT id FROM stories WHERE id = ? LIMIT 1`)
       .bind(storyId)
       .first();
     if (!exists?.id) return json({ success: false, error: "Story not found" }, 404);
 
-    // ✅ Include viewer reaction (if any) by joining story_reactions on (story_id,user_id)
-    // Note: sr.reaction will be NULL for viewers who didn't react.
     const q = `
       SELECT
         sv.id,
