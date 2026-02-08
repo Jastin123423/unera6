@@ -4425,6 +4425,12 @@ const createEvent = useCallback(async (eventData: any) => {
             />
           )}
 
+          return (
+  <div className="p-4 bg-red-600 text-white font-bold">
+    EVENTS PAGE RENDERED
+  </div>
+);
+
          {view === 'events' && (
   <div style={{ position: "relative", zIndex: 999999 }}>
     <div className="p-4 bg-red-600 text-white font-bold">
