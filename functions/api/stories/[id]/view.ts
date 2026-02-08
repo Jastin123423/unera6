@@ -34,23 +34,27 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     const userId = toInt(body.user_id, 0);
     if (!userId) return json({ success: false, error: "user_id is required" }, 400);
 
-    // Ensure story exists (optional but helps debugging)
     const exists = await env.DB.prepare(`SELECT id FROM stories WHERE id = ? LIMIT 1`)
       .bind(storyId)
       .first();
-
     if (!exists?.id) return json({ success: false, error: "Story not found" }, 404);
 
-    // ✅ Insert view without throwing on duplicates
-    // UNIQUE(story_id, user_id) will prevent duplicates
-    const insertRes = await env.DB.prepare(
-      `INSERT OR IGNORE INTO story_views (story_id, user_id) VALUES (?, ?)`
+    // ✅ Pre-check to know if it was first time
+    const already = await env.DB.prepare(
+      `SELECT 1 as ok FROM story_views WHERE story_id = ? AND user_id = ? LIMIT 1`
     )
       .bind(storyId, userId)
-      .run();
+      .first();
 
-    // D1 returns meta.changes = 1 if inserted, 0 if ignored (already viewed)
-    const viewed = Number(insertRes?.meta?.changes ?? 0) > 0;
+    // ✅ Insert or refresh created_at (treat created_at as last viewed time)
+    await env.DB.prepare(`
+      INSERT INTO story_views (story_id, user_id, created_at)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(story_id, user_id)
+      DO UPDATE SET created_at = datetime('now')
+    `)
+      .bind(storyId, userId)
+      .run();
 
     const countRow = await env.DB.prepare(
       `SELECT COUNT(*) as views_count FROM story_views WHERE story_id = ?`
@@ -60,11 +64,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
     return json({
       success: true,
-      viewed,
+      viewed: !already, // true only if first time
       views_count: Number((countRow as any)?.views_count ?? 0),
     });
   } catch (err: any) {
-    // ✅ If anything fails, you will SEE it now.
     return json(
       { success: false, error: "Backend crash", message: String(err?.message ?? err) },
       500
