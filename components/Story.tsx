@@ -85,12 +85,34 @@ export interface CreateStoryData {
 }
 
 // -------------------- HELPER FUNCTIONS --------------------
-const formatStoryTime = (created_at?: string): string => {
-  if (!created_at) return 'Just now';
-  const t = new Date(created_at).getTime();
-  if (!Number.isFinite(t)) return 'Just now';
+// ✅ FIXED: Timezone-safe parser for server timestamps
+const parseServerTime = (value?: string): number => {
+  const s = String(value ?? '').trim();
+  if (!s) return Date.now();
 
+  // ISO with timezone -> safe
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const t = Date.parse(s);
+    return Number.isFinite(t) ? t : Date.now();
+  }
+
+  // "YYYY-MM-DD HH:mm:ss" -> treat as UTC (common server format)
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
+    const iso = s.replace(' ', 'T') + 'Z';
+    const t = Date.parse(iso);
+    return Number.isFinite(t) ? t : Date.now();
+  }
+
+  // Fallback
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : Date.now();
+};
+
+// ✅ FIXED: Use timezone-safe parser
+const formatStoryTime = (created_at?: string): string => {
+  const t = parseServerTime(created_at);
   const diff = Date.now() - t;
+
   if (diff < 60_000) return 'Just now';
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}min`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}hrs`;
@@ -231,7 +253,7 @@ const getReactionName = (reaction?: string | null): string => {
   }
 };
 
-// DEDUPE VIEWERS: Unique + merge reactions + sort by most recent
+// ✅ FIXED: Use timezone-safe parser for viewer sorting
 const dedupeViewers = (arr: StoryViewer[]): StoryViewer[] => {
   const map = new Map<number, StoryViewer>();
 
@@ -252,14 +274,14 @@ const dedupeViewers = (arr: StoryViewer[]): StoryViewer[] => {
     if (!prevHasReaction && nextHasReaction) {
       map.set(uid, v);
     } else {
-      const a = new Date(prev.viewed_at || 0).getTime();
-      const b = new Date(v.viewed_at || 0).getTime();
+      const a = parseServerTime(prev.viewed_at);
+      const b = parseServerTime(v.viewed_at);
       if (b > a) map.set(uid, v);
     }
   }
 
   return Array.from(map.values()).sort((a, b) =>
-    String(b.viewed_at || '').localeCompare(String(a.viewed_at || ''))
+    parseServerTime(b.viewed_at) - parseServerTime(a.viewed_at)
   );
 };
 
@@ -651,7 +673,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     setUserReaction(r);
   }, [story.id, currentUser?.id, story.views, story.my_reaction]);
 
-  // ✅ UPDATED: Set mediaReady instantly if preloaded, otherwise false
+  // ✅ FIXED: Better media ready detection with cached media check
   useEffect(() => {
     if (story.type === 'text') {
       setMediaReady(true);
@@ -659,22 +681,51 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
 
     const url = story.media_url || '';
-    if (url && !isBlob(url) && preloadReadyRef.current.get(url)) {
-      // ✅ already preloaded, show instantly (no loader)
+    if (!url || isBlob(url)) {
       setMediaReady(true);
-    } else {
-      setMediaReady(false);
+      return;
     }
+
+    // Check if already preloaded
+    if (preloadReadyRef.current.get(url)) {
+      setMediaReady(true);
+      return;
+    }
+
+    // If image is cached, onLoad may not fire -> check manually
+    if (!isVideoUrl(url)) {
+      const img = new Image();
+      img.src = url;
+
+      const done = () => {
+        preloadReadyRef.current.set(url, true);
+        setMediaReady(true);
+      };
+
+      if (img.complete) {
+        done();
+        return;
+      }
+
+      img.onload = done;
+      img.onerror = done;
+      return;
+    }
+
+    // Video: wait for canplay event
+    // The video element will handle this
   }, [story.id, story.type, story.media_url]);
 
-  // Set mediaReady for fallback content
+  // ✅ ADDED: Video ready state detection
   useEffect(() => {
-    const noMedia = story.type !== 'text' && (!story.media_url || isBlob(story.media_url));
-    if (noMedia) {
-      const timer = setTimeout(() => setMediaReady(true), 100);
-      return () => clearTimeout(timer);
+    if (story.type === 'video' || isVideoUrl(story.media_url)) {
+      const v = videoRef.current;
+      if (v && v.readyState >= 2) {
+        // HAVE_CURRENT_DATA or greater
+        setMediaReady(true);
+      }
     }
-  }, [story.id, story.type, story.media_url]);
+  }, [story.type, story.media_url]);
 
   // ✅ UPDATED: Preload next story media with cache marking
   useEffect(() => {
@@ -754,7 +805,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       .filter((s) => Number(s.user_id) === Number(story.user_id))
       .slice()
       // ✅ NEWEST FIRST (New -> Old -> Older -> Oldest)
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      .sort((a, b) => parseServerTime(b.created_at) - parseServerTime(a.created_at));
 
     const prevList = frozenUserStoriesRef.current;
 
@@ -1029,12 +1080,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           <i className="fas fa-chevron-right text-white/90"></i>
         </button>
 
-        {/* Progress bars */}
+        {/* Progress bars with loading animation */}
         <div className="absolute top-0 left-0 right-0 p-3 z-30 flex gap-1.5">
           {userStories.map((_, i) => (
             <div key={i} className="h-1 bg-white/20 flex-1 rounded-full overflow-hidden">
               <div
-                className="h-full bg-white transition-all duration-75 ease-linear"
+                className={`h-full bg-white transition-all duration-75 ease-linear ${
+                  !mediaReady && i === currentIndex ? 'animate-pulse' : ''
+                }`}
                 style={{
                   width: i < currentIndex ? '100%' : i === currentIndex ? `${progress}%` : '0%',
                 }}
@@ -1062,6 +1115,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 <span className="text-white font-bold text-[17px] drop-shadow-md">
                   {frozenAuthor.name}
                 </span>
+                {/* ✅ FIXED: Uses timezone-safe formatStoryTime */}
                 <span className="text-white/70 text-[12px] drop-shadow-md">
                   {formatStoryTime((story as any).created_at)}
                 </span>
@@ -1259,7 +1313,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           )}
 
-          {/* ✅ REMOVED: Small loading spinner (instant loading instead) */}
+          {/* ✅ ADDED: Loading indicator when media not ready */}
+          {!mediaReady && story.type !== 'text' && (
+            <div className="absolute inset-0 flex items-center justify-center z-30">
+              <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center">
+                <i className="fas fa-spinner fa-spin text-white text-2xl"></i>
+              </div>
+            </div>
+          )}
 
           {/* Play/pause indicator for videos */}
           {storyIsVideo && isPaused && (
@@ -1421,6 +1482,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                           <img src={img} className="w-12 h-12 rounded-full object-cover border border-white/10" alt="" />
                           <div className="flex-1 min-w-0">
                             <p className="text-white font-black truncate">{name}</p>
+                            {/* ✅ FIXED: Uses timezone-safe formatStoryTime */}
                             <p className="text-white/60 text-xs font-bold">{formatStoryTime(v.viewed_at)}</p>
                           </div>
 
@@ -1554,10 +1616,7 @@ export const StoryReel: React.FC<StoryReelProps> = ({
   checkIsFollowing,
   followLoading,
 }) => {
-  const toTime = (d: any) => {
-    const t = new Date(String(d ?? '')).getTime();
-    return Number.isFinite(t) ? t : 0;
-  };
+  const toTime = (d: any) => parseServerTime(d);
 
   const sortedStories = useMemo(() => 
     [...stories].sort((a, b) => toTime(b.created_at) - toTime(a.created_at)), 
@@ -2315,7 +2374,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       .filter(s => Number(s.user_id) === Number(story.user_id))
       .slice()
       // ✅ NEWEST FIRST (opens newest first, next goes older)
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      .sort((a, b) => parseServerTime(b.created_at) - parseServerTime(a.created_at));
 
     return list.length ? list : [story];
   }, [allStories, story.id, story.user_id]);
@@ -2325,11 +2384,17 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     return idx >= 0 ? idx : 0;
   });
 
-  // When a new "story" is opened from reel, sync index
+  // ✅ FIXED: Only resync when the opened story ID changes, not when the list changes
+  const lastOpenedIdRef = useRef<number>(Number(story.id));
+
   useEffect(() => {
-    const idx = userStories.findIndex(s => Number(s.id) === Number(story.id));
+    const openedId = Number(story.id);
+    if (openedId === lastOpenedIdRef.current) return;
+
+    lastOpenedIdRef.current = openedId;
+    const idx = userStories.findIndex(s => Number(s.id) === openedId);
     setActiveIndex(idx >= 0 ? idx : 0);
-  }, [story.id, userStories]);
+  }, [story.id]); // Removed userStories dependency
 
   const activeStory = userStories[activeIndex] || story;
 
