@@ -18,7 +18,6 @@ import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
-  EventsPage,
   BirthdaysPage,
   MemoriesPage,
   SettingsPage,
