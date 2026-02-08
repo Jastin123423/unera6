@@ -1,6 +1,4 @@
-return (
-  <div className="min-h-screen bg-[#18191A] text-[#E4E6EB]">
-    <div className="p-2 bg-red-600 text-white font-bold">
+
   
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Event, Group, Product, Post as PostType, AudioTrack } from '../types';
@@ -549,7 +547,7 @@ export const MemoriesPage = ({
 // --- SETTINGS PAGE ---
 export const SettingsPage = () => {
   return <div className="p-6 text-white">SettingsPage not implemented yet.</div>;
-  </div>
+
 };
     
 
