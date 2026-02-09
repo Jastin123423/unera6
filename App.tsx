@@ -483,7 +483,7 @@ const toISO = (d: any) => {
   return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
 };
 
-const toDateOnly = (d: any) => toISO(d).split('T')[0];
+const toDateOnly = (d: any) => toISO(d).split('T')[0] || new Date().toISOString().slice(0, 10);
 
 const toTimeHM = (d: any) => {
   // Prefer an explicit time string if it looks like HH:MM
@@ -502,12 +502,14 @@ const toTimeHM = (d: any) => {
 const normalizeEvent = (e: any): Event => {
   const id = safeNumber(e?.id ?? e?.event_id ?? 0);
 
-  const rawEventDate = e?.event_date ?? e?.date ?? new Date().toISOString();
-  const date = toDateOnly(rawEventDate);
+  const rawEventDate = e?.event_date ?? e?.date ?? e?.eventDate ?? new Date().toISOString();
 
-  // time preference order: explicit event_time/time -> else derive from event_date
-  const rawTime = e?.event_time ?? e?.time ?? '';
-  const time = rawTime ? toTimeHM(rawTime) : toTimeHM(rawEventDate);
+  // Always YYYY-MM-DD
+  const date = toDateOnly(rawEventDate) || new Date().toISOString().slice(0, 10);
+
+  // Always HH:MM
+  const rawTime = e?.event_time ?? e?.time ?? e?.eventTime ?? '';
+  const time = (rawTime ? toTimeHM(rawTime) : toTimeHM(rawEventDate)) || '12:00';
 
   const attendeesRaw =
     Array.isArray(e?.attendees) ? e.attendees :
@@ -521,6 +523,10 @@ const normalizeEvent = (e: any): Event => {
     Array.isArray(e?.interested) ? e.interested :
     [];
 
+  // ✅ FIXED: Proper cover handling with fallback
+  const cover =
+    safeString(e?.image ?? e?.cover_url ?? e?.cover_image ?? e?.coverImage ?? e?.cover, '') || DEFAULT_EVENT_COVER;
+
   return {
     ...e,
     id,
@@ -532,7 +538,12 @@ const normalizeEvent = (e: any): Event => {
     // ✅ UI-safe fields
     date,       // YYYY-MM-DD
     time,       // HH:MM
-    image: safeString(e?.image ?? e?.cover_url ?? e?.cover_image ?? '', DEFAULT_EVENT_COVER),
+
+    // ✅ FIXED: cover aliases for ANY Events UI variant
+    image: cover,
+    cover_url: cover,
+    cover_image: cover,
+
     visibility: safeString(e?.visibility, 'worldwide') as any,
 
     organizerId: safeNumber(e?.organizerId ?? e?.creator_id ?? e?.user_id ?? 0),
@@ -2886,7 +2897,7 @@ export default function App() {
     }
   }, [apiFetch, currentUser, requireAuth, updateEventState, fetchEvents]);
 
-  /** ✅ ADDED: Create Event (accepts BOTH UI formats) ---------- */
+  /** ✅ UPDATED: Create Event (accepts BOTH UI formats) with FIXED cover handling ---------- */
   const createEvent = useCallback(async (eventData: any) => {
     if (!requireAuth('Creating events')) return;
     if (!currentUser) return;
@@ -2899,17 +2910,14 @@ export default function App() {
     const apiISO = safeString(eventData?.event_date ?? '', '');
     const apiTime = safeString(eventData?.event_time ?? '', '');
 
-    const eventDateISO =
-      apiISO ||
-      (() => {
-        const d = uiDate || new Date().toISOString().split('T')[0];
-        const t = uiTime || '12:00';
-        try {
-          return new Date(`${d}T${t}:00`).toISOString();
-        } catch {
-          return new Date().toISOString();
-        }
-      })();
+    // Build a stable ISO-like string (local) then convert to ISO
+    const d = uiDate || toDateOnly(apiISO) || new Date().toISOString().slice(0, 10);
+    const t = apiTime || uiTime || '12:00';
+    const eventDateISO = new Date(`${d}T${t}:00`).toISOString();
+
+    // ✅ FIXED: Proper cover handling with fallback
+    const cover =
+      safeString(eventData?.cover_url ?? eventData?.image ?? eventData?.cover ?? eventData?.cover_image, '') || DEFAULT_EVENT_COVER;
 
     const payload = {
       title: safeString(eventData?.title).trim(),
@@ -2918,7 +2926,8 @@ export default function App() {
       event_time: apiTime || uiTime || '12:00',
       location: safeString(eventData?.location).trim(),
       visibility: safeString(eventData?.visibility, 'worldwide'),
-      cover_url: safeString(eventData?.cover_url ?? eventData?.image ?? eventData?.cover ?? '', DEFAULT_EVENT_COVER) || DEFAULT_EVENT_COVER,
+      cover_url: cover,
+      image: cover, // ✅ ADDED: Also include image field for compatibility
       creator_id: Number(currentUser.id),
       creator_name: safeString(currentUser.name),
       creator_avatar: safeString(currentUser.profile_image_url),
@@ -4479,20 +4488,27 @@ export default function App() {
             />
           )}
 
+          {/* ✅ FIXED: Events page with all fixes implemented */}
           {view === 'events' && (
-            <EventsPage
-              events={events}
-              currentUser={currentUser as any}
-              onJoinEvent={joinEvent}
-              onInterestedEvent={markEventInterested}
-              onCreateEventClick={() => {
-                if (!requireAuth('Creating events')) return;
-                setShowCreateEventModal(true);
-              }}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-            />
+            <>
+              {/* Debug helper - uncomment to see events data */}
+              {/* <pre className="text-white p-3 text-xs overflow-auto">
+                {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
+              </pre> */}
+              <EventsPage
+                events={events}
+                currentUser={currentUser ?? null} // ✅ FIXED: Pass null instead of undefined
+                onJoinEvent={joinEvent}
+                onInterestedEvent={markEventInterested}
+                onCreateEventClick={() => {
+                  if (!requireAuth('Creating events')) return;
+                  setShowCreateEventModal(true);
+                }}
+                onProfileClick={(id) => openProfile(id)}
+                onFollow={followUser}
+                checkIsFollowing={checkIsFollowing}
+              />
+            </>
           )}
 
           {view === 'birthdays' && (
