@@ -1930,10 +1930,9 @@ export default function App() {
       // ✅ ✅ FIX: Update story with backend response
       if (response?.story) {
         const updatedStory = normalizeStory(response.story, currentUser);
-        
-        setStories(pre
-    v =>
-          prev.map(story => {
+
+      setStories((prev) =>
+      prev.map((story) => {
             if (Number(story.id) !== Number(storyId)) return story;
             
             return {
