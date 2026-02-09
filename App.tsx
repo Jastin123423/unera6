@@ -4488,7 +4488,7 @@ export default function App() {
             />
           )}
 
-          {/* ✅ Events page */}
+           {/* ✅ Events page */}
 {view === 'events' && (
   <ErrorBoundary>
     <>
