@@ -1,6 +1,8 @@
-// EventsPage.tsx - Updated with ID safety, array defense, and optimistic UIw
+// EventsPage.tsx - Updated with ID safety, array defense, and optimistic UI
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, Event } from '../types';
+
 
 // --- HELPER FUNCTIONS ---
 const linkify = (text: string) => {
