@@ -1,4 +1,4 @@
-// EventsPage.tsx - Updated with safe parsing fixes
+// EventsPage.tsx - Updated with additional safety fixes
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, Event } from '../types';
 
@@ -102,9 +102,9 @@ const CompactEventCard: React.FC<{
     // SAFE DATE PARSING
     const date = safeDate(event.date || event.event_date || event.created_at || Date.now());
     
-    // Safe array access - already normalized by safeArr
-    const attendees = event.attendees || [];
-    const interestedIds = event.interestedIds || [];
+    // EXTRA DEFENSE: Ensure arrays (even if normalizeEvent fails)
+    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
+    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
     
     const isAttending = currentUser && attendees.includes(currentUser.id);
     const isInterested = currentUser && interestedIds.includes(currentUser.id);
@@ -180,9 +180,9 @@ const EventDetailsModal: React.FC<{
     // SAFE DATE PARSING
     const date = safeDate(event.date || event.event_date || event.created_at || Date.now());
     
-    // Safe array access - already normalized by safeArr
-    const attendees = event.attendees || [];
-    const interestedIds = event.interestedIds || [];
+    // EXTRA DEFENSE: Ensure arrays (even if normalizeEvent fails)
+    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
+    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
     
     const isAttending = currentUser && attendees.includes(currentUser.id);
     const isInterested = currentUser && interestedIds.includes(currentUser.id);
@@ -292,8 +292,8 @@ const EventsPage: React.FC<EventsPageProps> = ({
     checkIsFollowing 
 }) => {
     const [selectedCategory, setSelectedCategory] = useState('All');
-    const [selectedEvent, setSelectedEvent] = useState<any | null>(null); // Changed to any
-    const [shuffledEvents, setShuffledEvents] = useState<any[]>([]); // Changed to any[]
+    const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
+    const [shuffledEvents, setShuffledEvents] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     
@@ -315,6 +315,10 @@ const EventsPage: React.FC<EventsPageProps> = ({
                 const eventLoc = String(event.location || "").toLowerCase();
                 const userRegion = userLoc.split(',').pop()?.trim() || userLoc;
                 const eventRegion = eventLoc.split(',').pop()?.trim() || eventLoc;
+                
+                // FIX 1: Prevent empty region matching (which would match everyone)
+                if (!userRegion || !eventRegion) return false;
+                
                 return userLoc.includes(eventRegion) || eventLoc.includes(userRegion) || userRegion === eventRegion;
             }
             return true;
@@ -378,6 +382,33 @@ const EventsPage: React.FC<EventsPageProps> = ({
             await onInterestedEvent(eventId);
         } catch (err: any) {
             setError(err.message || 'Failed to mark interest');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // FIX 3: Modal action handlers with loading/error states
+    const handleModalJoin = async () => {
+        if (!currentUser || !selectedEvent) return;
+        
+        setLoading(true);
+        try {
+            await onJoinEvent(selectedEvent.id);
+        } catch (err: any) {
+            setError(err?.message || 'Failed to join event');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleModalInterested = async () => {
+        if (!currentUser || !selectedEvent) return;
+        
+        setLoading(true);
+        try {
+            await onInterestedEvent(selectedEvent.id);
+        } catch (err: any) {
+            setError(err?.message || 'Failed to mark interest');
         } finally {
             setLoading(false);
         }
@@ -516,8 +547,8 @@ const EventsPage: React.FC<EventsPageProps> = ({
                     event={selectedEvent}
                     currentUser={currentUser}
                     onClose={() => setSelectedEvent(null)}
-                    onJoin={() => onJoinEvent(selectedEvent.id)}
-                    onInterested={() => onInterestedEvent(selectedEvent.id)}
+                    onJoin={handleModalJoin}
+                    onInterested={handleModalInterested}
                     onProfileClick={onProfileClick}
                 />
             )}
