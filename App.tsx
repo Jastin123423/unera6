@@ -4495,22 +4495,26 @@ export default function App() {
               {/* <pre className="text-white p-3 text-xs overflow-auto">
                 {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
               </pre> */}
-              <EventsPage
-                events={events}
-                currentUser={currentUser ?? null} // ✅ FIXED: Pass null instead of undefined
-                onJoinEvent={joinEvent}
-                onInterestedEvent={markEventInterested}
-                onCreateEventClick={() => {
-                  if (!requireAuth('Creating events')) return;
-                  setShowCreateEventModal(true);
-                }}
-                onProfileClick={(id) => openProfile(id)}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-              />
-            </>
-          )}
-
+              {view === 'events' && (
+  <ErrorBoundary>
+    <>
+      <EventsPage
+        events={events}
+        currentUser={currentUser ?? null}
+        onJoinEvent={joinEvent}
+        onInterestedEvent={markEventInterested}
+        onCreateEventClick={() => {
+          if (!requireAuth('Creating events')) return;
+          setShowCreateEventModal(true);
+        }}
+        onProfileClick={(id) => openProfile(id)}
+        onFollow={followUser}
+        checkIsFollowing={checkIsFollowing}
+      />
+    </>
+  </ErrorBoundary>
+)}
+      
           {view === 'birthdays' && (
             <BirthdaysPage
               currentUser={currentUser as any}
