@@ -593,5 +593,4 @@ const EventsPage: React.FC<EventsPageProps> = ({
 };
 
 // Export both named and default (Pattern B)
-export { EventsPage };
 export default EventsPage;
