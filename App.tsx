@@ -1931,7 +1931,8 @@ export default function App() {
       if (response?.story) {
         const updatedStory = normalizeStory(response.story, currentUser);
         
-        setStories(prev =>
+        setStories(pre
+    v =>
           prev.map(story => {
             if (Number(story.id) !== Number(storyId)) return story;
             
@@ -4512,10 +4513,8 @@ export default function App() {
       />
       </>
       </ErrorBoundary>
-      )}
-
-          )}
-
+      )
+          
           {view === 'birthdays' && (
             <BirthdaysPage
               currentUser={currentUser as any}
