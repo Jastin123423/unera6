@@ -247,7 +247,7 @@ const QUICK_EMOJIS = [
   '💜', '🖤', '🤍', '🤎', '💯', '💢', '💥', '💫', '💦', '💨',
   '🕳️', '💣', '💬', '👁️‍🗨️', '🗨️', '🗯️', '💭', '💤', '🔴', '🟠',
   '🟡', '🟢', '🔵', '🟣', '🟤', '⚫', '⚪', '🟥', '🟧', '🟨',
-  '🟩', '🟦', '🟪', '🟫', '⬛', '⬜', '◼️', '◻️', '◾', '◽',
+  '🟩', '🟦', '🟪', '🟫', '⬛', '⬜', '◼️', '◻', '◾', '◽',
   '▪️', '▫️', '🔶', '🔷', '🔸', '🔹', '🔺', '🔻', '💠', '🔘',
   '🔳', '🔲', '🎵', '🎶', '🎼', '🎤', '🎧', '🎷', '🎸', '🎹',
   '🎺', '🎻', '🥁', '📱', '📲', '☎️', '📞', '📟', '📠', '🔋',
@@ -328,7 +328,7 @@ const ensureReactionStyles = () => {
 /**
  * =========================
  * ✅ UPDATED: ExpandableRichText Component for Show More/Show Less
- * Now opens Full Post View instead of inline expand
+ * Now expands inline only (no post view)
  * =========================
  */
 const ExpandableRichText: React.FC<{
@@ -338,11 +338,6 @@ const ExpandableRichText: React.FC<{
   onHashtagClick?: (tag: string) => void;
   maxWords?: number;
   fontSizePx?: number;
-
-  // ✅ NEW: when user taps "See more" open full post sheet
-  onSeeMore?: () => void;
-
-  // ✅ OPTIONAL: if true, render full text (for Full Post View)
   forceExpanded?: boolean;
 }> = ({
   text,
@@ -351,14 +346,15 @@ const ExpandableRichText: React.FC<{
   onHashtagClick,
   maxWords = 25,
   fontSizePx = 21,
-  onSeeMore,
   forceExpanded = false,
 }) => {
+  const [expanded, setExpanded] = useState(false);
+
   const words = (text || '').trim().split(/\s+/).filter(Boolean);
   const isLong = words.length > maxWords;
 
-  const shownText =
-    forceExpanded || !isLong ? text : words.slice(0, maxWords).join(' ') + '…';
+  const showAll = forceExpanded || expanded || !isLong;
+  const shownText = showAll ? text : words.slice(0, maxWords).join(' ') + '…';
 
   return (
     <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed">
@@ -369,17 +365,16 @@ const ExpandableRichText: React.FC<{
         onHashtagClick={onHashtagClick}
       />
 
-      {/* ✅ Feed behavior: "See more" opens full post view */}
       {isLong && !forceExpanded && (
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onSeeMore?.();
+            setExpanded((v) => !v);
           }}
           className="ml-2 font-bold text-[#1877F2] hover:underline"
         >
-          See more
+          {expanded ? 'See less' : 'See more'}
         </button>
       )}
     </div>
@@ -777,7 +772,7 @@ const MediaGrid: React.FC<{
         onOpen(url, index);
       }}
       className={`relative overflow-hidden ${className}`}
-      style={{ borderRadius: 0 }} // ✅ no inner rounding; card handles rounding with overflow-hidden
+      style={{ borderRadius: 0 }}
     >
       <img
         src={url}
@@ -785,7 +780,6 @@ const MediaGrid: React.FC<{
         loading="lazy"
         className="w-full h-full object-cover"
         onError={(e) => {
-          // hide broken tile cleanly
           (e.currentTarget as HTMLImageElement).style.display = 'none';
         }}
       />
@@ -798,7 +792,7 @@ const MediaGrid: React.FC<{
     </button>
   );
 
-  // ✅ 1 image: full width normal (still grid-friendly)
+  // ✅ 1 image: full width normal
   if (total === 1) {
     return (
       <div className="w-full bg-black">
@@ -844,7 +838,7 @@ const MediaGrid: React.FC<{
     );
   }
 
-  // ✅ 4 or 5+ images: 2x2 grid, overlay +N on 4th tile when extra exists
+  // ✅ 4 or 5+ images: 2x2 grid
   return (
     <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
       <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
@@ -856,6 +850,89 @@ const MediaGrid: React.FC<{
         className="h-[260px] w-full"
         showOverlay={extra > 0}
       />
+    </div>
+  );
+};
+
+/**
+ * =========================
+ * ✅ NEW: GALLERY VIEWER COMPONENT FOR FULL-SCREEN SWIPING
+ * =========================
+ */
+const GalleryViewer: React.FC<{
+  isOpen: boolean;
+  urls: string[];
+  startIndex: number;
+  onClose: () => void;
+}> = ({ isOpen, urls, startIndex, onClose }) => {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+
+    // jump to selected index on open
+    requestAnimationFrame(() => {
+      const el = scrollerRef.current;
+      if (!el) return;
+      const w = el.clientWidth || window.innerWidth;
+      el.scrollTo({ left: startIndex * w, behavior: 'instant' as any });
+    });
+
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, startIndex]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] bg-black"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      {/* Top bar */}
+      <div
+        className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3 bg-black/40"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-white text-sm font-semibold">
+          {startIndex + 1}/{urls.length}
+        </div>
+        <button
+          className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <i className="fas fa-times text-white text-lg"></i>
+        </button>
+      </div>
+
+      {/* Horizontal swipe area */}
+      <div
+        ref={scrollerRef}
+        className="h-full w-full overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scroll-smooth"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {urls.map((url, i) => (
+          <div
+            key={url + i}
+            className="min-w-full h-full snap-center flex items-center justify-center bg-black"
+          >
+            <img
+              src={url}
+              alt=""
+              className="max-w-full max-h-full object-contain"
+              draggable={false}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -919,7 +996,6 @@ export const ShareBottomSheet: React.FC<{
     }, 200);
   };
 
-  // ✅ UPDATED: Standardized destination strings
   const handleShareAction = async (destination: string) => {
     if (!currentUser) {
       alert('Please login to share.');
@@ -930,7 +1006,7 @@ export const ShareBottomSheet: React.FC<{
       const payload = {
         post_id: post.id,
         user_id: currentUser.id,
-        destination, // ✅ Now consistent: 'feed', 'group', 'message'
+        destination,
         shared_at: new Date().toISOString(),
       };
 
@@ -964,7 +1040,6 @@ export const ShareBottomSheet: React.FC<{
     }
   };
 
-  // ✅ FIXED: Multi-image preview URL
   const previewUrl = useMemo(() => {
     return (
       (Array.isArray(post?.media_urls) && post.media_urls[0]) ||
@@ -974,7 +1049,6 @@ export const ShareBottomSheet: React.FC<{
     );
   }, [post]);
 
-  // ✅ FIXED: Early returns for different flows
   if (!isOpen) return null;
 
   if (activeFlow === 'feed' && currentUser) {
@@ -989,7 +1063,7 @@ export const ShareBottomSheet: React.FC<{
             <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
           </div>
           <button
-            onClick={() => handleShareAction('feed')} // ✅ Consistent: 'feed'
+            onClick={() => handleShareAction('feed')}
             className="text-[#1877F2] font-bold text-[17px]"
           >
             POST
@@ -1032,7 +1106,7 @@ export const ShareBottomSheet: React.FC<{
             <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to Groups & Brands</h3>
           </div>
           <button
-            onClick={() => handleShareAction('group')} // ✅ Consistent: 'group'
+            onClick={() => handleShareAction('group')}
             className="text-[#1877F2] font-bold text-[17px]"
           >
             SHARE
@@ -1067,7 +1141,7 @@ export const ShareBottomSheet: React.FC<{
                   </div>
                 </div>
                 <button 
-                  onClick={() => handleShareAction('group')} // ✅ Consistent: 'group'
+                  onClick={() => handleShareAction('group')}
                   className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
                 >
                   Share
@@ -1123,7 +1197,7 @@ export const ShareBottomSheet: React.FC<{
                   </div>
                 </div>
                 <button 
-                  onClick={() => handleShareAction('message')} // ✅ Consistent: 'message'
+                  onClick={() => handleShareAction('message')}
                   className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
                 >
                   Send
@@ -1158,7 +1232,6 @@ export const ShareBottomSheet: React.FC<{
 
           {post && (
             <div className="flex items-start gap-3 mb-4 p-3 bg-[#3A3B3C] rounded-xl">
-              {/* ✅ FIXED: Use previewUrl for multi-image support */}
               {previewUrl && (
                 <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
                   <img 
@@ -1354,8 +1427,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH ENHANCED REACTIONS, API FORMAT SUPPORT,
- * MULTIPLE IMAGES, AND FOLLOW BUTTON
+ * ✅ UPDATED: POST CARD WITH FLAT FACEBOOK STYLE
  * =========================
  */
 export const Post: React.FC<{
@@ -1375,7 +1447,6 @@ export const Post: React.FC<{
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
-  // ✅ ADDED: Follow button props
   isFollowing?: boolean;
   onFollow?: (id: number) => void;
   followLoading?: boolean;
@@ -1396,7 +1467,6 @@ export const Post: React.FC<{
   groups = [],
   brands = [],
   chats = [],
-  // ✅ NEW: Follow button props
   isFollowing = false,
   onFollow,
   followLoading = false,
@@ -1404,8 +1474,6 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
-  // ✅ ENHANCED REACTION LOGIC WITH DUAL API SUPPORT
-  // Support both myReaction/my_reaction and likesCount/reactionsCount
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
     (p as any).likesCount ?? 
@@ -1416,7 +1484,6 @@ export const Post: React.FC<{
 
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
   
-  // Final calculation with priority: explicit fields > reactions array
   const finalMyReaction: ReactionType | undefined =
     myReaction ||
     (currentUser && reactionsArr
@@ -1430,30 +1497,36 @@ export const Post: React.FC<{
         ? reactionsArr.length
         : 0;
   
-  // ✅ INSTANT COMMENT COUNT UPDATES
   const [commentCount, setCommentCount] = useState(() => {
     if (typeof p.comment_count === 'number') return p.comment_count;
     if (Array.isArray(p.comments)) return p.comments.length;
     return 0;
   });
 
-  // ✅ INSTANT SHARE COUNT
   const [shareCount, setShareCount] = useState(() => {
     return safeNumber(p.shares ?? p.shares_count, 0);
   });
 
   const [showShareSheet, setShowShareSheet] = useState(false);
 
+  // ✅ NEW: Gallery state for multi-image swiping
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+
+  const openGallery = (urls: string[], index: number) => {
+    setGalleryUrls(urls);
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  };
+
   const createdAtLabel = formatRelativeTime(p.created_at);
   const postId = safePostId(p);
 
   const mediaInfo = getMediaTypeInfo(p);
 
-  // ✅ NEW: Use getPostMediaList for multiple images
   const mediaList = useMemo(() => {
-    // normalize all possible inputs
     const list = getPostMediaList(p);
-    // for now focus on images only for grid (facebook collage)
     return list.filter((x) => x.kind === 'image');
   }, [p]);
 
@@ -1466,7 +1539,6 @@ export const Post: React.FC<{
     return count.toString();
   };
 
-  // ✅ Sync counts with post updates
   useEffect(() => {
     const newCommentCount = typeof p.comment_count === 'number' 
       ? p.comment_count 
@@ -1484,7 +1556,6 @@ export const Post: React.FC<{
     }
   }, [p.comment_count, p.comments, p.shares, p.shares_count, commentCount, shareCount]);
 
-  // ✅ FIXED: Share count update with safeNumber
   const handleShareComplete = (destination: string, data?: any) => {
     const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
     
@@ -1495,7 +1566,6 @@ export const Post: React.FC<{
     setShowShareSheet(false);
   };
 
-  // ✅ ADDED: Handle follow click
   const handleFollowClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -1506,7 +1576,8 @@ export const Post: React.FC<{
 
   return (
     <>
-      <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+      {/* ✅ UPDATED: Flat Facebook Style - no rounded corners, no shadow, no mb-4, only border-b */}
+      <div className="bg-[#242526] w-full border-b border-[#3E4042] overflow-hidden">
         <div className="p-3 md:p-4 flex items-center justify-between">
           <div
             className="flex items-center gap-2 flex-1 min-w-0"
@@ -1553,7 +1624,6 @@ export const Post: React.FC<{
             </div>
           </div>
 
-          {/* ✅ ADDED: Follow Button on right side (only if not current user and onFollow is provided) */}
           {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
             <button
               onClick={handleFollowClick}
@@ -1590,7 +1660,7 @@ export const Post: React.FC<{
             )}
         </div>
 
-        {/* ✅ UPDATED: Use ExpandableRichText for post description with onSeeMore prop */}
+        {/* ✅ UPDATED: Text expands inline only */}
         {p.content && (
           <div className="px-3 md:px-4 pb-2">
             <ExpandableRichText
@@ -1600,14 +1670,13 @@ export const Post: React.FC<{
               onHashtagClick={onHashtagClick}
               maxWords={25}
               fontSizePx={21}
-              onSeeMore={() => onOpenComments(Number(postId))} // ✅ open Full Post
             />
           </div>
         )}
 
         {p.link_preview && !mediaInfo.mediaUrl && (
           <div
-            className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+            className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
             onClick={() => window.open(p.link_preview.url, '_blank')}
           >
             <img
@@ -1638,19 +1707,28 @@ export const Post: React.FC<{
           </div>
         )}
 
-        {/* ✅ UPDATED: FACEBOOK-LIKE MULTI IMAGE GRID (FULL WIDTH) */}
+        {/* ✅ UPDATED: Multi-image grid opens gallery */}
         {!p.background && mediaList.length > 1 && (
           <MediaGrid
             media={mediaList.map((m) => ({ url: m.url }))}
-            onOpen={(url, index) => onViewImage(url)}
+            onOpen={(url, index) => {
+              const urls = mediaList.map((m) => m.url);
+              openGallery(urls, index);
+            }}
           />
         )}
 
-        {/* ✅ SINGLE IMAGE (existing behavior, still full width) */}
+        {/* ✅ Single image opens gallery */}
         {!p.background && mediaList.length <= 1 && mediaInfo.mediaUrl && mediaInfo.isImage && (
           <div
             className="cursor-pointer bg-black"
-            onClick={() => onViewImage(mediaInfo.mediaUrl)}
+            onClick={() => {
+              if (mediaList.length > 0) {
+                openGallery(mediaList.map(m => m.url), 0);
+              } else {
+                openGallery([mediaInfo.mediaUrl], 0);
+              }
+            }}
           >
             <img
               src={mediaInfo.mediaUrl}
@@ -1716,13 +1794,11 @@ export const Post: React.FC<{
 
         <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
           <div className="flex items-center gap-1.5">
-            {/* ✅ UPDATED: Use finalReactionCount with dual API support */}
             {finalReactionCount > 0 && (
               <span className="hover:underline">{formatCount(finalReactionCount)} Reactions</span>
             )}
           </div>
           <div className="flex gap-4">
-            {/* ✅ INSTANT COMMENT COUNT BOTH PLACES */}
             <span
               className="hover:underline cursor-pointer"
               onClick={() => onOpenComments(Number(postId))}
@@ -1738,7 +1814,6 @@ export const Post: React.FC<{
         </div>
 
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          {/* ✅ UPDATED: Enhanced ReactionButton with 25+ emojis & long-press */}
           <ReactionButton
             currentUserReactions={finalMyReaction}
             reactionCount={finalReactionCount}
@@ -1779,6 +1854,14 @@ export const Post: React.FC<{
         chats={chats}
         onShareComplete={handleShareComplete}
       />
+
+      {/* ✅ Gallery Viewer for multi-image swiping */}
+      <GalleryViewer
+        isOpen={galleryOpen}
+        urls={galleryUrls}
+        startIndex={galleryIndex}
+        onClose={() => setGalleryOpen(false)}
+      />
     </>
   );
 };
@@ -1794,7 +1877,7 @@ export const CreatePost: React.FC<{
   onClick: () => void;
   onCreateEventClick?: () => void;
 }> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
-  <div className="bg-[#242526] rounded-xl p-3 md:p-4 mb-4 shadow-sm border border-[#3E4042]">
+  <div className="bg-[#242526] w-full border-b border-[#3E4042] p-3 md:p-4">
     <div className="flex gap-2 mb-3">
       <img
         src={
@@ -1856,7 +1939,7 @@ export const CreatePostModal: React.FC<{
   onClose: () => void;
   onCreatePost: (
     text: string,
-    files: File[], // ✅ CHANGED: Accept array of files
+    files: File[],
     meta?: {
       type?: 'text' | 'image' | 'video';
       visibility?: string;
@@ -1872,7 +1955,6 @@ export const CreatePostModal: React.FC<{
   const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
   
-  // ✅ CHANGED: Single file -> array of files
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [type, setType] = useState<'text' | 'image' | 'video'>('text');
@@ -1897,14 +1979,12 @@ export const CreatePostModal: React.FC<{
     setLinkPreview(getLinkPreview(text));
   }, [text]);
 
-  // ✅ CHANGED: Clean up ALL preview URLs
   useEffect(() => {
     return () => {
       previews.forEach((p) => URL.revokeObjectURL(p));
     };
   }, [previews]);
 
-  // ✅ UPDATED: Handle multiple file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = Array.from(e.target.files || []);
     if (list.length === 0) return;
@@ -1912,14 +1992,13 @@ export const CreatePostModal: React.FC<{
     const images = list.filter((f) => f.type.startsWith('image/'));
     const videos = list.filter((f) => f.type.startsWith('video/'));
 
-    // Rule (simple + safe): allow multiple images OR one video (not both)
     if (videos.length > 0) {
       const v = videos[0];
       setFiles([v]);
       setPreviews([URL.createObjectURL(v)]);
       setType('video');
     } else {
-      setFiles(images.slice(0, 9)); // Limit to 9 images
+      setFiles(images.slice(0, 9));
       setPreviews(images.slice(0, 9).map((f) => URL.createObjectURL(f)));
       setType('image');
     }
@@ -1927,7 +2006,6 @@ export const CreatePostModal: React.FC<{
     setActiveBackground('');
     setView('main');
 
-    // reset input so selecting same files again still triggers change
     if (e.target) {
       e.target.value = '';
     }
@@ -1956,13 +2034,11 @@ export const CreatePostModal: React.FC<{
     searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
   };
 
-  // ✅ CHANGED: Can post if text OR files OR background
   const canPost = !!text.trim() || files.length > 0 || !!activeBackground;
 
   const submit = () => {
     if (!canPost) return;
 
-    // ✅ CHANGED: Pass array of files instead of single file
     onCreatePost(text, files, {
       type: files.length ? type : 'text',
       visibility,
@@ -2258,7 +2334,6 @@ export const CreatePostModal: React.FC<{
             </div>
           )}
 
-          {/* ✅ UPDATED: Show multiple image previews */}
           {previews.length > 0 && (
             <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
               <div
@@ -2335,7 +2410,6 @@ export const CreatePostModal: React.FC<{
         </button>
       </div>
 
-      {/* ✅ UPDATED: Input with multiple attribute */}
       <input 
         type="file" 
         ref={fileInputRef} 
@@ -2358,8 +2432,7 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ PROFESSIONALLY UPDATED: FULL POST VIEW - FULL SCREEN, CLEAN COMMENT DESIGN
- * WITH FIXED IMAGE WIDTH TO MATCH FEED IMAGES
+ * ✅ UPDATED: FULL POST VIEW WITH FULL-WIDTH MEDIA
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -2372,7 +2445,6 @@ export const CommentsSheet: React.FC<{
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
   onHashtagClick?: (tag: string) => void;
-  // ✅ ADDED: Follow button props for comments
   onFollow?: (id: number) => void;
   checkIsFollowing?: (id: number) => boolean;
 }> = ({ 
@@ -2448,7 +2520,6 @@ export const CommentsSheet: React.FC<{
     return count.toString();
   };
 
-  // ✅ Optimistic comment like
   const handleLikeComment = async (comment: any) => {
     if (!currentUser) return;
 
@@ -2490,7 +2561,6 @@ export const CommentsSheet: React.FC<{
     }
   };
 
-  // ✅ ADDED: Handle follow click in comments
   const handleFollowClick = (e: React.MouseEvent, userId: number) => {
     e.stopPropagation();
     e.preventDefault();
@@ -2499,7 +2569,6 @@ export const CommentsSheet: React.FC<{
     }
   };
 
-  // Silent background fetch for comments
   const fetchCommentsSilently = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -2529,7 +2598,6 @@ export const CommentsSheet: React.FC<{
     }
   };
 
-  // Initialize comments when sheet opens
   useEffect(() => {
     const initializeComments = async () => {
       const cached = commentsCache.get(postId);
@@ -2667,7 +2735,6 @@ export const CommentsSheet: React.FC<{
 
   const mediaInfo = getMediaTypeInfo(p);
 
-  // ✅ Get media list for multiple images support in Full Post View
   const mediaList = useMemo(() => {
     const list = getPostMediaList(p);
     return list.filter((x) => x.kind === 'image');
@@ -2708,7 +2775,7 @@ export const CommentsSheet: React.FC<{
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto scroll-smooth"
       >
-        {/* ✅ FULL POST CONTENT - NO CONTAINERS */}
+        {/* ✅ FULL POST CONTENT */}
         <div className="p-4 border-b border-[#3E4042]">
           {/* Author */}
           <div className="flex items-center gap-3 mb-4">
@@ -2735,7 +2802,6 @@ export const CommentsSheet: React.FC<{
                   </div>
                 </div>
                 
-                {/* ✅ ADDED: Follow button in full post view */}
                 {onFollow && currentUser && p.author?.id && safeUserId(p.author) !== safeUserId(currentUser) && (
                   <button
                     onClick={(e) => handleFollowClick(e, safeUserId(p.author))}
@@ -2766,20 +2832,18 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ✅ PROFESSIONAL FIX: Media Full Width - MATCHES FEED IMAGES */}
+          {/* ✅ UPDATED: FULL-WIDTH MEDIA (NO SIDE PADDING) */}
           {mediaList.length > 0 && (
-            <div className="mb-4">
+            <div className="mb-4 -mx-4">
               {mediaList.length > 1 ? (
-                // ✅ Multiple images: Use MediaGrid component
                 <MediaGrid
                   media={mediaList.map((m) => ({ url: m.url }))}
                   onOpen={(url, index) => {
-                    // You can add full screen viewer here if needed
+                    // Could open gallery here too if desired
                     console.log('Open image:', url, index);
                   }}
                 />
               ) : (
-                // ✅ Single image: Full width like feed
                 <div className="w-full bg-black">
                   <img
                     src={mediaList[0].url}
@@ -2794,9 +2858,8 @@ export const CommentsSheet: React.FC<{
 
           {/* Fallback for single media_url */}
           {mediaList.length === 0 && p.media_url && (
-            <div className="mb-4">
+            <div className="mb-4 -mx-4">
               {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
-                // ✅ FIXED: Remove rounded-lg and use w-full without side gaps
                 <div className="w-full bg-black">
                   <img
                     src={String(p.media_url)}
@@ -2830,7 +2893,7 @@ export const CommentsSheet: React.FC<{
           </div>
         </div>
 
-        {/* ✅ CLEAN COMMENTS SECTION - NO CONTAINERS */}
+        {/* ✅ CLEAN COMMENTS SECTION */}
         <div className="p-4">
           {/* Reply Indicator */}
           {replyTo && (
@@ -2886,13 +2949,11 @@ export const CommentsSheet: React.FC<{
                     key={String(c.id)} 
                     className={`animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
                   >
-                    {/* Reply Indicator Line */}
                     {isReply && (
                       <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
                     )}
                     
                     <div className="flex gap-3">
-                      {/* Profile Image */}
                       <img
                         src={a.image}
                         className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
@@ -2901,7 +2962,6 @@ export const CommentsSheet: React.FC<{
                       />
                       
                       <div className="flex-1 min-w-0">
-                        {/* Comment Header - NO CONTAINER */}
                         <div className="mb-1">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -2916,7 +2976,6 @@ export const CommentsSheet: React.FC<{
                               </span>
                             </div>
                             
-                            {/* ✅ ADDED: Follow button in comments */}
                             {onFollow && currentUser && a.uid && !isCurrentUserComment && (
                               <button
                                 onClick={(e) => handleFollowClick(e, a.uid)}
@@ -2932,7 +2991,6 @@ export const CommentsSheet: React.FC<{
                           </div>
                         </div>
                         
-                        {/* ✅ UPDATED: Comment Text - NO CONTAINER, BOLD NAMES */}
                         <div className="text-[#E4E6EB] text-[18px] font-bold whitespace-pre-wrap break-words mb-2">
                           <RichText
                             text={String(c.text || '')}
@@ -2942,7 +3000,6 @@ export const CommentsSheet: React.FC<{
                           />
                         </div>
                         
-                        {/* Comment Actions */}
                         <div className="flex items-center gap-4">
                           <button
                             onClick={() => handleLikeComment(c)}
@@ -3032,7 +3089,7 @@ export const SuggestedProductsWidget: React.FC<{
   if (suggested.length === 0) return null;
 
   return (
-    <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
+    <div className="bg-[#242526] w-full border-b border-[#3E4042] p-4">
       <div className="flex justify-between items-center mb-3">
         <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
         <button
