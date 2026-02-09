@@ -4489,14 +4489,14 @@ export default function App() {
           )}
 
            {/* ✅ Events page */}
-{view === 'events' && (
+      
+  {view === 'events' && (
   <ErrorBoundary>
     <>
       {/* Debug helper - uncomment to see events data */}
       {/* <pre className="text-white p-3 text-xs overflow-auto">
         {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
       </pre> */}
-
       <EventsPage
         events={events}
         currentUser={currentUser ?? null}
@@ -4510,9 +4510,9 @@ export default function App() {
         onFollow={followUser}
         checkIsFollowing={checkIsFollowing}
       />
-    </>
-  </ErrorBoundary>
-)}
+      </>
+      </ErrorBoundary>
+      )}
 
           )}
 
