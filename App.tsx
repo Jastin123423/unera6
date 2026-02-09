@@ -4488,16 +4488,15 @@ export default function App() {
             />
           )}
 
-          {/* ✅ FIXED: Events page with all fixes implemented */}
-          {view === 'events' && (
-            <>
-              {/* Debug helper - uncomment to see events data */}
-              {/* <pre className="text-white p-3 text-xs overflow-auto">
-                {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
-              </pre> */}
-              {view === 'events' && (
+          {/* ✅ Events page */}
+{view === 'events' && (
   <ErrorBoundary>
     <>
+      {/* Debug helper - uncomment to see events data */}
+      {/* <pre className="text-white p-3 text-xs overflow-auto">
+        {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
+      </pre> */}
+
       <EventsPage
         events={events}
         currentUser={currentUser ?? null}
@@ -4514,7 +4513,7 @@ export default function App() {
     </>
   </ErrorBoundary>
 )}
-      
+
           {view === 'birthdays' && (
             <BirthdaysPage
               currentUser={currentUser as any}
