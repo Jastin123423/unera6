@@ -43,7 +43,8 @@ import {
   Brand,
   Song,
 } from './types';
-import { EventsPage } from './components/EventsPage';
+import EventsPage from './components/EventsPage';
+
 
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
