@@ -4498,6 +4498,9 @@ export default function App() {
       {/* <pre className="text-white p-3 text-xs overflow-auto">
         {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
       </pre> */}
+          {view === 'events' && (
+  <ErrorBoundary>
+    <>
       <EventsPage
         events={events}
         currentUser={currentUser ?? null}
@@ -4511,23 +4514,24 @@ export default function App() {
         onFollow={followUser}
         checkIsFollowing={checkIsFollowing}
       />
-      </>
-      </ErrorBoundary>
-      )
-          
-          {view === 'birthdays' && (
-            <BirthdaysPage
-              currentUser={currentUser as any}
-              users={users}
-              onMessage={(id) => {
-                if (!requireAuth('Messaging')) return;
-                setActiveChatUser(users.find((u) => u.id === id) || null);
-              }}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-            />
-          )}
+    </>
+  </ErrorBoundary>
+)}
+
+{view === 'birthdays' && (
+  <BirthdaysPage
+    currentUser={currentUser as any}
+    users={users}
+    onMessage={(id) => {
+      if (!requireAuth('Messaging')) return;
+      setActiveChatUser(users.find((u) => u.id === id) || null);
+    }}
+    onProfileClick={(id) => openProfile(id)}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+  />
+)}
+     
 
           {view === 'memories' && currentUser && (
             <MemoriesPage
