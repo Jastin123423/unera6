@@ -1,5 +1,5 @@
-// EventsPage.tsx - Updated with ID safety, array defense, and optimistic UI
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+// EventsPage.tsx - Updated with ID safety, array defense, and optimistic UIw
+import React, { useState, useMemo, useEffect } from 'react';
 import { User, Event } from '../types';
 
 // --- HELPER FUNCTIONS ---
