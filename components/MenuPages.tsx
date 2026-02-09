@@ -542,7 +542,7 @@ export const MemoriesPage = ({
     </div>
   );
 };
-
+export { default as EventsPage } from './EventsPage';
 
 // --- SETTINGS PAGE ---
 export const SettingsPage = () => {
