@@ -1,4 +1,4 @@
-// EventsPage.tsx - Updated with additional safety fixes
+// EventsPage.tsx - Updated with ID safety, array defense, and optimistic UI
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, Event } from '../types';
 
@@ -55,8 +55,8 @@ const normalizeEvent = (e: any) => {
   
   return {
     ...e,
-    // ID safety
-    id: Number(e?.id ?? 0),
+    // FIX 1: Prevent invalid/zero IDs from breaking React keys
+    id: Number(e?.id ?? 0) || Math.floor(Math.random() * 1e12),
 
     // unify date
     date: dateStr,
@@ -328,10 +328,12 @@ const EventsPage: React.FC<EventsPageProps> = ({
             return visible.filter(e => e.organizerId === currentUser.id);
         }
         if (selectedCategory === 'Upcoming' && currentUser) {
-            return visible.filter(e =>
-                e.attendees.includes(currentUser.id) ||
-                e.interestedIds.includes(currentUser.id)
-            );
+            // FIX 2: Extra defense in Upcoming filter
+            return visible.filter(e => {
+                const attendees = Array.isArray(e.attendees) ? e.attendees : [];
+                const interestedIds = Array.isArray(e.interestedIds) ? e.interestedIds : [];
+                return attendees.includes(currentUser.id) || interestedIds.includes(currentUser.id);
+            });
         }
         return visible;
     }, [safeEvents, selectedCategory, currentUser]);
@@ -387,14 +389,31 @@ const EventsPage: React.FC<EventsPageProps> = ({
         }
     };
 
-    // FIX 3: Modal action handlers with loading/error states
+    // FIX 3: Modal action handlers with optimistic UI updates
     const handleModalJoin = async () => {
         if (!currentUser || !selectedEvent) return;
         
         setLoading(true);
         try {
+            // Optimistic update: update UI immediately
+            setSelectedEvent((prev: any) =>
+                prev ? { 
+                    ...prev, 
+                    attendees: Array.from(new Set([...(prev.attendees || []), currentUser.id])),
+                    // Remove from interested if user was previously interested
+                    interestedIds: (prev.interestedIds || []).filter((id: number) => id !== currentUser.id)
+                } : prev
+            );
+            
             await onJoinEvent(selectedEvent.id);
         } catch (err: any) {
+            // Rollback optimistic update on error
+            setSelectedEvent((prev: any) =>
+                prev ? { 
+                    ...prev, 
+                    attendees: (prev.attendees || []).filter((id: number) => id !== currentUser.id)
+                } : prev
+            );
             setError(err?.message || 'Failed to join event');
         } finally {
             setLoading(false);
@@ -406,8 +425,23 @@ const EventsPage: React.FC<EventsPageProps> = ({
         
         setLoading(true);
         try {
+            // Optimistic update: update UI immediately
+            setSelectedEvent((prev: any) =>
+                prev ? { 
+                    ...prev, 
+                    interestedIds: Array.from(new Set([...(prev.interestedIds || []), currentUser.id]))
+                } : prev
+            );
+            
             await onInterestedEvent(selectedEvent.id);
         } catch (err: any) {
+            // Rollback optimistic update on error
+            setSelectedEvent((prev: any) =>
+                prev ? { 
+                    ...prev, 
+                    interestedIds: (prev.interestedIds || []).filter((id: number) => id !== currentUser.id)
+                } : prev
+            );
             setError(err?.message || 'Failed to mark interest');
         } finally {
             setLoading(false);
