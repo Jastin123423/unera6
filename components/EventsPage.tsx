@@ -1,4 +1,4 @@
-// EventsPage.tsx - Updated with API integration
+// EventsPage.tsx - Updated with safe parsing fixes
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, Event } from '../types';
 
@@ -22,11 +22,37 @@ const shuffleArray = (array: any[]) => {
     return shuffled;
 };
 
-// --- NORMALIZATION HELPER ---
-const safeArr = (v: any): number[] => (Array.isArray(v) ? v.map(Number) : []);
+// --- SAFE PARSING HELPER ---
+const safeArr = (v: any): number[] => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map(Number).filter(Number.isFinite);
+  
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) {
+        return parsed.map(Number).filter(Number.isFinite);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+  
+  return [];
+};
+
+// --- SAFE DATE PARSING ---
+const safeDate = (d: any): Date => {
+  const dt = new Date(d);
+  return Number.isFinite(dt.getTime()) ? dt : new Date();
+};
 
 const normalizeEvent = (e: any) => {
   const dateStr = e?.event_date ?? e?.date ?? "";
+  
   return {
     ...e,
     // ID safety
@@ -38,14 +64,14 @@ const normalizeEvent = (e: any) => {
     // unify image
     image: e?.cover_url ?? e?.image ?? e?.cover_image ?? "",
 
-    // unify attendance arrays
+    // SAFE ARRAY PARSING: Parse JSON strings and filter valid numbers
     attendees: safeArr(e?.attendees ?? e?.attendee_ids),
     interestedIds: safeArr(e?.interestedIds ?? e?.interested_ids),
 
     // unify organizer
     organizerId: Number(e?.organizerId ?? e?.creator_id ?? e?.user_id ?? 0),
 
-    // fallback fields used in UI
+    // fallback fields with safe defaults
     time: e?.time ?? e?.event_time ?? "",
     location: e?.location ?? "",
     title: e?.title ?? "Untitled event",
@@ -73,12 +99,12 @@ const CompactEventCard: React.FC<{
     onInterested: (e: React.MouseEvent) => void,
     isWide?: boolean
 }> = ({ event, currentUser, onClick, onJoin, onInterested, isWide }) => {
-    // Safe date parsing
-    const date = new Date(event.date || event.event_date || event.created_at || Date.now());
+    // SAFE DATE PARSING
+    const date = safeDate(event.date || event.event_date || event.created_at || Date.now());
     
-    // Safe array access
-    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
-    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
+    // Safe array access - already normalized by safeArr
+    const attendees = event.attendees || [];
+    const interestedIds = event.interestedIds || [];
     
     const isAttending = currentUser && attendees.includes(currentUser.id);
     const isInterested = currentUser && interestedIds.includes(currentUser.id);
@@ -151,12 +177,12 @@ const EventDetailsModal: React.FC<{
     onInterested: () => void,
     onProfileClick: (id: number) => void 
 }> = ({ event, currentUser, onClose, onJoin, onInterested, onProfileClick }) => {
-    // Safe date parsing
-    const date = new Date(event.date || event.event_date || event.created_at || Date.now());
+    // SAFE DATE PARSING
+    const date = safeDate(event.date || event.event_date || event.created_at || Date.now());
     
-    // Safe array access
-    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
-    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
+    // Safe array access - already normalized by safeArr
+    const attendees = event.attendees || [];
+    const interestedIds = event.interestedIds || [];
     
     const isAttending = currentUser && attendees.includes(currentUser.id);
     const isInterested = currentUser && interestedIds.includes(currentUser.id);
@@ -273,20 +299,20 @@ const EventsPage: React.FC<EventsPageProps> = ({
     
     const categories = ['All', 'Discover', 'Hosting', 'Upcoming'];
 
-    // Normalize events
+    // Normalize events with safe parsing
     const safeEvents = useMemo(() => {
         const list = Array.isArray(events) ? events : [];
         return list.map(normalizeEvent);
     }, [events]);
 
-    // Filter logic with normalized events
+    // Filter logic with normalized events and safe string operations
     const filteredEvents = useMemo(() => {
         let visible = safeEvents.filter(event => {
             if (!event.visibility || event.visibility === 'worldwide') return true;
             if (event.visibility === 'targeted') {
                 if (!currentUser) return false;
-                const userLoc = currentUser.location?.toLowerCase() || '';
-                const eventLoc = event.location?.toLowerCase() || '';
+                const userLoc = String(currentUser.location || "").toLowerCase();
+                const eventLoc = String(event.location || "").toLowerCase();
                 const userRegion = userLoc.split(',').pop()?.trim() || userLoc;
                 const eventRegion = eventLoc.split(',').pop()?.trim() || eventLoc;
                 return userLoc.includes(eventRegion) || eventLoc.includes(userRegion) || userRegion === eventRegion;
