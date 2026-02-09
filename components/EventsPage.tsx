@@ -520,5 +520,4 @@ export const EventsPage: React.FC<EventsPageProps> = ({ events, currentUser, onJ
 };
 
 // Export both named and default for compatibility with App.tsx
-export { EventsPage };
 export default EventsPage;
