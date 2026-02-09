@@ -21,7 +21,7 @@ import {
   SuggestedProfilesPage,
 } from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
-import { EventsPage } from './components/EventsPage';
+import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
@@ -1930,9 +1930,9 @@ export default function App() {
       // ✅ ✅ FIX: Update story with backend response
       if (response?.story) {
         const updatedStory = normalizeStory(response.story, currentUser);
-
-      setStories((prev) =>
-      prev.map((story) => {
+        
+        setStories(prev =>
+          prev.map(story => {
             if (Number(story.id) !== Number(storyId)) return story;
             
             return {
@@ -4488,49 +4488,42 @@ export default function App() {
             />
           )}
 
-           {/* ✅ Events page */}
-      
-  {view === 'events' && (
-  <ErrorBoundary>
-    <>
-      {/* Debug helper - uncomment to see events data */}
-      {/* <pre className="text-white p-3 text-xs overflow-auto">
-        {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
-      </pre> */}
+          {/* ✅ FIXED: Events page with all fixes implemented */}
           {view === 'events' && (
-  <ErrorBoundary>
-    <>
-      <EventsPage
-        events={events}
-        currentUser={currentUser ?? null}
-        onJoinEvent={joinEvent}
-        onInterestedEvent={markEventInterested}
-        onCreateEventClick={() => {
-          if (!requireAuth('Creating events')) return;
-          setShowCreateEventModal(true);
-        }}
-        onProfileClick={(id) => openProfile(id)}
-        onFollow={followUser}
-        checkIsFollowing={checkIsFollowing}
-      />
-    </>
-  </ErrorBoundary>
-)}
+            <>
+              {/* Debug helper - uncomment to see events data */}
+              {/* <pre className="text-white p-3 text-xs overflow-auto">
+                {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
+              </pre> */}
+              <EventsPage
+                events={events}
+                currentUser={currentUser ?? null} // ✅ FIXED: Pass null instead of undefined
+                onJoinEvent={joinEvent}
+                onInterestedEvent={markEventInterested}
+                onCreateEventClick={() => {
+                  if (!requireAuth('Creating events')) return;
+                  setShowCreateEventModal(true);
+                }}
+                onProfileClick={(id) => openProfile(id)}
+                onFollow={followUser}
+                checkIsFollowing={checkIsFollowing}
+              />
+            </>
+          )}
 
-{view === 'birthdays' && (
-  <BirthdaysPage
-    currentUser={currentUser as any}
-    users={users}
-    onMessage={(id) => {
-      if (!requireAuth('Messaging')) return;
-      setActiveChatUser(users.find((u) => u.id === id) || null);
-    }}
-    onProfileClick={(id) => openProfile(id)}
-    onFollow={followUser}
-    checkIsFollowing={checkIsFollowing}
-  />
-)}
-     
+          {view === 'birthdays' && (
+            <BirthdaysPage
+              currentUser={currentUser as any}
+              users={users}
+              onMessage={(id) => {
+                if (!requireAuth('Messaging')) return;
+                setActiveChatUser(users.find((u) => u.id === id) || null);
+              }}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+            />
+          )}
 
           {view === 'memories' && currentUser && (
             <MemoriesPage
