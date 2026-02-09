@@ -4488,27 +4488,32 @@ export default function App() {
             />
           )}
 
-          {/* ✅ FIXED: Events page with all fixes implemented */}
-          {view === 'events' && (
-            <>
-              {/* Debug helper - uncomment to see events data */}
-              {/* <pre className="text-white p-3 text-xs overflow-auto">
-                {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
-              </pre> */}
-              <EventsPage
-                events={events}
-                currentUser={currentUser ?? null} // ✅ FIXED: Pass null instead of undefined
-                onJoinEvent={joinEvent}
-                onInterestedEvent={markEventInterested}
-                onCreateEventClick={() => {
-                  if (!requireAuth('Creating events')) return;
-                  setShowCreateEventModal(true);
-                }}
-                onProfileClick={(id) => openProfile(id)}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-              />
-            </>
+          {/* ✅ Events page */}
+{view === 'events' && (
+  <ErrorBoundary>
+    <>
+      {/* Debug helper - uncomment to see events data */}
+      {/* <pre className="text-white p-3 text-xs overflow-auto">
+        {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
+      </pre> */}
+
+      <EventsPage
+        events={events}
+        currentUser={currentUser ?? null}
+        onJoinEvent={joinEvent}
+        onInterestedEvent={markEventInterested}
+        onCreateEventClick={() => {
+          if (!requireAuth('Creating events')) return;
+          setShowCreateEventModal(true);
+        }}
+        onProfileClick={(id) => openProfile(id)}
+        onFollow={followUser}
+        checkIsFollowing={checkIsFollowing}
+      />
+    </>
+  </ErrorBoundary>
+)}
+
           )}
 
           {view === 'birthdays' && (
