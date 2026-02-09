@@ -1,4 +1,4 @@
-// Events.tsx - Updated with API integration matching your App.tsx
+// Events.tsx - Updated with all fixes
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { User, Event } from '../types';
 
@@ -32,7 +32,7 @@ const uploadToCloudflareR2 = async (file: File, folder = 'events'): Promise<{ ur
   }
 };
 
-// --- OSM LOCATION SEARCH COMPONENT ---
+// --- OSM LOCATION SEARCH COMPONENT (with Fix 3, 4, 5) ---
 const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void }> = ({
   value,
   onSelect,
@@ -42,8 +42,26 @@ const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void 
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const searchTimeout = useRef<any>(null);
+  const boxRef = useRef<HTMLDivElement>(null); // Fix 3: outside click handler
 
   useEffect(() => setQuery(value || ''), [value]);
+
+  // Fix 3: Outside click handler
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!boxRef.current) return;
+      if (!boxRef.current.contains(e.target as Node)) setShowResults(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  // Fix 5: Clear timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    };
+  }, []);
 
   const handleSearch = async (q: string) => {
     const qq = (q || '').trim();
@@ -53,10 +71,16 @@ const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void 
     }
     setLoading(true);
     try {
+      // Fix 4: Add Accept header to Nominatim calls
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
           qq
-        )}&addressdetails=1&limit=5`
+        )}&addressdetails=1&limit=5`,
+        {
+          headers: {
+            'Accept': 'application/json',
+          }
+        }
       );
       const data = await res.json().catch(() => []);
       setResults(Array.isArray(data) ? data : []);
@@ -77,7 +101,7 @@ const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void 
   };
 
   return (
-    <div className="relative w-full">
+    <div ref={boxRef} className="relative w-full"> {/* Fix 3: Add ref for outside click */}
       <div className="relative">
         <input
           className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2] text-sm pl-10"
@@ -202,22 +226,17 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
         }
       }
 
-      // Prepare event data matching DB columns
+      // FIX 1: Send date as plain YYYY-MM-DD format, not ISO string
+      // This matches what your backend/DB expects
       const eventData = {
         title: title.trim(),
         description: desc.trim(),
-        event_date: new Date(`${date}T${time}:00`).toISOString(),
+        event_date: date,  // Changed from ISO to plain date string
         event_time: time,
         location: location.trim(),
         visibility,
-        cover_url: coverUrl,
-        // Don't include these - they'll be added by App.tsx:
-        // organizerId: currentUser.id,
-        // attendees: [currentUser.id],
-        // interestedIds: [],
-        // created_at: new Date().toISOString(),
-        // organizer_name: currentUser.name,
-        // organizer_avatar: currentUser.profile_image_url,
+        cover_url: coverUrl, // FIX 2: Ensure this matches your API expectations
+        // Note: App.tsx will add organizer + attendees fields
       };
 
       await onCreate(eventData as any);
