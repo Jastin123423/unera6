@@ -1099,8 +1099,8 @@ export const ShareBottomSheet: React.FC<{
   }, [post]);
 
   if (!isOpen) return null;
-    
-if (activeFlow === 'feed' && currentUser) {
+
+  if (activeFlow === 'feed' && currentUser) {
     return (
       <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
         <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
@@ -1477,7 +1477,7 @@ if (activeFlow === 'feed' && currentUser) {
 /**
  * =========================
  * ✅ UPDATED: POST CARD WITH FACEBOOK-STYLE SEPARATOR AND REACTION BUBBLES
- * INCLUDES MARKETPLACE SUPPORT WITH BLUE "VIEW PRODUCT" BUTTON
+ * INCLUDES BULLETPROOF MARKETPLACE SUPPORT WITH BLUE "VIEW PRODUCT" BUTTON
  * =========================
  */
 export const Post: React.FC<{
@@ -1526,13 +1526,49 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
-  // ✅ DETECT MARKETPLACE POST
-  const mp = (p as any)?.meta?.marketplace || (p as any)?.marketplace || null;
-  const isMarketplace = (p as any)?.type === 'marketplace' || !!mp;
-  const mpProductId = Number(mp?.product_id || (p as any)?.product_id || 0);
-  const mpLocation = String(mp?.location || '');
-  const mpPrice = mp?.price;
-  const mpCurrency = String(mp?.currency_symbol || mp?.currency || '');
+  // ✅ BULLETPROOF MARKETPLACE DETECTION (robust)
+  const mp =
+    (p as any)?.meta?.marketplace ||
+    (p as any)?.marketplace ||
+    (p as any)?.marketplace_meta ||
+    null;
+
+  const mpProductId =
+    Number(
+      mp?.product_id ??
+        (p as any)?.product_id ??
+        (p as any)?.marketplace_product_id ??
+        0
+    ) || 0;
+
+  const isMarketplace = Boolean(
+    mp ||
+      mpProductId ||
+      (p as any)?.type === 'marketplace' ||
+      (p as any)?.post_type === 'marketplace' ||
+      (p as any)?.kind === 'marketplace'
+  );
+
+  // Fallbacks for the strip text
+  const mpCity =
+    String(mp?.city ?? mp?.location ?? (p as any)?.location ?? '').trim();
+
+  const mpPrice =
+    String(
+      mp?.price ??
+        mp?.main_price ??
+        (p as any)?.price ??
+        (p as any)?.main_price ??
+        ''
+    ).trim();
+
+  const mpCurrency = String(
+    mp?.currency_symbol ?? 
+    mp?.currency ?? 
+    (p as any)?.currency_symbol ?? 
+    (p as any)?.currency ?? 
+    ''
+  ).trim();
 
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
@@ -1745,7 +1781,7 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ✅ MARKETPLACE STRIP WITH BLUE "VIEW PRODUCT" BUTTON */}
+          {/* ✅ BULLETPROOF MARKETPLACE STRIP WITH BLUE "VIEW PRODUCT" BUTTON */}
           {isMarketplace && (
             <div className="mx-3 md:mx-4 mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
               <div className="flex items-center justify-between gap-3 p-3">
@@ -1757,15 +1793,15 @@ export const Post: React.FC<{
                   <div className="min-w-0">
                     <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
                     <div className="text-[#B0B3B8] text-[13px] truncate">
-                      {mpLocation || 'Local listing'}
-                      {mpPrice != null ? ` • ${mpCurrency}${mpPrice}` : ''}
+                      {(mpCity || 'Marketplace')}{mpPrice ? ` • ${mpCurrency}${mpPrice}` : ''}
                     </div>
                   </div>
                 </div>
 
                 <button
                   className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 h-9 rounded-full flex-shrink-0"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     if (!mpProductId || !onViewProductFromPost) return;
                     onViewProductFromPost(mpProductId);
                   }}
