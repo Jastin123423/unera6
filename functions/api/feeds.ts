@@ -69,7 +69,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const seen = parseSeenIds(url.searchParams.get('seen'), 250);
     const debug = url.searchParams.get('debug') === '1';
 
-    // Optional: load only one group feed if you want
+    // Optional: only include one group if provided
     const groupId = toInt(url.searchParams.get('groupId'), 0);
 
     const freshCount = Math.max(5, Math.floor(limit * 0.65));
@@ -85,7 +85,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
 
-    if (cursor && cursor.trim().length > 0) {
+    if (cursor && cursor.trim()) {
       wherePosts.push(`p.created_at < ?`);
       bindsPosts.push(cursor.trim());
     }
@@ -97,95 +97,98 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const wherePostsSql = wherePosts.length ? `WHERE ${wherePosts.join(' AND ')}` : '';
 
-    // Must bind userId FIRST because this select uses "my_reaction" subquery with pr.user_id = ?
+    // must bind userId for "my_reaction" query
     const baseSelectPosts = `
       SELECT
         'post' AS source,
         p.id AS id,
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS group_privacy,
-        p.user_id,
-        p.content,
+        p.created_at AS created_at,
+
+        /* common author fields */
+        p.user_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        /* common content fields */
+        'post' AS item_type,
+        p.content AS content,
+        p.visibility AS visibility,
+        p.views AS views,
+        p.shares AS shares,
 
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
           WHEN length(p.media_url) > 300 THEN NULL
           ELSE p.media_url
         END AS media_url,
-
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
           WHEN length(p.media_url) > 300 THEN NULL
           ELSE p.media_type
         END AS media_type,
-
         CASE
           WHEN p.media_urls LIKE 'data:%' THEN NULL
           WHEN length(p.media_urls) > 5000 THEN NULL
           ELSE p.media_urls
         END AS media_urls,
-
         CASE
           WHEN length(p.media_types) > 5000 THEN NULL
           ELSE p.media_types
         END AS media_types,
 
-        p.visibility,
-        p.created_at,
-        p.views,
-        p.shares,
-
+        /* post-only */
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
-        (SELECT pr.type
-         FROM post_reactions pr
-         WHERE pr.post_id = p.id AND pr.user_id = ?
-         LIMIT 1
-        ) AS my_reaction,
+        (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
 
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        /* group fields (null) */
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_privacy,
 
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role
+        /* reels fields (null) */
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS song_id,
+        NULL AS sound_key,
+        NULL AS sound_id
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
     `;
 
     // ----------------------------
-    // GROUP POSTS filters (PUBLIC groups show to everyone)
-    // Assumes: groups.privacy in ('public','private') default 'public'
-    // Private group posts only show if user is in group_members.
+    // GROUP POSTS filters (PUBLIC groups visible to everyone)
     // ----------------------------
     const whereGroups: string[] = [];
     const bindsGroups: any[] = [];
 
-    // Cursor
-    if (cursor && cursor.trim().length > 0) {
+    if (cursor && cursor.trim()) {
       whereGroups.push(`gp.created_at < ?`);
       bindsGroups.push(cursor.trim());
     }
 
-    // Seen
     if (seen.length > 0) {
       whereGroups.push(`gp.id NOT IN (${seen.map(() => '?').join(',')})`);
       bindsGroups.push(...seen);
     }
 
-    // Optional: only one group feed
     if (groupId > 0) {
       whereGroups.push(`gp.group_id = ?`);
       bindsGroups.push(groupId);
     }
 
-    // ✅ Core rule: public groups visible to all; private visible to members
-    // We bind userId once for the EXISTS check.
+    // privacy rule
     whereGroups.push(`
       (
         COALESCE(g.privacy, 'public') = 'public'
@@ -202,54 +205,136 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereGroupsSql = whereGroups.length ? `WHERE ${whereGroups.join(' AND ')}` : '';
 
-    // Note: group_posts currently doesn't have reactions/multi-media fields.
-    // We return compatible fields with defaults.
     const baseSelectGroupPosts = `
       SELECT
         'group' AS source,
         gp.id AS id,
-        gp.group_id AS group_id,
-        COALESCE(g.name, 'Group') AS group_name,
-        COALESCE(g.privacy, 'public') AS group_privacy,
-        gp.user_id,
-        gp.content,
+        gp.created_at AS created_at,
+
+        gp.user_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        'group_post' AS item_type,
+        gp.content AS content,
+        'Group' AS visibility,
+        0 AS views,
+        0 AS shares,
 
         CASE
           WHEN gp.media_url LIKE 'data:%' THEN NULL
           WHEN length(gp.media_url) > 300 THEN NULL
           ELSE gp.media_url
         END AS media_url,
-
         NULL AS media_type,
         NULL AS media_urls,
         NULL AS media_types,
 
-        'Group' AS visibility,
-        gp.created_at,
-        0 AS views,
-        0 AS shares,
-
         0 AS reactions_count,
         NULL AS my_reaction,
 
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        gp.group_id AS group_id,
+        COALESCE(g.name, 'Group') AS group_name,
+        COALESCE(g.privacy, 'public') AS group_privacy,
 
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS song_id,
+        NULL AS sound_key,
+        NULL AS sound_id
       FROM group_posts gp
       JOIN groups g ON g.id = gp.group_id
       LEFT JOIN users u ON u.id = gp.user_id
     `;
 
     // ----------------------------
-    // 1) Fresh pool
+    // REELS filters (public reels visible to everyone)
+    // ----------------------------
+    const whereReels: string[] = [];
+    const bindsReels: any[] = [];
+
+    // visibility
+    whereReels.push(
+      `(r.visibility IS NULL OR r.visibility = 'public' OR r.visibility = '' OR r.visibility = 'Public')`
+    );
+
+    if (cursor && cursor.trim()) {
+      whereReels.push(`r.created_at < ?`);
+      bindsReels.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereReels.push(`r.id NOT IN (${seen.map(() => '?').join(',')})`);
+      bindsReels.push(...seen);
+    }
+
+    const whereReelsSql = whereReels.length ? `WHERE ${whereReels.join(' AND ')}` : '';
+
+    // must bind userId for "my_like_type"
+    const baseSelectReels = `
+      SELECT
+        'reel' AS source,
+        r.id AS id,
+        r.created_at AS created_at,
+
+        r.user_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        'reel' AS item_type,
+        NULL AS content,
+        r.visibility AS visibility,
+        r.views AS views,
+        r.shares AS shares,
+
+        /* keep media_url fields compatible; reels use video_url */
+        r.video_url AS media_url,
+        'video' AS media_type,
+        NULL AS media_urls,
+        NULL AS media_types,
+
+        (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
+        (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_privacy,
+
+        r.video_url AS video_url,
+        r.caption AS caption,
+        r.song_name AS song_name,
+        r.audio_url AS audio_url,
+        COALESCE(r.audio_start, 0) AS audio_start,
+        COALESCE(r.audio_end, 0) AS audio_end,
+        r.location AS location,
+        r.song_id AS song_id,
+        r.sound_key AS sound_key,
+        r.sound_id AS sound_id
+      FROM reels r
+      LEFT JOIN users u ON u.id = r.user_id
+    `;
+
+    // ----------------------------
+    // 1) Fresh pool (each source)
     // ----------------------------
     const qFreshPosts = `
       ${baseSelectPosts}
@@ -273,11 +358,23 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       .all();
     const freshGroups = Array.isArray(freshGroupsRes?.results) ? freshGroupsRes.results : [];
 
+    const qFreshReels = `
+      ${baseSelectReels}
+      ${whereReelsSql}
+      ORDER BY r.created_at DESC
+      LIMIT ?
+    `;
+    const freshReelsRes = await env.DB.prepare(qFreshReels)
+      .bind(userId, ...bindsReels, freshCount)
+      .all();
+    const freshReels = Array.isArray(freshReelsRes?.results) ? freshReelsRes.results : [];
+
     // ----------------------------
     // 2) Explore pool (random)
     // ----------------------------
     let explorePosts: any[] = [];
     let exploreGroups: any[] = [];
+    let exploreReels: any[] = [];
 
     if (exploreCount > 0) {
       const qExplorePosts = `
@@ -301,20 +398,38 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         .bind(...bindsGroups, exploreCount)
         .all();
       exploreGroups = Array.isArray(exploreGroupsRes?.results) ? exploreGroupsRes.results : [];
+
+      const qExploreReels = `
+        ${baseSelectReels}
+        ${whereReelsSql}
+        ORDER BY RANDOM()
+        LIMIT ?
+      `;
+      const exploreReelsRes = await env.DB.prepare(qExploreReels)
+        .bind(userId, ...bindsReels, exploreCount)
+        .all();
+      exploreReels = Array.isArray(exploreReelsRes?.results) ? exploreReelsRes.results : [];
     }
 
     // ----------------------------
     // Merge + dedup (prevent collisions)
     // ----------------------------
     const map = new Map<string, any>();
-    const allRows = [...freshPosts, ...freshGroups, ...explorePosts, ...exploreGroups];
+    const allRows = [
+      ...freshPosts,
+      ...freshGroups,
+      ...freshReels,
+      ...explorePosts,
+      ...exploreGroups,
+      ...exploreReels,
+    ];
 
     for (const row of allRows) {
       const src = String((row as any)?.source || '');
       const id = Number((row as any)?.id);
       if (!src || !Number.isFinite(id)) continue;
 
-      const key = `${src}:${id}`; // prevents id collisions
+      const key = `${src}:${id}`;
       if (!map.has(key)) map.set(key, row);
     }
 
@@ -332,58 +447,57 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const ordered = seededShuffle(merged, seed);
 
     // ----------------------------
-    // hasMore (check posts OR group_posts)
+    // hasMore check (posts OR groups OR reels)
     // ----------------------------
     let hasMore = false;
 
     if (nextCursor) {
-      // posts hasMore
+      // posts
       {
-        const whereMore: string[] = [];
-        const bindsMore: any[] = [];
+        const w: string[] = [];
+        const b: any[] = [];
 
-        whereMore.push(
+        w.push(
           `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
         );
-        whereMore.push(`p.created_at < ?`);
-        bindsMore.push(nextCursor);
+        w.push(`p.created_at < ?`);
+        b.push(nextCursor);
 
         if (seen.length > 0) {
-          whereMore.push(`p.id NOT IN (${seen.map(() => '?').join(',')})`);
-          bindsMore.push(...seen);
+          w.push(`p.id NOT IN (${seen.map(() => '?').join(',')})`);
+          b.push(...seen);
         }
 
-        const qMore = `
+        const q = `
           SELECT p.id
           FROM posts p
-          ${whereMore.length ? `WHERE ${whereMore.join(' AND ')}` : ''}
+          ${w.length ? `WHERE ${w.join(' AND ')}` : ''}
           ORDER BY p.created_at DESC
           LIMIT 1
         `;
-        const more = await env.DB.prepare(qMore).bind(...bindsMore).first();
-        if (more) hasMore = true;
+        const r = await env.DB.prepare(q).bind(...b).first();
+        if (r) hasMore = true;
       }
 
-      // group_posts hasMore
+      // group_posts
       if (!hasMore) {
-        const whereMoreG: string[] = [];
-        const bindsMoreG: any[] = [];
+        const w: string[] = [];
+        const b: any[] = [];
 
-        whereMoreG.push(`gp.created_at < ?`);
-        bindsMoreG.push(nextCursor);
+        w.push(`gp.created_at < ?`);
+        b.push(nextCursor);
 
         if (seen.length > 0) {
-          whereMoreG.push(`gp.id NOT IN (${seen.map(() => '?').join(',')})`);
-          bindsMoreG.push(...seen);
+          w.push(`gp.id NOT IN (${seen.map(() => '?').join(',')})`);
+          b.push(...seen);
         }
 
         if (groupId > 0) {
-          whereMoreG.push(`gp.group_id = ?`);
-          bindsMoreG.push(groupId);
+          w.push(`gp.group_id = ?`);
+          b.push(groupId);
         }
 
-        // Same privacy rule
-        whereMoreG.push(`
+        w.push(`
           (
             COALESCE(g.privacy, 'public') = 'public'
             OR (
@@ -395,18 +509,45 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             )
           )
         `);
-        bindsMoreG.push(userId);
+        b.push(userId);
 
-        const qMoreG = `
+        const q = `
           SELECT gp.id
           FROM group_posts gp
           JOIN groups g ON g.id = gp.group_id
-          ${whereMoreG.length ? `WHERE ${whereMoreG.join(' AND ')}` : ''}
+          ${w.length ? `WHERE ${w.join(' AND ')}` : ''}
           ORDER BY gp.created_at DESC
           LIMIT 1
         `;
-        const moreG = await env.DB.prepare(qMoreG).bind(...bindsMoreG).first();
-        if (moreG) hasMore = true;
+        const r = await env.DB.prepare(q).bind(...b).first();
+        if (r) hasMore = true;
+      }
+
+      // reels
+      if (!hasMore) {
+        const w: string[] = [];
+        const b: any[] = [];
+
+        w.push(
+          `(r.visibility IS NULL OR r.visibility = 'public' OR r.visibility = '' OR r.visibility = 'Public')`
+        );
+        w.push(`r.created_at < ?`);
+        b.push(nextCursor);
+
+        if (seen.length > 0) {
+          w.push(`r.id NOT IN (${seen.map(() => '?').join(',')})`);
+          b.push(...seen);
+        }
+
+        const q = `
+          SELECT r.id
+          FROM reels r
+          ${w.length ? `WHERE ${w.join(' AND ')}` : ''}
+          ORDER BY r.created_at DESC
+          LIMIT 1
+        `;
+        const r = await env.DB.prepare(q).bind(...b).first();
+        if (r) hasMore = true;
       }
     }
 
@@ -427,10 +568,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           groupId: groupId || null,
           seenCount: seen.length,
           returned: ordered.length,
-          freshPosts: freshPosts.length,
-          freshGroups: freshGroups.length,
-          explorePosts: explorePosts.length,
-          exploreGroups: exploreGroups.length,
+          fresh: { posts: freshPosts.length, groups: freshGroups.length, reels: freshReels.length },
+          explore: {
+            posts: explorePosts.length,
+            groups: exploreGroups.length,
+            reels: exploreReels.length,
+          },
         },
       });
     }
