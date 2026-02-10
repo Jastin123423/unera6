@@ -54,6 +54,18 @@ const safeNumber = (v: any, fallback = 0) => {
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
+/** ✅ ADDED: safeImages helper for marketplace product posts ---------- */
+const safeImages = (imgs: any): string[] => {
+  if (Array.isArray(imgs)) return imgs.filter(Boolean);
+  if (typeof imgs === 'string') {
+    try {
+      const p = JSON.parse(imgs);
+      return Array.isArray(p) ? p.filter(Boolean) : [];
+    } catch {}
+  }
+  return [];
+};
+
 /** ---------- Constants ---------- */
 const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
 const LS_USER_KEY = 'user';
@@ -824,7 +836,6 @@ const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType,
     // Add reaction
     newReactions.push({ userId: meId, user_id: meId, type });
   }
-
   return {
     ...r,
     reactions: newReactions,
@@ -3509,6 +3520,33 @@ export default function App() {
     return Array.isArray(feedToRank) ? feedToRank : [];
   }, [posts, filteredPosts, activeHashtag]);
 
+  /** ✅ ADDED: Feed "mixer" to insert products after every 5 posts ---------- */
+  type FeedItem =
+    | { kind: 'post'; post: any }
+    | { kind: 'product'; product: Product };
+
+  const feedItems: FeedItem[] = useMemo(() => {
+    const ps = rankedPosts || [];
+    const prods = (products || []).filter((p: any) => String(p?.status || 'active') === 'active');
+
+    if (!prods.length) return ps.map((p) => ({ kind: 'post', post: p }));
+
+    const items: FeedItem[] = [];
+    let prodIdx = 0;
+
+    for (let i = 0; i < ps.length; i++) {
+      items.push({ kind: 'post', post: ps[i] });
+
+      // ✅ Insert product after every 5 posts
+      if ((i + 1) % 5 === 0) {
+        items.push({ kind: 'product', product: prods[prodIdx % prods.length] });
+        prodIdx++;
+      }
+    }
+
+    return items;
+  }, [rankedPosts, products]);
+
   /** ✅ Updated activePost resolver to include profilePosts ---------- */
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
@@ -4201,6 +4239,96 @@ export default function App() {
     return Array.from(map.values());
   }, [posts, profilePosts]);
 
+  /** ✅ ADDED: MarketplaceProductPost component for Facebook-style product posts ---------- */
+  const MarketplaceProductPost: React.FC<{
+    product: Product;
+    onView: () => void;
+    onOpenImages?: (images: string[], index: number) => void;
+  }> = ({ product, onView, onOpenImages }) => {
+    const imgs = safeImages((product as any).images);
+    const cover = imgs[0] || 'https://via.placeholder.com/800x800?text=No+Image';
+
+    const locationText = String((product as any).address || '').split(',')[0] || 'Marketplace';
+
+    const price =
+      (product as any).discount_price
+        ? Number((product as any).discount_price).toFixed(0)
+        : Number((product as any).main_price).toFixed(0);
+
+    return (
+      <div className="bg-[#242526] rounded-xl border border-[#3E4042] overflow-hidden mb-2">
+        {/* Header */}
+        <div className="px-3 pt-3 pb-2 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center text-[#E4E6EB] font-black">
+              <i className="fas fa-store"></i>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[#E4E6EB] font-bold truncate">Marketplace</div>
+              <div className="text-[#B0B3B8] text-xs truncate">
+                {locationText} • {price}
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={onView}
+            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold text-sm"
+          >
+            View product
+          </button>
+        </div>
+
+        {/* Title */}
+        <div className="px-3 pb-2">
+          <div className="text-[#E4E6EB] font-bold leading-snug">
+            {(product as any).title}
+          </div>
+        </div>
+
+        {/* Images like post */}
+        <div className="bg-black">
+          {imgs.length <= 1 ? (
+            <button type="button" className="w-full" onClick={() => onOpenImages?.([cover], 0)}>
+              <img
+                src={cover}
+                alt={(product as any).title}
+                className="w-full max-h-[560px] object-cover"
+              />
+            </button>
+          ) : (
+            <div className="grid grid-cols-3 gap-[2px] bg-black">
+              {/* Big image */}
+              <button type="button" className="col-span-3" onClick={() => onOpenImages?.(imgs, 0)}>
+                <img src={imgs[0]} className="w-full max-h-[520px] object-cover" alt="" />
+              </button>
+
+              {/* Thumbnails */}
+              {imgs.slice(1, 4).map((src, idx) => (
+                <button
+                  key={`${src}-${idx}`}
+                  type="button"
+                  className="relative"
+                  onClick={() => onOpenImages?.(imgs, idx + 1)}
+                >
+                  <img src={src} className="w-full h-28 object-cover" alt="" />
+                  {idx === 2 && imgs.length > 4 && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white font-black text-xl">
+                      +{imgs.length - 4}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Bottom spacing like normal post */}
+        <div className="h-2 bg-[#242526]" />
+      </div>
+    );
+  };
+
   /** ✅ UPDATED: Render ---------- */
   const isLoading = false;
   if (isLoading) return <ProfessionalLoader />;
@@ -4300,59 +4428,80 @@ export default function App() {
                 />
               )}
 
-              {rankedPosts.length > 0 ? (
-                rankedPosts.map((post) => {
-                  const postAuthorId = Number((post as any).user_id);
-                  const isFollowing = checkIsFollowing(postAuthorId);
-                  
-                  return (
-                    <Post
-                      key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}`}
-                      post={post}
-                      author={getPostAuthor(post)}
-                      currentUser={currentUser}
-                      users={users}
-                      onProfileClick={(id) => openProfile(id)}
-                      onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                      onShare={() => handleOpenShareSheet(post)}
-                      onViewImage={setFullScreenImage}
-                      onOpenComments={(postId: number) => onOpenComments(postId)}
-                      onVideoClick={(p: any) => {
-                        setActiveReelId(p.id);
-                        setView('reels');
-                      }}
-                      // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
-                      onPlayAudioTrack={onPlayTrack}
-                      groups={groups}
-                      brands={brands}
-                      chats={chats}
-                      // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
-                      onHashtagClick={handleHashtagClick}
-                      // ✅ CORRECT: Pass follow status and handler
-                      isFollowing={isFollowing}
-                      onFollow={() => followUser(postAuthorId)}
-                      followLoading={followLoading[postAuthorId] || false}
-                    />
-                  );
-                })
-              ) : !feedHydrated ? (
-                <div className="text-center py-20 text-[#B0B3B8]"></div>
-              ) : activeHashtag ? (
-                <div className="text-center py-20 text-[#B0B3B8]">
-                  <p>No posts found with {activeHashtag}.</p>
-                  <button 
-                    onClick={clearHashtag}
-                    className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
-                  >
-                    Clear filter
-                  </button>
-                </div>
-              ) : (
-                <div className="text-center py-20 text-[#B0B3B8]">
-                  <p>No posts available.</p>
-                  {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
-                </div>
-              )}
+              <div className="space-y-2">
+                {feedItems.length > 0 ? (
+                  feedItems.map((item, idx) => {
+                    if (item.kind === 'post') {
+                      const post = item.post;
+                      const postAuthorId = Number((post as any).user_id);
+                      const isFollowing = checkIsFollowing(postAuthorId);
+                      
+                      return (
+                        <Post
+                          key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}-${idx}`}
+                          post={post}
+                          author={getPostAuthor(post)}
+                          currentUser={currentUser}
+                          users={users}
+                          onProfileClick={(id) => openProfile(id)}
+                          onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                          onShare={() => handleOpenShareSheet(post)}
+                          onViewImage={setFullScreenImage}
+                          onOpenComments={(postId: number) => onOpenComments(postId)}
+                          onVideoClick={(p: any) => {
+                            setActiveReelId(p.id);
+                            setView('reels');
+                          }}
+                          // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+                          onPlayAudioTrack={onPlayTrack}
+                          groups={groups}
+                          brands={brands}
+                          chats={chats}
+                          // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
+                          onHashtagClick={handleHashtagClick}
+                          // ✅ CORRECT: Pass follow status and handler
+                          isFollowing={isFollowing}
+                          onFollow={() => followUser(postAuthorId)}
+                          followLoading={followLoading[postAuthorId] || false}
+                        />
+                      );
+                    }
+
+                    // ✅ Marketplace Product inserted after every 5 posts
+                    return (
+                      <MarketplaceProductPost
+                        key={`feed-product-${(item.product as any).id}-${idx}`}
+                        product={item.product}
+                        onView={() => {
+                          setView('marketplace');
+                          setActiveProduct(item.product);
+                        }}
+                        onOpenImages={(images, index) => {
+                          // for now opens single image (we will upgrade ImageViewer later for swipe)
+                          setFullScreenImage(images[index]);
+                        }}
+                      />
+                    );
+                  })
+                ) : !feedHydrated ? (
+                  <div className="text-center py-20 text-[#B0B3B8]"></div>
+                ) : activeHashtag ? (
+                  <div className="text-center py-20 text-[#B0B3B8]">
+                    <p>No posts found with {activeHashtag}.</p>
+                    <button 
+                      onClick={clearHashtag}
+                      className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
+                    >
+                      Clear filter
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-center py-20 text-[#B0B3B8]">
+                    <p>No posts available.</p>
+                    {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -4490,30 +4639,30 @@ export default function App() {
           )}
 
           {/* ✅ Events page */}
-{view === 'events' && (
-  <ErrorBoundary>
-    <>
-      {/* Debug helper - uncomment to see events data */}
-      {/* <pre className="text-white p-3 text-xs overflow-auto">
-        {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
-      </pre> */}
+          {view === 'events' && (
+            <ErrorBoundary>
+              <>
+                {/* Debug helper - uncomment to see events data */}
+                {/* <pre className="text-white p-3 text-xs overflow-auto">
+                  {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
+                </pre> */}
 
-      <EventsPage
-        events={events}
-        currentUser={currentUser ?? null}
-        onJoinEvent={joinEvent}
-        onInterestedEvent={markEventInterested}
-        onCreateEventClick={() => {
-          if (!requireAuth('Creating events')) return;
-          setShowCreateEventModal(true);
-        }}
-        onProfileClick={(id) => openProfile(id)}
-        onFollow={followUser}
-        checkIsFollowing={checkIsFollowing}
-      />
-    </>
-  </ErrorBoundary>
-)}
+                <EventsPage
+                  events={events}
+                  currentUser={currentUser ?? null}
+                  onJoinEvent={joinEvent}
+                  onInterestedEvent={markEventInterested}
+                  onCreateEventClick={() => {
+                    if (!requireAuth('Creating events')) return;
+                    setShowCreateEventModal(true);
+                  }}
+                  onProfileClick={(id) => openProfile(id)}
+                  onFollow={followUser}
+                  checkIsFollowing={checkIsFollowing}
+                />
+              </>
+            </ErrorBoundary>
+          )}
 
           {view === 'birthdays' && (
             <BirthdaysPage
