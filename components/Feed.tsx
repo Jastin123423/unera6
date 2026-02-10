@@ -1,3 +1,4 @@
+// Feed.tsx - COMPLETE UPDATED VERSION with all fixes
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   User,
@@ -149,7 +150,42 @@ export const formatRelativeTime = (dateInput: any): string => {
 
 /**
  * =========================
- * ✅ NEW: REACTION EMOJI HELPERS FOR FACEBOOK-STYLE DISPLAY
+ * ✅ NEW: MULTI-MEDIA ARRAY HELPER (for FB-like horizontal swipe)
+ * =========================
+ */
+const toMediaArray = (p: any): { url: string; type: 'image' | 'video' }[] => {
+  const urls: string[] = Array.isArray(p?.media_urls)
+    ? p.media_urls
+    : Array.isArray(p?.mediaUrls)
+    ? p.mediaUrls
+    : p?.media_url
+    ? [p.media_url]
+    : p?.mediaUrl
+    ? [p.mediaUrl]
+    : [];
+
+  const types: string[] = Array.isArray(p?.media_types)
+    ? p.media_types
+    : Array.isArray(p?.mediaTypes)
+    ? p.mediaTypes
+    : p?.media_type
+    ? [p.media_type]
+    : p?.mediaType
+    ? [p.mediaType]
+    : [];
+
+  return urls
+    .map((u, i) => {
+      const t = String(types[i] || '').toLowerCase();
+      const isVid = t.startsWith('video') || u.endsWith('.mp4') || u.includes('/video');
+      return { url: u, type: isVid ? 'video' : 'image' };
+    })
+    .filter(x => !!x.url);
+};
+
+/**
+ * =========================
+ * ✅ REACTION EMOJI HELPERS FOR FACEBOOK-STYLE DISPLAY
  * =========================
  */
 const reactionEmoji = (t: string) => {
@@ -304,22 +340,11 @@ const QUICK_EMOJIS = [
   '📀', '🎥', '🎞️', '📽️', '🎬', '📺', '📷', '📸', '📹', '📼',
   '🔍', '🔎', '🕯️', '💡', '🔦', '🏮', '📔', '📕', '📖', '📗',
   '📘', '📙', '📚', '📓', '📒', '📃', '📜', '📄', '📰', '🗞️',
-  '📑', '🔖', '🏷️', '💰', '💴', '💵', '💶', '💷', '💸', '💳',
-  '🧾', '💎', '⚖️', '🦯', '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🔩',
-  '⚙️', '🧱', '⛓️', '🧲', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️',
-  '⚔️', '🛡️', '🚬', '⚰️', '⚱️', '🏺', '🔮', '📿', '🧿', '💈',
-  '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬',
-  '🦠', '🧫', '🧪', '🌡️', '🧹', '🧺', '🧻', '🚽', '🚰', '🚿',
-  '🛁', '🧼', '🪒', '🧽', '🧴', '🛎️', '🔑', '🗝️', '🚪', '🪑',
-  '🛋️', '🛏️', '🧸', '🖼️', '🛍️', '🛒', '🎁', '🎈', '🎏', '🎀',
-  '🎊', '🎉', '🎎', '🏮', '🎐', '🧧', '✉️', '📩', '📨', '📧',
-  '💌', '📥', '📤', '📦', '🏷️', '📪', '📫', '📬', '📭', '📮',
-  '📯', '📜', '📃', '📄', '📑', '🧾', '📊', '📈', '📉', '🗒️',
-  '🗓️', '📆', '📅', '🗑️', '📇', '📋', '📁', '📂', '🗂️', '🗄️',
-  '📒', '📓', '📔', '📕', '📖', '📗', '📘', '📙', '📚', '📖',
-  '🔖', '🧷', '🔗', '📎', '🖇️', '📏', '📐', '✂️', '🗃️', '🗳️',
-  '🖋️', '🖊️', '🖌️', '🖍️', '📝', '✏️', '🔍', '🔎', '🔏', '🔐',
-  '🔒', '🔓'
+  '📑', '🧾', '📊', '📈', '📉', '🗒️', '🗓️', '📆', '📅', '🗑️',
+  '📇', '📋', '📁', '📂', '🗂️', '🗄️', '📒', '📓', '📔', '📕',
+  '📖', '📗', '📘', '📙', '📚', '📖', '🔖', '🧷', '🔗', '📎',
+  '🖇️', '📏', '📐', '✂️', '🗃️', '🗳️', '🖋️', '🖊️', '🖌️', '🖍️',
+  '📝', '✏️', '🔍', '🔎', '🔏', '🔐', '🔒', '🔓'
 ];
 
 /**
@@ -327,7 +352,6 @@ const QUICK_EMOJIS = [
  * ✅ ENHANCED FACEBOOK-STYLE REACTION DOCK WITH 25+ EMOJIS
  * =========================
  */
-// Add these styles to your global CSS or create a style tag
 const reactionStyles = `
   @keyframes popFloat {
     0% { transform: translateY(6px) scale(0.9); opacity: 0; }
@@ -1476,8 +1500,12 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH FACEBOOK-STYLE SEPARATOR AND REACTION BUBBLES
- * INCLUDES BULLETPROOF MARKETPLACE SUPPORT WITH BLUE "VIEW PRODUCT" BUTTON
+ * ✅ UPDATED: POST CARD WITH ALL FIXES
+ * INCLUDES:
+ * 1. Bulletproof Marketplace detection
+ * 2. Multi-image horizontal swipe
+ * 3. Group posts with name + open group
+ * 4. Music/Podcast posts
  * =========================
  */
 export const Post: React.FC<{
@@ -1494,7 +1522,9 @@ export const Post: React.FC<{
   onVideoClick: (p: PostType) => void;
   onPlayAudioTrack?: (t: AudioTrack) => void;
   onHashtagClick?: (tag: string) => void;
-  onViewProductFromPost?: (productId: number) => void; // ✅ NEW: Marketplace product callback
+  onViewProductFromPost?: (productId: number) => void;
+  onOpenGroup?: (groupId: number) => void; // ✅ NEW: Group click handler
+  onOpenAudio?: (item: any) => void; // ✅ NEW: Audio player handler
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
@@ -1515,7 +1545,9 @@ export const Post: React.FC<{
   onVideoClick,
   onPlayAudioTrack,
   onHashtagClick,
-  onViewProductFromPost, // ✅ NEW
+  onViewProductFromPost,
+  onOpenGroup, // ✅ NEW
+  onOpenAudio, // ✅ NEW
   groups = [],
   brands = [],
   chats = [],
@@ -1527,48 +1559,49 @@ export const Post: React.FC<{
   const a: any = author as any;
 
   // ✅ BULLETPROOF MARKETPLACE DETECTION (robust)
-  const mp =
-    (p as any)?.meta?.marketplace ||
-    (p as any)?.marketplace ||
-    (p as any)?.marketplace_meta ||
+  const meta: any = (post as any)?.meta || {};
+  const mp: any =
+    meta?.marketplace ||
+    meta?.product ||
+    (post as any)?.marketplace ||
+    (post as any)?.product ||
     null;
 
-  const mpProductId =
-    Number(
-      mp?.product_id ??
-        (p as any)?.product_id ??
-        (p as any)?.marketplace_product_id ??
-        0
-    ) || 0;
+  const mpProductIdRaw =
+    mp?.id ??
+    meta?.product_id ??
+    meta?.productId ??
+    (post as any)?.product_id ??
+    (post as any)?.productId ??
+    (post as any)?.marketplace_product_id ??
+    (post as any)?.marketplaceProductId ??
+    null;
 
-  const isMarketplace = Boolean(
-    mp ||
-      mpProductId ||
-      (p as any)?.type === 'marketplace' ||
-      (p as any)?.post_type === 'marketplace' ||
-      (p as any)?.kind === 'marketplace'
-  );
+  const mpProductId = Number(mpProductIdRaw || 0);
 
-  // Fallbacks for the strip text
-  const mpCity =
-    String(mp?.city ?? mp?.location ?? (p as any)?.location ?? '').trim();
+  const isMarketplace =
+    (post as any)?.post_type === 'product' ||
+    (post as any)?.type === 'product' ||
+    (post as any)?.kind === 'product' ||
+    meta?.type === 'product' ||
+    meta?.kind === 'product' ||
+    !!mpProductId;
 
-  const mpPrice =
-    String(
-      mp?.price ??
-        mp?.main_price ??
-        (p as any)?.price ??
-        (p as any)?.main_price ??
-        ''
-    ).trim();
+  // ✅ GROUP DETECTION
+  const groupId =
+    Number((post as any)?.group_id || (post as any)?.groupId || meta?.group_id || meta?.groupId || 0);
 
-  const mpCurrency = String(
-    mp?.currency_symbol ?? 
-    mp?.currency ?? 
-    (p as any)?.currency_symbol ?? 
-    (p as any)?.currency ?? 
-    ''
-  ).trim();
+  const groupName =
+    (post as any)?.group_name || (post as any)?.groupName || meta?.group_name || meta?.groupName || '';
+
+  // ✅ MUSIC/PODCAST DETECTION
+  const isMusic = meta?.kind === 'music' || meta?.type === 'music' || p?.kind === 'music';
+  const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast' || p?.kind === 'podcast';
+  const song = meta?.song || p?.song;
+  const podcast = meta?.podcast || p?.podcast;
+
+  // ✅ MULTI-MEDIA SUPPORT
+  const media = toMediaArray(post);
 
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
@@ -1618,13 +1651,6 @@ export const Post: React.FC<{
 
   const createdAtLabel = formatRelativeTime(p.created_at);
   const postId = safePostId(p);
-
-  const mediaInfo = getMediaTypeInfo(p);
-
-  const mediaList = useMemo(() => {
-    const list = getPostMediaList(p);
-    return list.filter((x) => x.kind === 'image');
-  }, [p]);
 
   const formatCount = (count: number): string => {
     if (count >= 1000000) {
@@ -1710,6 +1736,25 @@ export const Post: React.FC<{
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                  {/* ✅ GROUP NAME HEADER */}
+                  {groupId > 0 && groupName && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          onOpenGroup?.(groupId);
+                        }}
+                        className="text-[#2D88FF] font-bold hover:underline"
+                      >
+                        {groupName}
+                      </button>
+                      <span>•</span>
+                      <span>Posted by {a.name || a.username || 'User'}</span>
+                      <span>•</span>
+                    </>
+                  )}
                   <span>{createdAtLabel}</span>
                   <span>•</span>
                   <i className="fas fa-globe-americas text-[12px]"></i>
@@ -1781,6 +1826,39 @@ export const Post: React.FC<{
             </div>
           )}
 
+          {/* ✅ MUSIC/PODCAST POST CARD */}
+          {(isMusic || isPodcast) && (song || podcast) && (
+            <div className="mx-3 md:mx-4 my-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
+              <div className="flex items-center gap-3 p-3">
+                <img
+                  src={(isMusic ? song?.cover_image_url : podcast?.cover_image_url) || ''}
+                  className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
+                  alt=""
+                />
+                <div className="flex-1 overflow-hidden">
+                  <div className="text-white font-bold truncate">
+                    {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
+                  </div>
+                  <div className="text-[#B0B3B8] text-xs truncate">
+                    {isMusic ? song?.artist_name : podcast?.description}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // ✅ call your wide player opener
+                    onOpenAudio?.(isMusic ? song : podcast);
+                  }}
+                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl"
+                >
+                  Play
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ✅ BULLETPROOF MARKETPLACE STRIP WITH BLUE "VIEW PRODUCT" BUTTON */}
           {isMarketplace && (
             <div className="mx-3 md:mx-4 mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
@@ -1793,7 +1871,7 @@ export const Post: React.FC<{
                   <div className="min-w-0">
                     <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
                     <div className="text-[#B0B3B8] text-[13px] truncate">
-                      {(mpCity || 'Marketplace')}{mpPrice ? ` • ${mpCurrency}${mpPrice}` : ''}
+                      {(mp?.city || mp?.location || 'Marketplace')}{mp?.price ? ` • ${mp?.currency_symbol || '$'}${mp?.price}` : ''}
                     </div>
                   </div>
                 </div>
@@ -1812,7 +1890,7 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {p.link_preview && !mediaInfo.mediaUrl && (
+          {p.link_preview && !media.length && (
             <div
               className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
               onClick={() => window.open(p.link_preview.url, '_blank')}
@@ -1836,7 +1914,7 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {p.background && !mediaInfo.mediaUrl && (
+          {p.background && !media.length && (
             <div
               className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
               style={{ background: p.background, backgroundSize: 'cover' }}
@@ -1845,87 +1923,39 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ✅ UPDATED: Multi-image grid opens gallery */}
-          {!p.background && mediaList.length > 1 && (
-            <MediaGrid
-              media={mediaList.map((m) => ({ url: m.url }))}
-              onOpen={(url, index) => {
-                const urls = mediaList.map((m) => m.url);
-                openGallery(urls, index);
-              }}
-            />
-          )}
+          {/* ✅ UPDATED: MULTI-IMAGE HORIZONTAL SWIPE (FB-LIKE) */}
+          {media.length > 0 && (
+            <div className="mt-3 rounded-2xl overflow-hidden bg-black">
+              {/* FB-like horizontal swipe */}
+              <div className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide">
+                {media.map((m, idx) => (
+                  <div key={idx} className="min-w-full snap-center relative">
+                    {m.type === 'video' ? (
+                      <video
+                        controls
+                        playsInline
+                        className="w-full max-h-[520px] object-contain bg-black"
+                        src={m.url}
+                      />
+                    ) : (
+                      <img
+                        src={m.url}
+                        alt=""
+                        className="w-full max-h-[520px] object-contain bg-black cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onViewImage?.(m.url);
+                        }}
+                      />
+                    )}
 
-          {/* ✅ Single image opens gallery */}
-          {!p.background && mediaList.length <= 1 && mediaInfo.mediaUrl && mediaInfo.isImage && (
-            <div
-              className="cursor-pointer bg-black"
-              onClick={() => {
-                if (mediaList.length > 0) {
-                  openGallery(mediaList.map(m => m.url), 0);
-                } else {
-                  openGallery([mediaInfo.mediaUrl], 0);
-                }
-              }}
-            >
-              <img
-                src={mediaInfo.mediaUrl}
-                alt=""
-                className="w-full h-auto max-h-[600px] object-contain"
-                loading="lazy"
-                onError={(e) => {
-                  console.error('Failed to load image:', mediaInfo.mediaUrl);
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-            </div>
-          )}
-
-          {mediaInfo.mediaUrl && mediaInfo.isVideo && (
-            <div
-              className="cursor-pointer relative h-[500px] bg-black"
-              onClick={() => onVideoClick(post)}
-            >
-              <video
-                src={mediaInfo.mediaUrl}
-                className="w-full h-full object-cover"
-                preload="metadata"
-                playsInline
-                muted
-                onError={(e) => {
-                  console.error('Failed to load video:', mediaInfo.mediaUrl);
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <i className="fas fa-play text-white text-4xl opacity-50"></i>
-              </div>
-            </div>
-          )}
-
-          {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-            <div className="mx-3 md:mx-4 my-3 p-4 bg-[#3A3B3C] rounded-lg border border-[#3E4042]">
-              <div className="flex items-center gap-3">
-                <i className="fas fa-music text-[#1877F2] text-2xl"></i>
-                <div className="flex-1">
-                  <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-                  <div className="text-[#B0B3B8] text-sm">
-                    {p.content || 'Listen to audio'}
+                    {media.length > 1 && (
+                      <div className="absolute top-3 right-3 bg-black/60 text-white text-xs font-bold px-2 py-1 rounded-full">
+                        {idx + 1}/{media.length}
+                      </div>
+                    )}
                   </div>
-                </div>
-                <button
-                  onClick={() => onPlayAudioTrack({
-                    id: postId,
-                    title: p.content || 'Audio',
-                    artist: a.name || 'Unknown',
-                    url: mediaInfo.mediaUrl,
-                    duration: 0,
-                    coverImage: a.profile_image_url,
-                  })}
-                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
-                >
-                  <i className="fas fa-play mr-1"></i> Play
-                </button>
+                ))}
               </div>
             </div>
           )}
