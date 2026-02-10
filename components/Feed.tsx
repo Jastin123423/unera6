@@ -1099,8 +1099,8 @@ export const ShareBottomSheet: React.FC<{
   }, [post]);
 
   if (!isOpen) return null;
-
-  if (activeFlow === 'feed' && currentUser) {
+    
+if (activeFlow === 'feed' && currentUser) {
     return (
       <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
         <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
@@ -1128,7 +1128,6 @@ export const ShareBottomSheet: React.FC<{
             <div>
               <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
               <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
-                <select>
                 <option>🌍 Public</option>
                 <option>👥 Friends</option>
                 <option>🔒 Only me</option>
