@@ -149,6 +149,55 @@ export const formatRelativeTime = (dateInput: any): string => {
 
 /**
  * =========================
+ * ✅ NEW: REACTION EMOJI HELPERS FOR FACEBOOK-STYLE DISPLAY
+ * =========================
+ */
+const reactionEmoji = (t: string) => {
+  switch (t) {
+    case 'like': return '👍';
+    case 'love': return '😍';
+    case 'haha': return '😂';
+    case 'wow': return '😮';
+    case 'sad': return '😢';
+    case 'angry': return '😡';
+    case 'fire': return '🔥';
+    case 'party': return '🎉';
+    case 'clap': return '👏';
+    case 'star': return '⭐';
+    case 'thinking': return '🤔';
+    case 'crying': return '😭';
+    case 'heart_eyes': return '🥰';
+    case 'kiss': return '😘';
+    case 'sunglasses': return '😎';
+    case 'rocket': return '🚀';
+    case 'trophy': return '🏆';
+    case 'crown': return '👑';
+    case 'unicorn': return '🦄';
+    case 'rainbow': return '🌈';
+    case 'money': return '💰';
+    case 'muscle': return '💪';
+    case 'brain': return '🧠';
+    case 'lightning': return '⚡';
+    case 'gem': return '💎';
+    default: return '👍';
+  }
+};
+
+const topReactionEmojis = (reactionsArr: any[], max = 2) => {
+  const counts = new Map<string, number>();
+  for (const r of reactionsArr || []) {
+    const type = String(r?.type || '').trim();
+    if (!type) continue;
+    counts.set(type, (counts.get(type) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, max)
+    .map(([type]) => reactionEmoji(type));
+};
+
+/**
+ * =========================
  * LINK PREVIEW
  * =========================
  */
@@ -251,7 +300,7 @@ const QUICK_EMOJIS = [
   '▪️', '▫️', '🔶', '🔷', '🔸', '🔹', '🔺', '🔻', '💠', '🔘',
   '🔳', '🔲', '🎵', '🎶', '🎼', '🎤', '🎧', '🎷', '🎸', '🎹',
   '🎺', '🎻', '🥁', '📱', '📲', '☎️', '📞', '📟', '📠', '🔋',
-  '🔌', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '🖲️', '💽', '💾', '💿',
+  '🔌', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '🖲', '💽', '💾', '💿',
   '📀', '🎥', '🎞️', '📽️', '🎬', '📺', '📷', '📸', '📹', '📼',
   '🔍', '🔎', '🕯️', '💡', '🔦', '🏮', '📔', '📕', '📖', '📗',
   '📘', '📙', '📚', '📓', '📒', '📃', '📜', '📄', '📰', '🗞️',
@@ -1427,7 +1476,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH FLAT FACEBOOK STYLE
+ * ✅ UPDATED: POST CARD WITH FACEBOOK-STYLE SEPARATOR AND REACTION BUBBLES
  * =========================
  */
 export const Post: React.FC<{
@@ -1539,6 +1588,16 @@ export const Post: React.FC<{
     return count.toString();
   };
 
+  // ✅ NEW: Facebook-style reaction emojis
+  const emojiList = useMemo(() => {
+    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
+      const em = topReactionEmojis(reactionsArr, 2);
+      return em.length ? em : ['👍'];
+    }
+    // fallback if no array
+    return finalReactionCount > 0 ? ['👍'] : [];
+  }, [reactionsArr, finalReactionCount]);
+
   useEffect(() => {
     const newCommentCount = typeof p.comment_count === 'number' 
       ? p.comment_count 
@@ -1576,271 +1635,297 @@ export const Post: React.FC<{
 
   return (
     <>
-      {/* ✅ UPDATED: Flat Facebook Style - no rounded corners, no shadow, no mb-4, only border-b */}
-      <div className="bg-[#242526] w-full border-b border-[#3E4042] overflow-hidden">
-        <div className="p-3 md:p-4 flex items-center justify-between">
-          <div
-            className="flex items-center gap-2 flex-1 min-w-0"
-            onClick={() => onProfileClick(safeUserId(a))}
-          >
-            <img
-              src={
-                a.profile_image_url ||
-                a.profileImage ||
-                a.avatar ||
-                'https://ui-avatars.com/api/?name=User'
-              }
-              alt=""
-              className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-            />
-            <div className="min-w-0">
-              <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
-                  {a.name || a.username || 'User'}
-                </h4>
-                {a.is_verified && (
-                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                <span>{createdAtLabel}</span>
-                <span>•</span>
-                <i className="fas fa-globe-americas text-[12px]"></i>
-                {p.location && (
-                  <>
-                    <span>•</span>
-                    <span className="truncate max-w-[160px]">
-                      {String(p.location).split(',')[0]}
-                    </span>
-                  </>
-                )}
-                {p.feeling && (
-                  <>
-                    <span>•</span>
-                    <span>feeling {p.feeling}</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
-            <button
-              onClick={handleFollowClick}
-              disabled={followLoading}
-              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                isFollowing 
-                  ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                  : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-              } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+      {/* ✅ UPDATED: Facebook-style wrapper with separator band */}
+      <div className="w-full">
+        <div className="bg-[#242526] w-full overflow-hidden">
+          <div className="p-3 md:p-4 flex items-center justify-between">
+            <div
+              className="flex items-center gap-2 flex-1 min-w-0"
+              onClick={() => onProfileClick(safeUserId(a))}
             >
-              {followLoading ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : isFollowing ? (
-                'Following'
-              ) : (
-                'Follow'
-              )}
-            </button>
-          )}
-
-          {onDelete &&
-            currentUser &&
-            safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
-              <button
-                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(postId);
-                }}
-                title="Delete"
-              >
-                <i className="fas fa-trash text-[#B0B3B8]"></i>
-              </button>
-            )}
-        </div>
-
-        {/* ✅ UPDATED: Text expands inline only */}
-        {p.content && (
-          <div className="px-3 md:px-4 pb-2">
-            <ExpandableRichText
-              text={String(p.content)}
-              users={users}
-              onProfileClick={onProfileClick}
-              onHashtagClick={onHashtagClick}
-              maxWords={25}
-              fontSizePx={21}
-            />
-          </div>
-        )}
-
-        {p.link_preview && !mediaInfo.mediaUrl && (
-          <div
-            className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
-            onClick={() => window.open(p.link_preview.url, '_blank')}
-          >
-            <img
-              src={p.link_preview.image}
-              alt=""
-              className="w-full h-48 object-cover"
-            />
-            <div className="p-3 bg-[#3A3B3C]">
-              <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
-                {p.link_preview.domain}
-              </div>
-              <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
-                {p.link_preview.title}
-              </div>
-              <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
-                {p.link_preview.description}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {p.background && !mediaInfo.mediaUrl && (
-          <div
-            className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
-            style={{ background: p.background, backgroundSize: 'cover' }}
-          >
-            {p.content}
-          </div>
-        )}
-
-        {/* ✅ UPDATED: Multi-image grid opens gallery */}
-        {!p.background && mediaList.length > 1 && (
-          <MediaGrid
-            media={mediaList.map((m) => ({ url: m.url }))}
-            onOpen={(url, index) => {
-              const urls = mediaList.map((m) => m.url);
-              openGallery(urls, index);
-            }}
-          />
-        )}
-
-        {/* ✅ Single image opens gallery */}
-        {!p.background && mediaList.length <= 1 && mediaInfo.mediaUrl && mediaInfo.isImage && (
-          <div
-            className="cursor-pointer bg-black"
-            onClick={() => {
-              if (mediaList.length > 0) {
-                openGallery(mediaList.map(m => m.url), 0);
-              } else {
-                openGallery([mediaInfo.mediaUrl], 0);
-              }
-            }}
-          >
-            <img
-              src={mediaInfo.mediaUrl}
-              alt=""
-              className="w-full h-auto max-h-[600px] object-contain"
-              loading="lazy"
-              onError={(e) => {
-                console.error('Failed to load image:', mediaInfo.mediaUrl);
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-          </div>
-        )}
-
-        {mediaInfo.mediaUrl && mediaInfo.isVideo && (
-          <div
-            className="cursor-pointer relative h-[500px] bg-black"
-            onClick={() => onVideoClick(post)}
-          >
-            <video
-              src={mediaInfo.mediaUrl}
-              className="w-full h-full object-cover"
-              preload="metadata"
-              playsInline
-              muted
-              onError={(e) => {
-                console.error('Failed to load video:', mediaInfo.mediaUrl);
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <i className="fas fa-play text-white text-4xl opacity-50"></i>
-            </div>
-          </div>
-        )}
-
-        {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-          <div className="mx-3 md:mx-4 my-3 p-4 bg-[#3A3B3C] rounded-lg border border-[#3E4042]">
-            <div className="flex items-center gap-3">
-              <i className="fas fa-music text-[#1877F2] text-2xl"></i>
-              <div className="flex-1">
-                <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-                <div className="text-[#B0B3B8] text-sm">
-                  {p.content || 'Listen to audio'}
+              <img
+                src={
+                  a.profile_image_url ||
+                  a.profileImage ||
+                  a.avatar ||
+                  'https://ui-avatars.com/api/?name=User'
+                }
+                alt=""
+                className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-1 flex-wrap">
+                  <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
+                    {a.name || a.username || 'User'}
+                  </h4>
+                  {a.is_verified && (
+                    <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                  <span>{createdAtLabel}</span>
+                  <span>•</span>
+                  <i className="fas fa-globe-americas text-[12px]"></i>
+                  {p.location && (
+                    <>
+                      <span>•</span>
+                      <span className="truncate max-w-[160px]">
+                        {String(p.location).split(',')[0]}
+                      </span>
+                    </>
+                  )}
+                  {p.feeling && (
+                    <>
+                      <span>•</span>
+                      <span>feeling {p.feeling}</span>
+                    </>
+                  )}
                 </div>
               </div>
+            </div>
+
+            {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
               <button
-                onClick={() => onPlayAudioTrack({
-                  id: postId,
-                  title: p.content || 'Audio',
-                  artist: a.name || 'Unknown',
-                  url: mediaInfo.mediaUrl,
-                  duration: 0,
-                  coverImage: a.profile_image_url,
-                })}
-                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+                onClick={handleFollowClick}
+                disabled={followLoading}
+                className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                  isFollowing 
+                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
-                <i className="fas fa-play mr-1"></i> Play
+                {followLoading ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : isFollowing ? (
+                  'Following'
+                ) : (
+                  'Follow'
+                )}
               </button>
+            )}
+
+            {onDelete &&
+              currentUser &&
+              safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
+                <button
+                  className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(postId);
+                  }}
+                  title="Delete"
+                >
+                  <i className="fas fa-trash text-[#B0B3B8]"></i>
+                </button>
+              )}
+          </div>
+
+          {/* ✅ UPDATED: Text expands inline only */}
+          {p.content && (
+            <div className="px-3 md:px-4 pb-2">
+              <ExpandableRichText
+                text={String(p.content)}
+                users={users}
+                onProfileClick={onProfileClick}
+                onHashtagClick={onHashtagClick}
+                maxWords={25}
+                fontSizePx={21}
+              />
+            </div>
+          )}
+
+          {p.link_preview && !mediaInfo.mediaUrl && (
+            <div
+              className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+              onClick={() => window.open(p.link_preview.url, '_blank')}
+            >
+              <img
+                src={p.link_preview.image}
+                alt=""
+                className="w-full h-48 object-cover"
+              />
+              <div className="p-3 bg-[#3A3B3C]">
+                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+                  {p.link_preview.domain}
+                </div>
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
+                  {p.link_preview.title}
+                </div>
+                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
+                  {p.link_preview.description}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {p.background && !mediaInfo.mediaUrl && (
+            <div
+              className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
+              style={{ background: p.background, backgroundSize: 'cover' }}
+            >
+              {p.content}
+            </div>
+          )}
+
+          {/* ✅ UPDATED: Multi-image grid opens gallery */}
+          {!p.background && mediaList.length > 1 && (
+            <MediaGrid
+              media={mediaList.map((m) => ({ url: m.url }))}
+              onOpen={(url, index) => {
+                const urls = mediaList.map((m) => m.url);
+                openGallery(urls, index);
+              }}
+            />
+          )}
+
+          {/* ✅ Single image opens gallery */}
+          {!p.background && mediaList.length <= 1 && mediaInfo.mediaUrl && mediaInfo.isImage && (
+            <div
+              className="cursor-pointer bg-black"
+              onClick={() => {
+                if (mediaList.length > 0) {
+                  openGallery(mediaList.map(m => m.url), 0);
+                } else {
+                  openGallery([mediaInfo.mediaUrl], 0);
+                }
+              }}
+            >
+              <img
+                src={mediaInfo.mediaUrl}
+                alt=""
+                className="w-full h-auto max-h-[600px] object-contain"
+                loading="lazy"
+                onError={(e) => {
+                  console.error('Failed to load image:', mediaInfo.mediaUrl);
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            </div>
+          )}
+
+          {mediaInfo.mediaUrl && mediaInfo.isVideo && (
+            <div
+              className="cursor-pointer relative h-[500px] bg-black"
+              onClick={() => onVideoClick(post)}
+            >
+              <video
+                src={mediaInfo.mediaUrl}
+                className="w-full h-full object-cover"
+                preload="metadata"
+                playsInline
+                muted
+                onError={(e) => {
+                  console.error('Failed to load video:', mediaInfo.mediaUrl);
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <i className="fas fa-play text-white text-4xl opacity-50"></i>
+              </div>
+            </div>
+          )}
+
+          {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+            <div className="mx-3 md:mx-4 my-3 p-4 bg-[#3A3B3C] rounded-lg border border-[#3E4042]">
+              <div className="flex items-center gap-3">
+                <i className="fas fa-music text-[#1877F2] text-2xl"></i>
+                <div className="flex-1">
+                  <div className="text-[#E4E6EB] font-bold">Audio Track</div>
+                  <div className="text-[#B0B3B8] text-sm">
+                    {p.content || 'Listen to audio'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onPlayAudioTrack({
+                    id: postId,
+                    title: p.content || 'Audio',
+                    artist: a.name || 'Unknown',
+                    url: mediaInfo.mediaUrl,
+                    duration: 0,
+                    coverImage: a.profile_image_url,
+                  })}
+                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+                >
+                  <i className="fas fa-play mr-1"></i> Play
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ UPDATED: Facebook-style reaction bubbles with emojis */}
+          <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+            <div className="flex items-center gap-2">
+              {finalReactionCount > 0 && (
+                <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
+                  {/* ✅ Facebook-style emoji bubbles */}
+                  <div className="flex -space-x-2">
+                    {emojiList.slice(0, 2).map((e, i) => (
+                      <span
+                        key={i}
+                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                        style={{ zIndex: 10 - i }}
+                      >
+                        {e}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* ✅ Bigger count like Facebook */}
+                  <span className="text-[#E4E6EB] font-bold text-[16px]">
+                    {formatCount(finalReactionCount)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-4">
+              <span
+                className="hover:underline cursor-pointer"
+                onClick={() => onOpenComments(Number(postId))}
+              >
+                {formatCount(commentCount)} Comments
+              </span>
+              {shareCount > 0 && (
+                <span className="hover:underline">
+                  {formatCount(shareCount)} Shares
+                </span>
+              )}
             </div>
           </div>
-        )}
 
-        <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-          <div className="flex items-center gap-1.5">
-            {finalReactionCount > 0 && (
-              <span className="hover:underline">{formatCount(finalReactionCount)} Reactions</span>
-            )}
-          </div>
-          <div className="flex gap-4">
-            <span
-              className="hover:underline cursor-pointer"
-              onClick={() => onOpenComments(Number(postId))}
+          {/* ✅ UPDATED: Bold top line above Like/Comment/Share */}
+          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+            <ReactionButton
+              currentUserReactions={finalMyReaction}
+              reactionCount={finalReactionCount}
+              onReact={(type) => onReact(postId, type)}
+              isGuest={!currentUser}
+            />
+            <button
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
             >
-              {formatCount(commentCount)} Comments
-            </span>
-            {shareCount > 0 && (
-              <span className="hover:underline">
-                {formatCount(shareCount)} Shares
-              </span>
-            )}
+              <i className="far fa-comment-alt text-[20px]"></i>
+              <span className="text-[17px] font-medium">Comment</span>
+            </button>
+            <button
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              onClick={() => {
+                if (!currentUser) {
+                  alert('Please login to share posts.');
+                  return;
+                }
+                setShowShareSheet(true);
+              }}
+            >
+              <i className="fas fa-share text-[20px]"></i>
+              <span className="text-[17px] font-medium">Share</span>
+            </button>
           </div>
         </div>
 
-        <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          <ReactionButton
-            currentUserReactions={finalMyReaction}
-            reactionCount={finalReactionCount}
-            onReact={(type) => onReact(postId, type)}
-            isGuest={!currentUser}
-          />
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
-          >
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
-          </button>
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => {
-              if (!currentUser) {
-                alert('Please login to share posts.');
-                return;
-              }
-              setShowShareSheet(true);
-            }}
-          >
-            <i className="fas fa-share text-[20px]"></i>
-            <span className="text-[17px] font-medium">Share</span>
-          </button>
-        </div>
+        {/* ✅ Facebook-like separator band */}
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
       </div>
 
       <ShareBottomSheet
@@ -1877,54 +1962,59 @@ export const CreatePost: React.FC<{
   onClick: () => void;
   onCreateEventClick?: () => void;
 }> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
-  <div className="bg-[#242526] w-full border-b border-[#3E4042] p-3 md:p-4">
-    <div className="flex gap-2 mb-3">
-      <img
-        src={
-          (currentUser as any).profile_image_url ||
-          (currentUser as any).profileImage ||
-          (currentUser as any).avatar ||
-          'https://ui-avatars.com/api/?name=User'
-        }
-        alt=""
-        className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-        onClick={() => onProfileClick(safeUserId(currentUser))}
-      />
-      <div
-        className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
-        onClick={onClick}
-      >
-        <span className="text-[#B0B3B8] text-[17px] truncate">
-          What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
-        </span>
+  <div className="w-full">
+    <div className="bg-[#242526] w-full p-3 md:p-4">
+      <div className="flex gap-2 mb-3">
+        <img
+          src={
+            (currentUser as any).profile_image_url ||
+            (currentUser as any).profileImage ||
+            (currentUser as any).avatar ||
+            'https://ui-avatars.com/api/?name=User'
+          }
+          alt=""
+          className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+          onClick={() => onProfileClick(safeUserId(currentUser))}
+        />
+        <div
+          className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
+          onClick={onClick}
+        >
+          <span className="text-[#B0B3B8] text-[17px] truncate">
+            What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
+          </span>
+        </div>
+      </div>
+
+      <div className="border-t border-[#3E4042] pt-2 flex justify-between">
+        <div
+          className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+          onClick={onClick}
+        >
+          <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
+          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
+        </div>
+
+        <div
+          className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+          onClick={onClick}
+        >
+          <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
+          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
+        </div>
+
+        <div
+          className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
+          onClick={onCreateEventClick}
+        >
+          <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
+          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
+        </div>
       </div>
     </div>
-
-    <div className="border-t border-[#3E4042] pt-2 flex justify-between">
-      <div
-        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-        onClick={onClick}
-      >
-        <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
-      </div>
-
-      <div
-        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-        onClick={onClick}
-      >
-        <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
-      </div>
-
-      <div
-        className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-        onClick={onCreateEventClick}
-      >
-        <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
-        <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
-      </div>
-    </div>
+    
+    {/* ✅ Facebook-like separator band */}
+    <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
   </div>
 );
 
@@ -3089,48 +3179,53 @@ export const SuggestedProductsWidget: React.FC<{
   if (suggested.length === 0) return null;
 
   return (
-    <div className="bg-[#242526] w-full border-b border-[#3E4042] p-4">
-      <div className="flex justify-between items-center mb-3">
-        <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
-        <button
-          onClick={onSeeAll}
-          className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
-        >
-          See all
-        </button>
-      </div>
+    <div className="w-full">
+      <div className="bg-[#242526] w-full p-4">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
+          <button
+            onClick={onSeeAll}
+            className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
+          >
+            See all
+          </button>
+        </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        {suggested.map((product: any) => {
-          const countryData = MARKETPLACE_COUNTRIES.find((c) =>
-            String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
-          );
-          const symbol = countryData ? countryData.symbol : '$';
+        <div className="grid grid-cols-2 gap-2">
+          {suggested.map((product: any) => {
+            const countryData = MARKETPLACE_COUNTRIES.find((c) =>
+              String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
+            );
+            const symbol = countryData ? countryData.symbol : '$';
 
-          return (
-            <div
-              key={String(product.id)}
-              className="cursor-pointer group"
-              onClick={() => onViewProduct(product)}
-            >
-              <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
-                <img
-                  src={product.images?.[0]}
-                  alt={product.title}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                />
-                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
-                  {symbol}
-                  {product.main_price}
+            return (
+              <div
+                key={String(product.id)}
+                className="cursor-pointer group"
+                onClick={() => onViewProduct(product)}
+              >
+                <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
+                  <img
+                    src={product.images?.[0]}
+                    alt={product.title}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                  />
+                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
+                    {symbol}
+                    {product.main_price}
+                  </div>
                 </div>
+                <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">
+                  {product.title}
+                </h4>
               </div>
-              <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">
-                {product.title}
-              </h4>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
+      
+      {/* ✅ Facebook-like separator band */}
+      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
 };
