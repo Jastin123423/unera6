@@ -1131,6 +1131,7 @@ export const ShareBottomSheet: React.FC<{
                 <option>🌍 Public</option>
                 <option>👥 Friends</option>
                 <option>🔒 Only me</option>
+              </option>
               </select>
             </div>
           </div>
@@ -1477,6 +1478,7 @@ export const ShareBottomSheet: React.FC<{
 /**
  * =========================
  * ✅ UPDATED: POST CARD WITH FACEBOOK-STYLE SEPARATOR AND REACTION BUBBLES
+ * INCLUDES MARKETPLACE SUPPORT WITH BLUE "VIEW PRODUCT" BUTTON
  * =========================
  */
 export const Post: React.FC<{
@@ -1493,6 +1495,7 @@ export const Post: React.FC<{
   onVideoClick: (p: PostType) => void;
   onPlayAudioTrack?: (t: AudioTrack) => void;
   onHashtagClick?: (tag: string) => void;
+  onViewProductFromPost?: (productId: number) => void; // ✅ NEW: Marketplace product callback
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
@@ -1513,6 +1516,7 @@ export const Post: React.FC<{
   onVideoClick,
   onPlayAudioTrack,
   onHashtagClick,
+  onViewProductFromPost, // ✅ NEW
   groups = [],
   brands = [],
   chats = [],
@@ -1522,6 +1526,14 @@ export const Post: React.FC<{
 }) => {
   const p: any = post as any;
   const a: any = author as any;
+
+  // ✅ DETECT MARKETPLACE POST
+  const mp = (p as any)?.meta?.marketplace || (p as any)?.marketplace || null;
+  const isMarketplace = (p as any)?.type === 'marketplace' || !!mp;
+  const mpProductId = Number(mp?.product_id || (p as any)?.product_id || 0);
+  const mpLocation = String(mp?.location || '');
+  const mpPrice = mp?.price;
+  const mpCurrency = String(mp?.currency_symbol || mp?.currency || '');
 
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
@@ -1731,6 +1743,37 @@ export const Post: React.FC<{
                 maxWords={25}
                 fontSizePx={21}
               />
+            </div>
+          )}
+
+          {/* ✅ MARKETPLACE STRIP WITH BLUE "VIEW PRODUCT" BUTTON */}
+          {isMarketplace && (
+            <div className="mx-3 md:mx-4 mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between gap-3 p-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-store text-[#E4E6EB]"></i>
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
+                    <div className="text-[#B0B3B8] text-[13px] truncate">
+                      {mpLocation || 'Local listing'}
+                      {mpPrice != null ? ` • ${mpCurrency}${mpPrice}` : ''}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 h-9 rounded-full flex-shrink-0"
+                  onClick={() => {
+                    if (!mpProductId || !onViewProductFromPost) return;
+                    onViewProductFromPost(mpProductId);
+                  }}
+                >
+                  View product
+                </button>
+              </div>
             </div>
           )}
 
