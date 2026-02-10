@@ -213,6 +213,9 @@ interface UserProfileProps {
   
   // ✅ ADDED: Marketplace product click handler
   onViewProductFromPost?: (productId: number) => void;
+  
+  // ✅ ADDED: Audio player handler
+  onOpenAudio?: (item: any) => void;
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -245,54 +248,32 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   onDeleteUser,
   onMakeModerator,
   onCreateStoryClick,
-  fetchProfilePosts, // ✅ NEW: Optional custom fetch function
-  onViewProductFromPost, // ✅ NEW: Marketplace product click handler
+  fetchProfilePosts,
+  onViewProductFromPost,
+  onOpenAudio,
 }) => {
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [loginError, setLoginError] = useState('');
   
-  // ✅ FIXED: Cache follow state to prevent shaking
-  const [cachedFollowState, setCachedFollowState] = useState<{
-    isFollowing: boolean;
-    followerCount: number;
-  } | null>(null);
+  // ✅ FIXED: Removed cache on follow buttons as requested
+  const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false);
 
   // ✅ FIXED: Move isCurrentUser to the TOP
   const isCurrentUser = Boolean(currentUser && Number(user?.id) === Number(currentUser?.id));
   const isSelf = isCurrentUser;
 
-  // ✅ FIXED: Simple and correct follow logic with caching
+  // ✅ FIXED: Simple and correct follow logic (no caching)
   const isFollowing = useMemo(() => {
-    // Use cached state if available (prevents shaking on re-render)
-    if (cachedFollowState !== null) {
-      return cachedFollowState.isFollowing;
-    }
-    
     if (!currentUser) return false;
     
     const userFollowers = safeArray<number>((user as any)?.followers || []);
-    const following = userFollowers.includes(currentUser.id);
-    
-    // Initialize cache
-    setCachedFollowState({
-      isFollowing: following,
-      followerCount: userFollowers.length
-    });
-    
-    return following;
-  }, [currentUser, user, cachedFollowState]);
+    return userFollowers.includes(currentUser.id);
+  }, [currentUser, user]);
 
   const userFollowers = useMemo(() => safeArray<number>((user as any).followers || []), [user]);
-  
-  // ✅ CACHED: Follower count
-  const followerCount = useMemo(() => {
-    if (cachedFollowState !== null) {
-      return cachedFollowState.followerCount;
-    }
-    return userFollowers.length;
-  }, [userFollowers, cachedFollowState]);
+  const followerCount = userFollowers.length;
 
   // ✅ PROFESSIONALLY FIXED: Check if current user is admin or moderator (with trim)
   const roleOf = (u: any) => String(u?.role || "").trim().toLowerCase();
@@ -390,21 +371,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     uploadCallback(file);
   };
 
-  // ✅ ENHANCED: Follow handler with caching to prevent shaking
+  // ✅ FIXED: Follow handler without caching (as requested)
   const handleFollowClick = () => {
     if (!currentUser) return;
     
-    // Update cache immediately for instant UI feedback
-    const newFollowingState = !isFollowing;
-    const newFollowerCount = followerCount + (newFollowingState ? 1 : -1);
-    
-    setCachedFollowState({
-      isFollowing: newFollowingState,
-      followerCount: newFollowerCount
-    });
-    
-    // Call parent handler
+    setIsFollowButtonClicked(true);
     onFollow(user.id);
+    
+    setTimeout(() => {
+      setIsFollowButtonClicked(false);
+    }, 300);
   };
 
   // ✅ ADDED: Custom API fetch helper for profile posts with viewerId
@@ -528,6 +504,22 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     onReact(pid, type);
   };
 
+  // ✅ ADDED: Filter out Group posts from profile posts (Facebook-like behavior)
+  const filteredProfilePosts = useMemo(() => {
+    return (profilePosts || []).filter((p: any) => {
+      const meta = p?.meta || {};
+      const hasGroup =
+        !!p?.group_id ||
+        !!p?.groupId ||
+        !!meta?.group_id ||
+        !!meta?.groupId ||
+        p?.type === 'group_post' ||
+        p?.post_type === 'group_post' ||
+        meta?.type === 'group_post';
+      return !hasGroup; // ✅ hide group posts from profile
+    });
+  }, [profilePosts]);
+
   const renderContent = () => {
     switch (activeTab) {
       case 'About':
@@ -637,7 +629,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
             <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Photos</h2>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1">
-              {profilePosts
+              {filteredProfilePosts
                 .filter((p: any) => {
                   const mediaInfo = getMediaTypeInfo(p);
                   return mediaInfo.isImage && mediaInfo.mediaUrl && mediaInfo.mediaUrl.trim() !== '';
@@ -663,7 +655,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   );
                 })}
             </div>
-            {profilePosts.filter((p: any) => {
+            {filteredProfilePosts.filter((p: any) => {
               const mediaInfo = getMediaTypeInfo(p);
               return mediaInfo.isImage && mediaInfo.mediaUrl && mediaInfo.mediaUrl.trim() !== '';
             }).length === 0 && (
@@ -775,15 +767,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 </>
               )}
 
-              {/* ✅ MODIFIED: Use profilePosts with proper reaction handler AND marketplace support */}
-              {profilePosts.map((post: any) => (
+              {/* ✅ MODIFIED: Use filteredProfilePosts (hides group posts) */}
+              {filteredProfilePosts.map((post: any) => (
                 <Post
                   key={post.id}
                   post={post}
                   author={user}
                   currentUser={currentUser}
                   onProfileClick={onProfileClick}
-                  onReact={handleProfileReact} // ✅ Important: Use local handler
+                  onReact={handleProfileReact}
                   onShare={onShare}
                   onDelete={onDeletePost}
                   onEdit={onEditPost}
@@ -793,6 +785,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   onPlayAudioTrack={onPlayAudioTrack}
                   // ✅ ADDED: Marketplace support
                   onViewProductFromPost={onViewProductFromPost}
+                  // ✅ ADDED: Audio player support
+                  onOpenAudio={onOpenAudio}
                 />
               ))}
             </div>
@@ -956,15 +950,14 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   </>
                 ) : (
                   <>
-                    {/* ✅ FIXED: Cached Follow Button - No shaking */}
                     <button
                       onClick={handleFollowClick}
-                      className={`
-                        ${isFollowing ? 'bg-[#3A3B3C] text-[#E4E6EB]' : 'bg-[#1877F2] text-white'}
-                        px-6 py-2 rounded-md font-semibold transition-all duration-200 
-                        hover:scale-105 active:scale-95 active:shadow-inner
-                        ${isFollowing ? 'hover:bg-[#4E4F50]' : 'hover:bg-[#166FE5]'}
-                      `}
+                      className={`${
+                        isFollowing ? 'bg-[#3A3B3C] text-[#E4E6EB]' : 'bg-[#1877F2] text-white'
+                      } px-6 py-2 rounded-md font-semibold transition-all duration-200 ${
+                        isFollowButtonClicked ? 'scale-95 shadow-inner' : 'hover:scale-105'
+                      } ${isFollowing ? 'hover:bg-[#4E4F50]' : 'hover:bg-[#166FE5]'}`}
+                      disabled={isFollowButtonClicked}
                     >
                       {isFollowing ? (
                         <span className="flex items-center gap-2">
