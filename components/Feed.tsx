@@ -1128,10 +1128,10 @@ export const ShareBottomSheet: React.FC<{
             <div>
               <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
               <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
+                <select>
                 <option>🌍 Public</option>
                 <option>👥 Friends</option>
                 <option>🔒 Only me</option>
-              </option>
               </select>
             </div>
           </div>
