@@ -1,4 +1,4 @@
-// App.tsx - UPDATED: Complete with all requested features
+
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -44,7 +44,6 @@ import {
   Group,
   Brand,
   Song,
-  Podcast,
 } from './types';
 import EventsPage from './components/EventsPage';
 
@@ -438,7 +437,7 @@ const normalizePost = (p: any): PostType => {
   const mediaTypes =
     Array.isArray(p?.media_types) ? p.media_types :
     typeof p?.media_types === "string" ? (() => { try { return JSON.parse(p.media_types); } catch { return []; } })() :
-    Array.isArray(p?.mediaType) ? p.mediaTypes :
+    Array.isArray(p?.mediaTypes) ? p.mediaTypes :
     typeof p?.mediaTypes === "string" ? (() => { try { return JSON.parse(p.mediaTypes); } catch { return []; } })() :
     [];
 
@@ -733,25 +732,6 @@ const normalizeSong = (s: any): Song => {
     playCount: s?.playCount ?? s?.plays ?? 0,
     artistId: s?.artistId ?? s?.artist_id ?? 0,
     type: s?.type ?? 'music',
-  } as any;
-};
-
-/** ✅ UPDATED: Normalize podcast data ---------- */
-const normalizePodcast = (p: any): Podcast => {
-  return {
-    ...p,
-    id: p?.id ?? p?.podcast_id ?? 0,
-    title: p?.title ?? p?.name ?? 'Unknown Podcast',
-    description: p?.description ?? '',
-    audio_url: p?.audio_url ?? p?.url ?? p?.file_url ?? '',
-    audio_fetch_url: p?.audio_fetch_url ?? '', // ✅ ADDED: For fetchable/proxy URLs
-    cover_url: p?.cover_url ?? p?.cover ?? DEFAULT_MUSIC_COVER,
-    duration: p?.duration ?? 0,
-    playCount: p?.playCount ?? p?.plays ?? 0,
-    artistId: p?.artistId ?? p?.artist_id ?? 0,
-    type: 'podcast',
-    artist: p?.artist ?? p?.artist_name ?? 'Unknown Artist',
-    created_at: p?.created_at ?? new Date().toISOString(),
   } as any;
 };
 
@@ -1271,9 +1251,6 @@ export default function App() {
   // ✅ ADDED: UNERA Music songs state
   const [songs, setSongs] = useState<Song[]>([]);
   
-  // ✅ ADDED: Podcasts state
-  const [podcasts, setPodcasts] = useState<Podcast[]>([]);
-  
   // ✅ ADDED: Reel sound state (TikTok style)
   const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
 
@@ -1648,31 +1625,6 @@ export default function App() {
     }
   }, [myTotalPlays, apiFetch]);
 
-  /** ✅ ADDED: Fetch podcasts ---------- */
-  const fetchPodcasts = useCallback(async () => {
-    try {
-      const data = await apiFetch('/api/podcasts');
-      const list = Array.isArray(data) ? data : (data?.podcasts ?? data?.data ?? []);
-      
-      const normalized = list.map((podcast) => {
-        const p = normalizePodcast(podcast);
-        const raw = ensureAbsoluteUrl(p.audio_url);
-        const fetchable = toFetchableAudioUrl(raw);
-
-        return {
-          ...p,
-          audio_url: raw,
-          audio_fetch_url: fetchable,
-        } as any;
-      })
-      .filter((x: any) => x.audio_url);
-      
-      setPodcasts(normalized);
-    } catch (e) {
-      console.error('Failed to fetch podcasts:', e);
-    }
-  }, []);
-
   /** ---------- ✅ UPDATED: Fetch UNERA Music songs with BOTH raw and fetchable URLs ---------- */
   const fetchSongs = useCallback(async () => {
     try {
@@ -1697,6 +1649,8 @@ export default function App() {
       setSongs(normalized);
     } catch (e) {
       console.error('Failed to fetch songs:', e);
+      // ✅ FIXED: Don't clear existing songs on transient error
+      // setSongs([]);
     }
   }, []);
 
@@ -1764,6 +1718,7 @@ export default function App() {
       
     } catch (error) {
       console.error('Failed to fetch stories:', error);
+      // ✅ FIXED: Don't clear stories on transient error
     } finally {
       storiesInFlightRef.current = false;
     }
@@ -2097,11 +2052,12 @@ export default function App() {
 
   // ✅ FIXED: Call fetchMyTotalPlays only after auth is hydrated
   useEffect(() => {
-    if (!authHydrated) return;
+    if (!authHydrated) return; // ✅ Wait until session restore is finished
 
     if (currentUser?.id) {
       fetchMyTotalPlays(Number(currentUser.id)).catch(() => {});
     } else {
+      // Only set to 0 after we're sure there's no user
       setMyTotalPlays(0);
     }
   }, [authHydrated, currentUser?.id, fetchMyTotalPlays]);
@@ -2139,6 +2095,7 @@ export default function App() {
   }, []);
 
   const onNext = useCallback(() => {
+    // playHistory[0] is current-ish; next is index 1 (simple behavior)
     setPlayHistory(prev => {
       if (prev.length < 2) return prev;
       const next = prev[1];
@@ -2157,6 +2114,7 @@ export default function App() {
   }, []);
 
   const onPrevious = useCallback(() => {
+    // "Previous" = go back to second item if exists (simple behavior)
     setPlayHistory(prev => {
       if (prev.length < 2) return prev;
       const prevTrack = prev[1];
@@ -2185,6 +2143,7 @@ export default function App() {
       if (userId) {
         setMyTotalPlays(p => p + 1);
         
+        // ✅ Also update localStorage immediately for persistence
         const key = `unera_my_total_plays_${Number(userId)}`;
         const current = Number(localStorage.getItem(key) || '0');
         localStorage.setItem(key, String(current + 1));
@@ -2192,15 +2151,18 @@ export default function App() {
 
       const res = await recordPlay(track, userId);
 
+      // backend might return plays_count / plays / etc
       const newPlays = Number(res?.plays_count ?? res?.plays ?? res?.count ?? 0);
 
       const key = `${track.type}:${String(track.id)}`;
       if (Number.isFinite(newPlays) && newPlays > 0) {
         setTrackPlays(prev => ({ ...prev, [key]: newPlays }));
       } else {
+        // fallback: increment local track plays
         setTrackPlays(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
       }
     } catch (e) {
+      // don't crash UI if play endpoint fails
       const key = `${track.type}:${String(track.id)}`;
       setTrackPlays(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
     } finally {
@@ -2229,25 +2191,29 @@ export default function App() {
     async (product: any) => {
       if (!currentUser) return;
 
+      // Use product images as post media
       const media_urls: string[] = safeImages(product.images);
 
+      // Create a REAL post that APIs can return everywhere
       const payload = {
         user_id: currentUser.id,
         content: product.title || '',
         visibility: 'Public',
-        type: 'marketplace',
+        type: 'marketplace', // important for Feed.tsx rendering
         media_urls,
-        media_types: media_urls.map(() => 'image'),
+        media_types: media_urls.map(() => 'image'), // or infer by extension
+        // put marketplace meta into "meta" so you can render View product + location + price
         meta: {
           marketplace: {
             product_id: product.id,
             location: product.address || '',
             price: product.discount_price ?? product.main_price ?? null,
-            currency: product.currency_symbol || '',
+            currency: product.currency_symbol || '', // optional
           },
         },
       };
 
+      // Use the SAME posts endpoint you already use for normal posts
       const created = await apiFetch('/api/posts', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -2255,12 +2221,15 @@ export default function App() {
 
       const newPost = normalizePost(created?.post ?? created);
       
+      // Add to posts list
       setPosts(prev => [newPost, ...safeArray(prev)]);
       
+      // Add to profile posts if it's the current user's product
       if (Number(currentUser.id) === Number(selectedUserId)) {
         setProfilePosts(prev => [newPost, ...safeArray(prev)]);
       }
 
+      // Refresh feed
       scheduleSilentRefresh();
       
       return newPost;
@@ -2275,6 +2244,7 @@ export default function App() {
 
     const payload = { ...productData, seller_id: currentUser.id };
 
+    // ✅ optimistic insert (optional)
     const tempId = Date.now();
     const optimistic = normalizeProduct({
       ...payload,
@@ -2294,148 +2264,23 @@ export default function App() {
 
       const createdProduct = normalizeProduct(res?.product ?? res);
       
+      // ✅ CRITICAL: Update products list
       setProducts(prev => {
         const filtered = safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId));
         return [createdProduct, ...filtered];
       });
 
+      // ✅ CRITICAL: Also create a marketplace post
       await createMarketplacePost(createdProduct);
       
       return createdProduct;
     } catch (e: any) {
+      // rollback optimistic on failure
       setProducts(prev => safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId)));
       setLoginError(e?.message || "Failed to create product");
       throw e;
     }
   }, [currentUser, requireAuth, createMarketplacePost]);
-
-  /** ✅ ADDED: Create Media Post helper for Music/Podcast ---------- */
-  const createMediaPost = useCallback(
-    async (kind: 'music' | 'podcast', payload: any) => {
-      if (!requireAuth(`Creating ${kind} post`)) return;
-      if (!currentUser) return;
-
-      const text =
-        kind === 'music'
-          ? `🎵 ${payload?.title || 'New track'}`
-          : `🎙️ ${payload?.title || 'New podcast'}`;
-
-      await createPost(text, null, {
-        type: 'text',
-        visibility: 'Public',
-        ...(kind === 'music'
-          ? { kind: 'music', song: payload, song_id: payload?.id }
-          : { kind: 'podcast', podcast: payload, podcast_id: payload?.id }),
-      });
-    },
-    [createPost, requireAuth, currentUser]
-  );
-
-  /** ✅ ADDED: Create Song with auto-post ---------- */
-  const createSong = useCallback(async (songData: any) => {
-    if (!requireAuth("Creating song")) return;
-    if (!currentUser) return;
-
-    try {
-      // Upload audio file
-      let audioUrl = '';
-      if (songData.audio_file) {
-        const uploadResult = await uploadToCloudflareR2(songData.audio_file, 'music');
-        audioUrl = uploadResult.url;
-      } else if (songData.audio_url) {
-        audioUrl = songData.audio_url;
-      }
-
-      // Upload cover image if provided
-      let coverUrl = DEFAULT_MUSIC_COVER;
-      if (songData.cover_file) {
-        const uploadResult = await uploadToCloudflareR2(songData.cover_file, 'music-covers');
-        coverUrl = uploadResult.url;
-      } else if (songData.cover_url) {
-        coverUrl = songData.cover_url;
-      }
-
-      const payload = {
-        ...songData,
-        audio_url: audioUrl,
-        cover_url: coverUrl,
-        artist_id: currentUser.id,
-        artist_name: currentUser.name,
-      };
-
-      const res = await apiFetch('/api/songs', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      const newSong = normalizeSong(res?.song ?? res);
-      
-      // Add to songs list
-      setSongs(prev => [newSong, ...prev]);
-      
-      // ✅ Create a post for the song
-      await createMediaPost('music', newSong);
-      
-      return newSong;
-    } catch (error: any) {
-      console.error('Failed to create song:', error);
-      setLoginError(error?.message || 'Failed to create song');
-      throw error;
-    }
-  }, [currentUser, requireAuth, createMediaPost]);
-
-  /** ✅ ADDED: Create Podcast with auto-post ---------- */
-  const createPodcast = useCallback(async (podcastData: any) => {
-    if (!requireAuth("Creating podcast")) return;
-    if (!currentUser) return;
-
-    try {
-      // Upload audio file
-      let audioUrl = '';
-      if (podcastData.audio_file) {
-        const uploadResult = await uploadToCloudflareR2(podcastData.audio_file, 'podcasts');
-        audioUrl = uploadResult.url;
-      } else if (podcastData.audio_url) {
-        audioUrl = podcastData.audio_url;
-      }
-
-      // Upload cover image if provided
-      let coverUrl = DEFAULT_MUSIC_COVER;
-      if (podcastData.cover_file) {
-        const uploadResult = await uploadToCloudflareR2(podcastData.cover_file, 'podcast-covers');
-        coverUrl = uploadResult.url;
-      } else if (podcastData.cover_url) {
-        coverUrl = podcastData.cover_url;
-      }
-
-      const payload = {
-        ...podcastData,
-        audio_url: audioUrl,
-        cover_url: coverUrl,
-        artist_id: currentUser.id,
-        artist_name: currentUser.name,
-      };
-
-      const res = await apiFetch('/api/podcasts', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      const newPodcast = normalizePodcast(res?.podcast ?? res);
-      
-      // Add to podcasts list
-      setPodcasts(prev => [newPodcast, ...prev]);
-      
-      // ✅ Create a post for the podcast
-      await createMediaPost('podcast', newPodcast);
-      
-      return newPodcast;
-    } catch (error: any) {
-      console.error('Failed to create podcast:', error);
-      setLoginError(error?.message || 'Failed to create podcast');
-      throw error;
-    }
-  }, [currentUser, requireAuth, createMediaPost]);
 
   /** ---------- ADMIN ROLE GUARDS (PROFESSIONALLY FIXED) ---------- */
   const roleOf = (u: any) => String(u?.role || '').trim().toLowerCase();
@@ -2466,31 +2311,6 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
-  /** ✅ ADDED: Open group from feed handler ---------- */
-  const openGroupFromFeed = useCallback((groupId: number) => {
-    setView('groups');
-    setActiveTab('groups');
-    // If you have a selected group state, set it here
-    // setSelectedGroupId(groupId);
-  }, []);
-
-  /** ✅ ADDED: Open audio player wide view ---------- */
-  const openAudioPlayer = useCallback((item: any) => {
-    if (!item) return;
-    
-    const audioTrack: AudioTrack = {
-      id: item.id,
-      type: item.type || (item.audio_url?.includes('podcast') ? 'podcast' : 'music'),
-      title: item.title || 'Untitled',
-      artist: item.artist || item.artist_name || '',
-      audioUrl: item.audio_url,
-      cover: item.cover_url || DEFAULT_MUSIC_COVER,
-      duration: item.duration || 0,
-    };
-    
-    onPlayTrack(audioTrack);
-  }, [onPlayTrack]);
-
   /** ---------- ✅ FIXED: Fetch users list with deduplication ---------- */
   const fetchUsersList = useCallback(async () => {
     if (usersInFlightRef.current) return;
@@ -2500,6 +2320,7 @@ export default function App() {
       const u = await apiFetch('/api/users').catch(() => []);
       const newUsers = safeArray(u).map(normalizeUser);
       
+      // ✅ FIXED: Merge with existing users to prevent blinking
       setUsers(prev => {
         const map = new Map<number, User>();
         safeArray(prev).forEach(user => map.set(Number(user.id), user));
@@ -2510,6 +2331,7 @@ export default function App() {
           
           const existing = map.get(id);
           if (existing) {
+            // Merge safely without overwriting good data
             map.set(id, normalizeUser(mergeUserSafe(existing, newUser)));
           } else {
             map.set(id, normalizeUser(newUser));
@@ -2519,6 +2341,8 @@ export default function App() {
         return Array.from(map.values());
       });
     } catch {
+      // ✅ FIXED: Don't clear users on transient error
+      // setUsers([]);
     } finally {
       usersInFlightRef.current = false;
     }
@@ -2533,8 +2357,10 @@ export default function App() {
       const data = await apiFetch('/api/reels');
       const reelsList = safeArray(data?.reels ?? data);
       
+      // ✅ CRITICAL: Normalize reels with fetchable audio URLs
       const normalizedReels = reelsList.map(reel => {
         const normalized = normalizeReel(reel);
+        // Ensure audio URL is fetchable for trimming
         return {
           ...normalized,
           audioUrl: toFetchableAudioUrl(normalized.audioUrl),
@@ -2544,6 +2370,8 @@ export default function App() {
       setReels(normalizedReels);
     } catch (error) {
       console.error('Failed to fetch reels:', error);
+      // ✅ FIXED: Don't clear reels on transient error
+      // setReels([]);
     } finally {
       reelsInFlightRef.current = false;
     }
@@ -2551,20 +2379,25 @@ export default function App() {
 
   /** ✅ UPDATED: Generate sound key based on sound type ---------- */
   const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
+    // Use soundKey from reelData if provided
     if (reelData.soundKey) return reelData.soundKey;
     
+    // Generate based on songId if available
     if (selectedReelSound?.songId) {
       return `song:${selectedReelSound.songId}`;
     }
     
+    // ✅ For trimmed audio, generate unique key
     if (reelData.audioFile) {
       return `trimmed:${currentUser?.id || 'unknown'}:${Date.now()}`;
     }
     
+    // Generate based on audioUrl if available
     if (selectedReelSound?.audioUrl) {
       return `original:${currentUser?.id || 'unknown'}:${Date.now()}`;
     }
     
+    // Default fallback
     return 'original:none';
   }, [currentUser]);
 
@@ -2589,33 +2422,42 @@ export default function App() {
         throw new Error('Video was not uploaded. Please select a video [video file missing]');
       }
 
+      // ✅ Upload video to R2
       const videoUrl = await ensureR2Url(
         videoFile,
         'reels',
         `reel-${Date.now()}.mp4`
       );
 
+      // ✅ Handle audio file (could be trimmed or original)
       let audioUrl = null;
       if (audioFile) {
+        // If audioFile exists, it's a trimmed or custom audio file
         audioUrl = await ensureR2Url(
           audioFile,
           'reel-audio',
-          `audio-${Date.now()}.wav`
+          `audio-${Date.now()}.wav` // ✅ Changed to .wav for trimmed audio
         );
       } else if (reelData.audioUrl) {
+        // ✅ Use the raw audio URL passed from CreateReelModal (which should be originalUrl)
         audioUrl = reelData.audioUrl;
       }
 
+      // ✅ IMPORTANT: never post to backend without a real URL
       if (!videoUrl || !videoUrl.startsWith('http')) {
         throw new Error('Reel video upload failed (no valid R2 URL).');
       }
 
+      // ✅ Determine if this is trimmed audio using soundKey (not start=0,end=0)
       const soundKey = generateSoundKey(reelData, selectedReelSound);
       const isTrimmedAudio = soundKey.startsWith('trimmed:');
       
+      // ✅ For trimmed audio: audio_start=0, audio_end=0
+      // ✅ For original sound: use provided start/end times
       const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
       const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
       
+      // ✅ Use selectedReelSound if available, otherwise use reelData
       const soundPayload = selectedReelSound || {
         songName: reelData.songName || 'Original Sound',
         audioUrl: audioUrl || '',
@@ -2624,14 +2466,15 @@ export default function App() {
         songId: reelData.originalSoundId,
       };
 
+      // ✅ UPDATED: Payload matches D1 table columns with trimmed audio support
       const payload = {
         user_id: currentUser.id,
         caption: reelData.caption || '',
         video_url: videoUrl,
         song_name: soundPayload.songName,
-        audio_url: audioUrl,
-        audio_start: audioStart,
-        audio_end: audioEnd,
+        audio_url: audioUrl, // ✅ This will be the trimmed audio URL or original URL
+        audio_start: audioStart, // ✅ 0 for trimmed audio, original start time otherwise
+        audio_end: audioEnd, // ✅ 0 for trimmed audio, original end time otherwise
         song_id: soundPayload.songId || null,
         sound_key: soundKey,
         visibility: reelData.visibility || 'public',
@@ -2649,12 +2492,16 @@ export default function App() {
       
       const newReel = normalizeReel(data.reel || data);
       
+      // Optimistically add to reels list
       setReels(prev => [newReel, ...safeArray(prev)]);
       
+      // Refresh reels list
       fetchReels().catch(() => {});
       
+      // Show success
       setLoginError('Reel posted successfully!');
       
+      // Clear selected sound after successful creation
       setSelectedReelSound(null);
       
     } catch (error: any) {
@@ -2673,6 +2520,7 @@ export default function App() {
 
     const reactionType = type || 'love';
     
+    // Optimistic update
     setReels(prev => 
       safeArray(prev).map(reel => 
         reel.id === reelId 
@@ -2687,10 +2535,12 @@ export default function App() {
         body: JSON.stringify({ type: reactionType, user_id: currentUser.id }),
       });
       
+      // Refresh reels to get accurate data
       fetchReels().catch(() => {});
       
     } catch (error) {
       console.error('Failed to react to reel:', error);
+      // Refresh reels to revert optimistic update
       fetchReels().catch(() => {});
     }
   }, [currentUser, requireAuth, fetchReels]);
@@ -2706,6 +2556,7 @@ export default function App() {
         body: JSON.stringify({ text, user_id: currentUser.id }),
       });
       
+      // Refresh reels to get updated comments
       fetchReels().catch(() => {});
       
     } catch (error) {
@@ -2725,6 +2576,7 @@ export default function App() {
         body: JSON.stringify({ user_id: currentUser.id, destination: type }),
       });
       
+      // Optimistic update - increment share count
       setReels(prev => 
         safeArray(prev).map(reel => 
           reel.id === reelId 
@@ -2734,6 +2586,7 @@ export default function App() {
       );
       
       if (type === 'copy') {
+        // Copy link to clipboard
         const reelLink = `${window.location.origin}/reels/${reelId}`;
         navigator.clipboard.writeText(reelLink).then(() => {
           setLoginError('Link copied to clipboard!');
@@ -2748,6 +2601,7 @@ export default function App() {
 
   /** ✅ UPDATED: Use sound from reel with fetchable audio URLs and original URL storage ---------- */
   const useSoundFromReel = useCallback((soundFromReel: any) => {
+    // ✅ Get the raw D1 audio_url (this is what's stored in database)
     const audioUrlRaw = soundFromReel?.audio_url ?? soundFromReel?.audioUrl ?? '';
     
     if (!audioUrlRaw) return;
@@ -2758,11 +2612,14 @@ export default function App() {
     const songId = soundFromReel?.song_id ?? soundFromReel?.songId ?? null;
     const soundKey = String(soundFromReel?.sound_key ?? soundFromReel?.soundKey ?? '');
 
+    // Check if this is trimmed audio using soundKey
     const isTrimmedAudio = soundKey.startsWith('trimmed:');
 
     setSelectedReelSound({
       songName,
+      // ✅ for trimming/fetching (use audio_fetch_url if available, otherwise generate fetchable URL)
       audioUrl: soundFromReel?.audio_fetch_url || toFetchableAudioUrl(audioUrlRaw),
+      // ✅ Store the raw URL (originalUrl) for re-trimming
       originalUrl: audioUrlRaw,
       audioStart,
       audioEnd,
@@ -2796,6 +2653,7 @@ export default function App() {
             return;
           }
 
+          // ✅ FIXED: Merge authors into users list SAFELY
           setUsers((prev) => {
             const map = new Map<number, User>();
             safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
@@ -2806,6 +2664,7 @@ export default function App() {
               
               const existing = map.get(author.id);
               if (existing) {
+                // ✅ CRITICAL: Merge safely without overwriting good data
                 map.set(author.id, normalizeUser(mergeUserSafe(existing, author)));
               } else {
                 map.set(author.id, author);
@@ -2817,6 +2676,7 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
 
+          // unseen first + session shuffle + diversify
           const unseen = normalized.filter((p: any) => !seen.has(Number(p.id)));
           const seenOnes = normalized.filter((p: any) => seen.has(Number(p.id)));
 
@@ -2825,6 +2685,7 @@ export default function App() {
             seed
           );
 
+          // remember "first screen"
           pushSeenIds(ordered.slice(0, 40).map((p: any) => Number(p.id)));
 
           setPosts((prev) => {
@@ -2836,6 +2697,7 @@ export default function App() {
 
           if (!feedHydrated) setFeedHydrated(true);
 
+          // keep comments stable
           if (activeCommentsPostId != null) {
             const found = ordered.find((p: any) => Number(p.id) === Number(activeCommentsPostId));
             if (found) setCommentPostSnapshot(found);
@@ -2844,6 +2706,7 @@ export default function App() {
           return;
         }
 
+        // Guest feed fallback
         const p = await apiFetch('/api/posts');
         const normalized = safeArray(p).map(normalizePost);
 
@@ -2888,15 +2751,19 @@ export default function App() {
   /** ✅ Fetch profile posts with viewerId (latest only) ---------- */
   const fetchProfilePosts = useCallback(async (profileUserId: number) => {
     try {
+      // ✅ ADDED: Always send viewerId when fetching profile posts
       const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
       const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`);
       
       const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
       const normalized = list.map(normalizePost);
 
+      // Always latest-first (already ordered by API, but keep safe)
       normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
 
+      // ✅ UPDATED: Don't let a profile refetch overwrite local reaction truth
       setProfilePosts(prev => {
+        // Merge with any local truth we already have
         const localTruth = [...safeArray(posts), ...safeArray(prev)];
         const map = new Map<number, any>();
         localTruth.forEach((p: any) => map.set(Number(p.id), p));
@@ -2917,6 +2784,8 @@ export default function App() {
         });
       });
     } catch {
+      // ✅ FIXED: Don't clear profile posts on transient error
+      // setProfilePosts([]);
     }
   }, [currentUser, posts]);
 
@@ -2925,6 +2794,7 @@ export default function App() {
     try {
       const followData = await fetchUserFollowData(userId);
       
+      // Update the specific user in the users list
       setUsers(prev => {
         return prev.map(user => {
           if (Number(user.id) === Number(userId)) {
@@ -2938,6 +2808,7 @@ export default function App() {
         });
       });
 
+      // Also update currentUser if it's the logged in user
       if (currentUser && Number(currentUser.id) === Number(userId)) {
         const updatedCurrentUser = normalizeUser({
           ...currentUser,
@@ -3033,6 +2904,7 @@ export default function App() {
         body: JSON.stringify({ user_id: currentUser.id }),
       });
 
+      // If API returns updated event, merge it
       const returned = res?.event ?? res?.data?.event ?? null;
       if (returned) {
         const normalized = normalizeEvent(returned);
@@ -3047,6 +2919,7 @@ export default function App() {
           return [normalized, ...arr];
         });
       } else {
+        // otherwise, refresh quietly
         fetchEvents().then(setEvents).catch(() => {});
       }
 
@@ -3105,15 +2978,20 @@ export default function App() {
     if (!requireAuth('Creating events')) return;
     if (!currentUser) return;
 
+    // Accept both:
+    // A) { date:'YYYY-MM-DD', time:'HH:MM' }
+    // B) { event_date: ISO, event_time:'HH:MM' }
     const uiDate = safeString(eventData?.date ?? '', '');
     const uiTime = safeString(eventData?.time ?? '', '');
     const apiISO = safeString(eventData?.event_date ?? '', '');
     const apiTime = safeString(eventData?.event_time ?? '', '');
 
+    // Build a stable ISO-like string (local) then convert to ISO
     const d = uiDate || toDateOnly(apiISO) || new Date().toISOString().slice(0, 10);
     const t = apiTime || uiTime || '12:00';
     const eventDateISO = new Date(`${d}T${t}:00`).toISOString();
 
+    // ✅ FIXED: Proper cover handling with fallback
     const cover =
       safeString(eventData?.cover_url ?? eventData?.image ?? eventData?.cover ?? eventData?.cover_image, '') || DEFAULT_EVENT_COVER;
 
@@ -3125,7 +3003,7 @@ export default function App() {
       location: safeString(eventData?.location).trim(),
       visibility: safeString(eventData?.visibility, 'worldwide'),
       cover_url: cover,
-      image: cover,
+      image: cover, // ✅ ADDED: Also include image field for compatibility
       creator_id: Number(currentUser.id),
       creator_name: safeString(currentUser.name),
       creator_avatar: safeString(currentUser.profile_image_url),
@@ -3146,6 +3024,7 @@ export default function App() {
     otherDataInFlightRef.current = true;
     
     try {
+      // ✅ FIXED: REMOVED stories from Promise.all - stories are fetched separately
       const [pr, g, b, c] = await Promise.all([
         apiFetch('/api/products').catch(() => []),
         apiFetch('/api/groups').catch(() => []),
@@ -3153,6 +3032,7 @@ export default function App() {
         apiFetch('/api/chats').catch(() => []),
       ]);
 
+      // ✅ FIXED: Handle different API response formats for products
       const prRaw = pr;
       const prList =
         Array.isArray(prRaw) ? prRaw :
@@ -3164,6 +3044,7 @@ export default function App() {
 
       setProducts(prList.map(normalizeProduct));
       
+      // ✅ FIXED: Handle new groups API response shape WITH NORMALIZATION
       const gRaw = g;
       const gList = Array.isArray(gRaw)
         ? gRaw
@@ -3171,20 +3052,23 @@ export default function App() {
         : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
         : [];
       
+      // ✅ CRITICAL: Normalize groups to prevent crashes
       setGroups(gList.map(normalizeGroup));
       
       setBrands(safeArray(b));
       
+      // ✅ FIXED: Fetch events separately using the new fetchEvents helper
       const eventsData = await fetchEvents().catch(() => []);
       setEvents(eventsData);
       
       setChats(safeArray(c));
     } catch (error) {
       console.error('Failed to fetch other data:', error);
+      // ✅ FIXED: Don't clear all data on transient error
     } finally {
       otherDataInFlightRef.current = false;
     }
-  }, [fetchEvents]);
+  }, [fetchEvents]); // ✅ FIXED: Add fetchEvents dependency
 
   /** ---------- ✅ 2) Fetch group posts with viewerId ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
@@ -3209,6 +3093,7 @@ export default function App() {
         body: JSON.stringify({ user_id: meId, post_id: Number(postId) })
       });
 
+      // backend returns { success, liked, likes_count }
       return {
         liked: !!(res as any)?.liked,
         likes_count: Number((res as any)?.likes_count || 0),
@@ -3320,11 +3205,12 @@ export default function App() {
         body: JSON.stringify({
           ...groupData,
           admin_id: meId,
-          description: String(groupData.description || "").trim(),
+          description: String(groupData.description || "").trim(), // ✅ Ensure string, never null
           created_at: new Date().toISOString(),
         }),
       });
 
+      // Refresh groups list
       fetchOtherData().catch(() => {});
       return res;
     } catch (error) {
@@ -3342,6 +3228,7 @@ export default function App() {
         method: "DELETE",
       });
 
+      // Refresh groups list
       fetchOtherData().catch(() => {});
       return true;
     } catch (error) {
@@ -3363,6 +3250,7 @@ export default function App() {
         }),
       });
 
+      // Refresh groups list
       fetchOtherData().catch(() => {});
       return res;
     } catch (error) {
@@ -3400,6 +3288,7 @@ export default function App() {
       });
     } catch (error) {
       console.error('Failed to invite to group:', error);
+      // Return success anyway for UI to continue
       return { success: true, message: "Invites sent" };
     }
   }, [currentUser, requireAuth]);
@@ -3459,12 +3348,11 @@ export default function App() {
         fetchPostsForHome(viewer), 
         fetchOtherData(), 
         fetchReels(),
-        fetchSongs(),
-        fetchPodcasts(),
-        fetchStories(),
+        fetchSongs(), // ✅ ADDED: Fetch UNERA Music songs
+        fetchStories(), // ✅ UPDATED: Fetch stories with viewerId
       ]);
     },
-    [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchPodcasts, fetchStories]
+    [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
   /** ✅ UPDATED: Restore session + initial load WITHOUT dependency chain ---------- */
@@ -3493,18 +3381,19 @@ export default function App() {
           }
         }
       } catch {
+        // ignore
       }
 
       if (!mounted) return;
       
+      // Fetch all data in parallel
       await Promise.all([
         fetchUsersList(),
         fetchPostsForHome(viewer),
         fetchOtherData(),
         fetchReels(),
         fetchSongs(),
-        fetchPodcasts(),
-        fetchStories(),
+        fetchStories(), // ✅ UPDATED: Pass viewerId
       ]);
       
       if (!mounted) return;
@@ -3516,7 +3405,8 @@ export default function App() {
     return () => {
       mounted = false;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // ✅ FIXED: Empty dependency array - runs once on mount
 
   /** ---------- Return detection (leave -> come back => new seed + refresh) ---------- */
   useEffect(() => {
@@ -3583,6 +3473,7 @@ export default function App() {
     async (userId: number) => {
       if (!requireAdmin('Verify user')) return;
 
+      // optimistic toggle
       setUsers((prev) =>
         prev.map((u: any) =>
           Number(u.id) === Number(userId) ? { ...u, is_verified: u.is_verified ? 0 : 1 } : u
@@ -3597,7 +3488,7 @@ export default function App() {
 
         await fetchUsersList();
       } catch (e: any) {
-        await fetchUsersList();
+        await fetchUsersList(); // rollback by refetch
         setLoginError(e?.message || 'Verify failed');
       }
     },
@@ -3626,6 +3517,7 @@ export default function App() {
     async (userId: number) => {
       if (!requireAdmin('Delete account')) return;
 
+      // optimistic remove
       setUsers((prev) => prev.filter((u: any) => Number(u.id) !== Number(userId)));
 
       try {
@@ -3637,7 +3529,7 @@ export default function App() {
         await fetchUsersList();
         fetchPostsForHome(currentUser).catch(() => {});
       } catch (e: any) {
-        await fetchUsersList();
+        await fetchUsersList(); // rollback
         setLoginError(e?.message || 'Delete failed');
       }
     },
@@ -3692,6 +3584,10 @@ export default function App() {
     return Array.isArray(feedToRank) ? feedToRank : [];
   }, [posts, filteredPosts, activeHashtag]);
 
+  /** ✅ REMOVED: Old feed "mixer" that inserted products after every 5 posts ---------- */
+  // This entire block has been removed as per requirements
+  // type FeedItem = ... and const feedItems: FeedItem[] = useMemo(() => { ... }) have been removed
+
   /** ✅ Updated activePost resolver to include profilePosts ---------- */
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
@@ -3734,6 +3630,7 @@ export default function App() {
       setCurrentUser(normalized);
       setSelectedUserId(Number(normalized.id));
 
+      // Add user to users list
       setUsers((prev) => {
         const arr = safeArray(prev);
         const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
@@ -3741,6 +3638,7 @@ export default function App() {
         return [normalized, ...arr];
       });
 
+      // New session seed
       try {
         sessionStorage.removeItem(FEED_SESSION_KEY);
       } catch {}
@@ -3772,6 +3670,7 @@ export default function App() {
       const normalized = normalizeUser(data.user);
       if (!normalized?.id) throw new Error('Login failed: invalid user id');
 
+      // ✅ FIXED: Use finalUser consistently, don't setCurrentUser twice
       let finalUser = normalized;
       try {
         const fresh = await apiFetch(`/api/users?id=${normalized.id}`);
@@ -3781,6 +3680,7 @@ export default function App() {
       setCurrentUser(finalUser);
       localStorage.setItem(LS_USER_KEY, JSON.stringify(finalUser));
 
+      // new session seed
       try {
         sessionStorage.removeItem(FEED_SESSION_KEY);
       } catch {}
@@ -3822,22 +3722,28 @@ export default function App() {
       const meId = Number(currentUser.id);
       const targetId = Number(targetUserId);
 
+      // ✅ backend blocks self-follow
       if (!targetId || targetId === meId) return;
 
+      // ✅ TRUE follow state comes from my "following"
       const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
       const isFollowingNow = myFollowing.has(targetId);
 
+      // Set loading state to prevent double clicks
       setFollowLoading(prev => ({ ...prev, [targetId]: true }));
 
+      // Save original state for potential rollback
       const originalUsers = [...users];
       const originalCurrentUser = { ...currentUser };
 
+      // ---------- optimistic update ----------
       setUsers((prev) => {
         const arr = safeArray(prev).map(normalizeUser);
 
         return arr.map((u) => {
           const uid = Number(u.id);
 
+          // update ME.following
           if (uid === meId) {
             const following = new Set<number>(safeArray<number>((u as any).following));
             if (isFollowingNow) following.delete(targetId);
@@ -3845,6 +3751,7 @@ export default function App() {
             return normalizeUser({ ...u, following: Array.from(following) });
           }
 
+          // update TARGET.followers
           if (uid === targetId) {
             const followers = new Set<number>(safeArray<number>((u as any).followers));
             if (isFollowingNow) followers.delete(meId);
@@ -3856,6 +3763,7 @@ export default function App() {
         });
       });
 
+      // keep currentUser in sync + persist
       setCurrentUser((prev) => {
         if (!prev) return prev;
         const following = new Set<number>(safeArray<number>((prev as any).following));
@@ -3866,18 +3774,22 @@ export default function App() {
         return next;
       });
 
+      // ---------- API ----------
       try {
         if (isFollowingNow) {
+          // ✅ EXACTLY as in original code: Unfollow
           await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
             method: 'DELETE',
           });
         } else {
+          // ✅ EXACTLY as in original code: Follow
           await apiFetch('/api/user-follows', {
             method: 'POST',
             body: JSON.stringify({ follower_id: meId, following_id: targetId }),
           });
         }
 
+        // ✅ Refresh follow data from server for consistency
         fetchUserFollowDataForUI(targetId).catch(() => {});
         fetchUserFollowDataForUI(meId).catch(() => {});
 
@@ -3885,15 +3797,19 @@ export default function App() {
       } catch (e: any) {
         console.error('Follow toggle failed:', e);
 
+        // ✅ rollback using original state
         setUsers(originalUsers);
         setCurrentUser(originalCurrentUser);
         localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
         
+        // ✅ rollback using server truth
         fetchUserFollowDataForUI(targetId).catch(() => {});
         fetchUserFollowDataForUI(meId).catch(() => {});
         
+        // Show error message
         setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
       } finally {
+        // Clear loading state
         setFollowLoading(prev => ({ ...prev, [targetId]: false }));
       }
     },
@@ -3904,6 +3820,7 @@ export default function App() {
   const checkIsFollowing = useCallback((targetUserId: number): boolean => {
     if (!currentUser || !targetUserId) return false;
     
+    // Direct check of current user's following array
     const myFollowing = safeArray<number>((currentUser as any).following);
     return myFollowing.includes(Number(targetUserId));
   }, [currentUser]);
@@ -3911,7 +3828,8 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
     localStorage.removeItem(STORY_SEEN_KEY);
-    localStorage.removeItem(STORIES_CACHE_KEY);
+    localStorage.removeItem(STORIES_CACHE_KEY); // ✅ Clear stories cache on logout
+    // Clear all viewer caches
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
         localStorage.removeItem(key);
@@ -3926,21 +3844,20 @@ export default function App() {
     setSelectedUserId(null);
     setProfilePosts([]);
     setReels([]);
-    setStories([]);
-    setActiveStoryId(null);
-    setSeenStoryIds(new Set());
-    setStoryMuted(true);
-    setActiveHashtag(null);
-    setLikedTracks([]);
-    setMyTotalPlays(0);
-    setPlayHistory([]);
-    setTrackPlays({});
-    setCurrentAudioTrack(null);
-    setIsAudioPlaying(false);
-    setSelectedReelSound(null);
-    setSongs([]);
-    setPodcasts([]);
-    setEvents([]);
+    setStories([]); // ✅ Clear stories on logout
+    setActiveStoryId(null); // ✅ UPDATED: Clear active story ID
+    setSeenStoryIds(new Set()); // ✅ Clear seen story IDs
+    setStoryMuted(true); // ✅ Reset story muted state
+    setActiveHashtag(null); // ✅ Clear hashtag filter on logout
+    setLikedTracks([]); // ✅ Clear liked tracks on logout
+    setMyTotalPlays(0); // ✅ Clear total plays on logout
+    setPlayHistory([]); // ✅ Clear play history on logout
+    setTrackPlays({}); // ✅ Clear track plays on logout
+    setCurrentAudioTrack(null); // ✅ Clear current audio track
+    setIsAudioPlaying(false); // ✅ Stop audio playback
+    setSelectedReelSound(null); // ✅ Clear selected reel sound
+    setSongs([]); // ✅ Clear songs on logout
+    setEvents([]); // ✅ Clear events on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -3974,7 +3891,7 @@ export default function App() {
   const createPost = useCallback(
     async (
       text: string,
-      files: File[] | File | null,
+      files: File[] | File | null, // ✅ Changed from File | null to File[] | File | null
       meta?: {
         type?: 'text' | 'image' | 'video';
         visibility?: string;
@@ -3990,6 +3907,7 @@ export default function App() {
       const trimmed = (text || '').trim();
       if (!trimmed && !files && !meta?.background) return;
 
+      // ✅ Convert input to array
       const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
 
       let media_urls: string[] = [];
@@ -4006,6 +3924,7 @@ export default function App() {
         }
       }
 
+      // backward compatibility (keep old fields too)
       const media_url = media_urls[0] ?? null;
       const media_type = media_types[0] ?? null;
 
@@ -4013,9 +3932,11 @@ export default function App() {
         user_id: currentUser!.id,
         content: trimmed,
 
+        // ✅ keep single (backward compatible)
         media_url,
         media_type,
 
+        // ✅ add multi
         media_urls: media_urls.length ? media_urls : undefined,
         media_types: media_types.length ? media_types : undefined,
 
@@ -4040,6 +3961,7 @@ export default function App() {
       const newPostRaw =
         data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
 
+      // ✅ ensure arrays exist immediately
       (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
       (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
 
@@ -4052,6 +3974,7 @@ export default function App() {
         return next;
       });
 
+      /** ✅ Keep profile posts updated when you create a post ---------- */
       setProfilePosts((prev) => {
         if (!currentUser) return prev;
         const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
@@ -4075,6 +3998,7 @@ export default function App() {
       if (!requireAuth('Reacting')) return;
       const meId = Number(currentUser!.id);
 
+      // ✅ Optimistic update (homepage)
       setPosts(prev => {
         const next = safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId));
         lastGoodPostsRef.current = next;
@@ -4082,8 +4006,10 @@ export default function App() {
         return next;
       });
 
+      // ✅ Optimistic update (profile list in App state)
       setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
 
+      // ✅ Update commentPostSnapshot if it's the same post
       setCommentPostSnapshot(prev =>
         prev && Number(prev.id) === Number(postId)
           ? applyOptimisticReaction(prev, postId, type, meId)
@@ -4120,6 +4046,7 @@ export default function App() {
 
           setPosts(prev => safeArray(prev).map(applyServerTruth));
           setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
+          // ✅ Update commentPostSnapshot with server truth
           setCommentPostSnapshot(prev => (prev ? applyServerTruth(prev) : prev));
         }
       } catch {
@@ -4156,6 +4083,7 @@ export default function App() {
           return next;
         });
 
+        /** ✅ Update profile posts when sharing ---------- */
         setProfilePosts((prev) => {
           return safeArray(prev).map((p: any) =>
             Number(p.id) === Number(activeSharePost.id)
@@ -4208,6 +4136,7 @@ export default function App() {
         return next;
       });
 
+      /** ✅ Keep profile posts updated when you delete ---------- */
       setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
 
       try {
@@ -4217,6 +4146,7 @@ export default function App() {
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
         
+        /** ✅ Rollback profile posts on error ---------- */
         setProfilePosts(prevProfilePosts);
         if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
       }
@@ -4242,6 +4172,7 @@ export default function App() {
         return next;
       });
 
+      /** ✅ Keep profile posts updated when you edit ---------- */
       setProfilePosts((prev) =>
         safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
       );
@@ -4253,6 +4184,7 @@ export default function App() {
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
         
+        /** ✅ Rollback profile posts on error ---------- */
         setProfilePosts(prevProfilePosts);
         if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
       }
@@ -4284,6 +4216,7 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
+      // ✅ ADDED: Validate file is an image
       if (!file.type || !file.type.startsWith('image/')) {
         setLoginError('Only image files are allowed.');
         return;
@@ -4304,6 +4237,7 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
+      // ✅ ADDED: Validate file is an image
       if (!file.type || !file.type.startsWith('image/')) {
         setLoginError('Only image files are allowed.');
         return;
@@ -4351,11 +4285,13 @@ export default function App() {
     (productId: number) => {
       const p = (products || []).find((x: any) => Number(x.id) === Number(productId));
       if (!p) {
+        // fallback: navigate to marketplace anyway
         setView('marketplace');
         return;
       }
       setView('marketplace');
-      setActiveProduct(p);
+      setActiveProduct(p); // whatever you use to open ProductDetailModal
+      // setShowProductDetail(true); // or your existing modal boolean
     },
     [products]
   );
@@ -4398,6 +4334,7 @@ export default function App() {
         <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
           {view === 'home' && (
             <div className="w-full pt-4 md:px-8 pb-10">
+              {/* ✅ ADDED: Hashtag filter chip */}
               {activeHashtag && (
                 <div className="mb-3 px-4">
                   <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
@@ -4415,24 +4352,27 @@ export default function App() {
                 </div>
               )}
 
+              {/* ✅ ✅ UPDATED: StoryReel with ALL required props for Story.tsx */}
               <StoryReel
-                stories={orderedStories}
+                stories={orderedStories} // ✅ Use ordered stories (unseen first)
                 onProfileClick={(id) => openProfile(id)}
                 onCreateStory={() => {
                   if (!requireAuth('Creating stories')) return;
                   setShowCreateStoryModal(true);
                 }}
-                onViewStory={openStoryViewer}
-                currentUser={currentUser}
+                onViewStory={openStoryViewer} // ✅ Required by Story.tsx
+                currentUser={currentUser} // ✅ Required by Story.tsx
                 onRequestLogin={() => setView('login')}
                 onFollow={followUser}
                 checkIsFollowing={checkIsFollowing}
                 followLoading={followLoading}
-                onFetchViewers={fetchStoryViewers}
-                onReaction={reactToStory}
-                onReply={replyToStory}
-                onToggleMute={() => setStoryMuted(!storyMuted)}
-                muted={storyMuted}
+                // ✅ ✅ ADDED: REQUIRED PROPS FOR STORY.TSX
+                onFetchViewers={fetchStoryViewers} // ✅ Required for viewers list
+                onReaction={reactToStory} // ✅ Required for reactions
+                onReply={replyToStory} // ✅ Required for replies
+                onToggleMute={() => setStoryMuted(!storyMuted)} // ✅ Required for mute toggle
+                muted={storyMuted} // ✅ Required for mute state
+                // Story.tsx uses story.views_count automatically
               />
 
               {currentUser && (
@@ -4456,6 +4396,7 @@ export default function App() {
               )}
 
               <div className="space-y-2">
+                {/* ✅ ✅ UPDATED: Render posts normally (NO product mixer) */}
                 {rankedPosts.length > 0 ? (
                   rankedPosts.map((post, idx) => {
                     const postAuthorId = Number((post as any).user_id);
@@ -4477,17 +4418,19 @@ export default function App() {
                           setActiveReelId(p.id);
                           setView('reels');
                         }}
+                        // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
                         onPlayAudioTrack={onPlayTrack}
                         groups={groups}
                         brands={brands}
                         chats={chats}
+                        // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
                         onHashtagClick={handleHashtagClick}
+                        // ✅ CORRECT: Pass follow status and handler
                         isFollowing={isFollowing}
                         onFollow={() => followUser(postAuthorId)}
                         followLoading={followLoading[postAuthorId] || false}
+                        // ✅ ADDED: Pass onViewProductFromPost callback
                         onViewProductFromPost={openProductFromPost}
-                        onOpenGroup={openGroupFromFeed}
-                        onOpenAudio={openAudioPlayer}
                       />
                     );
                   })
@@ -4518,13 +4461,13 @@ export default function App() {
               reels={reels}
               users={users}
               currentUser={currentUser}
-              songs={songs}
-              selectedSound={selectedReelSound}
-              onPickSound={(sound: ReelSound | null) => setSelectedReelSound(sound)}
+              songs={songs} // ✅ ADDED: Pass UNERA Music songs
+              selectedSound={selectedReelSound} // ✅ ADDED: Pass selected sound
+              onPickSound={(sound: ReelSound | null) => setSelectedReelSound(sound)} // ✅ ADDED: Pass sound picker handler
               onProfileClick={(id) => openProfile(id)}
               onCreateReelClick={() => {
                 if (!requireAuth('Creating reels')) return;
-                setSelectedReelSound(null);
+                setSelectedReelSound(null); // optional
                 setShowCreateReelModal(true);
               }}
               onReact={reactToReel}
@@ -4542,6 +4485,7 @@ export default function App() {
               currentUser={currentUser}
               products={products}
               onNavigateHome={() => handleNavigate('home')}
+              // ✅ UPDATED: Use createProduct function (which now also creates posts)
               onCreateProduct={createProduct}
               onViewProduct={setActiveProduct}
             />
@@ -4553,6 +4497,7 @@ export default function App() {
                 currentUser={currentUser}
                 groups={groups}
                 users={users}
+                // ✅ UPDATED: Real group functions instead of requireAuth placeholders
                 onCreateGroup={createGroup}
                 onJoinGroup={joinGroup}
                 onLeaveGroup={leaveGroup}
@@ -4568,9 +4513,11 @@ export default function App() {
                 onDeleteGroupPost={deleteGroupPost}
                 onRemoveMember={removeGroupMember}
                 onUpdateGroupSettings={updateGroupSettings}
+                // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
                 onPlayAudioTrack={onPlayTrack}
                 onFollow={followUser}
                 checkIsFollowing={checkIsFollowing}
+                // ✅ ADDED: Pass the missing group props that GroupsPage uses
                 fetchGroupPosts={fetchGroupPosts}
                 fetchGroupDetails={fetchGroupDetails}
                 fetchComments={fetchGroupPostComments}
@@ -4601,6 +4548,7 @@ export default function App() {
                 setCommentPostSnapshot(found);
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
@@ -4610,6 +4558,7 @@ export default function App() {
           {view === 'music' && (
             <MusicSystem
               currentUser={currentUser}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayTrack={onPlayTrack}
               onProfileClick={(id) => openProfile(id)}
               likedTracks={likedTracks}
@@ -4617,15 +4566,13 @@ export default function App() {
               playHistory={playHistory}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
+              // ✅ ADDED: Pass additional props for MusicSystem
               users={users}
               currentTrack={currentAudioTrack}
               isPlaying={isAudioPlaying}
+              // ✅ FIXED: Pass myTotalPlays from App state (now persistent)
               myTotalPlays={currentUser?.id ? myTotalPlays : 0}
               playsLoading={playsLoading}
-              onCreateSong={createSong}
-              onCreatePodcast={createPodcast}
-              songs={songs}
-              podcasts={podcasts}
             />
           )}
 
@@ -4642,21 +4589,29 @@ export default function App() {
             />
           )}
 
+          {/* ✅ Events page */}
           {view === 'events' && (
             <ErrorBoundary>
-              <EventsPage
-                events={events}
-                currentUser={currentUser ?? null}
-                onJoinEvent={joinEvent}
-                onInterestedEvent={markEventInterested}
-                onCreateEventClick={() => {
-                  if (!requireAuth('Creating events')) return;
-                  setShowCreateEventModal(true);
-                }}
-                onProfileClick={(id) => openProfile(id)}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-              />
+              <>
+                {/* Debug helper - uncomment to see events data */}
+                {/* <pre className="text-white p-3 text-xs overflow-auto">
+                  {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
+                </pre> */}
+
+                <EventsPage
+                  events={events}
+                  currentUser={currentUser ?? null}
+                  onJoinEvent={joinEvent}
+                  onInterestedEvent={markEventInterested}
+                  onCreateEventClick={() => {
+                    if (!requireAuth('Creating events')) return;
+                    setShowCreateEventModal(true);
+                  }}
+                  onProfileClick={(id) => openProfile(id)}
+                  onFollow={followUser}
+                  checkIsFollowing={checkIsFollowing}
+                />
+              </>
             </ErrorBoundary>
           )}
 
@@ -4677,22 +4632,29 @@ export default function App() {
           {view === 'memories' && currentUser && (
             <MemoriesPage
               currentUser={currentUser}
+              // ✅ FIXED: Use allKnownPosts instead of just posts for better memory coverage
               posts={allKnownPosts}
               users={users}
               onProfileClick={(id: number) => openProfile(id)}
+              // ✅ FIXED: Pass actual reaction handler instead of placeholder
               onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onViewImage={setFullScreenImage}
               onOpenComments={(postId: number) => onOpenComments(postId)}
+              // ✅ FIXED: Pass proper video click handler to navigate to reels
               onVideoClick={(p: any) => {
                 setActiveReelId(p.id);
                 setView('reels');
               }}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayAudioTrack={onPlayTrack}
+              // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
               onHashtagClick={handleHashtagClick}
+              // ✅ ADDED: Pass follow system props
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
+              // ✅ ADDED: Pass groups, brands, chats if Post component needs them
               groups={groups}
               brands={brands}
               chats={chats}
@@ -4736,12 +4698,15 @@ export default function App() {
                 setActiveReelId((p as any).id);
                 setView('reels');
               }}
+              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayAudioTrack={onPlayTrack}
               onCreateStoryClick={handleCreateStoryFromProfile}
+              // ✅ PROFESSIONALLY FIXED: Pass admin handlers with correct prop types
               onVerifyUser={(id) => verifyUser(id)}
               onRestrictUser={(id, duration) => suspendUser(id, duration)}
               onDeleteUser={(id) => deleteUserAccount(id)}
               onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
+              // ✅ ADDED: Pass follow status to UserProfile
               isFollowing={checkIsFollowing(Number(profileUser.id))}
               followLoading={followLoading[Number(profileUser.id)] || false}
             />
@@ -4779,6 +4744,7 @@ export default function App() {
         )}
       </div>
 
+      {/* Modals / Overlays */}
       {activeProduct && (
         <ProductDetailModal
           product={activeProduct}
@@ -4805,6 +4771,7 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           onClose={() => setShowCreatePostModal(false)}
+          // ✅ UPDATED: Accept File[] from Feed.tsx when it's updated
           onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
         />
       )}
@@ -4819,9 +4786,11 @@ export default function App() {
             setCommentPostSnapshot(null);
           }}
           onComment={() => {}}
+          // ✅ ADDED: Pass onLikeComment handler
           onLikeComment={handleLikeComment}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
+          // ✅ ADDED: Pass onHashtagClick handler for comments
           onHashtagClick={handleHashtagClick}
           onFollow={followUser}
           checkIsFollowing={checkIsFollowing}
@@ -4847,6 +4816,7 @@ export default function App() {
         />
       )}
 
+      {/* ✅ CREATE REEL MODAL WITH FIX 2 IMPLEMENTED */}
       {showCreateReelModal && currentUser && (
         <CreateReelModal
           currentUser={currentUser}
@@ -4854,13 +4824,16 @@ export default function App() {
             setShowCreateReelModal(false);
           }}
           onCreate={(reelData: any) => {
+            // ✅ When creating a reel, use audio_fetch_url for trimming and audio_url for storage
             return createReel({
               ...reelData,
+              // ✅ Use the fetchable URL for trimming (audio_fetch_url)
               audioUrl:
                 reelData.audioUrl ||
                 (selectedReelSound?.songId && songs.find(s => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
                 selectedReelSound?.audioUrl ||
                 '',
+              // ✅ Store the raw URL (originalUrl) for re-trimming
               originalSoundId: selectedReelSound?.songId,
               songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
               audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
@@ -4874,6 +4847,7 @@ export default function App() {
         />
       )}
 
+      {/* ✅ ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH BACKEND-COMPATIBLE FIELDS */}
       {activeStoryId && activeStory && (
         <StoryViewerModal
           story={activeStory}
@@ -4894,11 +4868,13 @@ export default function App() {
           onReaction={reactToStory}
           onNext={handleStoryNext}
           onPrev={handleStoryPrev}
+          // ✅ ADDED: Pass story muted state
           muted={storyMuted}
           onToggleMute={() => setStoryMuted(!storyMuted)}
         />
       )}
 
+      {/* ✅ CREATE STORY MODAL */}
       {showCreateStoryModal && currentUser && (
         <CreateStoryModal
           currentUser={currentUser}
@@ -4908,6 +4884,7 @@ export default function App() {
         />
       )}
 
+      {/* ✅ MOUNT THE GLOBAL AUDIO PLAYER ONCE */}
       {currentAudioTrack && (
         <GlobalAudioPlayer
           currentTrack={currentAudioTrack}
@@ -4917,18 +4894,22 @@ export default function App() {
           onPrevious={onPrevious}
           onClose={onClosePlayer}
           onDownload={(id) => {
+            // optional download logic
             console.log('Download track:', id);
           }}
           onLike={(id, type) => {
+            // Delegate to MusicSystem UI (or implement direct endpoints here)
             const k = `${type}:${String(id)}`;
             const nextLiked = !likedTracks.includes(k);
             handleMusicSystemLikeSync(k, nextLiked);
           }}
           onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
           isLiked={isPlayerLiked}
+          // ✅ ADDED: Pass owner info + total plays
           ownerUser={resolveTrackOwner(currentAudioTrack)}
           totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
           totalPlaysLoading={playsLoading}
+          // ✅ ADDED: onStarted callback
           onStarted={onStarted}
         />
       )}
