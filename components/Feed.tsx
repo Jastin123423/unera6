@@ -1826,36 +1826,71 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ✅ FIXED: Marketplace strip with "View product" button */}
-          {isMarketplace && (
-            <div className="mx-3 md:mx-4 mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between gap-3 p-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center flex-shrink-0">
-                    <i className="fas fa-store text-[#E4E6EB]"></i>
-                  </div>
+          {/* ✅ FIXED: Marketplace strip with "View product" button (works for product posts) */}
+{isMarketplace && (
+  <div className="mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
+    <div className="flex items-center justify-between gap-3 p-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center flex-shrink-0">
+          <i className="fas fa-store text-[#E4E6EB]"></i>
+        </div>
 
-                  <div className="min-w-0">
-                    <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
-                    <div className="text-[#B0B3B8] text-[13px] truncate">
-                      {(mpCity || 'Marketplace')}{mpPrice ? ` • ${mpCurrency}${mpPrice}` : ''}
-                    </div>
-                  </div>
-                </div>
+        <div className="min-w-0">
+          <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
 
-                <button
-                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 h-9 rounded-full flex-shrink-0"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!mpProductId || !onViewProductFromPost) return;
-                    onViewProductFromPost(mpProductId);
-                  }}
-                >
-                  View product
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="text-[#B0B3B8] text-[13px] truncate">
+            {(mpCity || (p as any).product_address || 'Marketplace')}
+            {mpPrice ? ` • ${mpCurrency}${mpPrice}` : ''}
+          </div>
+
+          {/* ✅ Show product title under it (optional but nice) */}
+          <div className="text-[#B0B3B8] text-[12px] truncate mt-0.5">
+            {(p as any).product_title || p.content || ''}
+          </div>
+        </div>
+      </div>
+
+      <button
+        className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 h-9 rounded-full flex-shrink-0"
+        onClick={(e) => {
+          e.stopPropagation();
+
+          // ✅ Robust product id resolution (works even if your mpProductId is missing)
+          const pid =
+            mpProductId ||
+            (typeof (p as any).product_id === 'number' ? (p as any).product_id : null) ||
+            (p.item_type === 'product' || (p as any).source === 'product' ? Number(p.id) : null);
+
+          if (!pid || !onViewProductFromPost) return;
+          onViewProductFromPost(pid);
+        }}
+      >
+        View product
+      </button>
+    </div>
+  </div>
+)}
+
+{p.link_preview && !mediaInfo.mediaUrl && (
+  <div
+    className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
+    onClick={() => window.open(p.link_preview.url, '_blank')}
+  >
+    <img src={p.link_preview.image} alt="" className="w-full h-48 object-cover" />
+    <div className="p-3 bg-[#3A3B3C]">
+      <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+        {p.link_preview.domain}
+      </div>
+      <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
+        {p.link_preview.title}
+      </div>
+      <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
+        {p.link_preview.description}
+      </div>
+    </div>
+  </div>
+)}
+
 
           {p.link_preview && !mediaInfo.mediaUrl && (
             <div
