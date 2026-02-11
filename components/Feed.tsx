@@ -1947,9 +1947,9 @@ export const Post: React.FC<{
               </div>
             </div>
           )}
-
-          {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-  <div className="mx-3 md:mx-4 my-3">
+          
+              {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+  <div className="my-3">
     {(() => {
       const cover =
         (p as any).song_cover_image_url ||
@@ -2025,7 +2025,7 @@ export const Post: React.FC<{
               </div>
             </div>
           ) : (
-            // if no cover at all, fallback to your previous simple card
+            // if no cover at all, fallback to simple card
             <div className="p-4 bg-[#3A3B3C]">
               <div className="flex items-center gap-3">
                 <i className="fas fa-music text-[#1877F2] text-2xl"></i>
@@ -2058,8 +2058,8 @@ export const Post: React.FC<{
     })()}
   </div>
 )}
-                
 
+                
           {/* ✅ UPDATED: Facebook-style reaction bubbles with emojis */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
