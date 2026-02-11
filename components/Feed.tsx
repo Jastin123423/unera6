@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
   Post as PostType,
@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
+import { MarketplaceContext } from '../../App';
 
 /**
  * =========================
@@ -1476,7 +1477,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH ALL REQUESTED FEATURES
+ * ✅ UPDATED: POST CARD WITH MARKETPLACE RENDERING
  * =========================
  */
 export const Post: React.FC<{
@@ -1526,6 +1527,9 @@ export const Post: React.FC<{
   onFollow,
   followLoading = false,
 }) => {
+  // ✅ ADDED: Marketplace context
+  const { onViewProduct, getProductData } = useContext(MarketplaceContext);
+  
   const p: any = post as any;
   const a: any = author as any;
 
@@ -1559,8 +1563,209 @@ export const Post: React.FC<{
     meta?.kind === 'product' ||
     !!mpProductId;
 
-  // ✅ NO RENDERING OF MARKETPLACE CONTENT HERE - Handled by App.tsx
-  // ================================================
+  // ✅ MARKETPLACE POST RENDERING - Now handled here with grid + button
+  if (isMarketplace) {
+    const productId = mpProductId || meta?.product_id || meta?.productId || p?.product_id || p?.productId;
+    const productData = productId ? getProductData?.(Number(productId)) : null;
+    
+    const price = productData?.price ? Number(productData.price).toFixed(0) : null;
+    const location = productData?.location?.split(',')[0] || 'Marketplace';
+    const currency = productData?.currency || 'TZS';
+    
+    // Use product images or post media
+    const images = p?.media_urls?.length ? p.media_urls : 
+                   p?.images?.length ? p.images :
+                   p?.media_url ? [p.media_url] : [];
+
+    const myReaction = p.myReaction ?? p.my_reaction ?? null;
+    const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
+    const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
+    
+    const finalMyReaction: ReactionType | undefined =
+      myReaction ||
+      (currentUser && reactionsArr
+        ? (reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type as ReactionType)
+        : undefined);
+
+    const finalReactionCount =
+      likesCount > 0
+        ? likesCount
+        : reactionsArr
+          ? reactionsArr.length
+          : 0;
+    
+    const [commentCount, setCommentCount] = useState(() => {
+      if (typeof p.comment_count === 'number') return p.comment_count;
+      if (Array.isArray(p.comments)) return p.comments.length;
+      return 0;
+    });
+
+    const [shareCount, setShareCount] = useState(() => {
+      return safeNumber(p.shares ?? p.shares_count, 0);
+    });
+
+    const [showShareSheet, setShowShareSheet] = useState(false);
+    const postId = safePostId(p);
+
+    const emojiList = useMemo(() => {
+      if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
+        const em = topReactionEmojis(reactionsArr, 2);
+        return em.length ? em : ['👍'];
+      }
+      return finalReactionCount > 0 ? ['👍'] : [];
+    }, [reactionsArr, finalReactionCount]);
+
+    const formatCount = (count: number): string => {
+      if (count >= 1000000) {
+        return `${(count / 1000000).toFixed(1)}M`;
+      } else if (count >= 1000) {
+        return `${(count / 1000).toFixed(1)}k`;
+      }
+      return count.toString();
+    };
+
+    const handleShareComplete = (destination: string, data?: any) => {
+      const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
+      
+      if (data?.success && Number.isFinite(nextShares)) {
+        setShareCount(nextShares);
+        onShare(postId, nextShares);
+      }
+      setShowShareSheet(false);
+    };
+
+    return (
+      <>
+        <div className="bg-[#242526] rounded-xl border border-[#3E4042] overflow-hidden mb-2">
+          {/* Header with View Product button */}
+          <div className="px-3 pt-3 pb-2 flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center text-[#E4E6EB] font-black">
+                <i className="fas fa-store"></i>
+              </div>
+              <div className="min-w-0">
+                <div className="text-[#E4E6EB] font-bold truncate">Marketplace</div>
+                <div className="text-[#B0B3B8] text-xs truncate">
+                  {location} • {currency} {price || 'N/A'}
+                </div>
+              </div>
+            </div>
+
+            {/* View Product Button - Wired to App.tsx */}
+            <button
+              onClick={() => onViewProduct?.(Number(productId))}
+              className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold text-sm transition-colors"
+            >
+              View product
+            </button>
+          </div>
+
+          {/* Product title */}
+          <div className="px-3 pb-2">
+            <div className="text-[#E4E6EB] font-bold leading-snug">
+              {p.content || 'Marketplace Item'}
+            </div>
+          </div>
+
+          {/* ✅ YOUR EXISTING GRID LAYOUT - Reuse MediaGrid */}
+          {images.length > 0 && (
+            <MediaGrid
+              media={images.map(url => ({ url }))}
+              onOpen={(url, index) => {
+                const urls = images;
+                // Call your existing gallery opener
+                if (onViewImage) {
+                  onViewImage(url);
+                }
+              }}
+            />
+          )}
+
+          {/* ✅ YOUR EXISTING POST ACTIONS - Like, Comment, Share */}
+          <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+            <div className="flex items-center gap-2">
+              {finalReactionCount > 0 && (
+                <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
+                  <div className="flex -space-x-2">
+                    {emojiList.slice(0, 2).map((e, i) => (
+                      <span
+                        key={i}
+                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                        style={{ zIndex: 10 - i }}
+                      >
+                        {e}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-[#E4E6EB] font-bold text-[16px]">
+                    {formatCount(finalReactionCount)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-4">
+              <span
+                className="hover:underline cursor-pointer"
+                onClick={() => onOpenComments(Number(postId))}
+              >
+                {formatCount(commentCount)} Comments
+              </span>
+              {shareCount > 0 && (
+                <span className="hover:underline">
+                  {formatCount(shareCount)} Shares
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+            <ReactionButton
+              currentUserReactions={finalMyReaction}
+              reactionCount={finalReactionCount}
+              onReact={(type) => onReact(postId, type)}
+              isGuest={!currentUser}
+            />
+            <button
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
+            >
+              <i className="far fa-comment-alt text-[20px]"></i>
+              <span className="text-[17px] font-medium">Comment</span>
+            </button>
+            <button
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              onClick={() => {
+                if (!currentUser) {
+                  alert('Please login to share posts.');
+                  return;
+                }
+                setShowShareSheet(true);
+              }}
+            >
+              <i className="fas fa-share text-[20px]"></i>
+              <span className="text-[17px] font-medium">Share</span>
+            </button>
+          </div>
+
+          {/* Share sheet */}
+          <ShareBottomSheet
+            isOpen={showShareSheet}
+            onClose={() => setShowShareSheet(false)}
+            post={p}
+            currentUser={currentUser}
+            users={users}
+            groups={groups}
+            brands={brands}
+            chats={chats}
+            onShareComplete={handleShareComplete}
+          />
+        </div>
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      </>
+    );
+  }
 
   // ✅ NEW: Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
@@ -1828,8 +2033,6 @@ export const Post: React.FC<{
               </div>
             </div>
           )}
-
-          {/* ❌ MARKETPLACE STRIP REMOVED - Now handled by App.tsx */}
 
           {p.link_preview && !mediaInfo.mediaUrl && (
             <div
