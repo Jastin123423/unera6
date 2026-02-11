@@ -1564,101 +1564,65 @@ export const Post: React.FC<{
     !!mpProductId;
 
   // ✅ MARKETPLACE POST RENDERING - Now handled here with grid + button
-  if (isMarketplace) {
-    const productId = mpProductId || meta?.product_id || meta?.productId || p?.product_id || p?.productId;
-    const productData = productId ? getProductData?.(Number(productId)) : null;
-    
-    const price = productData?.price ? Number(productData.price).toFixed(0) : null;
-    const location = productData?.location?.split(',')[0] || 'Marketplace';
-    const currency = productData?.currency || 'TZS';
-    
-    // Use product images or post media
-    const images = p?.media_urls?.length ? p.media_urls : 
-                   p?.images?.length ? p.images :
-                   p?.media_url ? [p.media_url] : [];
+  
+    // ✅ seller/user info (prefer author, fallback to post fields)
+const authorId = Number(a?.id ?? p?.user_id ?? 0);
+const authorName = String(a?.name ?? p?.name ?? a?.username ?? p?.username ?? 'Seller');
+const authorUsername = String(a?.username ?? p?.username ?? '');
+const authorAvatar =
+  a?.profile_image_url ??
+  p?.profile_image_url ??
+  'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y';
 
-    const myReaction = p.myReaction ?? p.my_reaction ?? null;
-    const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
-    const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
-    
-    const finalMyReaction: ReactionType | undefined =
-      myReaction ||
-      (currentUser && reactionsArr
-        ? (reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type as ReactionType)
-        : undefined);
+const isVerified = !!(a?.is_verified ?? p?.is_verified);
 
-    const finalReactionCount =
-      likesCount > 0
-        ? likesCount
-        : reactionsArr
-          ? reactionsArr.length
-          : 0;
-    
-    const [commentCount, setCommentCount] = useState(() => {
-      if (typeof p.comment_count === 'number') return p.comment_count;
-      if (Array.isArray(p.comments)) return p.comments.length;
-      return 0;
-    });
+...
 
-    const [shareCount, setShareCount] = useState(() => {
-      return safeNumber(p.shares ?? p.shares_count, 0);
-    });
+{/* Header with View Product button */}
+<div className="px-3 pt-3 pb-2 flex items-center justify-between gap-3">
+  <div className="flex items-center gap-3 min-w-0">
+    {/* Avatar */}
+    <button
+      className="w-10 h-10 rounded-full overflow-hidden bg-[#3A3B3C] flex-shrink-0"
+      onClick={() => authorId && onProfileClick(authorId)}
+      title={authorName}
+    >
+      <img src={authorAvatar} alt={authorName} className="w-full h-full object-cover" />
+    </button>
 
-    const [showShareSheet, setShowShareSheet] = useState(false);
-    const postId = safePostId(p);
+    <div className="min-w-0">
+      {/* Name row */}
+      <div className="flex items-center gap-1 min-w-0">
+        <button
+          className="text-[#E4E6EB] font-bold truncate hover:underline text-left"
+          onClick={() => authorId && onProfileClick(authorId)}
+        >
+          {authorName}
+        </button>
 
-    const emojiList = useMemo(() => {
-      if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
-        const em = topReactionEmojis(reactionsArr, 2);
-        return em.length ? em : ['👍'];
-      }
-      return finalReactionCount > 0 ? ['👍'] : [];
-    }, [reactionsArr, finalReactionCount]);
+        {isVerified && (
+          <span className="text-[#1877F2] text-sm flex-shrink-0">✔</span>
+        )}
+      </div>
 
-    const formatCount = (count: number): string => {
-      if (count >= 1000000) {
-        return `${(count / 1000000).toFixed(1)}M`;
-      } else if (count >= 1000) {
-        return `${(count / 1000).toFixed(1)}k`;
-      }
-      return count.toString();
-    };
+      {/* Sub row */}
+      <div className="text-[#B0B3B8] text-xs truncate">
+        <span className="font-semibold">Marketplace</span>
+        {authorUsername ? ` • @${authorUsername}` : ''}
+        {location ? ` • ${location}` : ''}
+        {` • ${currency} ${price || 'N/A'}`}
+      </div>
+    </div>
+  </div>
 
-    const handleShareComplete = (destination: string, data?: any) => {
-      const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
-      
-      if (data?.success && Number.isFinite(nextShares)) {
-        setShareCount(nextShares);
-        onShare(postId, nextShares);
-      }
-      setShowShareSheet(false);
-    };
-
-    return (
-      <>
-        <div className="bg-[#242526] rounded-xl border border-[#3E4042] overflow-hidden mb-2">
-          {/* Header with View Product button */}
-          <div className="px-3 pt-3 pb-2 flex items-center justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center text-[#E4E6EB] font-black">
-                <i className="fas fa-store"></i>
-              </div>
-              <div className="min-w-0">
-                <div className="text-[#E4E6EB] font-bold truncate">Marketplace</div>
-                <div className="text-[#B0B3B8] text-xs truncate">
-                  {location} • {currency} {price || 'N/A'}
-                </div>
-              </div>
-            </div>
-
-            {/* View Product Button - Wired to App.tsx */}
-            <button
-              onClick={() => onViewProduct?.(Number(productId))}
-              className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold text-sm transition-colors"
-            >
-              View product
-            </button>
-          </div>
+  {/* View Product Button */}
+  <button
+    onClick={() => onViewProduct?.(Number(productId))}
+    className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold text-sm transition-colors flex-shrink-0"
+  >
+    View product
+  </button>
+</div>
 
           {/* Product title */}
           <div className="px-3 pb-2">
