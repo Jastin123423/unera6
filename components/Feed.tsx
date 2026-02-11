@@ -1,3 +1,5 @@
+ 
+
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   User,
@@ -1883,79 +1885,23 @@ export const Post: React.FC<{
               </div>
             </div>
           )}
-     
-          {/* ✅ FIXED: Marketplace strip with "View product" button */}
-{isMarketplace && (
-  <div className="mx-3 md:mx-4 mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
-    <div className="flex items-center justify-between gap-3 p-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center flex-shrink-0">
-          <i className="fas fa-store text-[#E4E6EB]"></i>
-        </div>
 
-        <div className="min-w-0">
-          <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
+          {/* ✅ FIXED: Marketplace strip with "View product" button (works for product posts) */}
+          {isMarketplace && (
+            <div className="mx-3 md:mx-4 mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between gap-3 p-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-store text-[#E4E6EB]"></i>
+                  </div>
 
-          <div className="text-[#B0B3B8] text-[13px] truncate">
-            {mpCity || p?.address || p?.location || 'Marketplace'}
-            {mpPrice ? ` • ${mpCurrency} ${mpPrice}` : ''}
-          </div>
+                  <div className="min-w-0">
+                    <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
 
-          {/* ✅ Show product title */}
-          <div className="text-[#B0B3B8] text-[12px] truncate mt-0.5">
-            {p?.title || p?.content || 'Product'}
-          </div>
-        </div>
-      </div>
-
-      <button
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-full text-sm flex-shrink-0"
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          
-          // DEBUG: Log what we have
-          console.log('🔍 View product clicked - post:', {
-            id: p.id,
-            meta: p.meta,
-            metaType: typeof p.meta,
-            mp,
-            mpProductId,
-            isMarketplace
-          });
-          
-          // CRITICAL: Use the product ID we already detected at the top
-          if (mpProductId && onViewProductFromPost) {
-            console.log('✅ Opening product:', mpProductId);
-            onViewProductFromPost(mpProductId);
-          } else if (onViewProductFromPost) {
-            // Last resort: try to extract from any available source
-            const fallbackId = 
-              p?.product_id || 
-              p?.productId || 
-              p?.marketplace_product_id ||
-              (p?.meta && typeof p.meta === 'string' ? 
-                (() => {
-                  try {
-                    const parsed = JSON.parse(p.meta);
-                    return parsed?.marketplace?.product_id || parsed?.product_id;
-                  } catch {
-                    return null;
-                  }
-                })() : null);
-            
-            if (fallbackId) {
-              console.log('⚠️ Using fallback product ID:', fallbackId);
-              onViewProductFromPost(Number(fallbackId));
-            }
-          }
-        }}
-      >
-        View product
-      </button>
-    </div>
-  </div>
-)}
+                    <div className="text-[#B0B3B8] text-[13px] truncate">
+                      {mpCity || p?.product_address || 'Marketplace'}
+                      {mpPrice ? ` • ${mpCurrency} ${mpPrice}` : ''}
+                    </div>
 
                     {/* ✅ Show product title under it */}
                     <div className="text-[#B0B3B8] text-[12px] truncate mt-0.5">
