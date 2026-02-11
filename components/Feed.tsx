@@ -149,6 +149,23 @@ export const formatRelativeTime = (dateInput: any): string => {
 
 /**
  * =========================
+ * ✅ JSON PARSER HELPER - CRITICAL FOR MARKETPLACE FIX
+ * =========================
+ */
+const parseJSON = (v: any) => {
+  if (!v) return null;
+  if (typeof v === 'string') {
+    try { 
+      return JSON.parse(v); 
+    } catch { 
+      return null; 
+    }
+  }
+  return v;
+};
+
+/**
+ * =========================
  * ✅ NEW: REACTION EMOJI HELPERS FOR FACEBOOK-STYLE DISPLAY
  * =========================
  */
@@ -1494,8 +1511,8 @@ export const Post: React.FC<{
   onPlayAudioTrack?: (t: AudioTrack) => void;
   onHashtagClick?: (tag: string) => void;
   onViewProductFromPost?: (productId: number) => void;
-  onOpenGroup?: (groupId: number) => void; // ✅ NEW: Open group handler
-  onOpenAudio?: (item: any) => void; // ✅ NEW: Open audio player
+  onOpenGroup?: (groupId: number) => void;
+  onOpenAudio?: (item: any) => void;
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
@@ -1517,8 +1534,8 @@ export const Post: React.FC<{
   onPlayAudioTrack,
   onHashtagClick,
   onViewProductFromPost,
-  onOpenGroup, // ✅ NEW
-  onOpenAudio, // ✅ NEW
+  onOpenGroup,
+  onOpenAudio,
   groups = [],
   brands = [],
   chats = [],
@@ -1529,50 +1546,91 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
-  // ✅ FIXED: Robust Marketplace detection (handles different API shapes)
-const meta: any = p?.meta || {};
-const mp: any =
-  meta?.marketplace ||
-  meta?.product ||
-  p?.marketplace ||
-  p?.product ||
-  null;
+  // ========== BULLETPROOF MARKETPLACE DETECTION ==========
+  // Helper to parse JSON strings safely
+  const parseJSON = (v: any) => {
+    if (!v) return null;
+    if (typeof v === 'string') {
+      try { 
+        return JSON.parse(v); 
+      } catch { 
+        return null; 
+      }
+    }
+    return v;
+  };
 
-const mpProductIdRaw =
-  mp?.id ??
-  meta?.product_id ??
-  meta?.productId ??
-  p?.product_id ??
-  p?.productId ??
-  p?.marketplace_product_id ??
-  p?.marketplaceProductId ??
-  null;
+  // Parse meta if it's a string - THIS FIXES YOUR ISSUE! 🎯
+  const metaObj = parseJSON(p?.meta) || {};
 
-const mpProductId = Number(mpProductIdRaw || 0);
+  // Get marketplace object from all possible locations
+  const mp = 
+    metaObj?.marketplace ||
+    metaObj?.product ||
+    p?.marketplace ||
+    p?.product ||
+    null;
 
-const isMarketplace =
-  p?.type === 'marketplace' ||                    // 👈 ADD THIS LINE
-  p?.post_type === 'product' ||
-  p?.type === 'product' ||
-  p?.kind === 'product' ||
-  meta?.type === 'product' ||
-  meta?.kind === 'product' ||
-  !!mpProductId;
+  // Get product ID from all possible locations
+  const mpProductIdRaw =
+    mp?.id ??
+    mp?.product_id ??
+    metaObj?.product_id ??
+    metaObj?.productId ??
+    p?.product_id ??
+    p?.productId ??
+    p?.marketplace_product_id ??
+    p?.marketplaceProductId ??
+    null;
+
+  const mpProductId = Number(mpProductIdRaw || 0);
+
+  // Get price and location from all possible locations
+  const mpPrice = mp?.price ?? mp?.main_price ?? p?.price ?? null;
+  const mpCurrency = mp?.currency_symbol ?? mp?.currency ?? p?.currency_symbol ?? p?.currency ?? 'TZS';
+  const mpCity = mp?.city ?? mp?.location ?? mp?.address ?? p?.location ?? p?.city ?? '';
+
+  // Check ALL possible marketplace indicators
+  const isMarketplace = Boolean(
+    mp ||                                                    // Has marketplace object
+    mpProductId ||                                           // Has product ID
+    p?.type === 'marketplace' ||                            // Direct type check
+    p?.post_type === 'product' ||                           // Alternative type
+    p?.type === 'product' ||                                // Type is product
+    p?.kind === 'product' ||                                // Kind field
+    p?.item_type === 'product' ||                           // Item type
+    p?.source === 'product' ||                              // Source field
+    metaObj?.type === 'product' ||                          // Meta type
+    metaObj?.kind === 'product' ||                          // Meta kind
+    metaObj?.type === 'marketplace' ||                      // Meta type marketplace
+    metaObj?.kind === 'marketplace' ||                      // Meta kind marketplace
+    !!(p as any)?.product_id ||                             // Direct product ID
+    !!(p as any)?.marketplace_product_id                    // Direct marketplace ID
+  );
+
+  // Debug log for development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Post meta debug:', {
+      postId: p.id,
+      metaRaw: p?.meta,
+      metaParsed: metaObj,
+      metaType: typeof p?.meta,
+      mp,
+      mpProductId,
+      isMarketplace
+    });
+  }
+  // ========================================================
 
   // ✅ NEW: Music/Podcast detection
-  const isMusic = meta?.kind === 'music' || meta?.type === 'music';
-  const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
-  const song = meta?.song;
-  const podcast = meta?.podcast;
+  const isMusic = metaObj?.kind === 'music' || metaObj?.type === 'music';
+  const isPodcast = metaObj?.kind === 'podcast' || metaObj?.type === 'podcast';
+  const song = metaObj?.song;
+  const podcast = metaObj?.podcast;
 
   // ✅ NEW: Group detection
-  const groupId = Number(p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0);
-  const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
-
-  // Fallbacks for the strip text
-  const mpCity = String(mp?.city ?? mp?.location ?? p?.location ?? '').trim();
-  const mpPrice = String(mp?.price ?? mp?.main_price ?? p?.price ?? p?.main_price ?? '').trim();
-  const mpCurrency = String(mp?.currency_symbol ?? mp?.currency ?? p?.currency_symbol ?? p?.currency ?? '').trim();
+  const groupId = Number(p?.group_id || p?.groupId || metaObj?.group_id || metaObj?.groupId || 0);
+  const groupName = p?.group_name || p?.groupName || metaObj?.group_name || metaObj?.groupName || '';
 
   const myReaction = p.myReaction ?? p.my_reaction ?? null;
   const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
@@ -1816,7 +1874,6 @@ const isMarketplace =
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    // ✅ call your wide player opener
                     onOpenAudio?.(isMusic ? song : podcast);
                   }}
                   className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl"
@@ -1828,70 +1885,67 @@ const isMarketplace =
           )}
 
           {/* ✅ FIXED: Marketplace strip with "View product" button (works for product posts) */}
-{isMarketplace && (
-  <div className="mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
-    <div className="flex items-center justify-between gap-3 p-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center flex-shrink-0">
-          <i className="fas fa-store text-[#E4E6EB]"></i>
-        </div>
+          {isMarketplace && (
+            <div className="mx-3 md:mx-4 mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between gap-3 p-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-store text-[#E4E6EB]"></i>
+                  </div>
 
-        <div className="min-w-0">
-          <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
+                  <div className="min-w-0">
+                    <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
 
-          <div className="text-[#B0B3B8] text-[13px] truncate">
-            {(mpCity || (p as any).product_address || 'Marketplace')}
-            {mpPrice ? ` • ${mpCurrency}${mpPrice}` : ''}
-          </div>
+                    <div className="text-[#B0B3B8] text-[13px] truncate">
+                      {mpCity || p?.product_address || 'Marketplace'}
+                      {mpPrice ? ` • ${mpCurrency} ${mpPrice}` : ''}
+                    </div>
 
-          {/* ✅ Show product title under it (optional but nice) */}
-          <div className="text-[#B0B3B8] text-[12px] truncate mt-0.5">
-            {(p as any).product_title || p.content || ''}
-          </div>
-        </div>
-      </div>
+                    {/* ✅ Show product title under it */}
+                    <div className="text-[#B0B3B8] text-[12px] truncate mt-0.5">
+                      {p?.product_title || p?.content || ''}
+                    </div>
+                  </div>
+                </div>
 
-      <button
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 h-9 rounded-full flex-shrink-0"
-        onClick={(e) => {
-          e.stopPropagation();
+                <button
+                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 h-9 rounded-full flex-shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
 
-          // ✅ Robust product id resolution (works even if your mpProductId is missing)
-          const pid =
-            mpProductId ||
-            (typeof (p as any).product_id === 'number' ? (p as any).product_id : null) ||
-            (p.item_type === 'product' || (p as any).source === 'product' ? Number(p.id) : null);
+                    // Re-parse meta here too in case it's not available in closure
+                    const metaAtClick = parseJSON(p?.meta) || {};
+                    const mpAtClick = 
+                      metaAtClick?.marketplace ||
+                      metaAtClick?.product ||
+                      p?.marketplace ||
+                      p?.product ||
+                      null;
 
-          if (!pid || !onViewProductFromPost) return;
-          onViewProductFromPost(pid);
-        }}
-      >
-        View product
-      </button>
-    </div>
-  </div>
-)}
+                    // Robust product id resolution
+                    const pid = 
+                      // Try all possible locations for product ID
+                      mpAtClick?.id ??
+                      mpAtClick?.product_id ??
+                      metaAtClick?.product_id ??
+                      metaAtClick?.productId ??
+                      p?.product_id ??
+                      p?.productId ??
+                      p?.marketplace_product_id ??
+                      p?.marketplaceProductId ??
+                      // Fallback: if it's clearly a product post, use the post ID
+                      (isMarketplace ? Number(p.id) : null) ??
+                      null;
 
-{p.link_preview && !mediaInfo.mediaUrl && (
-  <div
-    className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
-    onClick={() => window.open(p.link_preview.url, '_blank')}
-  >
-    <img src={p.link_preview.image} alt="" className="w-full h-48 object-cover" />
-    <div className="p-3 bg-[#3A3B3C]">
-      <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
-        {p.link_preview.domain}
-      </div>
-      <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
-        {p.link_preview.title}
-      </div>
-      <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
-        {p.link_preview.description}
-      </div>
-    </div>
-  </div>
-)}
-
+                    if (!pid || !onViewProductFromPost) return;
+                    onViewProductFromPost(pid);
+                  }}
+                >
+                  View product
+                </button>
+              </div>
+            </div>
+          )}
 
           {p.link_preview && !mediaInfo.mediaUrl && (
             <div
@@ -1984,118 +2038,117 @@ const isMarketplace =
             </div>
           )}
           
-              {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-  <div className="my-3">
-    {(() => {
-      const cover =
-        (p as any).song_cover_image_url ||
-        (mediaList?.[0]?.url) ||
-        a.profile_image_url;
+          {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+            <div className="my-3">
+              {(() => {
+                const cover =
+                  (p as any).song_cover_image_url ||
+                  (mediaList?.[0]?.url) ||
+                  a.profile_image_url;
 
-      const titleText = p.content || 'Audio';
-      const artistText =
-        (p as any).song_artist_name || a.name || 'Unknown';
+                const titleText = p.content || 'Audio';
+                const artistText =
+                  (p as any).song_artist_name || a.name || 'Unknown';
 
-      return (
-        <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
-          {/* ✅ BIG COVER IMAGE */}
-          {cover ? (
-            <div className="relative">
-              <img
-                src={cover}
-                alt="Cover"
-                className="w-full h-[260px] md:h-[320px] object-cover"
-                loading="lazy"
-                onError={(e) => {
-                  const img = e.currentTarget as HTMLImageElement;
-                  if (a.profile_image_url && img.src !== a.profile_image_url) {
-                    img.src = a.profile_image_url;
-                  }
-                }}
-              />
+                return (
+                  <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
+                    {/* ✅ BIG COVER IMAGE */}
+                    {cover ? (
+                      <div className="relative">
+                        <img
+                          src={cover}
+                          alt="Cover"
+                          className="w-full h-[260px] md:h-[320px] object-cover"
+                          loading="lazy"
+                          onError={(e) => {
+                            const img = e.currentTarget as HTMLImageElement;
+                            if (a.profile_image_url && img.src !== a.profile_image_url) {
+                              img.src = a.profile_image_url;
+                            }
+                          }}
+                        />
 
-              {/* dark gradient so overlay readable */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                        {/* dark gradient so overlay readable */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
 
-              {/* ✅ PLAYER OVERLAY */}
-              <div className="absolute left-3 right-3 bottom-3">
-                <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
-                  <div className="flex items-center gap-3">
-                    {/* small cover icon */}
-                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
-                      <img
-                        src={cover}
-                        alt="Mini cover"
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    </div>
+                        {/* ✅ PLAYER OVERLAY */}
+                        <div className="absolute left-3 right-3 bottom-3">
+                          <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
+                            <div className="flex items-center gap-3">
+                              {/* small cover icon */}
+                              <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
+                                <img
+                                  src={cover}
+                                  alt="Mini cover"
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                              </div>
 
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-                      <div className="text-[#B0B3B8] text-sm truncate">
-                        {titleText}
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[#E4E6EB] font-bold">Audio Track</div>
+                                <div className="text-[#B0B3B8] text-sm truncate">
+                                  {titleText}
+                                </div>
+                                <div className="text-[#B0B3B8] text-xs truncate">
+                                  {artistText}
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={() =>
+                                  onPlayAudioTrack!({
+                                    id: postId,
+                                    title: titleText,
+                                    artist: artistText,
+                                    url: mediaInfo.mediaUrl,
+                                    duration: 0,
+                                    coverImage: cover || a.profile_image_url,
+                                  })
+                                }
+                                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors flex-shrink-0"
+                              >
+                                <i className="fas fa-play mr-1"></i> Play
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-[#B0B3B8] text-xs truncate">
-                        {artistText}
+                    ) : (
+                      // if no cover at all, fallback to simple card
+                      <div className="p-4 bg-[#3A3B3C]">
+                        <div className="flex items-center gap-3">
+                          <i className="fas fa-music text-[#1877F2] text-2xl"></i>
+                          <div className="flex-1">
+                            <div className="text-[#E4E6EB] font-bold">Audio Track</div>
+                            <div className="text-[#B0B3B8] text-sm">
+                              {p.content || 'Listen to audio'}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() =>
+                              onPlayAudioTrack!({
+                                id: postId,
+                                title: titleText,
+                                artist: artistText,
+                                url: mediaInfo.mediaUrl,
+                                duration: 0,
+                                coverImage: a.profile_image_url,
+                              })
+                            }
+                            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+                          >
+                            <i className="fas fa-play mr-1"></i> Play
+                          </button>
+                        </div>
                       </div>
-                    </div>
-
-                    <button
-                      onClick={() =>
-                        onPlayAudioTrack({
-                          id: postId,
-                          title: titleText,
-                          artist: artistText,
-                          url: mediaInfo.mediaUrl,
-                          duration: 0,
-                          coverImage: cover || a.profile_image_url,
-                        })
-                      }
-                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors flex-shrink-0"
-                    >
-                      <i className="fas fa-play mr-1"></i> Play
-                    </button>
+                    )}
                   </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            // if no cover at all, fallback to simple card
-            <div className="p-4 bg-[#3A3B3C]">
-              <div className="flex items-center gap-3">
-                <i className="fas fa-music text-[#1877F2] text-2xl"></i>
-                <div className="flex-1">
-                  <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-                  <div className="text-[#B0B3B8] text-sm">
-                    {p.content || 'Listen to audio'}
-                  </div>
-                </div>
-                <button
-                  onClick={() =>
-                    onPlayAudioTrack({
-                      id: postId,
-                      title: titleText,
-                      artist: artistText,
-                      url: mediaInfo.mediaUrl,
-                      duration: 0,
-                      coverImage: a.profile_image_url,
-                    })
-                  }
-                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
-                >
-                  <i className="fas fa-play mr-1"></i> Play
-                </button>
-              </div>
+                );
+              })()}
             </div>
           )}
-        </div>
-      );
-    })()}
-  </div>
-)}
 
-                
           {/* ✅ UPDATED: Facebook-style reaction bubbles with emojis */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
