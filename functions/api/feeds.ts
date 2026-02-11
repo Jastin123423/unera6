@@ -140,6 +140,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE p.media_types
         END AS media_types,
 
+        /* ✅ IMPORTANT: allow Feed.tsx to detect marketplace/product posts */
+        p.type AS type,
+        p.post_type AS post_type,
+        p.product_id AS product_id,
+        p.meta AS meta,
+
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
         (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -222,6 +228,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS media_urls,
         NULL AS media_types,
 
+        /* keep feed row shape consistent */
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS product_id,
+        NULL AS meta,
+
         (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
         (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -256,10 +268,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     // ============================================================
     // 3) SONGS (✅ make Feed show audio player)
-    // - media_url = audio_url
-    // - media_type = audio/mpeg
-    // - content = title — artist
-    // - media_urls = cover image (as JSON array string)
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -294,7 +302,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        /* ✅ audio card text */
         (
           COALESCE(s.title,'')
           || CASE
@@ -307,11 +314,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS views,
         0 AS shares,
 
-        /* ✅ IMPORTANT: make it audio */
         s.audio_url AS media_url,
         'audio/mpeg' AS media_type,
 
-        /* ✅ keep cover as a list */
         CASE
           WHEN s.cover_image_url IS NOT NULL AND s.cover_image_url != ''
           THEN json_array(s.cover_image_url)
@@ -323,6 +328,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           THEN json_array('image')
           ELSE NULL
         END AS media_types,
+
+        /* keep feed row shape consistent */
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS product_id,
+        NULL AS meta,
 
         (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS reactions_count,
         (SELECT 'like' FROM song_likes sl WHERE sl.song_id = s.id AND sl.user_id = ? LIMIT 1) AS my_reaction,
@@ -397,18 +408,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        /* ✅ audio card text */
         COALESCE(pc.title,'Podcast') AS content,
 
         'public' AS visibility,
         0 AS views,
         0 AS shares,
 
-        /* ✅ IMPORTANT: audio */
         pc.audio_url AS media_url,
         'audio/mpeg' AS media_type,
 
-        /* optional cover as list */
         CASE
           WHEN pc.cover_url IS NOT NULL AND pc.cover_url != ''
           THEN json_array(pc.cover_url)
@@ -420,6 +428,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           THEN json_array('image')
           ELSE NULL
         END AS media_types,
+
+        /* keep feed row shape consistent */
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS product_id,
+        NULL AS meta,
 
         0 AS reactions_count,
         NULL AS my_reaction,
@@ -454,7 +468,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) PRODUCTS (separate list for marketplace button)
+    // 5) PRODUCTS (separate list for marketplace widget)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -471,7 +485,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(' AND ')}` : '';
 
-    // NOTE: we return as "products" objects (so widget buttons work)
     const selectProducts = `
       SELECT
         pr.id,
@@ -551,7 +564,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ).bind(...bindsPodcasts, exploreCount).all();
       explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
 
-      // products explore: random
       const exploreProductsRes = await env.DB.prepare(
         `
           SELECT
@@ -597,7 +609,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }, null as any);
 
     const nextCursor = oldest?.created_at ?? null;
-
     const ordered = seededShuffle(merged, seed);
 
     // ============================================================
@@ -637,7 +648,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       nextCursor,
       hasMore,
       feed: ordered,
-      products, // ✅ separate, so widget can show button
+      products, // ✅ separate list for marketplace widget
     };
 
     if (debug) {
