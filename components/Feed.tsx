@@ -1530,33 +1530,34 @@ export const Post: React.FC<{
   const a: any = author as any;
 
   // ✅ FIXED: Robust Marketplace detection (handles different API shapes)
-  const meta: any = p?.meta || {};
-  const mp: any =
-    meta?.marketplace ||
-    meta?.product ||
-    p?.marketplace ||
-    p?.product ||
-    null;
+const meta: any = p?.meta || {};
+const mp: any =
+  meta?.marketplace ||
+  meta?.product ||
+  p?.marketplace ||
+  p?.product ||
+  null;
 
-  const mpProductIdRaw =
-    mp?.id ??
-    meta?.product_id ??
-    meta?.productId ??
-    p?.product_id ??
-    p?.productId ??
-    p?.marketplace_product_id ??
-    p?.marketplaceProductId ??
-    null;
+const mpProductIdRaw =
+  mp?.id ??
+  meta?.product_id ??
+  meta?.productId ??
+  p?.product_id ??
+  p?.productId ??
+  p?.marketplace_product_id ??
+  p?.marketplaceProductId ??
+  null;
 
-  const mpProductId = Number(mpProductIdRaw || 0);
+const mpProductId = Number(mpProductIdRaw || 0);
 
-  const isMarketplace =
-    p?.post_type === 'product' ||
-    p?.type === 'product' ||
-    p?.kind === 'product' ||
-    meta?.type === 'product' ||
-    meta?.kind === 'product' ||
-    !!mpProductId;
+const isMarketplace =
+  p?.type === 'marketplace' ||                    // 👈 ADD THIS LINE
+  p?.post_type === 'product' ||
+  p?.type === 'product' ||
+  p?.kind === 'product' ||
+  meta?.type === 'product' ||
+  meta?.kind === 'product' ||
+  !!mpProductId;
 
   // ✅ NEW: Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
