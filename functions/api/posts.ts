@@ -76,7 +76,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     // Validate and filter multi URLs
     const filtered_urls = media_urls_arr
-      .filter((u) => !u.startsWith("data:"))
+      .filter((u) => !String(u).startsWith("data:"))
       .filter((u) => isHttpUrl(u));
 
     // Keep types aligned (best-effort)
@@ -161,6 +161,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           created_at: new Date().toISOString(),
           views: 0,
           shares: 0,
+          // unified fields
+          source: "post",
+          item_type: "post",
         },
       },
       201
@@ -172,7 +175,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
 /**
  * GET /api/posts
- * Returns unified items: posts + reels + songs + podcasts + products (NO groups).
+ * ✅ RETURNS RAW ARRAY (NOT OBJECT)
+ * Includes: posts + reels + songs + podcasts + products (NO groups)
  * Query params:
  * - limit (default 50)
  * - viewerId (optional, for my_reaction)
@@ -185,6 +189,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 50)));
     const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
+    // NOTE: We keep shapes compatible with "posts":
+    // - includes media_url/media_type/media_urls/media_types/content/created_at/visibility/username/profile_image_url/etc
+    // - adds item_type + source so UI can branch if needed (but doesn't have to)
     const q = `
       WITH items AS (
 
@@ -192,9 +199,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         SELECT
           'post' AS source,
           'post' AS item_type,
-          p.id AS id,
-          p.created_at AS created_at,
 
+          p.id AS id,
           p.user_id AS user_id,
           p.content AS content,
 
@@ -222,6 +228,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           END AS media_types,
 
           p.visibility AS visibility,
+          p.created_at AS created_at,
           p.views AS views,
           p.shares AS shares,
 
@@ -243,7 +250,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           COALESCE(u.is_verified, 0) AS is_verified,
           COALESCE(u.role, 'user') AS role,
 
-          /* reels */
+          /* extra unified fields */
           NULL AS video_url,
           NULL AS caption,
           NULL AS song_name,
@@ -255,7 +262,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS sound_key,
           NULL AS sound_id,
 
-          /* products */
           NULL AS product_title,
           NULL AS product_category,
           NULL AS product_description,
@@ -267,7 +273,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS product_phone_number,
           NULL AS product_images,
 
-          /* songs */
           NULL AS song_title,
           NULL AS song_artist_name,
           NULL AS song_album_name,
@@ -277,7 +282,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS song_likes_count,
           NULL AS song_plays_count,
 
-          /* podcasts */
           NULL AS podcast_title,
           NULL AS podcast_description,
           NULL AS podcast_audio_url,
@@ -293,9 +297,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         SELECT
           'reel' AS source,
           'reel' AS item_type,
-          r.id AS id,
-          r.created_at AS created_at,
 
+          r.id AS id,
           r.user_id AS user_id,
           NULL AS content,
 
@@ -305,6 +308,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS media_types,
 
           r.visibility AS visibility,
+          r.created_at AS created_at,
           r.views AS views,
           r.shares AS shares,
 
@@ -372,9 +376,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         SELECT
           'song' AS source,
           'song' AS item_type,
-          s.id AS id,
-          s.created_at AS created_at,
 
+          s.id AS id,
           s.uploader_id AS user_id,
           NULL AS content,
 
@@ -384,6 +387,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS media_types,
 
           'public' AS visibility,
+          s.created_at AS created_at,
           0 AS views,
           0 AS shares,
 
@@ -455,9 +459,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         SELECT
           'podcast' AS source,
           'podcast' AS item_type,
-          pc.id AS id,
-          pc.created_at AS created_at,
 
+          pc.id AS id,
           pc.creator_id AS user_id,
           NULL AS content,
 
@@ -467,6 +470,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS media_types,
 
           'public' AS visibility,
+          pc.created_at AS created_at,
           0 AS views,
           0 AS shares,
 
@@ -529,9 +533,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         SELECT
           'product' AS source,
           'product' AS item_type,
-          pr.id AS id,
-          pr.created_at AS created_at,
 
+          pr.id AS id,
           pr.seller_id AS user_id,
           NULL AS content,
 
@@ -541,6 +544,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS media_types,
 
           'public' AS visibility,
+          pr.created_at AS created_at,
           0 AS views,
           0 AS shares,
 
@@ -610,21 +614,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const binds = [viewerId || 0, viewerId || 0, viewerId || 0, limit];
 
     const { results } = await env.DB.prepare(q).bind(...binds).all();
-    const items = Array.isArray(results) ? results : [];
 
-    // Backward compatible: only posts
-    const posts = items.filter((x: any) => x?.item_type === "post");
-
-    return json(
-      {
-        success: true,
-        limit,
-        viewerId: viewerId || 0,
-        items,
-        posts,
-      },
-      200
-    );
+    // ✅ RAW ARRAY RESPONSE
+    return json(Array.isArray(results) ? results : [], 200);
   } catch (err: any) {
     return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
   }
