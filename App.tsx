@@ -1,4 +1,5 @@
 // App.tsx - UPDATED: Marketplace products as real posts + removed "products after 5 posts" mixer
+// ✅ FIXED: Meta field JSON parsing for marketplace posts
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -54,6 +55,15 @@ const safeNumber = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+
+/** ✅ ADDED: JSON parsing helper for meta fields */
+const parseJSON = (v: any) => {
+  if (!v) return null;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch { return null; }
+  }
+  return v;
+};
 
 /** ✅ ADDED: safeImages helper for marketplace product posts ---------- */
 const safeImages = (imgs: any): string[] => {
@@ -422,8 +432,8 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 };
 
 /**
- * ✅ UPDATED: Normalize raw D1 rows to UI-safe PostType shape with multi-media support
- * ✅ ADDED: Support for marketplace posts (type: 'marketplace')
+ * ✅ FIXED: Normalize raw D1 rows to UI-safe PostType shape with multi-media support
+ * ✅ FIXED: Parse meta field if it's a JSON string (critical for marketplace posts)
  */
 const normalizePost = (p: any): PostType => {
   // ✅ multi media support (new)
@@ -487,8 +497,8 @@ const normalizePost = (p: any): PostType => {
     reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
     likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
 
-    // ✅ ADDED: Support for marketplace meta
-    meta: p?.meta || null,
+    // ✅ FIXED: CRITICAL - Parse meta field if it's a JSON string
+    meta: parseJSON(p?.meta) || null,
   } as any;
 };
 
@@ -1150,7 +1160,6 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
         ...p,
         reactions: (existing as any).reactions,
         shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
-        // ✅ FIXED 5: Change (existing as Any) to (existing as any)
         comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
       } as any);
     } else {
@@ -2203,14 +2212,14 @@ export default function App() {
         media_urls,
         media_types: media_urls.map(() => 'image'), // or infer by extension
         // put marketplace meta into "meta" so you can render View product + location + price
-        meta: {
+        meta: JSON.stringify({
           marketplace: {
             product_id: product.id,
             location: product.address || '',
             price: product.discount_price ?? product.main_price ?? null,
-            currency: product.currency_symbol || '', // optional
+            currency: product.currency_symbol || 'TZS', // optional
           },
-        },
+        }),
       };
 
       // Use the SAME posts endpoint you already use for normal posts
@@ -3586,7 +3595,6 @@ export default function App() {
 
   /** ✅ REMOVED: Old feed "mixer" that inserted products after every 5 posts ---------- */
   // This entire block has been removed as per requirements
-  // type FeedItem = ... and const feedItems: FeedItem[] = useMemo(() => { ... }) have been removed
 
   /** ✅ Updated activePost resolver to include profilePosts ---------- */
   const activePost = useMemo(() => {
