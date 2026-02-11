@@ -1,5 +1,7 @@
 import type { PagesFunction } from "@cloudflare/workers-types";
 
+type Env = { DB: D1Database };
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
@@ -15,17 +17,43 @@ const safeNum = (v: any) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export const onRequestPost: PagesFunction = async ({ request, env }) => {
+// ✅ DEFAULT SONG COVER (if no cover provided)
+const DEFAULT_SONG_COVER =
+  "https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp";
+
+const json = (data: any, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+
+/**
+ * POST /api/songs
+ * Create song
+ */
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
+    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
+
     const body = await request.json().catch(() => ({} as any));
 
     // ✅ accept multiple possible keys from frontend
-    const uploader_id = safeNum(body.uploader_id ?? body.user_id ?? body.artist_id ?? body.creator_id);
+    const uploader_id = safeNum(
+      body.uploader_id ?? body.user_id ?? body.artist_id ?? body.creator_id
+    );
+
     const title = safeStr(body.title);
-    const artist_name = safeStr(body.artist_name ?? body.artist ?? body.uploader_name ?? body.creator_name);
+
+    const artist_name = safeStr(
+      body.artist_name ?? body.artist ?? body.uploader_name ?? body.creator_name
+    );
+
     const album_name = safeStr(body.album_name ?? body.album) || null;
 
-    const cover_image_url = safeStr(body.cover_image_url ?? body.cover_url ?? body.cover) || null;
+    // ✅ DEFAULT cover image if missing
+    const cover_image_url =
+      safeStr(body.cover_image_url ?? body.cover_url ?? body.cover) || DEFAULT_SONG_COVER;
+
     const audio_url = safeStr(body.audio_url ?? body.audio ?? body.url ?? body.media_url);
 
     const duration_seconds =
@@ -41,8 +69,9 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     if (!audio_url) missing.push("audio_url (or audio/url/media_url)");
 
     if (missing.length) {
-      return new Response(
-        JSON.stringify({
+      return json(
+        {
+          success: false,
           error: "Missing required fields",
           missing,
           received: {
@@ -50,9 +79,10 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
             title: Boolean(title),
             artist_name: Boolean(artist_name),
             audio_url: Boolean(audio_url),
+            cover_image_url,
           },
-        }),
-        { status: 400, headers: cors }
+        },
+        400
       );
     }
 
@@ -73,33 +103,47 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
       )
       .run();
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        song_id: (result as any)?.meta?.last_row_id ?? null,
-      }),
-      { status: 200, headers: cors }
-    );
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e?.message || "Server error" }), {
-      status: 500,
-      headers: cors,
+    return json({
+      success: true,
+      song_id: (result as any)?.meta?.last_row_id ?? null,
     });
+  } catch (e: any) {
+    return json({ success: false, error: e?.message || "Server error" }, 500);
   }
 };
 
-// ✅ optional: fetch songs for dashboard
-export const onRequestGet: PagesFunction = async ({ env }) => {
+/**
+ * GET /api/songs
+ * Fetch songs for dashboard
+ *
+ * ✅ ALSO returns default cover if DB has NULL/empty cover
+ */
+export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   try {
-    const { results } = await env.DB
-      .prepare(`SELECT * FROM songs ORDER BY created_at DESC`)
-      .all();
+    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
-    return new Response(JSON.stringify(results || []), { status: 200, headers: cors });
+    const { results } = await env.DB.prepare(`
+      SELECT
+        id,
+        uploader_id,
+        title,
+        artist_name,
+        album_name,
+        CASE
+          WHEN cover_image_url IS NULL OR TRIM(cover_image_url) = ''
+          THEN '${DEFAULT_SONG_COVER}'
+          ELSE cover_image_url
+        END AS cover_image_url,
+        audio_url,
+        duration_seconds,
+        genre,
+        created_at
+      FROM songs
+      ORDER BY created_at DESC
+    `).all();
+
+    return json(results || []);
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e?.message || "Server error" }), {
-      status: 500,
-      headers: cors,
-    });
+    return json({ success: false, error: e?.message || "Server error" }, 500);
   }
 };
