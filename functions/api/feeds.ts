@@ -69,7 +69,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const seen = parseSeenIds(url.searchParams.get('seen'), 250);
     const debug = url.searchParams.get('debug') === '1';
 
-    // optional: show only one group
+    // optional: include only one group if provided
     const groupId = toInt(url.searchParams.get('groupId'), 0);
 
     const freshCount = Math.max(5, Math.floor(limit * 0.65));
@@ -97,6 +97,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const wherePostsSql = wherePosts.length ? `WHERE ${wherePosts.join(' AND ')}` : '';
 
+    // NOTE: has "my_reaction" -> bind userId FIRST whenever executing this SELECT
     const baseSelectPosts = `
       SELECT
         'post' AS source,
@@ -191,7 +192,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) GROUP POSTS (public groups visible to everyone)
+    // 2) GROUP POSTS (public groups visible to everyone; private only to members)
+    // Requires: groups.privacy ('public'|'private') default 'public'
     // ============================================================
     const whereGroups: string[] = [];
     const bindsGroups: any[] = [];
@@ -330,6 +332,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereReelsSql = whereReels.length ? `WHERE ${whereReels.join(' AND ')}` : '';
 
+    // NOTE: has "my_reaction" -> bind userId FIRST whenever executing this SELECT
     const baseSelectReels = `
       SELECT
         'reel' AS source,
@@ -406,7 +409,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) SONGS
+    // 4) SONGS (KEEP FRONTEND SAME, but counts computed from tables)
+    // Tables used:
+    // - song_likes (likes)
+    // - song_play_events + song_plays (plays)  ✅ we sum both so either logging works
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -423,6 +429,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereSongsSql = whereSongs.length ? `WHERE ${whereSongs.join(' AND ')}` : '';
 
+    // NOTE: has "my_reaction" -> bind userId FIRST whenever executing this SELECT
+    // my_reaction returns 'like' if liked else NULL (string, so frontend stays stable)
     const baseSelectSongs = `
       SELECT
         'song' AS source,
@@ -451,8 +459,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS media_urls,
         NULL AS media_types,
 
-        COALESCE(s.likes_count, 0) AS reactions_count,
-        NULL AS my_reaction,
+        /* ✅ likes count from table */
+        (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS reactions_count,
+
+        /* ✅ keep frontend: my_reaction string or null */
+        (SELECT 'like' FROM song_likes sl WHERE sl.song_id = s.id AND sl.user_id = ? LIMIT 1) AS my_reaction,
 
         NULL AS group_id,
         NULL AS group_name,
@@ -486,8 +497,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         s.cover_image_url AS song_cover_image_url,
         s.duration_seconds AS song_duration_seconds,
         s.genre AS song_genre,
-        COALESCE(s.likes_count, 0) AS song_likes_count,
-        COALESCE(s.plays_count, 0) AS song_plays_count,
+
+        /* ✅ likes_count computed */
+        (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS song_likes_count,
+
+        /* ✅ plays_count computed from BOTH tables you created */
+        (
+          (SELECT COUNT(*) FROM song_play_events spe WHERE spe.song_id = s.id)
+          +
+          (SELECT COUNT(*) FROM song_plays sp WHERE sp.song_id = s.id)
+        ) AS song_plays_count,
 
         NULL AS podcast_title,
         NULL AS podcast_description,
@@ -685,10 +704,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // RUN QUERIES
+    // RUN QUERIES (Fresh)
     // ============================================================
-
-    // Fresh
     const freshPostsRes = await env.DB.prepare(
       `${baseSelectPosts} ${wherePostsSql} ORDER BY p.created_at DESC LIMIT ?`
     )
@@ -713,7 +730,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const freshSongsRes = await env.DB.prepare(
       `${baseSelectSongs} ${whereSongsSql} ORDER BY s.created_at DESC LIMIT ?`
     )
-      .bind(...bindsSongs, freshCount)
+      .bind(userId, ...bindsSongs, freshCount)
       .all();
     const freshSongs = Array.isArray(freshSongsRes?.results) ? freshSongsRes.results : [];
 
@@ -731,7 +748,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       .all();
     const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
 
-    // Explore (random)
+    // ============================================================
+    // RUN QUERIES (Explore)
+    // ============================================================
     let explorePosts: any[] = [];
     let exploreGroups: any[] = [];
     let exploreReels: any[] = [];
@@ -764,7 +783,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       const exploreSongsRes = await env.DB.prepare(
         `${baseSelectSongs} ${whereSongsSql} ORDER BY RANDOM() LIMIT ?`
       )
-        .bind(...bindsSongs, exploreCount)
+        .bind(userId, ...bindsSongs, exploreCount)
         .all();
       exploreSongs = Array.isArray(exploreSongsRes?.results) ? exploreSongsRes.results : [];
 
@@ -813,7 +832,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const merged = Array.from(map.values());
 
-    // nextCursor = oldest created_at
+    // nextCursor = oldest created_at among returned
     const oldest = merged.reduce((acc: any, cur: any) => {
       if (!acc) return cur;
       return String(cur.created_at) < String(acc.created_at) ? cur : acc;
@@ -821,14 +840,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const nextCursor = oldest?.created_at ?? null;
 
+    // Shuffle for variety
     const ordered = seededShuffle(merged, seed);
 
     // ============================================================
-    // hasMore (simple global check)
+    // hasMore (kept simple to avoid frontend changes)
+    // NOTE: this checks posts only. If you want "perfect hasMore across all types",
+    // tell me and I’ll upgrade it without changing frontend.
     // ============================================================
-    // For performance: we just check posts table.
-    // (If posts finished but reels/products still exist, hasMore could be false.)
-    // If you want perfect hasMore for all types, tell me and I’ll upgrade it.
     let hasMore = false;
     if (nextCursor) {
       const qMore = `
