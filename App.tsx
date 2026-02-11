@@ -2,6 +2,7 @@
 // ✅ FIXED: Meta field JSON parsing for marketplace posts
 // ✅ REMOVED: MarketplaceProductPost component and feedItems mixer
 // ✅ ADDED: MarketplaceContext for Post.tsx integration
+// ✅ FIXED: createMarketplacePost payload matches ALL Feed.tsx detection paths
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -2029,32 +2030,48 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
+  /** ---------- ✅ FIXED: Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
   const createMarketplacePost = useCallback(
     async (product: any) => {
       if (!currentUser) return;
 
       const images: string[] = safeImages(product.images);
-      
       const media_url = images[0] || '';
       const media_type = media_url ? 'image' : null;
 
+      // ✅ CRITICAL: Payload structure that Feed.tsx expects for marketplace posts
       const payload = {
         user_id: currentUser.id,
+        
+        // Basic post fields
         content: product.title || '',
         visibility: 'public',
-        type: 'marketplace',
+        
+        // ✅ Feed.tsx checks these exact fields
+        type: "marketplace",        // Main type indicator
+        post_type: "product",       // Feed.tsx checks this
+        product_id: product.id,     // Feed.tsx checks this directly
+        
+        // Media fields
         media_url,
         media_type,
         media_urls: images,
         media_types: images.map(() => 'image'),
-        meta: JSON.stringify({
+        
+        // ✅ Meta object with ALL the fields Feed.tsx looks for
+        meta: {
+          kind: "product",                    // Feed.tsx checks meta.kind === 'product'
+          product_id: product.id,            // Feed.tsx checks meta.product_id
           marketplace: {
-            product_id: product.id,
-            location: product.address || '',
+            id: product.id,                 // ✅ Feed.tsx prefers mp.id (NOT mp.product_id!)
+            product_id: product.id,         // extra safe
             price: product.discount_price ?? product.main_price ?? null,
             currency: product.currency_symbol || 'TZS',
-          },
-        }),
+            location: product.address || '',
+            title: product.title,
+            images: images,
+          }
+        }
       };
 
       const created = await apiFetch('/api/posts', {
@@ -2107,6 +2124,7 @@ export default function App() {
         return [createdProduct, ...filtered];
       });
 
+      // ✅ Create marketplace post with the fixed payload
       await createMarketplacePost(createdProduct);
       
       return createdProduct;
