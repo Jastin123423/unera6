@@ -796,11 +796,11 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
  * =========================
  */
 const MediaGrid: React.FC<{
-  media: { url: string }[];
-  onOpen: (url: string, index: number) => void;
-}> = ({ media, onOpen }) => {
-  const total = media.length;
-  const show = total <= 4 ? media : media.slice(0, 4);
+  mediaUrls: string[];
+  onMediaClick: (url: string, index: number) => void;
+}> = ({ mediaUrls, onMediaClick }) => {
+  const total = mediaUrls.length;
+  const show = total <= 4 ? mediaUrls : mediaUrls.slice(0, 4);
   const extra = total - 4;
 
   // Small helper tile
@@ -819,7 +819,7 @@ const MediaGrid: React.FC<{
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        onOpen(url, index);
+        onMediaClick(url, index);
       }}
       className={`relative overflow-hidden ${className}`}
       style={{ borderRadius: 0 }}
@@ -850,12 +850,12 @@ const MediaGrid: React.FC<{
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onOpen(show[0].url, 0);
+            onMediaClick(show[0], 0);
           }}
           className="w-full block"
         >
           <img
-            src={show[0].url}
+            src={show[0]}
             alt=""
             loading="lazy"
             className="w-full h-auto max-h-[650px] object-contain"
@@ -869,8 +869,8 @@ const MediaGrid: React.FC<{
   if (total === 2) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[320px] w-full" />
-        <Tile url={show[1].url} index={1} className="h-[320px] w-full" />
+        <Tile url={show[0]} index={0} className="h-[320px] w-full" />
+        <Tile url={show[1]} index={1} className="h-[320px] w-full" />
       </div>
     );
   }
@@ -879,10 +879,10 @@ const MediaGrid: React.FC<{
   if (total === 3) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[420px] w-full" />
+        <Tile url={show[0]} index={0} className="h-[420px] w-full" />
         <div className="grid grid-rows-2 gap-[2px] h-[420px]">
-          <Tile url={show[1].url} index={1} className="w-full h-full" />
-          <Tile url={show[2].url} index={2} className="w-full h-full" />
+          <Tile url={show[1]} index={1} className="w-full h-full" />
+          <Tile url={show[2]} index={2} className="w-full h-full" />
         </div>
       </div>
     );
@@ -891,11 +891,11 @@ const MediaGrid: React.FC<{
   // ✅ 4 or 5+ images: 2x2 grid
   return (
     <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-      <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
-      <Tile url={show[1].url} index={1} className="h-[260px] w-full" />
-      <Tile url={show[2].url} index={2} className="h-[260px] w-full" />
+      <Tile url={show[0]} index={0} className="h-[260px] w-full" />
+      <Tile url={show[1]} index={1} className="h-[260px] w-full" />
+      <Tile url={show[2]} index={2} className="h-[260px] w-full" />
       <Tile
-        url={show[3].url}
+        url={show[3]}
         index={3}
         className="h-[260px] w-full"
         showOverlay={extra > 0}
@@ -1486,10 +1486,10 @@ export const Post: React.FC<{
   currentUser: User | null;
   users?: User[];
   onProfileClick: (id: number) => void;
-  onReact: (id: number, type: ReactionType) => void;
-  onShare: (id: number, newShareCount: number) => void;
+  onReact: (id: number, type: ReactionType | null) => void;
+  onShare: (post: any) => void;
   onDelete?: (id: number) => void;
-  onViewImage: (url: string) => void;
+  onImageClick?: (url: string) => void;
   onOpenComments: (id: number) => void;
   onVideoClick: (p: PostType) => void;
   onPlayAudioTrack?: (t: AudioTrack) => void;
@@ -1512,7 +1512,7 @@ export const Post: React.FC<{
   onReact,
   onShare,
   onDelete,
-  onViewImage,
+  onImageClick,
   onOpenComments,
   onVideoClick,
   onPlayAudioTrack,
@@ -1548,6 +1548,8 @@ export const Post: React.FC<{
     meta?.productId ??
     p?.product_id ??
     p?.productId ??
+    meta?.marketplace?.id ||
+    meta?.product?.id ||
     p?.marketplace_product_id ??
     p?.marketplaceProductId ??
     null;
@@ -1563,24 +1565,84 @@ export const Post: React.FC<{
     meta?.kind === 'product' ||
     !!mpProductId;
 
-  // ✅ MARKETPLACE POST RENDERING - Now handled here with grid + button
+  // ✅ MARKETPLACE POST RENDERING - Full (with proper seller header)
   if (isMarketplace) {
-    const productId = mpProductId || meta?.product_id || meta?.productId || p?.product_id || p?.productId;
+    const productId =
+      mpProductId ||
+      meta?.product_id ||
+      meta?.productId ||
+      p?.product_id ||
+      p?.productId ||
+      meta?.marketplace?.id ||
+      meta?.product?.id;
+
     const productData = productId ? getProductData?.(Number(productId)) : null;
-    
+
     const price = productData?.price ? Number(productData.price).toFixed(0) : null;
     const location = productData?.location?.split(',')[0] || 'Marketplace';
     const currency = productData?.currency || 'TZS';
-    
-    // Use product images or post media
-    const images = p?.media_urls?.length ? p.media_urls : 
-                   p?.images?.length ? p.images :
-                   p?.media_url ? [p.media_url] : [];
 
+    // Use product images or post media
+    const images =
+      (Array.isArray(p?.media_urls) && p.media_urls.length > 0)
+        ? p.media_urls
+        : (typeof p?.media_urls === 'string' && p.media_urls.trim().startsWith('['))
+          ? (() => {
+              try {
+                const parsed = JSON.parse(p.media_urls);
+                return Array.isArray(parsed) ? parsed : [];
+              } catch {
+                return [];
+              }
+            })()
+          : (Array.isArray(p?.images) && p.images.length > 0)
+            ? p.images
+            : (typeof p?.images === 'string' && p.images.trim().startsWith('['))
+              ? (() => {
+                  try {
+                    const parsed = JSON.parse(p.images);
+                    return Array.isArray(parsed) ? parsed : [];
+                  } catch {
+                    return [];
+                  }
+                })()
+              : p?.media_url
+                ? [p.media_url]
+                : [];
+
+    // ---------------------------------------------
+    // ✅ SELLER/AUTHOR (THIS FIXES YOUR ISSUE)
+    // ---------------------------------------------
+    const authorId = Number(a?.id ?? p?.user_id ?? 0);
+
+    const authorName = String(
+      a?.name ??
+        p?.name ??
+        a?.username ??
+        p?.username ??
+        'Seller'
+    );
+
+    const authorUsername = String(
+      a?.username ??
+        p?.username ??
+        ''
+    );
+
+    const authorAvatar =
+      a?.profile_image_url ??
+      p?.profile_image_url ??
+      'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y';
+
+    const isVerified = !!(a?.is_verified ?? p?.is_verified);
+
+    // ---------------------------------------------
+    // reactions
+    // ---------------------------------------------
     const myReaction = p.myReaction ?? p.my_reaction ?? null;
     const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
     const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
-    
+
     const finalMyReaction: ReactionType | undefined =
       myReaction ||
       (currentUser && reactionsArr
@@ -1593,177 +1655,160 @@ export const Post: React.FC<{
         : reactionsArr
           ? reactionsArr.length
           : 0;
-    
+
     const [commentCount, setCommentCount] = useState(() => {
       if (typeof p.comment_count === 'number') return p.comment_count;
       if (Array.isArray(p.comments)) return p.comments.length;
       return 0;
     });
 
-    const [shareCount, setShareCount] = useState(() => {
-      return safeNumber(p.shares ?? p.shares_count, 0);
-    });
-
-    const [showShareSheet, setShowShareSheet] = useState(false);
-    const postId = safePostId(p);
-
-    const emojiList = useMemo(() => {
-      if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
-        const em = topReactionEmojis(reactionsArr, 2);
-        return em.length ? em : ['👍'];
-      }
-      return finalReactionCount > 0 ? ['👍'] : [];
-    }, [reactionsArr, finalReactionCount]);
-
-    const formatCount = (count: number): string => {
-      if (count >= 1000000) {
-        return `${(count / 1000000).toFixed(1)}M`;
-      } else if (count >= 1000) {
-        return `${(count / 1000).toFixed(1)}k`;
-      }
-      return count.toString();
-    };
-
-    const handleShareComplete = (destination: string, data?: any) => {
-      const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
-      
-      if (data?.success && Number.isFinite(nextShares)) {
-        setShareCount(nextShares);
-        onShare(postId, nextShares);
-      }
-      setShowShareSheet(false);
-    };
-
+    // ---------------------------------------------
+    // RENDER
+    // ---------------------------------------------
     return (
-      <>
-        <div className="bg-[#242526] rounded-xl border border-[#3E4042] overflow-hidden mb-2">
-          {/* Header with View Product button */}
-          <div className="px-3 pt-3 pb-2 flex items-center justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center text-[#E4E6EB] font-black">
-                <i className="fas fa-store"></i>
+      <div className="bg-[#242526] rounded-xl overflow-hidden shadow-sm border border-[#3A3B3C] mb-4">
+        {/* =========================================================
+            HEADER (seller + marketplace + view product)
+           ========================================================= */}
+        <div className="px-3 pt-3 pb-2 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Avatar */}
+            <button
+              className="w-10 h-10 rounded-full overflow-hidden bg-[#3A3B3C] flex-shrink-0"
+              onClick={() => authorId && onProfileClick?.(authorId)}
+              title={authorName}
+            >
+              <img
+                src={authorAvatar}
+                alt={authorName}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            </button>
+
+            <div className="min-w-0">
+              {/* Name */}
+              <div className="flex items-center gap-1 min-w-0">
+                <button
+                  className="text-[#E4E6EB] font-bold truncate hover:underline text-left"
+                  onClick={() => authorId && onProfileClick?.(authorId)}
+                >
+                  {authorName}
+                </button>
+
+                {isVerified && (
+                  <span className="text-[#1877F2] text-sm flex-shrink-0">✔</span>
+                )}
               </div>
-              <div className="min-w-0">
-                <div className="text-[#E4E6EB] font-bold truncate">Marketplace</div>
-                <div className="text-[#B0B3B8] text-xs truncate">
-                  {location} • {currency} {price || 'N/A'}
-                </div>
+
+              {/* Marketplace line */}
+              <div className="text-[#B0B3B8] text-xs truncate">
+                <span className="font-semibold">Marketplace</span>
+                {authorUsername ? ` • @${authorUsername}` : ''}
+                {location ? ` • ${location}` : ''}
+                {` • ${currency} ${price || 'N/A'}`}
               </div>
             </div>
-
-            {/* View Product Button - Wired to App.tsx */}
-            <button
-              onClick={() => onViewProduct?.(Number(productId))}
-              className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold text-sm transition-colors"
-            >
-              View product
-            </button>
           </div>
 
-          {/* Product title */}
-          <div className="px-3 pb-2">
-            <div className="text-[#E4E6EB] font-bold leading-snug">
-              {p.content || 'Marketplace Item'}
-            </div>
-          </div>
-
-          {/* ✅ YOUR EXISTING GRID LAYOUT - Reuse MediaGrid */}
-          {images.length > 0 && (
-            <MediaGrid
-              media={images.map(url => ({ url }))}
-              onOpen={(url, index) => {
-                const urls = images;
-                // Call your existing gallery opener
-                if (onViewImage) {
-                  onViewImage(url);
-                }
-              }}
-            />
-          )}
-
-          {/* ✅ YOUR EXISTING POST ACTIONS - Like, Comment, Share */}
-          <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-            <div className="flex items-center gap-2">
-              {finalReactionCount > 0 && (
-                <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(finalReactionCount)}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-4">
-              <span
-                className="hover:underline cursor-pointer"
-                onClick={() => onOpenComments(Number(postId))}
-              >
-                {formatCount(commentCount)} Comments
-              </span>
-              {shareCount > 0 && (
-                <span className="hover:underline">
-                  {formatCount(shareCount)} Shares
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-            <ReactionButton
-              currentUserReactions={finalMyReaction}
-              reactionCount={finalReactionCount}
-              onReact={(type) => onReact(postId, type)}
-              isGuest={!currentUser}
-            />
-            <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
-            >
-              <i className="far fa-comment-alt text-[20px]"></i>
-              <span className="text-[17px] font-medium">Comment</span>
-            </button>
-            <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => {
-                if (!currentUser) {
-                  alert('Please login to share posts.');
-                  return;
-                }
-                setShowShareSheet(true);
-              }}
-            >
-              <i className="fas fa-share text-[20px]"></i>
-              <span className="text-[17px] font-medium">Share</span>
-            </button>
-          </div>
-
-          {/* Share sheet */}
-          <ShareBottomSheet
-            isOpen={showShareSheet}
-            onClose={() => setShowShareSheet(false)}
-            post={p}
-            currentUser={currentUser}
-            users={users}
-            groups={groups}
-            brands={brands}
-            chats={chats}
-            onShareComplete={handleShareComplete}
-          />
+          {/* View Product Button */}
+          <button
+            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold text-sm transition-colors flex-shrink-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (productId) onViewProduct?.(Number(productId));
+            }}
+          >
+            View product
+          </button>
         </div>
-        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-      </>
+
+        {/* =========================================================
+            PRODUCT TITLE (content)
+           ========================================================= */}
+        {p?.content && (
+          <div className="px-3 pb-2">
+            <div className="text-[#E4E6EB] font-semibold text-[15px] leading-snug">
+              {p.content}
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            MEDIA GRID
+           ========================================================= */}
+        {images?.length > 0 && (
+          <div className="px-3 pb-3">
+            <div className="rounded-xl overflow-hidden bg-black">
+              {/* reuse your existing MediaGrid if you have it */}
+              <MediaGrid
+                mediaUrls={images}
+                onMediaClick={(url: string) => onImageClick?.(url)}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            REACTIONS + COMMENTS SUMMARY
+           ========================================================= */}
+        <div className="px-3 pb-2 flex items-center justify-between text-[#B0B3B8] text-sm">
+          <div className="flex items-center gap-2">
+            {finalReactionCount > 0 ? (
+              <>
+                <span className="text-[#1877F2]">👍</span>
+                <span>{finalReactionCount}</span>
+              </>
+            ) : (
+              <span />
+            )}
+          </div>
+
+          <div className="text-sm">
+            {commentCount} Comments
+          </div>
+        </div>
+
+        {/* =========================================================
+            ACTION BUTTONS (Like / Comment / Share)
+           ========================================================= */}
+        <div className="px-2 pb-2">
+          <div className="border-t border-[#3A3B3C] pt-2 flex items-center justify-between">
+            {/* Like */}
+            <button
+              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg hover:bg-[#3A3B3C] text-[#B0B3B8] font-semibold"
+              onClick={(e) => {
+                e.stopPropagation();
+                onReact?.(p.id, finalMyReaction ? null : 'like');
+              }}
+            >
+              👍 <span>{finalMyReaction ? 'Liked' : 'Like'}</span>
+            </button>
+
+            {/* Comment */}
+            <button
+              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg hover:bg-[#3A3B3C] text-[#B0B3B8] font-semibold"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenComments?.(p.id);
+              }}
+            >
+              💬 <span>Comment</span>
+            </button>
+
+            {/* Share */}
+            <button
+              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg hover:bg-[#3A3B3C] text-[#B0B3B8] font-semibold"
+              onClick={(e) => {
+                e.stopPropagation();
+                onShare?.(p);
+              }}
+            >
+              ↗ <span>Share</span>
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -1872,7 +1917,7 @@ export const Post: React.FC<{
     
     if (data?.success && Number.isFinite(nextShares)) {
       setShareCount(nextShares);
-      onShare(postId, nextShares);
+      onShare?.(p);
     }
     setShowShareSheet(false);
   };
@@ -2070,8 +2115,8 @@ export const Post: React.FC<{
           {/* ✅ UPDATED: Multi-image grid opens gallery */}
           {!p.background && mediaList.length > 1 && (
             <MediaGrid
-              media={mediaList.map((m) => ({ url: m.url }))}
-              onOpen={(url, index) => {
+              mediaUrls={mediaList.map((m) => m.url)}
+              onMediaClick={(url, index) => {
                 const urls = mediaList.map((m) => m.url);
                 openGallery(urls, index);
               }}
@@ -2086,7 +2131,7 @@ export const Post: React.FC<{
                 if (mediaList.length > 0) {
                   openGallery(mediaList.map(m => m.url), 0);
                 } else {
-                  onViewImage(mediaInfo.mediaUrl);
+                  onImageClick?.(mediaInfo.mediaUrl);
                 }
               }}
             >
@@ -3311,8 +3356,8 @@ export const CommentsSheet: React.FC<{
             <div className="mb-4 -mx-4">
               {mediaList.length > 1 ? (
                 <MediaGrid
-                  media={mediaList.map((m) => ({ url: m.url }))}
-                  onOpen={(url, index) => {
+                  mediaUrls={mediaList.map((m) => m.url)}
+                  onMediaClick={(url, index) => {
                     // Could open gallery here too if desired
                     console.log('Open image:', url, index);
                   }}
