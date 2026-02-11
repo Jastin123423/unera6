@@ -4429,7 +4429,7 @@ export default function App() {
                         isFollowing={isFollowing}
                         onFollow={() => followUser(postAuthorId)}
                         followLoading={followLoading[postAuthorId] || false}
-                        // ✅ ADDED: Pass onViewProductFromPost callback
+                        // ✅ ADDED: Pass onViewProductFromPost callback for marketplace posts
                         onViewProductFromPost={openProductFromPost}
                       />
                     );
