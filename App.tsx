@@ -1,3 +1,7 @@
+// App.tsx - UPDATED: Marketplace products as real posts + removed "products after 5 posts" mixer
+// ✅ FIXED: Meta field JSON parsing for marketplace posts
+// ✅ REMOVED: MarketplaceProductPost component and feedItems mixer
+// ✅ ADDED: MarketplaceContext for Post.tsx integration
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -46,7 +50,6 @@ import {
 } from './types';
 import EventsPage from './components/EventsPage';
 
-
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
@@ -55,14 +58,25 @@ const safeNumber = (v: any, fallback = 0) => {
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
-/** ✅ ADDED: safeImages helper for marketplace product posts ---------- */
+/** ✅ JSON parsing helper for meta fields */
+const parseJSON = (v: any) => {
+  if (!v) return null;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch { return null; }
+  }
+  return v;
+};
+
+/** ✅ safeImages helper for marketplace product posts */
 const safeImages = (imgs: any): string[] => {
   if (Array.isArray(imgs)) return imgs.filter(Boolean);
   if (typeof imgs === 'string') {
     try {
       const p = JSON.parse(imgs);
       return Array.isArray(p) ? p.filter(Boolean) : [];
-    } catch {}
+    } catch {
+      return [];
+    }
   }
   return [];
 };
@@ -71,15 +85,15 @@ const safeImages = (imgs: any): string[] => {
 const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
 const LS_USER_KEY = 'user';
 
-/** ===== ✅ ADDED: FB-LIKE STORY SEEN SYSTEM ===== */
+/** ===== FB-LIKE STORY SEEN SYSTEM ===== */
 const STORY_SEEN_KEY = 'unera_story_seen_v1';
 const STORY_SEEN_LIMIT = 2500;
 
-/** ===== ✅ ADDED: CACHE CONSTANTS ===== */
+/** ===== CACHE CONSTANTS ===== */
 const STORIES_CACHE_KEY = "unera_stories_cache_v1";
-const STORIES_CACHE_TTL_MS = 60_000; // 1 min
+const STORIES_CACHE_TTL_MS = 60_000;
 const STORY_VIEWERS_CACHE_KEY = "unera_story_viewers_";
-const VIEWERS_TTL = 2 * 60_000; // 2 minutes
+const VIEWERS_TTL = 2 * 60_000;
 
 const readStorySeen = (): number[] => {
   try {
@@ -98,7 +112,7 @@ const writeStorySeen = (ids: number[]) => {
   } catch {}
 };
 
-/** ✅ ADDED: Stories cache functions */
+/** Stories cache functions */
 const readStoriesCache = () => {
   try {
     const raw = localStorage.getItem(STORIES_CACHE_KEY);
@@ -106,7 +120,6 @@ const readStoriesCache = () => {
     const parsed = JSON.parse(raw);
     if (!parsed?.ts || !Array.isArray(parsed?.stories)) return null;
     
-    // Check if cache is expired
     if (Date.now() - parsed.ts > STORIES_CACHE_TTL_MS) {
       localStorage.removeItem(STORIES_CACHE_KEY);
       return null;
@@ -127,7 +140,7 @@ const writeStoriesCache = (stories: any[]) => {
   } catch {}
 };
 
-/** ✅ ADDED: Viewers cache functions */
+/** Viewers cache functions */
 const readViewersCache = (storyId: number) => {
   try {
     const raw = localStorage.getItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
@@ -183,7 +196,7 @@ class ErrorBoundary extends React.Component<{ children: any }, { error: any }> {
 const FEED_SESSION_KEY = 'unera_feed_session_seed';
 const FEED_LAST_ACTIVE_KEY = 'unera_feed_last_active';
 const FEED_SEEN_KEY = 'unera_feed_seen_ids';
-const FEED_RETURN_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes away => refresh
+const FEED_RETURN_THRESHOLD_MS = 3 * 60 * 1000;
 const FEED_SEEN_LIMIT = 1500;
 
 const nowMs = () => Date.now();
@@ -204,7 +217,6 @@ const writeJson = (key: string, value: any) => {
   } catch {}
 };
 
-// Deterministic seeded RNG
 const mulberry32 = (seed: number) => {
   return function () {
     let t = (seed += 0x6d2b79f5);
@@ -259,7 +271,6 @@ const pushSeenIds = (ids: number[]) => {
   writeJson(FEED_SEEN_KEY, dedup);
 };
 
-// Avoid boring sequences: same author too often + mix types a bit
 const diversifyFeed = (posts: PostType[], seed: number) => {
   if (!Array.isArray(posts) || posts.length <= 2) return posts;
 
@@ -293,7 +304,6 @@ const diversifyFeed = (posts: PostType[], seed: number) => {
       const candidate = b[0];
       const author = Number((candidate as any).user_id ?? -1);
 
-      // allow at most 1 consecutive repeat
       if (author === lastAuthor && repeats >= 1) continue;
 
       out.push(b.shift()!);
@@ -308,7 +318,6 @@ const diversifyFeed = (posts: PostType[], seed: number) => {
       if (out.length >= posts.length) break;
     }
 
-    // if stuck, relax rule
     if (!progressed) {
       for (const k of keys) {
         const b = buckets.get(k);
@@ -323,20 +332,19 @@ const diversifyFeed = (posts: PostType[], seed: number) => {
   return out;
 };
 
-/** ---------- ✅ FIXED: Name validation helper ---------- */
+/** Name validation helper */
 const isBadName = (v: any): boolean => {
   const s = String(v ?? '').trim();
   return !s || s.toLowerCase() === 'user' || s.toLowerCase() === 'un';
 };
 
-/** ---------- ✅ FIXED: Safe User Merge Helper with name protection ---------- */
+/** Safe User Merge Helper with name protection */
 const isHttpUrl = (v: any) =>
   typeof v === 'string' && (v.startsWith('https://') || v.startsWith('http://'));
 
 const mergeUserSafe = (oldU: any, newU: any) => {
   const next = { ...oldU, ...newU };
 
-  // ✅ keep old profile/cover if incoming is missing/empty
   if (!isHttpUrl(newU?.profile_image_url) && isHttpUrl(oldU?.profile_image_url)) {
     next.profile_image_url = oldU.profile_image_url;
   }
@@ -344,7 +352,6 @@ const mergeUserSafe = (oldU: any, newU: any) => {
     next.cover_image_url = oldU.cover_image_url;
   }
 
-  // ✅ CRITICAL: Preserve followers/following arrays to prevent blinking
   if (!Array.isArray(newU?.followers) && Array.isArray(oldU?.followers)) {
     next.followers = oldU.followers;
   }
@@ -352,7 +359,6 @@ const mergeUserSafe = (oldU: any, newU: any) => {
     next.following = oldU.following;
   }
 
-  // ✅ NEW: Never let partial "User" overwrite real name/username
   if (isBadName(newU?.name) && !isBadName(oldU?.name)) {
     next.name = oldU.name;
   }
@@ -420,12 +426,10 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 };
 
 /**
- * ✅ UPDATED: Normalize raw D1 rows to UI-safe PostType shape with multi-media support
- * ✅ ADDED: Support for media_urls + media_types arrays
- * ✅ FIXED: created_at field normalization for MemoriesPage
+ * Normalize raw D1 rows to UI-safe PostType shape with multi-media support
+ * Parse meta field if it's a JSON string (critical for marketplace posts)
  */
 const normalizePost = (p: any): PostType => {
-  // ✅ multi media support (new)
   const mediaUrls =
     Array.isArray(p?.media_urls) ? p.media_urls :
     typeof p?.media_urls === "string" ? (() => { try { return JSON.parse(p.media_urls); } catch { return []; } })() :
@@ -440,7 +444,6 @@ const normalizePost = (p: any): PostType => {
     typeof p?.mediaTypes === "string" ? (() => { try { return JSON.parse(p.mediaTypes); } catch { return []; } })() :
     [];
 
-  // ✅ backward compatible single media
   const mediaType = p?.media_type ?? p?.mediaType ?? (mediaTypes[0] ?? null);
   const mediaUrl = p?.media_url ?? p?.mediaUrl ?? (mediaUrls[0] ?? null);
 
@@ -452,11 +455,9 @@ const normalizePost = (p: any): PostType => {
     user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
     content: safeString(p?.content),
 
-    // ✅ keep old fields (backward compatibility)
     media_url: mediaUrl,
     media_type: mediaType,
 
-    // ✅ new fields (Feed.tsx will use these)
     media_urls: mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : []),
     media_types: mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : []),
 
@@ -476,19 +477,19 @@ const normalizePost = (p: any): PostType => {
         return 'post';
       })(),
     
-    // ✅ FIXED: Support both created_at and createdAt for MemoriesPage
     created_at: p?.created_at ?? p?.createdAt ?? new Date().toISOString(),
     
-    // ✅ ADD THESE (very important) - Preserve reaction data
     my_reaction: p?.my_reaction ?? p?.myReaction ?? null,
     myReaction: p?.myReaction ?? p?.my_reaction ?? null,
     reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
     reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
     likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
+
+    meta: parseJSON(p?.meta) || null,
   } as any;
 };
 
-/** ✅ ✅ UPDATED: Normalize event data - FIXED DATE/TIME MISMATCH ---------- */
+/** Normalize event data */
 const DEFAULT_EVENT_COVER =
   'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
 
@@ -500,12 +501,10 @@ const toISO = (d: any) => {
 const toDateOnly = (d: any) => toISO(d).split('T')[0] || new Date().toISOString().slice(0, 10);
 
 const toTimeHM = (d: any) => {
-  // Prefer an explicit time string if it looks like HH:MM
   const s = String(d ?? '').trim();
   const m = s.match(/^(\d{1,2}):(\d{2})/);
   if (m) return `${m[1].padStart(2, '0')}:${m[2]}`;
 
-  // Otherwise derive from a date
   const dt = new Date(d);
   if (!Number.isFinite(dt.getTime())) return '12:00';
   const hh = String(dt.getHours()).padStart(2, '0');
@@ -518,10 +517,7 @@ const normalizeEvent = (e: any): Event => {
 
   const rawEventDate = e?.event_date ?? e?.date ?? e?.eventDate ?? new Date().toISOString();
 
-  // Always YYYY-MM-DD
   const date = toDateOnly(rawEventDate) || new Date().toISOString().slice(0, 10);
-
-  // Always HH:MM
   const rawTime = e?.event_time ?? e?.time ?? e?.eventTime ?? '';
   const time = (rawTime ? toTimeHM(rawTime) : toTimeHM(rawEventDate)) || '12:00';
 
@@ -537,7 +533,6 @@ const normalizeEvent = (e: any): Event => {
     Array.isArray(e?.interested) ? e.interested :
     [];
 
-  // ✅ FIXED: Proper cover handling with fallback
   const cover =
     safeString(e?.image ?? e?.cover_url ?? e?.cover_image ?? e?.coverImage ?? e?.cover, '') || DEFAULT_EVENT_COVER;
 
@@ -549,11 +544,9 @@ const normalizeEvent = (e: any): Event => {
     description: safeString(e?.description, ''),
     location: safeString(e?.location, ''),
 
-    // ✅ UI-safe fields
-    date,       // YYYY-MM-DD
-    time,       // HH:MM
+    date,
+    time,
 
-    // ✅ FIXED: cover aliases for ANY Events UI variant
     image: cover,
     cover_url: cover,
     cover_image: cover,
@@ -567,7 +560,6 @@ const normalizeEvent = (e: any): Event => {
     attendees: safeArray(attendeesRaw).map(Number).filter(Number.isFinite),
     interestedIds: safeArray(interestedRaw).map(Number).filter(Number.isFinite),
 
-    // keep original backend field too (optional)
     event_date: toISO(rawEventDate),
     event_time: time,
 
@@ -575,12 +567,11 @@ const normalizeEvent = (e: any): Event => {
   } as any;
 };
 
-/** ✅ ✅ UPDATED: Normalize story data with backend field matching ---------- */
+/** Normalize story data with backend field matching */
 const normalizeStory = (s: any, existingUser?: User): Story => {
   const resolvedId = safeNumber(s?.id ?? s?.story_id ?? 0);
   const userId = safeNumber(s?.user_id ?? s?.userId ?? 0);
   
-  // ✅ CRITICAL: Use safe merge to prevent blinking
   let storyUser = s?.user;
   if (existingUser && storyUser) {
     storyUser = mergeUserSafe(existingUser, storyUser);
@@ -601,10 +592,9 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
     author_image: s?.author_image ?? s?.authorImage ?? '',
     username: s?.username ?? '',
     liked_by_me: Boolean(s?.liked_by_me ?? s?.likedByMe ?? false),
-    user: storyUser, // ✅ Use safely merged user
+    user: storyUser,
     views: safeArray(s?.views),
     
-    // ✅ ✅ ADDED: Backend-compatible fields for reactions
     views_count: safeNumber(s?.views_count ?? s?.viewsCount, 0),
     reactions_count: safeNumber(s?.reactions_count ?? s?.reactionsCount, 0),
     my_reaction: s?.my_reaction ?? s?.myReaction ?? null,
@@ -614,24 +604,20 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
 
 /**
  * Normalize user data with UNERA-style profile pictures
- * ✅ FIXED: cover_image_url can be undefined, not empty string
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
   
-  // ✅ Use the incoming name/username if valid, otherwise fallback
   const incomingName = safeString(u?.name, '');
   const incomingUsername = safeString(u?.username, '');
   
-  // Check if incoming names are bad (like "User", "user", empty)
   const hasValidIncomingName = !isBadName(incomingName);
   const hasValidIncomingUsername = !isBadName(incomingUsername);
   
-  // Determine final names
   const userName = hasValidIncomingName ? incomingName : 
                    hasValidIncomingUsername ? incomingUsername : 
                    'User';
-  
+
   const userUsername = hasValidIncomingUsername ? incomingUsername :
                        hasValidIncomingName ? userName.toLowerCase().replace(/\s+/g, '') :
                        'user';
@@ -653,7 +639,6 @@ const normalizeUser = (u: any): User => {
     profileImageUrl = generateProfilePictureUrl(userName, colorIdentifier);
   }
 
-  // ✅ FIXED: Don't default cover to empty string, keep undefined if missing
   const cover = typeof (u?.cover_image_url ?? u?.coverImage) === 'string'
     ? String(u?.cover_image_url ?? u?.coverImage).trim()
     : undefined;
@@ -666,23 +651,21 @@ const normalizeUser = (u: any): User => {
     followers: safeArray<number>(u?.followers),
     following: safeArray<number>(u?.following),
     profile_image_url: profileImageUrl,
-    cover_image_url: cover, // ✅ Can be undefined, not empty string
+    cover_image_url: cover,
     is_verified: Boolean(u?.is_verified ?? u?.isVerified),
     role: u?.role ?? 'user',
     created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
   } as any;
 };
 
-/** ✅ UPDATED: Normalize reel data with trimmed audio support ---------- */
+/** Normalize reel data with trimmed audio support */
 const normalizeReel = (r: any): Reel => {
   const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
   const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
   
-  // ✅ UPDATED: Use soundKey to determine trimmed audio, not start=0,end=0
   const soundKey = String(r?.sound_key ?? r?.soundKey ?? '');
   const isTrimmedAudio = soundKey.startsWith('trimmed:');
   
-  // For backward compatibility, also check the old method
   const audioStart = safeNumber(r?.audio_start ?? r?.audioStart ?? 0);
   const audioEnd = safeNumber(r?.audio_end ?? r?.audioEnd ?? 0);
   const audioUrl = r?.audio_url ?? r?.audioUrl ?? '';
@@ -709,12 +692,11 @@ const normalizeReel = (r: any): Reel => {
     reactions: safeArray(r?.reactions),
     comments: safeArray(r?.comments),
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
-    // ✅ Use soundKey to determine trimmed audio
     isTrimmedAudio: isTrimmedAudio || legacyIsTrimmed,
   } as any;
 };
 
-/** ✅ UPDATED: Normalize song data for UNERA Music with audio_fetch_url support ---------- */
+/** Normalize song data for UNERA Music with audio_fetch_url support */
 const normalizeSong = (s: any): Song => {
   return {
     ...s,
@@ -722,7 +704,7 @@ const normalizeSong = (s: any): Song => {
     title: s?.title ?? s?.name ?? 'Unknown',
     artist: s?.artist ?? s?.artist_name ?? '',
     audio_url: s?.audio_url ?? s?.url ?? s?.file_url ?? '',
-    audio_fetch_url: s?.audio_fetch_url ?? '', // ✅ ADDED: For fetchable/proxy URLs
+    audio_fetch_url: s?.audio_fetch_url ?? '',
     cover_url: s?.cover_url ?? s?.cover ?? DEFAULT_MUSIC_COVER,
     duration: s?.duration ?? 0,
     playCount: s?.playCount ?? s?.plays ?? 0,
@@ -732,7 +714,7 @@ const normalizeSong = (s: any): Song => {
 };
 
 /**
- * ✅ UPDATED: Normalize product data for consistency - FIXED marketplace products issue
+ * Normalize product data for consistency
  */
 const normalizeProduct = (p: any) => {
   let imgs: string[] = [];
@@ -747,8 +729,7 @@ const normalizeProduct = (p: any) => {
     seller_id: safeNumber(p?.seller_id),
     seller_name: safeString(p?.seller_name ?? p?.sellerName ?? "Seller"),
     seller_avatar: safeString(p?.seller_avatar ?? p?.sellerAvatar ?? ""),
-    // ✅ FIXED: Don't use DEFAULT_MUSIC_COVER for marketplace products
-    images: imgs.length ? imgs : [], // Empty array instead of music cover
+    images: imgs.length ? imgs : [],
     main_price: safeNumber(p?.main_price),
     discount_price: p?.discount_price == null ? null : safeNumber(p?.discount_price),
     quantity: safeNumber(p?.quantity, 1),
@@ -762,11 +743,11 @@ const normalizeProduct = (p: any) => {
   } as any;
 };
 
-/** ---------- ✅ ADDED: Normalize groups to prevent crashes ---------- */
+/** Normalize groups to prevent crashes */
 const normalizeGroup = (g: any): Group => {
   const id = safeNumber(g?.id ?? g?.group_id ?? g?.groupId);
   const name = safeString(g?.name, "Untitled Group");
-  const description = safeString(g?.description, ""); // ✅ never null
+  const description = safeString(g?.description, "");
   const type = String(g?.type || "public").toLowerCase() === "private" ? "private" : "public";
 
   return {
@@ -779,13 +760,25 @@ const normalizeGroup = (g: any): Group => {
     cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
     profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
     created_at: g?.created_at ?? new Date().toISOString(),
-    // Ensure these arrays exist to prevent crashes in Groups.tsx
     members: safeArray(g?.members),
     posts: safeArray(g?.posts),
     events: safeArray(g?.events),
     member_posting_allowed: Boolean(g?.member_posting_allowed ?? true),
   } as any;
 };
+
+/** ---------- ✅ ADDED: Marketplace Context for Post.tsx ---------- */
+export const MarketplaceContext = React.createContext<{
+  onViewProduct: (productId: number) => void;
+  getProductData: (productId: number) => { 
+    price: number; 
+    location: string;
+    currency?: string;
+  } | null;
+}>({
+  onViewProduct: () => {},
+  getProductData: () => null,
+});
 
 /** ---------- Optimistic reaction helper ---------- */
 const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meId: number) => {
@@ -817,7 +810,7 @@ const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meI
   };
 };
 
-/** ✅ UPDATED: Optimistic reel reaction helper ---------- */
+/** Optimistic reel reaction helper */
 const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType, meId: number) => {
   if (Number(r?.id) !== Number(reelId)) return r;
 
@@ -829,12 +822,10 @@ const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType,
   let newReactions = [...reactions];
   
   if (hasLiked) {
-    // Remove reaction
     newReactions = newReactions.filter((reaction: any) => 
       !(Number(reaction?.userId ?? reaction?.user_id) === Number(meId) && reaction?.type === type)
     );
   } else {
-    // Add reaction
     newReactions.push({ userId: meId, user_id: meId, type });
   }
   return {
@@ -845,7 +836,6 @@ const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType,
   };
 };
 
-// Fixed duplicate function - renamed
 const isHttpUrl2 = (u: string) => u.startsWith('http://') || u.startsWith('https://');
 const isBlobUrl = (u: string) => u.startsWith('blob:');
 const isHttpsUrl = (u: string) => u.startsWith('https://');
@@ -854,28 +844,22 @@ const isAbsoluteUrl = (u: string) => isHttpsUrl(u) || isHttpUrl2(u) || isBlobUrl
 const ensureAbsoluteUrl = (u?: string | null): string => {
   if (!u) return '';
   if (isAbsoluteUrl(u)) return u;
-  // If backend returns relative path like /uploads/audio.mp3, make it absolute
   return `${window.location.origin}${u.startsWith('/') ? '' : '/'}${u}`;
 };
 
-// ✅ Critical: Ensure audio URLs are fetchable for trimming
 const toFetchableAudioUrl = (u?: string | null): string => {
   const url = ensureAbsoluteUrl(u);
   if (!url) return '';
 
-  // Blob URLs are already fetchable
   if (isBlobUrl(url)) return url;
 
-  // ✅ FIXED: Use isHttpUrl2 instead of isHttpUrl
   if (isHttpUrl2(url) && window.location.protocol === 'https:') {
     return url.replace('http://', 'https://');
   }
 
-  // ✅ FIXED: Enable audio proxy for reliable trimming
-  const USE_AUDIO_PROXY = true; // ✅ CHANGED: Now enabled since we have /api/proxy-audio
+  const USE_AUDIO_PROXY = true;
 
   if (USE_AUDIO_PROXY) {
-    // Check if same origin to avoid CORS issues
     const isSameOrigin = (() => {
       try {
         return new URL(url).origin === window.location.origin;
@@ -884,7 +868,6 @@ const toFetchableAudioUrl = (u?: string | null): string => {
       }
     })();
 
-    // If cross-origin, use proxy for media.unera.social
     if (!isSameOrigin) {
       try {
         const host = new URL(url).hostname;
@@ -898,7 +881,6 @@ const toFetchableAudioUrl = (u?: string | null): string => {
   return url;
 };
 
-/** ✅ ADDED: Helper to convert remote audio to blob URL for reliable trimming */
 const toBlobUrl = async (remoteUrl: string): Promise<string> => {
   try {
     const fetchableUrl = toFetchableAudioUrl(remoteUrl);
@@ -912,7 +894,6 @@ const toBlobUrl = async (remoteUrl: string): Promise<string> => {
   }
 };
 
-/** ---------- API helper with audio proxy support ---------- */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const headers: HeadersInit = {
     Accept: 'application/json',
@@ -956,9 +937,6 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-/**
- * Fetch user's followers/following data
- */
 const fetchUserFollowData = async (userId: number): Promise<{ followers: number[], following: number[] }> => {
   try {
     const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
@@ -972,9 +950,6 @@ const fetchUserFollowData = async (userId: number): Promise<{ followers: number[
   }
 };
 
-/**
- * ✅ UPDATED: Upload file to Cloudflare R2 with audio support
- */
 const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
   try {
     const formData = new FormData();
@@ -1004,16 +979,13 @@ const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url
   }
 };
 
-/** ✅ UPDATED: Helper to ensure R2 URL with trimmed audio support ---------- */
 const ensureR2Url = async (input: any, folder: string, fallbackName: string) => {
   if (!input) return '';
 
-  // already a real URL
   if (typeof input === 'string' && isAbsoluteUrl(input)) {
     return input;
   }
 
-  // blob URL -> fetch -> upload to R2
   if (typeof input === 'string' && isBlobUrl(input)) {
     try {
       const res = await fetch(input);
@@ -1021,7 +993,6 @@ const ensureR2Url = async (input: any, folder: string, fallbackName: string) => 
       
       const blob = await res.blob();
       
-      // ✅ Preserve audio type for trimmed audio
       const fileType = folder.includes('audio') ? blob.type || 'audio/wav' : 'application/octet-stream';
       const fileName = folder.includes('audio') ? 
         `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
@@ -1036,9 +1007,7 @@ const ensureR2Url = async (input: any, folder: string, fallbackName: string) => 
     }
   }
 
-  // File -> upload to R2
   if (typeof File !== 'undefined' && input instanceof File) {
-    // ✅ Preserve audio type for trimmed audio
     if (folder.includes('audio') && !input.type) {
       const fileType = 'audio/wav';
       const fileName = `audio-${Date.now()}.wav`;
@@ -1050,9 +1019,7 @@ const ensureR2Url = async (input: any, folder: string, fallbackName: string) => 
     return up.url;
   }
 
-  // Blob -> convert to File -> upload
   if (typeof Blob !== 'undefined' && input instanceof Blob) {
-    // ✅ Preserve audio type for trimmed audio
     const fileType = folder.includes('audio') ? input.type || 'audio/wav' : 'application/octet-stream';
     const fileName = folder.includes('audio') ? 
       `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
@@ -1066,7 +1033,6 @@ const ensureR2Url = async (input: any, folder: string, fallbackName: string) => 
   return '';
 };
 
-/** ✅ ADDED: Type for ReelSound with trimmed audio support ---------- */
 type ReelSound = {
   songName: string;
   audioUrl: string;
@@ -1075,7 +1041,7 @@ type ReelSound = {
   songId?: string | number;
   soundKey?: string;
   isTrimmedAudio?: boolean;
-  originalUrl?: string; // ✅ ADDED: Store original URL for re-trimming
+  originalUrl?: string;
 };
 
 type View =
@@ -1098,9 +1064,6 @@ type View =
   | 'login'
   | 'register';
 
-/**
- * Normalize FEED rows returned by /api/feeds
- */
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
     ...row,
@@ -1133,7 +1096,6 @@ const authorFromFeedRow = (row: any): User => {
   });
 };
 
-// Facebook-like feed merging utility
 const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
   const map = new Map<number, PostType>();
   prev.forEach((p: any) => map.set(Number(p.id), p));
@@ -1146,7 +1108,6 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
         ...p,
         reactions: (existing as any).reactions,
         shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
-        // ✅ FIXED 5: Change (existing as Any) to (existing as any)
         comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
       } as any);
     } else {
@@ -1160,7 +1121,6 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
   return [...newOnes, ...prev.map((p: any) => map.get(Number(p.id))!).filter(Boolean)];
 };
 
-// Minimal fallback user for UI stability
 const createFallbackUser = (): User => {
   const fallbackName = 'User';
   const fallbackId = 0;
@@ -1182,7 +1142,6 @@ const createFallbackUser = (): User => {
   };
 };
 
-// ===== MUSIC PLAYER API HELPERS =====
 const authHeaders = () => {
   const token = localStorage.getItem('unera_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -1206,7 +1165,6 @@ async function apiPost(endpoint: string, body?: any) {
   return data?.data ?? data;
 }
 
-// record play (same fallback strategy you used in MusicSystem.tsx)
 async function recordPlay(track: AudioTrack, userId: any) {
   const id = String(track.id);
 
@@ -1244,13 +1202,10 @@ export default function App() {
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
 
-  // ✅ ADDED: UNERA Music songs state
   const [songs, setSongs] = useState<Song[]>([]);
   
-  // ✅ ADDED: Reel sound state (TikTok style)
   const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
 
-  // ✅ ADDED: Story states - UPDATED: Using activeStoryId instead of activeStory
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
 
@@ -1261,7 +1216,6 @@ export default function App() {
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
   
-  // ✅ ADDED: Authentication hydration state
   const [authHydrated, setAuthHydrated] = useState(false);
 
   const lastGoodPostsRef = useRef<PostType[]>([]);
@@ -1272,7 +1226,6 @@ export default function App() {
 
   const [loginError, setLoginError] = useState('');
 
-  // ✅ ADDED: Auth gate (MUST be above handlers that use it) ----------
   const requireAuth = useCallback(
     (actionName = 'This action') => {
       if (currentUser) return true;
@@ -1283,7 +1236,6 @@ export default function App() {
     [currentUser]
   );
 
-  // ✅ ADDED: Refs for deduplication and stable access
   const usersRef = useRef<User[]>([]);
   const storiesInFlightRef = useRef(false);
   const reelsInFlightRef = useRef(false);
@@ -1291,11 +1243,9 @@ export default function App() {
   const usersInFlightRef = useRef(false);
   const otherDataInFlightRef = useRef(false);
 
-  /** ===== ✅ ADDED: Facebook-like Story Seen System State ===== */
   const [seenStoryIds, setSeenStoryIds] = useState<Set<number>>(() => new Set(readStorySeen()));
-  const [storyMuted, setStoryMuted] = useState(true); // FB defaults muted
+  const [storyMuted, setStoryMuted] = useState(true);
 
-  /** ✅ UPDATED: Helper to mark story as seen ---------- */
   const markStorySeen = useCallback((storyId: number) => {
     const id = Number(storyId);
     if (!id) return;
@@ -1309,24 +1259,19 @@ export default function App() {
     });
   }, []);
 
-  /** ✅ UPDATED: Facebook-like story ordering with enhanced algorithm ---------- */
   const orderedStories = useMemo(() => {
     const list = safeArray(stories);
 
-    // ✅ Enhanced scoring: unseen first, your story first, then others
     const scoreStory = (s: any) => {
       const isMine = currentUser && Number(s.user_id) === Number(currentUser.id);
       const unseen = !seenStoryIds.has(Number(s.id));
       
-      // Base scores
       const mineBoost = isMine ? 100 : 0;
       const unseenBoost = unseen ? 50 : 0;
       
-      // Recency factor (newer stories first)
       const t = new Date(s.created_at || 0).getTime() || 0;
-      const recencyFactor = t / 1e13; // small factor to break ties
+      const recencyFactor = t / 1e13;
       
-      // Interaction boost (if we have follow data)
       const isFollowing = currentUser && safeArray<number>(currentUser.following).includes(Number(s.user_id));
       const followBoost = isFollowing ? 30 : 0;
       
@@ -1336,19 +1281,16 @@ export default function App() {
     return [...list].sort((a, b) => scoreStory(b) - scoreStory(a));
   }, [stories, seenStoryIds, currentUser]);
 
-  /** ✅ UPDATED: Preload story media for instant opening ---------- */
   const preloadStoryMedia = useCallback((s: Story) => {
     const url = String(s?.media_url || '');
     if (!url) return;
 
-    // Image preload
     if (s.type === 'image') {
       const img = new Image();
       img.src = url;
       return;
     }
 
-    // Video preload (metadata is enough to feel instant)
     if (s.type === 'video') {
       const v = document.createElement('video');
       v.preload = 'metadata';
@@ -1357,18 +1299,15 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ UPDATED: Derived active story from activeStoryId ---------- */
   const activeStory = useMemo(() => {
     if (!activeStoryId) return null;
     return orderedStories.find(s => Number(s.id) === Number(activeStoryId)) || null;
   }, [activeStoryId, orderedStories]);
 
-  /** ✅ UPDATED: Helper to close story viewer ---------- */
   const closeStoryViewer = useCallback(() => {
     setActiveStoryId(null);
   }, []);
 
-  /** ✅ UPDATED: Auto-advance + next story logic (Facebook feel) ---------- */
   const getNextStory = useCallback((current: Story | null) => {
     if (!current) return null;
     const list = orderedStories;
@@ -1392,7 +1331,6 @@ export default function App() {
     });
   }, [getNextStory, markStorySeen, orderedStories]);
 
-  /** ✅ UPDATED: Handle previous story navigation ---------- */
   const goPrevStory = useCallback(() => {
     setActiveStoryId(prevId => {
       if (!prevId) return null;
@@ -1409,20 +1347,17 @@ export default function App() {
     });
   }, [orderedStories, markStorySeen]);
 
-  /** ✅ UPDATED: Handle story next navigation ---------- */
   const handleStoryNext = useCallback(() => {
     if (!activeStoryId) return;
     
     const list = orderedStories;
     const idx = list.findIndex(s => Number(s.id) === Number(activeStoryId));
     
-    // If at last story, close viewer
     if (idx >= list.length - 1) {
       closeStoryViewer();
       return;
     }
     
-    // Move to next story
     const next = list[idx + 1];
     if (next) {
       setActiveStoryId(next.id);
@@ -1431,20 +1366,17 @@ export default function App() {
     }
   }, [activeStoryId, orderedStories, closeStoryViewer, markStorySeen, preloadStoryMedia]);
 
-  /** ✅ UPDATED: Handle story previous navigation ---------- */
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
     
     const list = orderedStories;
     const idx = list.findIndex(s => Number(s.id) === Number(activeStoryId));
     
-    // If at first story, close viewer
     if (idx <= 0) {
       closeStoryViewer();
       return;
     }
     
-    // Move to previous story
     const prev = list[idx - 1];
     if (prev) {
       setActiveStoryId(prev.id);
@@ -1453,7 +1385,6 @@ export default function App() {
     }
   }, [activeStoryId, orderedStories, closeStoryViewer, markStorySeen, preloadStoryMedia]);
 
-  /** ---------- ✅ FIXED: Keep refs in sync with state ---------- */
   useEffect(() => {
     usersRef.current = users;
   }, [users]);
@@ -1474,20 +1405,13 @@ export default function App() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
 
-  // Add state for follow loading to prevent double clicks
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
-  // ✅ ADDED: Hashtag filtering state for Facebook-like feed filtering
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
 
-  // ===== MUSIC PLAYER (GLOBAL) STATE =====
   const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
-
-  // play history (for dashboard + next/previous)
   const [playHistory, setPlayHistory] = useState<AudioTrack[]>([]);
-
-  // liked tracks in format "music:ID" or "podcast:ID"
   const [likedTracks, setLikedTracks] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('unera_liked_tracks') || '[]');
@@ -1495,11 +1419,7 @@ export default function App() {
       return [];
     }
   });
-
-  // plays map for current track UI (player can show total plays)
   const [trackPlays, setTrackPlays] = useState<Record<string, number>>({});
-
-  // ✅ FIXED: User's total plays with per-user caching to prevent disappearance
   const [myTotalPlays, setMyTotalPlays] = useState<number>(() => {
     try {
       const rawUser = localStorage.getItem(LS_USER_KEY);
@@ -1509,7 +1429,6 @@ export default function App() {
         uid = Number(user?.id || 0); 
       } catch {}
       
-      // Per-user cache key to prevent mix-ups between accounts
       const key = uid ? `unera_my_total_plays_${uid}` : 'unera_my_total_plays';
       const v = Number(localStorage.getItem(key) || 0);
       return Number.isFinite(v) ? v : 0;
@@ -1520,31 +1439,24 @@ export default function App() {
   
   const [playsLoading, setPlaysLoading] = useState(false);
 
-  // ✅ ADDED: Play count tracking ref
   const lastPlayedKeyRef = useRef<string>('');
 
-  // Persist liked tracks and total plays
   useEffect(() => {
     localStorage.setItem('unera_liked_tracks', JSON.stringify(likedTracks));
   }, [likedTracks]);
 
-  // ✅ FIXED: Persist total plays per user (not globally)
   useEffect(() => {
     if (!currentUser?.id) return;
     
-    // Store per-user to prevent mix-ups
     const key = `unera_my_total_plays_${Number(currentUser.id)}`;
     localStorage.setItem(key, String(myTotalPlays));
     
-    // Also keep legacy key for compatibility
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
 
-  /** ---------- ✅ ADDED: Helper to resolve track owner ---------- */
   const resolveTrackOwner = useCallback((track: any): User | null => {
     if (!track) return null;
 
-    // try common fields
     const ownerId =
       safeNumber(track.user_id ?? track.owner_user_id ?? track.artist_user_id ?? track.creator_id ?? 0, 0);
 
@@ -1553,7 +1465,6 @@ export default function App() {
       if (found) return found;
     }
 
-    // fallback: if track has embedded owner fields
     if (track?.owner && (track.owner.id || track.owner.user_id)) {
       return normalizeUser(track.owner);
     }
@@ -1561,13 +1472,11 @@ export default function App() {
     return null;
   }, [users]);
 
-  /** ---------- ✅ FIXED: Fetch user total plays with proper caching ---------- */
   const fetchMyTotalPlays = useCallback(async (userId: number) => {
     if (!userId) return myTotalPlays;
 
     const cacheKey = `unera_my_total_plays_${userId}`;
 
-    // ✅ Read cached value (per-user)
     const cached = (() => {
       try {
         const v = Number(localStorage.getItem(cacheKey) || localStorage.getItem('unera_my_total_plays') || 0);
@@ -1579,7 +1488,6 @@ export default function App() {
 
     setPlaysLoading(true);
     try {
-      // ✅ OPTION A (preferred): one endpoint that returns total plays for the user
       const totalRes = await apiFetch(`/api/user-plays/total?userId=${userId}`);
       const total = safeNumber(totalRes?.total, NaN);
 
@@ -1592,7 +1500,6 @@ export default function App() {
       throw new Error('Invalid total from API');
     } catch {
       try {
-        // ✅ OPTION B fallback: sum two endpoints
         const [s, p] = await Promise.all([
           apiFetch(`/api/song-plays/total?userId=${userId}`).catch(() => ({ total: NaN })),
           apiFetch(`/api/podcast-episode-plays/total?userId=${userId}`).catch(() => ({ total: NaN })),
@@ -1608,36 +1515,32 @@ export default function App() {
           return total;
         }
 
-        // ✅ If both invalid -> keep cached value (don't wipe to 0!)
         setMyTotalPlays(cached);
         return cached;
       } catch {
-        // ✅ Keep cached value on complete failure
         setMyTotalPlays(cached);
         return cached;
       }
     } finally {
       setPlaysLoading(false);
     }
-  }, [myTotalPlays, apiFetch]);
+  }, [myTotalPlays]);
 
-  /** ---------- ✅ UPDATED: Fetch UNERA Music songs with BOTH raw and fetchable URLs ---------- */
   const fetchSongs = useCallback(async () => {
     try {
       const data = await apiFetch('/api/songs');
       const list = Array.isArray(data) ? data : (data?.songs ?? data?.data ?? []);
       
-      // ✅ CRITICAL: Normalize songs with BOTH raw and fetchable audio URLs
       const normalized = list
         .map((song) => {
           const s = normalizeSong(song);
-          const raw = ensureAbsoluteUrl(s.audio_url);          // raw absolute URL for D1 storage
-          const fetchable = toFetchableAudioUrl(raw);          // fetchable/proxy for trimming
+          const raw = ensureAbsoluteUrl(s.audio_url);
+          const fetchable = toFetchableAudioUrl(raw);
 
           return {
             ...s,
-            audio_url: raw,                // ✅ keep raw for saving to backend
-            audio_fetch_url: fetchable,    // ✅ use this for trimming/playback
+            audio_url: raw,
+            audio_fetch_url: fetchable,
           } as any;
         })
         .filter((x: any) => x.audio_url);
@@ -1645,33 +1548,26 @@ export default function App() {
       setSongs(normalized);
     } catch (e) {
       console.error('Failed to fetch songs:', e);
-      // ✅ FIXED: Don't clear existing songs on transient error
-      // setSongs([]);
     }
   }, []);
 
-  /** ✅ ✅ UPDATED: Fetch Stories with CACHE + MERGE updates (no blink) ---------- */
   const fetchStories = useCallback(async () => {
     if (storiesInFlightRef.current) return;
     storiesInFlightRef.current = true;
     
     try {
-      // ✅ STEP 1: Show cached stories instantly (no loader)
       const cached = readStoriesCache();
       if (cached?.stories?.length) {
         const cachedList = cached.stories;
         setStories(prev => (prev.length ? prev : cachedList.map(s => normalizeStory(s))));
       }
 
-      // ✅ STEP 2: Fetch fresh data in background
       const viewerId = currentUser?.id || 0;
       const data = await apiFetch(`/api/stories?viewerId=${viewerId}`);
       const storiesList = safeArray(data?.stories ?? data);
       
-      // ✅ STEP 3: Update cache with fresh data
       writeStoriesCache(storiesList);
       
-      // snapshot users once
       const prevUsers = usersRef.current;
 
       const map = new Map<number, User>();
@@ -1690,7 +1586,6 @@ export default function App() {
         return st;
       });
 
-      // ✅ STEP 4: Merge instead of replace (prevents blinking)
       setStories(prev => {
         const map = new Map<number, Story>();
         safeArray(prev).forEach(st => map.set(Number(st.id), st));
@@ -1700,8 +1595,8 @@ export default function App() {
           if (!old) return ns;
 
           return {
-            ...old,          // keep UI state
-            ...ns,           // refresh backend fields
+            ...old,
+            ...ns,
             liked_by_me: ns.liked_by_me ?? old.liked_by_me,
             my_reaction: ns.my_reaction ?? old.my_reaction,
             views_count: ns.views_count ?? old.views_count,
@@ -1714,15 +1609,12 @@ export default function App() {
       
     } catch (error) {
       console.error('Failed to fetch stories:', error);
-      // ✅ FIXED: Don't clear stories on transient error
     } finally {
       storiesInFlightRef.current = false;
     }
   }, [currentUser]);
 
-  /** ✅ ✅ UPDATED: Story viewers fetch with CACHE ---------- */
   const fetchStoryViewers = useCallback(async (storyId: number) => {
-    // ✅ Check cache first
     const cached = readViewersCache(storyId);
     if (cached) return cached;
 
@@ -1730,14 +1622,12 @@ export default function App() {
       const data = await apiFetch(`/api/stories/${storyId}/viewers?limit=200`)
       const viewers = safeArray(data?.viewers ?? data);
       
-      // ✅ CRITICAL FIX: Wrap user fields into user object that Story.tsx expects
       const formattedViewers = viewers.map((v: any) => ({
         id: v.id,
         story_id: v.story_id,
         user_id: v.user_id,
         viewed_at: v.viewed_at,
         reaction: v.reaction ?? null,
-        // ✅ WRAP user fields into user object (Story.tsx expects v.user?.name)
         user: normalizeUser({
           id: v.user_id,
           username: v.username,
@@ -1748,7 +1638,6 @@ export default function App() {
         }),
       }));
 
-      // ✅ Cache the result
       writeViewersCache(storyId, formattedViewers);
       return formattedViewers;
     } catch (error) {
@@ -1757,7 +1646,6 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ ADDED: Fetch story analytics ---------- */
   const fetchStoryAnalytics = useCallback(async (storyId: number) => {
     try {
       const data = await apiFetch(`/api/stories/${storyId}/analytics`);
@@ -1782,12 +1670,10 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ ✅ UPDATED: View story callback with LOCAL updates (no refetch) ---------- */
   const viewStory = useCallback(async (storyId: number) => {
     if (!requireAuth('Viewing stories')) return;
     if (!currentUser) return;
 
-    // ✅ OPTIMISTIC: Update views_count locally immediately (no blink)
     setStories(prev =>
       prev.map(story => {
         if (Number(story.id) !== Number(storyId)) return story;
@@ -1800,13 +1686,11 @@ export default function App() {
     );
 
     try {
-      // Record view in background
       const res = await apiFetch(`/api/stories/${storyId}/view`, {
         method: 'POST',
         body: JSON.stringify({ user_id: currentUser.id }),
       });
 
-      // ✅ SYNC: Update with exact count from backend
       if (res?.views_count !== undefined) {
         setStories(prev =>
           prev.map(story => {
@@ -1821,27 +1705,21 @@ export default function App() {
       }
     } catch (error) {
       console.error('Failed to record story view:', error);
-      // Keep optimistic update even if API fails
     }
   }, [currentUser, requireAuth]);
 
-  /** ✅ UPDATED: Open story viewer function ---------- */
   const openStoryViewer = useCallback((story: Story) => {
     const id = Number(story?.id);
     if (!id) return;
 
-    // Open viewer
     setActiveStoryId(id);
 
-    // Record view with local update
     if (currentUser) {
       viewStory(id);
     }
 
-    // Mark seen immediately
     markStorySeen(id);
 
-    // Preload current + next for instant swipe
     preloadStoryMedia(story);
     const next = (() => {
       const idx = orderedStories.findIndex(x => Number(x.id) === id);
@@ -1850,12 +1728,10 @@ export default function App() {
     if (next) preloadStoryMedia(next);
   }, [currentUser, viewStory, markStorySeen, preloadStoryMedia, orderedStories]);
 
-  /** ✅ ✅ UPDATED: Handle story like function with LOCAL updates ---------- */
   const likeStory = useCallback(async (storyId: number) => {
     if (!requireAuth('Liking stories')) return;
     if (!currentUser) return;
 
-    // ✅ OPTIMISTIC: Update locally first
     setStories(prev =>
       prev.map(story => {
         if (Number(story.id) !== Number(storyId)) return story;
@@ -1874,7 +1750,6 @@ export default function App() {
     );
 
     try {
-      // ✅ ✅ FIX: Use /react endpoint with 'like' reaction
       const response = await apiFetch(`/api/stories/${storyId}/react`, {
         method: 'POST',
         body: JSON.stringify({ 
@@ -1886,7 +1761,6 @@ export default function App() {
       if (response?.story) {
         const updatedStory = normalizeStory(response.story, currentUser);
         
-        // Update with backend response
         setStories(prev =>
           prev.map(story => {
             if (Number(story.id) !== Number(storyId)) return story;
@@ -1906,12 +1780,10 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ✅ ✅ UPDATED: Story reaction handler with LOCAL updates ---------- */
   const reactToStory = useCallback(async (storyId: number, reaction: string) => {
     if (!requireAuth('Reacting to stories')) return;
     if (!currentUser) return;
 
-    // ✅ OPTIMISTIC: Update locally first
     setStories(prev =>
       prev.map(story => {
         if (Number(story.id) !== Number(storyId)) return story;
@@ -1931,7 +1803,6 @@ export default function App() {
     );
 
     try {
-      // ✅ ✅ FIX: Use /react endpoint instead of /like
       const response = await apiFetch(`/api/stories/${storyId}/react`, {
         method: 'POST',
         body: JSON.stringify({ 
@@ -1940,7 +1811,6 @@ export default function App() {
         }),
       });
 
-      // ✅ ✅ FIX: Update story with backend response
       if (response?.story) {
         const updatedStory = normalizeStory(response.story, currentUser);
         
@@ -1964,7 +1834,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ✅ ADDED: Handle story reply function ---------- */
   const replyToStory = useCallback(async (storyId: number, text: string) => {
     if (!requireAuth('Replying to stories')) return;
     if (!currentUser) return;
@@ -1978,7 +1847,6 @@ export default function App() {
         }),
       });
 
-      // Show success toast
       const toast = document.createElement('div');
       toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
       toast.innerText = 'Reply sent!';
@@ -1991,7 +1859,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ ADDED: Create Story Function ---------- */
   const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
     if (!requireAuth('Creating stories')) return;
     if (!currentUser) return;
@@ -2000,13 +1867,11 @@ export default function App() {
       let mediaUrl = storyData.media_url;
       let musicUrl = storyData.music_url;
 
-      // Upload media file if provided
       if (storyData.media_file) {
         const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
         mediaUrl = uploadResult.url;
       }
 
-      // Upload audio file if provided
       if (storyData.audio_file) {
         const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'story-audio');
         musicUrl = uploadResult.url;
@@ -2031,13 +1896,10 @@ export default function App() {
       const newStory = normalizeStory(data?.story ?? data, currentUser);
       newStory.user = currentUser;
 
-      // Add to stories list
       setStories(prev => [newStory, ...prev]);
 
-      // Update cache
       writeStoriesCache([newStory, ...stories]);
 
-      // Show success
       setLoginError('Story created successfully!');
       
     } catch (error: any) {
@@ -2046,21 +1908,17 @@ export default function App() {
     }
   }, [currentUser, requireAuth, stories]);
 
-  // ✅ FIXED: Call fetchMyTotalPlays only after auth is hydrated
   useEffect(() => {
-    if (!authHydrated) return; // ✅ Wait until session restore is finished
+    if (!authHydrated) return;
 
     if (currentUser?.id) {
       fetchMyTotalPlays(Number(currentUser.id)).catch(() => {});
     } else {
-      // Only set to 0 after we're sure there's no user
       setMyTotalPlays(0);
     }
   }, [authHydrated, currentUser?.id, fetchMyTotalPlays]);
 
-  /** ---------- ✅ CORE PLAYER ACTIONS ---------- */
   const onPlayTrack = useCallback((track: AudioTrack) => {
-    // ✅ Ensure track has a valid cover, use default if not
     const trackWithCover = {
       ...track,
       cover: track.cover && 
@@ -2073,7 +1931,6 @@ export default function App() {
     setCurrentAudioTrack(trackWithCover);
     setIsAudioPlaying(true);
 
-    // store history (no duplicates back-to-back)
     setPlayHistory(prev => {
       const last = prev[0];
       if (last && last.type === track.type && String(last.id) === String(track.id)) return prev;
@@ -2091,7 +1948,6 @@ export default function App() {
   }, []);
 
   const onNext = useCallback(() => {
-    // playHistory[0] is current-ish; next is index 1 (simple behavior)
     setPlayHistory(prev => {
       if (prev.length < 2) return prev;
       const next = prev[1];
@@ -2110,7 +1966,6 @@ export default function App() {
   }, []);
 
   const onPrevious = useCallback(() => {
-    // "Previous" = go back to second item if exists (simple behavior)
     setPlayHistory(prev => {
       if (prev.length < 2) return prev;
       const prevTrack = prev[1];
@@ -2128,18 +1983,15 @@ export default function App() {
     });
   }, []);
 
-  /** ---------- ✅ IMPLEMENT onStarted (the MOST IMPORTANT part) ---------- */
   const onStarted = useCallback(async (track: AudioTrack) => {
     try {
       setPlaysLoading(true);
 
       const userId = (currentUser as any)?.id ?? null;
 
-      // ✅ Optimistic "my plays" - only if user is logged in
       if (userId) {
         setMyTotalPlays(p => p + 1);
         
-        // ✅ Also update localStorage immediately for persistence
         const key = `unera_my_total_plays_${Number(userId)}`;
         const current = Number(localStorage.getItem(key) || '0');
         localStorage.setItem(key, String(current + 1));
@@ -2147,18 +1999,15 @@ export default function App() {
 
       const res = await recordPlay(track, userId);
 
-      // backend might return plays_count / plays / etc
       const newPlays = Number(res?.plays_count ?? res?.plays ?? res?.count ?? 0);
 
       const key = `${track.type}:${String(track.id)}`;
       if (Number.isFinite(newPlays) && newPlays > 0) {
         setTrackPlays(prev => ({ ...prev, [key]: newPlays }));
       } else {
-        // fallback: increment local track plays
         setTrackPlays(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
       }
     } catch (e) {
-      // don't crash UI if play endpoint fails
       const key = `${track.type}:${String(track.id)}`;
       setTrackPlays(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
     } finally {
@@ -2166,7 +2015,6 @@ export default function App() {
     }
   }, [currentUser]);
 
-  /** ---------- ✅ LIKES SYNC HANDLER (used by MusicSystem) ---------- */
   const handleMusicSystemLikeSync = useCallback((key: string, liked: boolean) => {
     setLikedTracks(prev => {
       const has = prev.includes(key);
@@ -2176,20 +2024,65 @@ export default function App() {
     });
   }, []);
 
-  /** ---------- ✅ COMPUTE IS LIKED FOR GLOBAL AUDIO PLAYER ---------- */
   const isPlayerLiked = useMemo(() => {
     if (!currentAudioTrack) return false;
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
-  /** ---------- ✅ ADDED: CREATE PRODUCT FUNCTION ---------- */
+  const createMarketplacePost = useCallback(
+    async (product: any) => {
+      if (!currentUser) return;
+
+      const images: string[] = safeImages(product.images);
+      
+      const media_url = images[0] || '';
+      const media_type = media_url ? 'image' : null;
+
+      const payload = {
+        user_id: currentUser.id,
+        content: product.title || '',
+        visibility: 'public',
+        type: 'marketplace',
+        media_url,
+        media_type,
+        media_urls: images,
+        media_types: images.map(() => 'image'),
+        meta: JSON.stringify({
+          marketplace: {
+            product_id: product.id,
+            location: product.address || '',
+            price: product.discount_price ?? product.main_price ?? null,
+            currency: product.currency_symbol || 'TZS',
+          },
+        }),
+      };
+
+      const created = await apiFetch('/api/posts', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const newPost = normalizePost(created?.post ?? created);
+      
+      setPosts(prev => [newPost, ...safeArray(prev)]);
+      
+      if (Number(currentUser.id) === Number(selectedUserId)) {
+        setProfilePosts(prev => [newPost, ...safeArray(prev)]);
+      }
+
+      scheduleSilentRefresh();
+      
+      return newPost;
+    },
+    [currentUser, selectedUserId]
+  );
+
   const createProduct = useCallback(async (productData: any) => {
     if (!requireAuth("Creating products")) return;
     if (!currentUser) return;
 
     const payload = { ...productData, seller_id: currentUser.id };
 
-    // ✅ optimistic insert (optional)
     const tempId = Date.now();
     const optimistic = normalizeProduct({
       ...payload,
@@ -2207,19 +2100,23 @@ export default function App() {
         body: JSON.stringify(payload),
       });
 
-      const created = normalizeProduct(res?.product ?? res);
+      const createdProduct = normalizeProduct(res?.product ?? res);
+      
       setProducts(prev => {
         const filtered = safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId));
-        return [created, ...filtered];
+        return [createdProduct, ...filtered];
       });
+
+      await createMarketplacePost(createdProduct);
+      
+      return createdProduct;
     } catch (e: any) {
-      // rollback optimistic on failure
       setProducts(prev => safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId)));
       setLoginError(e?.message || "Failed to create product");
+      throw e;
     }
-  }, [currentUser, requireAuth]);
+  }, [currentUser, requireAuth, createMarketplacePost]);
 
-  /** ---------- ADMIN ROLE GUARDS (PROFESSIONALLY FIXED) ---------- */
   const roleOf = (u: any) => String(u?.role || '').trim().toLowerCase();
   const isAdmin = (u: any) => roleOf(u) === 'admin';
   const isModerator = (u: any) => roleOf(u) === 'moderator';
@@ -2248,7 +2145,6 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
-  /** ---------- ✅ FIXED: Fetch users list with deduplication ---------- */
   const fetchUsersList = useCallback(async () => {
     if (usersInFlightRef.current) return;
     usersInFlightRef.current = true;
@@ -2257,7 +2153,6 @@ export default function App() {
       const u = await apiFetch('/api/users').catch(() => []);
       const newUsers = safeArray(u).map(normalizeUser);
       
-      // ✅ FIXED: Merge with existing users to prevent blinking
       setUsers(prev => {
         const map = new Map<number, User>();
         safeArray(prev).forEach(user => map.set(Number(user.id), user));
@@ -2268,7 +2163,6 @@ export default function App() {
           
           const existing = map.get(id);
           if (existing) {
-            // Merge safely without overwriting good data
             map.set(id, normalizeUser(mergeUserSafe(existing, newUser)));
           } else {
             map.set(id, normalizeUser(newUser));
@@ -2278,14 +2172,11 @@ export default function App() {
         return Array.from(map.values());
       });
     } catch {
-      // ✅ FIXED: Don't clear users on transient error
-      // setUsers([]);
     } finally {
       usersInFlightRef.current = false;
     }
   }, []);
 
-  /** ---------- ✅ FIXED: Fetch reels with deduplication ---------- */
   const fetchReels = useCallback(async () => {
     if (reelsInFlightRef.current) return;
     reelsInFlightRef.current = true;
@@ -2294,10 +2185,8 @@ export default function App() {
       const data = await apiFetch('/api/reels');
       const reelsList = safeArray(data?.reels ?? data);
       
-      // ✅ CRITICAL: Normalize reels with fetchable audio URLs
       const normalizedReels = reelsList.map(reel => {
         const normalized = normalizeReel(reel);
-        // Ensure audio URL is fetchable for trimming
         return {
           ...normalized,
           audioUrl: toFetchableAudioUrl(normalized.audioUrl),
@@ -2307,38 +2196,29 @@ export default function App() {
       setReels(normalizedReels);
     } catch (error) {
       console.error('Failed to fetch reels:', error);
-      // ✅ FIXED: Don't clear reels on transient error
-      // setReels([]);
     } finally {
       reelsInFlightRef.current = false;
     }
   }, []);
 
-  /** ✅ UPDATED: Generate sound key based on sound type ---------- */
   const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
-    // Use soundKey from reelData if provided
     if (reelData.soundKey) return reelData.soundKey;
     
-    // Generate based on songId if available
     if (selectedReelSound?.songId) {
       return `song:${selectedReelSound.songId}`;
     }
     
-    // ✅ For trimmed audio, generate unique key
     if (reelData.audioFile) {
       return `trimmed:${currentUser?.id || 'unknown'}:${Date.now()}`;
     }
     
-    // Generate based on audioUrl if available
     if (selectedReelSound?.audioUrl) {
       return `original:${currentUser?.id || 'unknown'}:${Date.now()}`;
     }
     
-    // Default fallback
     return 'original:none';
   }, [currentUser]);
 
-  /** ✅ UPDATED: Create reel with physical audio trimming support ---------- */
   const createReel = useCallback(async (reelData: Partial<Reel> & { 
     videoFile?: File | Blob; 
     audioFile?: File | Blob;
@@ -2359,42 +2239,33 @@ export default function App() {
         throw new Error('Video was not uploaded. Please select a video [video file missing]');
       }
 
-      // ✅ Upload video to R2
       const videoUrl = await ensureR2Url(
         videoFile,
         'reels',
         `reel-${Date.now()}.mp4`
       );
 
-      // ✅ Handle audio file (could be trimmed or original)
       let audioUrl = null;
       if (audioFile) {
-        // If audioFile exists, it's a trimmed or custom audio file
         audioUrl = await ensureR2Url(
           audioFile,
           'reel-audio',
-          `audio-${Date.now()}.wav` // ✅ Changed to .wav for trimmed audio
+          `audio-${Date.now()}.wav`
         );
       } else if (reelData.audioUrl) {
-        // ✅ Use the raw audio URL passed from CreateReelModal (which should be originalUrl)
         audioUrl = reelData.audioUrl;
       }
 
-      // ✅ IMPORTANT: never post to backend without a real URL
       if (!videoUrl || !videoUrl.startsWith('http')) {
         throw new Error('Reel video upload failed (no valid R2 URL).');
       }
 
-      // ✅ Determine if this is trimmed audio using soundKey (not start=0,end=0)
       const soundKey = generateSoundKey(reelData, selectedReelSound);
       const isTrimmedAudio = soundKey.startsWith('trimmed:');
       
-      // ✅ For trimmed audio: audio_start=0, audio_end=0
-      // ✅ For original sound: use provided start/end times
       const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
       const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
       
-      // ✅ Use selectedReelSound if available, otherwise use reelData
       const soundPayload = selectedReelSound || {
         songName: reelData.songName || 'Original Sound',
         audioUrl: audioUrl || '',
@@ -2403,15 +2274,14 @@ export default function App() {
         songId: reelData.originalSoundId,
       };
 
-      // ✅ UPDATED: Payload matches D1 table columns with trimmed audio support
       const payload = {
         user_id: currentUser.id,
         caption: reelData.caption || '',
         video_url: videoUrl,
         song_name: soundPayload.songName,
-        audio_url: audioUrl, // ✅ This will be the trimmed audio URL or original URL
-        audio_start: audioStart, // ✅ 0 for trimmed audio, original start time otherwise
-        audio_end: audioEnd, // ✅ 0 for trimmed audio, original end time otherwise
+        audio_url: audioUrl,
+        audio_start: audioStart,
+        audio_end: audioEnd,
         song_id: soundPayload.songId || null,
         sound_key: soundKey,
         visibility: reelData.visibility || 'public',
@@ -2429,16 +2299,12 @@ export default function App() {
       
       const newReel = normalizeReel(data.reel || data);
       
-      // Optimistically add to reels list
       setReels(prev => [newReel, ...safeArray(prev)]);
       
-      // Refresh reels list
       fetchReels().catch(() => {});
       
-      // Show success
       setLoginError('Reel posted successfully!');
       
-      // Clear selected sound after successful creation
       setSelectedReelSound(null);
       
     } catch (error: any) {
@@ -2450,14 +2316,12 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchReels, selectedReelSound, generateSoundKey]);
 
-  /** ---------- ✅ ADDED: React to reel ---------- */
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
     if (!currentUser) return;
 
     const reactionType = type || 'love';
     
-    // Optimistic update
     setReels(prev => 
       safeArray(prev).map(reel => 
         reel.id === reelId 
@@ -2472,17 +2336,14 @@ export default function App() {
         body: JSON.stringify({ type: reactionType, user_id: currentUser.id }),
       });
       
-      // Refresh reels to get accurate data
       fetchReels().catch(() => {});
       
     } catch (error) {
       console.error('Failed to react to reel:', error);
-      // Refresh reels to revert optimistic update
       fetchReels().catch(() => {});
     }
   }, [currentUser, requireAuth, fetchReels]);
 
-  /** ---------- ✅ ADDED: Comment on reel ---------- */
   const commentOnReel = useCallback(async (reelId: number, text: string) => {
     if (!requireAuth('Commenting on reels')) return;
     if (!currentUser) return;
@@ -2493,7 +2354,6 @@ export default function App() {
         body: JSON.stringify({ text, user_id: currentUser.id }),
       });
       
-      // Refresh reels to get updated comments
       fetchReels().catch(() => {});
       
     } catch (error) {
@@ -2502,7 +2362,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchReels]);
 
-  /** ---------- ✅ ADDED: Share reel ---------- */
   const shareReel = useCallback(async (reelId: number, type: 'feed' | 'copy') => {
     if (!requireAuth('Sharing reels')) return;
     if (!currentUser) return;
@@ -2513,7 +2372,6 @@ export default function App() {
         body: JSON.stringify({ user_id: currentUser.id, destination: type }),
       });
       
-      // Optimistic update - increment share count
       setReels(prev => 
         safeArray(prev).map(reel => 
           reel.id === reelId 
@@ -2523,7 +2381,6 @@ export default function App() {
       );
       
       if (type === 'copy') {
-        // Copy link to clipboard
         const reelLink = `${window.location.origin}/reels/${reelId}`;
         navigator.clipboard.writeText(reelLink).then(() => {
           setLoginError('Link copied to clipboard!');
@@ -2536,9 +2393,7 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ✅ UPDATED: Use sound from reel with fetchable audio URLs and original URL storage ---------- */
   const useSoundFromReel = useCallback((soundFromReel: any) => {
-    // ✅ Get the raw D1 audio_url (this is what's stored in database)
     const audioUrlRaw = soundFromReel?.audio_url ?? soundFromReel?.audioUrl ?? '';
     
     if (!audioUrlRaw) return;
@@ -2549,14 +2404,11 @@ export default function App() {
     const songId = soundFromReel?.song_id ?? soundFromReel?.songId ?? null;
     const soundKey = String(soundFromReel?.sound_key ?? soundFromReel?.soundKey ?? '');
 
-    // Check if this is trimmed audio using soundKey
     const isTrimmedAudio = soundKey.startsWith('trimmed:');
 
     setSelectedReelSound({
       songName,
-      // ✅ for trimming/fetching (use audio_fetch_url if available, otherwise generate fetchable URL)
       audioUrl: soundFromReel?.audio_fetch_url || toFetchableAudioUrl(audioUrlRaw),
-      // ✅ Store the raw URL (originalUrl) for re-trimming
       originalUrl: audioUrlRaw,
       audioStart,
       audioEnd,
@@ -2568,7 +2420,6 @@ export default function App() {
     setShowCreateReelModal(true);
   }, []);
 
-  /** ---------- ✅ FIXED: Fetch posts with deduplication ---------- */
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
       if (postsInFlightRef.current) return;
@@ -2590,7 +2441,6 @@ export default function App() {
             return;
           }
 
-          // ✅ FIXED: Merge authors into users list SAFELY
           setUsers((prev) => {
             const map = new Map<number, User>();
             safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
@@ -2601,7 +2451,6 @@ export default function App() {
               
               const existing = map.get(author.id);
               if (existing) {
-                // ✅ CRITICAL: Merge safely without overwriting good data
                 map.set(author.id, normalizeUser(mergeUserSafe(existing, author)));
               } else {
                 map.set(author.id, author);
@@ -2613,7 +2462,6 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
 
-          // unseen first + session shuffle + diversify
           const unseen = normalized.filter((p: any) => !seen.has(Number(p.id)));
           const seenOnes = normalized.filter((p: any) => seen.has(Number(p.id)));
 
@@ -2622,7 +2470,6 @@ export default function App() {
             seed
           );
 
-          // remember "first screen"
           pushSeenIds(ordered.slice(0, 40).map((p: any) => Number(p.id)));
 
           setPosts((prev) => {
@@ -2634,7 +2481,6 @@ export default function App() {
 
           if (!feedHydrated) setFeedHydrated(true);
 
-          // keep comments stable
           if (activeCommentsPostId != null) {
             const found = ordered.find((p: any) => Number(p.id) === Number(activeCommentsPostId));
             if (found) setCommentPostSnapshot(found);
@@ -2643,7 +2489,6 @@ export default function App() {
           return;
         }
 
-        // Guest feed fallback
         const p = await apiFetch('/api/posts');
         const normalized = safeArray(p).map(normalizePost);
 
@@ -2685,22 +2530,17 @@ export default function App() {
     [activeCommentsPostId, feedHydrated]
   );
 
-  /** ✅ Fetch profile posts with viewerId (latest only) ---------- */
   const fetchProfilePosts = useCallback(async (profileUserId: number) => {
     try {
-      // ✅ ADDED: Always send viewerId when fetching profile posts
       const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
       const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`);
       
       const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
       const normalized = list.map(normalizePost);
 
-      // Always latest-first (already ordered by API, but keep safe)
       normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
 
-      // ✅ UPDATED: Don't let a profile refetch overwrite local reaction truth
       setProfilePosts(prev => {
-        // Merge with any local truth we already have
         const localTruth = [...safeArray(posts), ...safeArray(prev)];
         const map = new Map<number, any>();
         localTruth.forEach((p: any) => map.set(Number(p.id), p));
@@ -2721,17 +2561,13 @@ export default function App() {
         });
       });
     } catch {
-      // ✅ FIXED: Don't clear profile posts on transient error
-      // setProfilePosts([]);
     }
   }, [currentUser, posts]);
 
-  /** ---------- Fetch follow data for a user ---------- */
   const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
     try {
       const followData = await fetchUserFollowData(userId);
       
-      // Update the specific user in the users list
       setUsers(prev => {
         return prev.map(user => {
           if (Number(user.id) === Number(userId)) {
@@ -2745,7 +2581,6 @@ export default function App() {
         });
       });
 
-      // Also update currentUser if it's the logged in user
       if (currentUser && Number(currentUser.id) === Number(userId)) {
         const updatedCurrentUser = normalizeUser({
           ...currentUser,
@@ -2763,21 +2598,18 @@ export default function App() {
     }
   }, [currentUser]);
 
-  /** ---------- Load follow data when viewing a profile ---------- */
   useEffect(() => {
     if (view !== 'profile' || !selectedUserId) return;
     
     fetchUserFollowDataForUI(Number(selectedUserId)).catch(() => {});
   }, [view, selectedUserId, fetchUserFollowDataForUI]);
 
-  /** ---------- Load follow data for current user on login ---------- */
   useEffect(() => {
     if (!currentUser?.id) return;
     
     fetchUserFollowDataForUI(Number(currentUser.id)).catch(() => {});
   }, [currentUser?.id, fetchUserFollowDataForUI]);
 
-  /** ---------- Silent refresh helper ---------- */
   const scheduleSilentRefresh = useCallback(() => {
     if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
     scheduleSilentRefreshRef.current = setTimeout(() => {
@@ -2786,9 +2618,6 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-  /** ==================== ✅ CONSOLIDATED EVENTS API ==================== */
-  
-  /** ✅ ADDED: Fetch events helper ---------- */
   const fetchEvents = useCallback(async (): Promise<Event[]> => {
     try {
       const data = await apiFetch('/api/events');
@@ -2800,7 +2629,6 @@ export default function App() {
     }
   }, []);
 
-  /** ✅ ADDED: Optimistic state updater ---------- */
   const updateEventState = useCallback((
     eventId: number,
     action: 'join' | 'leave' | 'interested' | 'uninterested',
@@ -2828,7 +2656,6 @@ export default function App() {
     );
   }, []);
 
-  /** ✅ ADDED: Join Event (optimistic + rollback) ---------- */
   const joinEvent = useCallback(async (eventId: number) => {
     if (!requireAuth('Joining events')) return;
     if (!currentUser) return;
@@ -2841,7 +2668,6 @@ export default function App() {
         body: JSON.stringify({ user_id: currentUser.id }),
       });
 
-      // If API returns updated event, merge it
       const returned = res?.event ?? res?.data?.event ?? null;
       if (returned) {
         const normalized = normalizeEvent(returned);
@@ -2856,7 +2682,6 @@ export default function App() {
           return [normalized, ...arr];
         });
       } else {
-        // otherwise, refresh quietly
         fetchEvents().then(setEvents).catch(() => {});
       }
 
@@ -2870,7 +2695,6 @@ export default function App() {
     }
   }, [apiFetch, currentUser, requireAuth, updateEventState, fetchEvents]);
 
-  /** ✅ ADDED: Mark Interested (optimistic + rollback) ---------- */
   const markEventInterested = useCallback(async (eventId: number) => {
     if (!requireAuth('Marking event as interested')) return;
     if (!currentUser) return;
@@ -2910,25 +2734,19 @@ export default function App() {
     }
   }, [apiFetch, currentUser, requireAuth, updateEventState, fetchEvents]);
 
-  /** ✅ UPDATED: Create Event (accepts BOTH UI formats) with FIXED cover handling ---------- */
   const createEvent = useCallback(async (eventData: any) => {
     if (!requireAuth('Creating events')) return;
     if (!currentUser) return;
 
-    // Accept both:
-    // A) { date:'YYYY-MM-DD', time:'HH:MM' }
-    // B) { event_date: ISO, event_time:'HH:MM' }
     const uiDate = safeString(eventData?.date ?? '', '');
     const uiTime = safeString(eventData?.time ?? '', '');
     const apiISO = safeString(eventData?.event_date ?? '', '');
     const apiTime = safeString(eventData?.event_time ?? '', '');
 
-    // Build a stable ISO-like string (local) then convert to ISO
     const d = uiDate || toDateOnly(apiISO) || new Date().toISOString().slice(0, 10);
     const t = apiTime || uiTime || '12:00';
     const eventDateISO = new Date(`${d}T${t}:00`).toISOString();
 
-    // ✅ FIXED: Proper cover handling with fallback
     const cover =
       safeString(eventData?.cover_url ?? eventData?.image ?? eventData?.cover ?? eventData?.cover_image, '') || DEFAULT_EVENT_COVER;
 
@@ -2940,7 +2758,7 @@ export default function App() {
       location: safeString(eventData?.location).trim(),
       visibility: safeString(eventData?.visibility, 'worldwide'),
       cover_url: cover,
-      image: cover, // ✅ ADDED: Also include image field for compatibility
+      image: cover,
       creator_id: Number(currentUser.id),
       creator_name: safeString(currentUser.name),
       creator_avatar: safeString(currentUser.profile_image_url),
@@ -2953,15 +2771,11 @@ export default function App() {
     return newEvent;
   }, [apiFetch, currentUser, requireAuth]);
 
-  // ==================== GROUPS BACKEND INTEGRATIONS ====================
-
-  /** ---------- ✅ FIXED: Fetch other data WITHOUT stories (stable dependency) ---------- */
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
     otherDataInFlightRef.current = true;
     
     try {
-      // ✅ FIXED: REMOVED stories from Promise.all - stories are fetched separately
       const [pr, g, b, c] = await Promise.all([
         apiFetch('/api/products').catch(() => []),
         apiFetch('/api/groups').catch(() => []),
@@ -2969,7 +2783,6 @@ export default function App() {
         apiFetch('/api/chats').catch(() => []),
       ]);
 
-      // ✅ FIXED: Handle different API response formats for products
       const prRaw = pr;
       const prList =
         Array.isArray(prRaw) ? prRaw :
@@ -2981,7 +2794,6 @@ export default function App() {
 
       setProducts(prList.map(normalizeProduct));
       
-      // ✅ FIXED: Handle new groups API response shape WITH NORMALIZATION
       const gRaw = g;
       const gList = Array.isArray(gRaw)
         ? gRaw
@@ -2989,25 +2801,21 @@ export default function App() {
         : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
         : [];
       
-      // ✅ CRITICAL: Normalize groups to prevent crashes
       setGroups(gList.map(normalizeGroup));
       
       setBrands(safeArray(b));
       
-      // ✅ FIXED: Fetch events separately using the new fetchEvents helper
       const eventsData = await fetchEvents().catch(() => []);
       setEvents(eventsData);
       
       setChats(safeArray(c));
     } catch (error) {
       console.error('Failed to fetch other data:', error);
-      // ✅ FIXED: Don't clear all data on transient error
     } finally {
       otherDataInFlightRef.current = false;
     }
-  }, [fetchEvents]); // ✅ FIXED: Add fetchEvents dependency
+  }, [fetchEvents]);
 
-  /** ---------- ✅ 2) Fetch group posts with viewerId ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
     try {
       const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
@@ -3019,7 +2827,6 @@ export default function App() {
     }
   }, [currentUser]);
 
-  /** ---------- ✅ 3) Implement real Group Like toggle ---------- */
   const toggleGroupPostLike = useCallback(async (postId: number) => {
     if (!requireAuth("Liking")) return;
     const meId = Number(currentUser!.id);
@@ -3030,7 +2837,6 @@ export default function App() {
         body: JSON.stringify({ user_id: meId, post_id: Number(postId) })
       });
 
-      // backend returns { success, liked, likes_count }
       return {
         liked: !!(res as any)?.liked,
         likes_count: Number((res as any)?.likes_count || 0),
@@ -3041,7 +2847,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ 4) Implement Group Comments fetch + create ---------- */
   const fetchGroupPostComments = useCallback(async (postId: number) => {
     try {
       const res = await apiFetch(`/api/group-post-comments?post_id=${Number(postId)}`);
@@ -3074,7 +2879,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ 5) Join/Leave group using new endpoints ---------- */
   const joinGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Joining groups")) return;
     const meId = Number(currentUser!.id);
@@ -3104,7 +2908,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ 6) Create Group Post with media upload ---------- */
   const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
     if (!requireAuth("Posting")) return;
     const meId = Number(currentUser!.id);
@@ -3131,7 +2934,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ 7) Create Group ---------- */
   const createGroup = useCallback(async (groupData: Partial<Group>) => {
     if (!requireAuth("Creating groups")) return;
     const meId = Number(currentUser!.id);
@@ -3142,12 +2944,11 @@ export default function App() {
         body: JSON.stringify({
           ...groupData,
           admin_id: meId,
-          description: String(groupData.description || "").trim(), // ✅ Ensure string, never null
+          description: String(groupData.description || "").trim(),
           created_at: new Date().toISOString(),
         }),
       });
 
-      // Refresh groups list
       fetchOtherData().catch(() => {});
       return res;
     } catch (error) {
@@ -3156,7 +2957,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchOtherData]);
 
-  /** ---------- ✅ 8) Delete Group ---------- */
   const deleteGroup = useCallback(async (groupId: number) => {
     if (!requireAdmin('Deleting groups')) return;
 
@@ -3165,7 +2965,6 @@ export default function App() {
         method: "DELETE",
       });
 
-      // Refresh groups list
       fetchOtherData().catch(() => {});
       return true;
     } catch (error) {
@@ -3174,7 +2973,6 @@ export default function App() {
     }
   }, [requireAdmin, fetchOtherData]);
 
-  /** ---------- ✅ 9) Update Group Settings ---------- */
   const updateGroupSettings = useCallback(async (groupId: number, settings: Partial<Group>) => {
     if (!requireAuth("Updating group settings")) return;
 
@@ -3187,7 +2985,6 @@ export default function App() {
         }),
       });
 
-      // Refresh groups list
       fetchOtherData().catch(() => {});
       return res;
     } catch (error) {
@@ -3196,7 +2993,6 @@ export default function App() {
     }
   }, [requireAuth, fetchOtherData]);
 
-  /** ---------- ✅ 10) Fetch Group Details ---------- */
   const fetchGroupDetails = useCallback(async (groupId: number) => {
     try {
       const res = await apiFetch(`/api/groups?id=${Number(groupId)}`);
@@ -3210,7 +3006,6 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- ✅ 11) Invite to Group (Safe Implementation) ---------- */
   const inviteToGroup = useCallback(async (groupId: number, userIds: number[]) => {
     if (!requireAuth("Inviting to groups")) return;
     
@@ -3225,12 +3020,10 @@ export default function App() {
       });
     } catch (error) {
       console.error('Failed to invite to group:', error);
-      // Return success anyway for UI to continue
       return { success: true, message: "Invites sent" };
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ 12) Delete Group Post ---------- */
   const deleteGroupPost = useCallback(async (groupId: number, postId: number) => {
     if (!requireAuth("Deleting group posts")) return;
 
@@ -3245,7 +3038,6 @@ export default function App() {
     }
   }, [requireAuth]);
 
-  /** ---------- ✅ 13) Remove Group Member ---------- */
   const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
     if (!requireAdmin('Removing group members')) return;
 
@@ -3260,7 +3052,6 @@ export default function App() {
     }
   }, [requireAdmin]);
 
-  /** ---------- ✅ 14) Update Group Image ---------- */
   const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
     if (!requireAuth("Updating group image")) return;
 
@@ -3277,7 +3068,6 @@ export default function App() {
     }
   }, [requireAuth, updateGroupSettings]);
 
-  /** ✅ UPDATED: One fetch pipeline with stable dependencies ---------- */
   const fetchData = useCallback(
     async (viewer: User | null) => {
       await Promise.all([
@@ -3285,14 +3075,13 @@ export default function App() {
         fetchPostsForHome(viewer), 
         fetchOtherData(), 
         fetchReels(),
-        fetchSongs(), // ✅ ADDED: Fetch UNERA Music songs
-        fetchStories(), // ✅ UPDATED: Fetch stories with viewerId
+        fetchSongs(),
+        fetchStories(),
       ]);
     },
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
-  /** ✅ UPDATED: Restore session + initial load WITHOUT dependency chain ---------- */
   useEffect(() => {
     let mounted = true;
     
@@ -3318,19 +3107,17 @@ export default function App() {
           }
         }
       } catch {
-        // ignore
       }
 
       if (!mounted) return;
       
-      // Fetch all data in parallel
       await Promise.all([
         fetchUsersList(),
         fetchPostsForHome(viewer),
         fetchOtherData(),
         fetchReels(),
         fetchSongs(),
-        fetchStories(), // ✅ UPDATED: Pass viewerId
+        fetchStories(),
       ]);
       
       if (!mounted) return;
@@ -3342,10 +3129,8 @@ export default function App() {
     return () => {
       mounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // ✅ FIXED: Empty dependency array - runs once on mount
+  }, []);
 
-  /** ---------- Return detection (leave -> come back => new seed + refresh) ---------- */
   useEffect(() => {
     const markActive = () => {
       try {
@@ -3383,7 +3168,6 @@ export default function App() {
     };
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-  /** ---------- Smart Polling ---------- */
   useEffect(() => {
     if (activeCommentsPostId != null) return;
     if (document.visibilityState !== 'visible') return;
@@ -3405,12 +3189,10 @@ export default function App() {
     };
   }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsPostId]);
 
-  /** ---------- ADMIN API ACTIONS (ADDED) ---------- */
   const verifyUser = useCallback(
     async (userId: number) => {
       if (!requireAdmin('Verify user')) return;
 
-      // optimistic toggle
       setUsers((prev) =>
         prev.map((u: any) =>
           Number(u.id) === Number(userId) ? { ...u, is_verified: u.is_verified ? 0 : 1 } : u
@@ -3425,7 +3207,7 @@ export default function App() {
 
         await fetchUsersList();
       } catch (e: any) {
-        await fetchUsersList(); // rollback by refetch
+        await fetchUsersList();
         setLoginError(e?.message || 'Verify failed');
       }
     },
@@ -3454,7 +3236,6 @@ export default function App() {
     async (userId: number) => {
       if (!requireAdmin('Delete account')) return;
 
-      // optimistic remove
       setUsers((prev) => prev.filter((u: any) => Number(u.id) !== Number(userId)));
 
       try {
@@ -3466,7 +3247,7 @@ export default function App() {
         await fetchUsersList();
         fetchPostsForHome(currentUser).catch(() => {});
       } catch (e: any) {
-        await fetchUsersList(); // rollback
+        await fetchUsersList();
         setLoginError(e?.message || 'Delete failed');
       }
     },
@@ -3491,7 +3272,6 @@ export default function App() {
     [requireAdmin, fetchUsersList]
   );
 
-  /** ---------- ✅ ADDED: Hashtag filtering logic ---------- */
   const handleHashtagClick = useCallback((tag: string) => {
     const cleanedTag = tag.startsWith('#') ? tag.toLowerCase() : `#${tag.toLowerCase()}`;
     setActiveHashtag(cleanedTag);
@@ -3503,7 +3283,6 @@ export default function App() {
     setActiveHashtag(null);
   }, []);
 
-  // ✅ Filter posts based on active hashtag
   const filteredPosts = useMemo(() => {
     if (!activeHashtag) return posts;
     
@@ -3514,41 +3293,12 @@ export default function App() {
     });
   }, [posts, activeHashtag]);
 
-  /** ---------- Derived ---------- */
   const rankedPosts = useMemo(() => {
     const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
                      activeHashtag ? filteredPosts : posts;
     return Array.isArray(feedToRank) ? feedToRank : [];
   }, [posts, filteredPosts, activeHashtag]);
 
-  /** ✅ ADDED: Feed "mixer" to insert products after every 5 posts ---------- */
-  type FeedItem =
-    | { kind: 'post'; post: any }
-    | { kind: 'product'; product: Product };
-
-  const feedItems: FeedItem[] = useMemo(() => {
-    const ps = rankedPosts || [];
-    const prods = (products || []).filter((p: any) => String(p?.status || 'active') === 'active');
-
-    if (!prods.length) return ps.map((p) => ({ kind: 'post', post: p }));
-
-    const items: FeedItem[] = [];
-    let prodIdx = 0;
-
-    for (let i = 0; i < ps.length; i++) {
-      items.push({ kind: 'post', post: ps[i] });
-
-      // ✅ Insert product after every 5 posts
-      if ((i + 1) % 5 === 0) {
-        items.push({ kind: 'product', product: prods[prodIdx % prods.length] });
-        prodIdx++;
-      }
-    }
-
-    return items;
-  }, [rankedPosts, products]);
-
-  /** ✅ Updated activePost resolver to include profilePosts ---------- */
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
 
@@ -3567,7 +3317,6 @@ export default function App() {
     return currentUser || null;
   }, [selectedUserId, users, currentUser]);
 
-  /** ---------- Handle user registration ---------- */
   const handleRegister = useCallback(async (userData: any) => {
     try {
       setLoginError('');
@@ -3590,7 +3339,6 @@ export default function App() {
       setCurrentUser(normalized);
       setSelectedUserId(Number(normalized.id));
 
-      // Add user to users list
       setUsers((prev) => {
         const arr = safeArray(prev);
         const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
@@ -3598,7 +3346,6 @@ export default function App() {
         return [normalized, ...arr];
       });
 
-      // New session seed
       try {
         sessionStorage.removeItem(FEED_SESSION_KEY);
       } catch {}
@@ -3612,7 +3359,6 @@ export default function App() {
     }
   }, [fetchPostsForHome, fetchReels]);
 
-  /** ---------- Login (PROFESSIONALLY FIXED) ---------- */
   const handleLogin = async (email: string, password: string) => {
     try {
       setLoginError('');
@@ -3630,7 +3376,6 @@ export default function App() {
       const normalized = normalizeUser(data.user);
       if (!normalized?.id) throw new Error('Login failed: invalid user id');
 
-      // ✅ FIXED: Use finalUser consistently, don't setCurrentUser twice
       let finalUser = normalized;
       try {
         const fresh = await apiFetch(`/api/users?id=${normalized.id}`);
@@ -3640,7 +3385,6 @@ export default function App() {
       setCurrentUser(finalUser);
       localStorage.setItem(LS_USER_KEY, JSON.stringify(finalUser));
 
-      // new session seed
       try {
         sessionStorage.removeItem(FEED_SESSION_KEY);
       } catch {}
@@ -3662,7 +3406,6 @@ export default function App() {
     }
   };
 
-  /** ✅ ADDED: Handle comment likes ---------- */
   const handleLikeComment = async (commentId: number) => {
     if (!currentUser) return;
 
@@ -3673,7 +3416,6 @@ export default function App() {
     });
   };
 
-  /** ✅ FIXED: Follow User with EXACT same API structure as original working code ---------- */
   const followUser = useCallback(
     async (targetUserId: number) => {
       if (!requireAuth('Following')) return;
@@ -3682,28 +3424,22 @@ export default function App() {
       const meId = Number(currentUser.id);
       const targetId = Number(targetUserId);
 
-      // ✅ backend blocks self-follow
       if (!targetId || targetId === meId) return;
 
-      // ✅ TRUE follow state comes from my "following"
       const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
       const isFollowingNow = myFollowing.has(targetId);
 
-      // Set loading state to prevent double clicks
       setFollowLoading(prev => ({ ...prev, [targetId]: true }));
 
-      // Save original state for potential rollback
       const originalUsers = [...users];
       const originalCurrentUser = { ...currentUser };
 
-      // ---------- optimistic update ----------
       setUsers((prev) => {
         const arr = safeArray(prev).map(normalizeUser);
 
         return arr.map((u) => {
           const uid = Number(u.id);
 
-          // update ME.following
           if (uid === meId) {
             const following = new Set<number>(safeArray<number>((u as any).following));
             if (isFollowingNow) following.delete(targetId);
@@ -3711,7 +3447,6 @@ export default function App() {
             return normalizeUser({ ...u, following: Array.from(following) });
           }
 
-          // update TARGET.followers
           if (uid === targetId) {
             const followers = new Set<number>(safeArray<number>((u as any).followers));
             if (isFollowingNow) followers.delete(meId);
@@ -3723,7 +3458,6 @@ export default function App() {
         });
       });
 
-      // keep currentUser in sync + persist
       setCurrentUser((prev) => {
         if (!prev) return prev;
         const following = new Set<number>(safeArray<number>((prev as any).following));
@@ -3734,22 +3468,18 @@ export default function App() {
         return next;
       });
 
-      // ---------- API ----------
       try {
         if (isFollowingNow) {
-          // ✅ EXACTLY as in original code: Unfollow
           await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
             method: 'DELETE',
           });
         } else {
-          // ✅ EXACTLY as in original code: Follow
           await apiFetch('/api/user-follows', {
             method: 'POST',
             body: JSON.stringify({ follower_id: meId, following_id: targetId }),
           });
         }
 
-        // ✅ Refresh follow data from server for consistency
         fetchUserFollowDataForUI(targetId).catch(() => {});
         fetchUserFollowDataForUI(meId).catch(() => {});
 
@@ -3757,30 +3487,24 @@ export default function App() {
       } catch (e: any) {
         console.error('Follow toggle failed:', e);
 
-        // ✅ rollback using original state
         setUsers(originalUsers);
         setCurrentUser(originalCurrentUser);
         localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
         
-        // ✅ rollback using server truth
         fetchUserFollowDataForUI(targetId).catch(() => {});
         fetchUserFollowDataForUI(meId).catch(() => {});
         
-        // Show error message
         setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
       } finally {
-        // Clear loading state
         setFollowLoading(prev => ({ ...prev, [targetId]: false }));
       }
     },
     [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
   );
 
-  /** ✅ SIMPLIFIED & RELIABLE: Check if current user is following a specific user ---------- */
   const checkIsFollowing = useCallback((targetUserId: number): boolean => {
     if (!currentUser || !targetUserId) return false;
     
-    // Direct check of current user's following array
     const myFollowing = safeArray<number>((currentUser as any).following);
     return myFollowing.includes(Number(targetUserId));
   }, [currentUser]);
@@ -3788,8 +3512,7 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
     localStorage.removeItem(STORY_SEEN_KEY);
-    localStorage.removeItem(STORIES_CACHE_KEY); // ✅ Clear stories cache on logout
-    // Clear all viewer caches
+    localStorage.removeItem(STORIES_CACHE_KEY);
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
         localStorage.removeItem(key);
@@ -3804,26 +3527,25 @@ export default function App() {
     setSelectedUserId(null);
     setProfilePosts([]);
     setReels([]);
-    setStories([]); // ✅ Clear stories on logout
-    setActiveStoryId(null); // ✅ UPDATED: Clear active story ID
-    setSeenStoryIds(new Set()); // ✅ Clear seen story IDs
-    setStoryMuted(true); // ✅ Reset story muted state
-    setActiveHashtag(null); // ✅ Clear hashtag filter on logout
-    setLikedTracks([]); // ✅ Clear liked tracks on logout
-    setMyTotalPlays(0); // ✅ Clear total plays on logout
-    setPlayHistory([]); // ✅ Clear play history on logout
-    setTrackPlays({}); // ✅ Clear track plays on logout
-    setCurrentAudioTrack(null); // ✅ Clear current audio track
-    setIsAudioPlaying(false); // ✅ Stop audio playback
-    setSelectedReelSound(null); // ✅ Clear selected reel sound
-    setSongs([]); // ✅ Clear songs on logout
-    setEvents([]); // ✅ Clear events on logout
+    setStories([]);
+    setActiveStoryId(null);
+    setSeenStoryIds(new Set());
+    setStoryMuted(true);
+    setActiveHashtag(null);
+    setLikedTracks([]);
+    setMyTotalPlays(0);
+    setPlayHistory([]);
+    setTrackPlays({});
+    setCurrentAudioTrack(null);
+    setIsAudioPlaying(false);
+    setSelectedReelSound(null);
+    setSongs([]);
+    setEvents([]);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
   };
 
-  /** ---------- Navigation ---------- */
   const handleNavigate = (target: View) => {
     if (['settings', 'memories'].includes(target) && !currentUser) {
       setLoginError(`Please login to view ${target}.`);
@@ -3847,11 +3569,10 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
-  /** ✅ UPDATED: API actions - createPost with multi-file support ---------- */
   const createPost = useCallback(
     async (
       text: string,
-      files: File[] | File | null, // ✅ Changed from File | null to File[] | File | null
+      files: File[] | File | null,
       meta?: {
         type?: 'text' | 'image' | 'video';
         visibility?: string;
@@ -3867,7 +3588,6 @@ export default function App() {
       const trimmed = (text || '').trim();
       if (!trimmed && !files && !meta?.background) return;
 
-      // ✅ Convert input to array
       const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
 
       let media_urls: string[] = [];
@@ -3884,7 +3604,6 @@ export default function App() {
         }
       }
 
-      // backward compatibility (keep old fields too)
       const media_url = media_urls[0] ?? null;
       const media_type = media_types[0] ?? null;
 
@@ -3892,11 +3611,9 @@ export default function App() {
         user_id: currentUser!.id,
         content: trimmed,
 
-        // ✅ keep single (backward compatible)
         media_url,
         media_type,
 
-        // ✅ add multi
         media_urls: media_urls.length ? media_urls : undefined,
         media_types: media_types.length ? media_types : undefined,
 
@@ -3921,7 +3638,6 @@ export default function App() {
       const newPostRaw =
         data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
 
-      // ✅ ensure arrays exist immediately
       (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
       (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
 
@@ -3934,7 +3650,6 @@ export default function App() {
         return next;
       });
 
-      /** ✅ Keep profile posts updated when you create a post ---------- */
       setProfilePosts((prev) => {
         if (!currentUser) return prev;
         const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
@@ -3952,13 +3667,11 @@ export default function App() {
     [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
   );
 
-  /** ✅ FIXED: onReactPost with immediate my_reaction updates and commentPostSnapshot sync ---------- */
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
       const meId = Number(currentUser!.id);
 
-      // ✅ Optimistic update (homepage)
       setPosts(prev => {
         const next = safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId));
         lastGoodPostsRef.current = next;
@@ -3966,10 +3679,8 @@ export default function App() {
         return next;
       });
 
-      // ✅ Optimistic update (profile list in App state)
       setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
 
-      // ✅ Update commentPostSnapshot if it's the same post
       setCommentPostSnapshot(prev =>
         prev && Number(prev.id) === Number(postId)
           ? applyOptimisticReaction(prev, postId, type, meId)
@@ -4006,7 +3717,6 @@ export default function App() {
 
           setPosts(prev => safeArray(prev).map(applyServerTruth));
           setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
-          // ✅ Update commentPostSnapshot with server truth
           setCommentPostSnapshot(prev => (prev ? applyServerTruth(prev) : prev));
         }
       } catch {
@@ -4043,7 +3753,6 @@ export default function App() {
           return next;
         });
 
-        /** ✅ Update profile posts when sharing ---------- */
         setProfilePosts((prev) => {
           return safeArray(prev).map((p: any) =>
             Number(p.id) === Number(activeSharePost.id)
@@ -4070,7 +3779,6 @@ export default function App() {
     [activeSharePost, scheduleSilentRefresh]
   );
 
-  /** ✅ Updated onOpenComments to search in correct list ---------- */
   const onOpenComments = (postId: number) => {
     if (!requireAuth('Commenting')) return;
 
@@ -4096,7 +3804,6 @@ export default function App() {
         return next;
       });
 
-      /** ✅ Keep profile posts updated when you delete ---------- */
       setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
 
       try {
@@ -4106,7 +3813,6 @@ export default function App() {
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
         
-        /** ✅ Rollback profile posts on error ---------- */
         setProfilePosts(prevProfilePosts);
         if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
       }
@@ -4132,7 +3838,6 @@ export default function App() {
         return next;
       });
 
-      /** ✅ Keep profile posts updated when you edit ---------- */
       setProfilePosts((prev) =>
         safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
       );
@@ -4144,7 +3849,6 @@ export default function App() {
         lastGoodPostsRef.current = prev;
         stableFeedRef.current = prev;
         
-        /** ✅ Rollback profile posts on error ---------- */
         setProfilePosts(prevProfilePosts);
         if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
       }
@@ -4176,7 +3880,6 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
-      // ✅ ADDED: Validate file is an image
       if (!file.type || !file.type.startsWith('image/')) {
         setLoginError('Only image files are allowed.');
         return;
@@ -4197,7 +3900,6 @@ export default function App() {
       if (!requireAuth('Updating profile')) return;
       if (!currentUser) return;
 
-      // ✅ ADDED: Validate file is an image
       if (!file.type || !file.type.startsWith('image/')) {
         setLoginError('Only image files are allowed.');
         return;
@@ -4213,7 +3915,6 @@ export default function App() {
     [requireAuth, currentUser, updateUserDetails]
   );
 
-  /** ---------- Helper function to get post author ---------- */
   const getPostAuthor = useCallback(
     (post: PostType) => {
       const author = users.find((u) => Number(u.id) === Number((post as any).user_id));
@@ -4223,13 +3924,11 @@ export default function App() {
     [users]
   );
 
-  /** ---------- Handle create story from profile ---------- */
   const handleCreateStoryFromProfile = useCallback(() => {
     if (!requireAuth('Creating stories')) return;
     setShowCreateStoryModal(true);
   }, [requireAuth]);
 
-  /** ---------- ✅ ADDED: Get all known posts for MemoriesPage ---------- */
   const allKnownPosts = useMemo(() => {
     const map = new Map<number, PostType>();
     [...safeArray(posts), ...safeArray(profilePosts)].forEach(p => {
@@ -4240,99 +3939,31 @@ export default function App() {
     return Array.from(map.values());
   }, [posts, profilePosts]);
 
-  /** ✅ ADDED: MarketplaceProductPost component for Facebook-style product posts ---------- */
-  const MarketplaceProductPost: React.FC<{
-    product: Product;
-    onView: () => void;
-    onOpenImages?: (images: string[], index: number) => void;
-  }> = ({ product, onView, onOpenImages }) => {
-    const imgs = safeImages((product as any).images);
-    const cover = imgs[0] || 'https://via.placeholder.com/800x800?text=No+Image';
+  const openProductFromPost = useCallback(
+    (productId: number) => {
+      const p = (products || []).find((x: any) => Number(x.id) === Number(productId));
+      if (!p) {
+        setView('marketplace');
+        return;
+      }
+      setView('marketplace');
+      setActiveProduct(p);
+    },
+    [products]
+  );
 
-    const locationText = String((product as any).address || '').split(',')[0] || 'Marketplace';
-
-    const price =
-      (product as any).discount_price
-        ? Number((product as any).discount_price).toFixed(0)
-        : Number((product as any).main_price).toFixed(0);
-
-    return (
-      <div className="bg-[#242526] rounded-xl border border-[#3E4042] overflow-hidden mb-2">
-        {/* Header */}
-        <div className="px-3 pt-3 pb-2 flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center text-[#E4E6EB] font-black">
-              <i className="fas fa-store"></i>
-            </div>
-            <div className="min-w-0">
-              <div className="text-[#E4E6EB] font-bold truncate">Marketplace</div>
-              <div className="text-[#B0B3B8] text-xs truncate">
-                {locationText} • {price}
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={onView}
-            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold text-sm"
-          >
-            View product
-          </button>
-        </div>
-
-        {/* Title */}
-        <div className="px-3 pb-2">
-          <div className="text-[#E4E6EB] font-bold leading-snug">
-            {(product as any).title}
-          </div>
-        </div>
-
-        {/* Images like post */}
-        <div className="bg-black">
-          {imgs.length <= 1 ? (
-            <button type="button" className="w-full" onClick={() => onOpenImages?.([cover], 0)}>
-              <img
-                src={cover}
-                alt={(product as any).title}
-                className="w-full max-h-[560px] object-cover"
-              />
-            </button>
-          ) : (
-            <div className="grid grid-cols-3 gap-[2px] bg-black">
-              {/* Big image */}
-              <button type="button" className="col-span-3" onClick={() => onOpenImages?.(imgs, 0)}>
-                <img src={imgs[0]} className="w-full max-h-[520px] object-cover" alt="" />
-              </button>
-
-              {/* Thumbnails */}
-              {imgs.slice(1, 4).map((src, idx) => (
-                <button
-                  key={`${src}-${idx}`}
-                  type="button"
-                  className="relative"
-                  onClick={() => onOpenImages?.(imgs, idx + 1)}
-                >
-                  <img src={src} className="w-full h-28 object-cover" alt="" />
-                  {idx === 2 && imgs.length > 4 && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white font-black text-xl">
-                      +{imgs.length - 4}
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Bottom spacing like normal post */}
-        <div className="h-2 bg-[#242526]" />
-      </div>
-    );
-  };
-
-  /** ✅ UPDATED: Render ---------- */
   const isLoading = false;
   if (isLoading) return <ProfessionalLoader />;
+
+  const getProductData = useCallback((productId: number) => {
+    const product = products.find(p => Number(p.id) === Number(productId));
+    if (!product) return null;
+    return {
+      price: product.discount_price ?? product.main_price,
+      location: product.address || 'Marketplace',
+      currency: product.currency_symbol || 'TZS'
+    };
+  }, [products]);
 
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
@@ -4368,7 +3999,6 @@ export default function App() {
         <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
           {view === 'home' && (
             <div className="w-full pt-4 md:px-8 pb-10">
-              {/* ✅ ADDED: Hashtag filter chip */}
               {activeHashtag && (
                 <div className="mb-3 px-4">
                   <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
@@ -4386,27 +4016,24 @@ export default function App() {
                 </div>
               )}
 
-              {/* ✅ ✅ UPDATED: StoryReel with ALL required props for Story.tsx */}
               <StoryReel
-                stories={orderedStories} // ✅ Use ordered stories (unseen first)
+                stories={orderedStories}
                 onProfileClick={(id) => openProfile(id)}
                 onCreateStory={() => {
                   if (!requireAuth('Creating stories')) return;
                   setShowCreateStoryModal(true);
                 }}
-                onViewStory={openStoryViewer} // ✅ Required by Story.tsx
-                currentUser={currentUser} // ✅ Required by Story.tsx
+                onViewStory={openStoryViewer}
+                currentUser={currentUser}
                 onRequestLogin={() => setView('login')}
                 onFollow={followUser}
                 checkIsFollowing={checkIsFollowing}
                 followLoading={followLoading}
-                // ✅ ✅ ADDED: REQUIRED PROPS FOR STORY.TSX
-                onFetchViewers={fetchStoryViewers} // ✅ Required for viewers list
-                onReaction={reactToStory} // ✅ Required for reactions
-                onReply={replyToStory} // ✅ Required for replies
-                onToggleMute={() => setStoryMuted(!storyMuted)} // ✅ Required for mute toggle
-                muted={storyMuted} // ✅ Required for mute state
-                // Story.tsx uses story.views_count automatically
+                onFetchViewers={fetchStoryViewers}
+                onReaction={reactToStory}
+                onReply={replyToStory}
+                onToggleMute={() => setStoryMuted(!storyMuted)}
+                muted={storyMuted}
               />
 
               {currentUser && (
@@ -4430,16 +4057,24 @@ export default function App() {
               )}
 
               <div className="space-y-2">
-                {feedItems.length > 0 ? (
-                  feedItems.map((item, idx) => {
-                    if (item.kind === 'post') {
-                      const post = item.post;
+                <MarketplaceContext.Provider value={{
+                  onViewProduct: (productId) => {
+                    const product = products.find(p => Number(p.id) === Number(productId));
+                    if (product) {
+                      setView('marketplace');
+                      setActiveProduct(product);
+                    }
+                  },
+                  getProductData
+                }}>
+                  {rankedPosts.length > 0 ? (
+                    rankedPosts.map((post, idx) => {
                       const postAuthorId = Number((post as any).user_id);
                       const isFollowing = checkIsFollowing(postAuthorId);
                       
                       return (
                         <Post
-                          key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}-${idx}`}
+                          key={post.id || `${post.user_id}-${post.created_at}-${idx}`}
                           post={post}
                           author={getPostAuthor(post)}
                           currentUser={currentUser}
@@ -4453,55 +4088,37 @@ export default function App() {
                             setActiveReelId(p.id);
                             setView('reels');
                           }}
-                          // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
                           onPlayAudioTrack={onPlayTrack}
                           groups={groups}
                           brands={brands}
                           chats={chats}
-                          // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
                           onHashtagClick={handleHashtagClick}
-                          // ✅ CORRECT: Pass follow status and handler
                           isFollowing={isFollowing}
                           onFollow={() => followUser(postAuthorId)}
                           followLoading={followLoading[postAuthorId] || false}
+                          onViewProductFromPost={openProductFromPost}
                         />
                       );
-                    }
-
-                    // ✅ Marketplace Product inserted after every 5 posts
-                    return (
-                      <MarketplaceProductPost
-                        key={`feed-product-${(item.product as any).id}-${idx}`}
-                        product={item.product}
-                        onView={() => {
-                          setView('marketplace');
-                          setActiveProduct(item.product);
-                        }}
-                        onOpenImages={(images, index) => {
-                          // for now opens single image (we will upgrade ImageViewer later for swipe)
-                          setFullScreenImage(images[index]);
-                        }}
-                      />
-                    );
-                  })
-                ) : !feedHydrated ? (
-                  <div className="text-center py-20 text-[#B0B3B8]"></div>
-                ) : activeHashtag ? (
-                  <div className="text-center py-20 text-[#B0B3B8]">
-                    <p>No posts found with {activeHashtag}.</p>
-                    <button 
-                      onClick={clearHashtag}
-                      className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
-                    >
-                      Clear filter
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-center py-20 text-[#B0B3B8]">
-                    <p>No posts available.</p>
-                    {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
-                  </div>
-                )}
+                    })
+                  ) : !feedHydrated ? (
+                    <div className="text-center py-20 text-[#B0B3B8]"></div>
+                  ) : activeHashtag ? (
+                    <div className="text-center py-20 text-[#B0B3B8]">
+                      <p>No posts found with {activeHashtag}.</p>
+                      <button 
+                        onClick={clearHashtag}
+                        className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
+                      >
+                        Clear filter
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-center py-20 text-[#B0B3B8]">
+                      <p>No posts available.</p>
+                      {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
+                    </div>
+                  )}
+                </MarketplaceContext.Provider>
               </div>
             </div>
           )}
@@ -4511,13 +4128,13 @@ export default function App() {
               reels={reels}
               users={users}
               currentUser={currentUser}
-              songs={songs} // ✅ ADDED: Pass UNERA Music songs
-              selectedSound={selectedReelSound} // ✅ ADDED: Pass selected sound
-              onPickSound={(sound: ReelSound | null) => setSelectedReelSound(sound)} // ✅ ADDED: Pass sound picker handler
+              songs={songs}
+              selectedSound={selectedReelSound}
+              onPickSound={(sound: ReelSound | null) => setSelectedReelSound(sound)}
               onProfileClick={(id) => openProfile(id)}
               onCreateReelClick={() => {
                 if (!requireAuth('Creating reels')) return;
-                setSelectedReelSound(null); // optional
+                setSelectedReelSound(null);
                 setShowCreateReelModal(true);
               }}
               onReact={reactToReel}
@@ -4535,7 +4152,6 @@ export default function App() {
               currentUser={currentUser}
               products={products}
               onNavigateHome={() => handleNavigate('home')}
-              // ✅ UPDATED: Use createProduct function instead of requireAuth
               onCreateProduct={createProduct}
               onViewProduct={setActiveProduct}
             />
@@ -4547,7 +4163,6 @@ export default function App() {
                 currentUser={currentUser}
                 groups={groups}
                 users={users}
-                // ✅ UPDATED: Real group functions instead of requireAuth placeholders
                 onCreateGroup={createGroup}
                 onJoinGroup={joinGroup}
                 onLeaveGroup={leaveGroup}
@@ -4563,11 +4178,9 @@ export default function App() {
                 onDeleteGroupPost={deleteGroupPost}
                 onRemoveMember={removeGroupMember}
                 onUpdateGroupSettings={updateGroupSettings}
-                // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
                 onPlayAudioTrack={onPlayTrack}
                 onFollow={followUser}
                 checkIsFollowing={checkIsFollowing}
-                // ✅ ADDED: Pass the missing group props that GroupsPage uses
                 fetchGroupPosts={fetchGroupPosts}
                 fetchGroupDetails={fetchGroupDetails}
                 fetchComments={fetchGroupPostComments}
@@ -4598,7 +4211,6 @@ export default function App() {
                 setCommentPostSnapshot(found);
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
-              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
@@ -4608,7 +4220,6 @@ export default function App() {
           {view === 'music' && (
             <MusicSystem
               currentUser={currentUser}
-              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayTrack={onPlayTrack}
               onProfileClick={(id) => openProfile(id)}
               likedTracks={likedTracks}
@@ -4616,11 +4227,9 @@ export default function App() {
               playHistory={playHistory}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
-              // ✅ ADDED: Pass additional props for MusicSystem
               users={users}
               currentTrack={currentAudioTrack}
               isPlaying={isAudioPlaying}
-              // ✅ FIXED: Pass myTotalPlays from App state (now persistent)
               myTotalPlays={currentUser?.id ? myTotalPlays : 0}
               playsLoading={playsLoading}
             />
@@ -4639,29 +4248,21 @@ export default function App() {
             />
           )}
 
-          {/* ✅ Events page */}
           {view === 'events' && (
             <ErrorBoundary>
-              <>
-                {/* Debug helper - uncomment to see events data */}
-                {/* <pre className="text-white p-3 text-xs overflow-auto">
-                  {JSON.stringify({ currentUser: !!currentUser, eventsCount: events?.length, events0: events?.[0] }, null, 2)}
-                </pre> */}
-
-                <EventsPage
-                  events={events}
-                  currentUser={currentUser ?? null}
-                  onJoinEvent={joinEvent}
-                  onInterestedEvent={markEventInterested}
-                  onCreateEventClick={() => {
-                    if (!requireAuth('Creating events')) return;
-                    setShowCreateEventModal(true);
-                  }}
-                  onProfileClick={(id) => openProfile(id)}
-                  onFollow={followUser}
-                  checkIsFollowing={checkIsFollowing}
-                />
-              </>
+              <EventsPage
+                events={events}
+                currentUser={currentUser ?? null}
+                onJoinEvent={joinEvent}
+                onInterestedEvent={markEventInterested}
+                onCreateEventClick={() => {
+                  if (!requireAuth('Creating events')) return;
+                  setShowCreateEventModal(true);
+                }}
+                onProfileClick={(id) => openProfile(id)}
+                onFollow={followUser}
+                checkIsFollowing={checkIsFollowing}
+              />
             </ErrorBoundary>
           )}
 
@@ -4682,29 +4283,22 @@ export default function App() {
           {view === 'memories' && currentUser && (
             <MemoriesPage
               currentUser={currentUser}
-              // ✅ FIXED: Use allKnownPosts instead of just posts for better memory coverage
               posts={allKnownPosts}
               users={users}
               onProfileClick={(id: number) => openProfile(id)}
-              // ✅ FIXED: Pass actual reaction handler instead of placeholder
               onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onViewImage={setFullScreenImage}
               onOpenComments={(postId: number) => onOpenComments(postId)}
-              // ✅ FIXED: Pass proper video click handler to navigate to reels
               onVideoClick={(p: any) => {
                 setActiveReelId(p.id);
                 setView('reels');
               }}
-              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayAudioTrack={onPlayTrack}
-              // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
               onHashtagClick={handleHashtagClick}
-              // ✅ ADDED: Pass follow system props
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              // ✅ ADDED: Pass groups, brands, chats if Post component needs them
               groups={groups}
               brands={brands}
               chats={chats}
@@ -4748,15 +4342,12 @@ export default function App() {
                 setActiveReelId((p as any).id);
                 setView('reels');
               }}
-              // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
               onPlayAudioTrack={onPlayTrack}
               onCreateStoryClick={handleCreateStoryFromProfile}
-              // ✅ PROFESSIONALLY FIXED: Pass admin handlers with correct prop types
               onVerifyUser={(id) => verifyUser(id)}
               onRestrictUser={(id, duration) => suspendUser(id, duration)}
               onDeleteUser={(id) => deleteUserAccount(id)}
               onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
-              // ✅ ADDED: Pass follow status to UserProfile
               isFollowing={checkIsFollowing(Number(profileUser.id))}
               followLoading={followLoading[Number(profileUser.id)] || false}
             />
@@ -4794,7 +4385,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Modals / Overlays */}
       {activeProduct && (
         <ProductDetailModal
           product={activeProduct}
@@ -4821,7 +4411,6 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           onClose={() => setShowCreatePostModal(false)}
-          // ✅ UPDATED: Accept File[] from Feed.tsx when it's updated
           onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
         />
       )}
@@ -4836,11 +4425,9 @@ export default function App() {
             setCommentPostSnapshot(null);
           }}
           onComment={() => {}}
-          // ✅ ADDED: Pass onLikeComment handler
           onLikeComment={handleLikeComment}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
-          // ✅ ADDED: Pass onHashtagClick handler for comments
           onHashtagClick={handleHashtagClick}
           onFollow={followUser}
           checkIsFollowing={checkIsFollowing}
@@ -4866,7 +4453,6 @@ export default function App() {
         />
       )}
 
-      {/* ✅ CREATE REEL MODAL WITH FIX 2 IMPLEMENTED */}
       {showCreateReelModal && currentUser && (
         <CreateReelModal
           currentUser={currentUser}
@@ -4874,16 +4460,13 @@ export default function App() {
             setShowCreateReelModal(false);
           }}
           onCreate={(reelData: any) => {
-            // ✅ When creating a reel, use audio_fetch_url for trimming and audio_url for storage
             return createReel({
               ...reelData,
-              // ✅ Use the fetchable URL for trimming (audio_fetch_url)
               audioUrl:
                 reelData.audioUrl ||
                 (selectedReelSound?.songId && songs.find(s => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
                 selectedReelSound?.audioUrl ||
                 '',
-              // ✅ Store the raw URL (originalUrl) for re-trimming
               originalSoundId: selectedReelSound?.songId,
               songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
               audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
@@ -4897,7 +4480,6 @@ export default function App() {
         />
       )}
 
-      {/* ✅ ✅ UPDATED: ACTIVE STORY VIEWER MODAL WITH BACKEND-COMPATIBLE FIELDS */}
       {activeStoryId && activeStory && (
         <StoryViewerModal
           story={activeStory}
@@ -4918,13 +4500,11 @@ export default function App() {
           onReaction={reactToStory}
           onNext={handleStoryNext}
           onPrev={handleStoryPrev}
-          // ✅ ADDED: Pass story muted state
           muted={storyMuted}
           onToggleMute={() => setStoryMuted(!storyMuted)}
         />
       )}
 
-      {/* ✅ CREATE STORY MODAL */}
       {showCreateStoryModal && currentUser && (
         <CreateStoryModal
           currentUser={currentUser}
@@ -4934,7 +4514,6 @@ export default function App() {
         />
       )}
 
-      {/* ✅ MOUNT THE GLOBAL AUDIO PLAYER ONCE */}
       {currentAudioTrack && (
         <GlobalAudioPlayer
           currentTrack={currentAudioTrack}
@@ -4944,22 +4523,18 @@ export default function App() {
           onPrevious={onPrevious}
           onClose={onClosePlayer}
           onDownload={(id) => {
-            // optional download logic
             console.log('Download track:', id);
           }}
           onLike={(id, type) => {
-            // Delegate to MusicSystem UI (or implement direct endpoints here)
             const k = `${type}:${String(id)}`;
             const nextLiked = !likedTracks.includes(k);
             handleMusicSystemLikeSync(k, nextLiked);
           }}
           onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
           isLiked={isPlayerLiked}
-          // ✅ ADDED: Pass owner info + total plays
           ownerUser={resolveTrackOwner(currentAudioTrack)}
           totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
           totalPlaysLoading={playsLoading}
-          // ✅ ADDED: onStarted callback
           onStarted={onStarted}
         />
       )}
