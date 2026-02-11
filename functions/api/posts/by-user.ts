@@ -1,4 +1,11 @@
-// functions/api/profile_feed.ts  (or keep same file name you already use)
+// functions/api/by-user.ts
+// ✅ Option B: Upgrade to include posts + reels + songs + podcasts + products (NO groups)
+// ✅ Response stays RAW ARRAY (so frontend doesn't break)
+// Query params:
+// - userId (profile owner)  REQUIRED
+// - viewerId (optional)     used for my_reaction on posts/reels/songs
+// - limit (optional, default 30, max 50)
+
 import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = { DB: D1Database };
@@ -31,32 +38,25 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const url = new URL(request.url);
 
-    // profile owner (whose content)
-    const userId = toInt(url.searchParams.get('userId'), 0);
-    // viewer (logged in user)
-    const viewerId = toInt(url.searchParams.get('viewerId'), 0);
-
+    const userId = toInt(url.searchParams.get('userId'), 0); // profile owner
+    const viewerId = toInt(url.searchParams.get('viewerId'), 0); // current viewer
     const limit = clamp(toInt(url.searchParams.get('limit'), 30), 1, 50);
 
     if (!userId) return json({ success: false, error: 'Missing userId' }, 400);
 
-    // ============================================================
-    // UNIFIED ITEMS QUERY
-    // (All SELECTs return the same columns)
-    // ============================================================
     const q = `
       WITH items AS (
 
-        /* ------------------ POSTS ------------------ */
+        /* ------------------ POSTS (by user) ------------------ */
         SELECT
           'post' AS source,
           'post' AS item_type,
-          p.id AS id,
-          p.created_at AS created_at,
 
+          p.id AS id,
           p.user_id AS user_id,
           p.content AS content,
 
+          /* single media (compat) */
           CASE
             WHEN p.media_url LIKE 'data:%' THEN NULL
             WHEN length(p.media_url) > 300 THEN NULL
@@ -69,6 +69,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             ELSE p.media_type
           END AS media_type,
 
+          /* multi media (JSON strings) */
           CASE
             WHEN p.media_urls LIKE 'data:%' THEN NULL
             WHEN length(p.media_urls) > 5000 THEN NULL
@@ -81,6 +82,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           END AS media_types,
 
           p.visibility AS visibility,
+          p.created_at AS created_at,
           p.views AS views,
           p.shares AS shares,
 
@@ -92,7 +94,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             LIMIT 1
           ) AS my_reaction,
 
-          /* author */
+          /* author fields */
           COALESCE(u.username, 'user') AS username,
           COALESCE(u.username, 'User') AS name,
           CASE
@@ -103,7 +105,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           COALESCE(u.is_verified, 0) AS is_verified,
           COALESCE(u.role, 'user') AS role,
 
-          /* extra unified fields */
+          /* reels fields */
           NULL AS video_url,
           NULL AS caption,
           NULL AS song_name,
@@ -115,6 +117,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS sound_key,
           NULL AS sound_id,
 
+          /* product fields */
           NULL AS product_title,
           NULL AS product_category,
           NULL AS product_description,
@@ -126,6 +129,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS product_phone_number,
           NULL AS product_images,
 
+          /* song fields */
           NULL AS song_title,
           NULL AS song_artist_name,
           NULL AS song_album_name,
@@ -135,6 +139,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS song_likes_count,
           NULL AS song_plays_count,
 
+          /* podcast fields */
           NULL AS podcast_title,
           NULL AS podcast_description,
           NULL AS podcast_audio_url,
@@ -147,13 +152,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         UNION ALL
 
-        /* ------------------ REELS ------------------ */
+        /* ------------------ REELS (by user) ------------------ */
         SELECT
           'reel' AS source,
           'reel' AS item_type,
-          r.id AS id,
-          r.created_at AS created_at,
 
+          r.id AS id,
           r.user_id AS user_id,
           NULL AS content,
 
@@ -163,6 +167,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS media_types,
 
           r.visibility AS visibility,
+          r.created_at AS created_at,
           r.views AS views,
           r.shares AS shares,
 
@@ -227,13 +232,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         UNION ALL
 
-        /* ------------------ SONGS ------------------ */
+        /* ------------------ SONGS (uploaded by user) ------------------ */
         SELECT
           'song' AS source,
           'song' AS item_type,
-          s.id AS id,
-          s.created_at AS created_at,
 
+          s.id AS id,
           s.uploader_id AS user_id,
           NULL AS content,
 
@@ -243,6 +247,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS media_types,
 
           'public' AS visibility,
+          s.created_at AS created_at,
           0 AS views,
           0 AS shares,
 
@@ -311,13 +316,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         UNION ALL
 
-        /* ------------------ PODCASTS ------------------ */
+        /* ------------------ PODCASTS (by user) ------------------ */
         SELECT
           'podcast' AS source,
           'podcast' AS item_type,
-          pc.id AS id,
-          pc.created_at AS created_at,
 
+          pc.id AS id,
           pc.creator_id AS user_id,
           NULL AS content,
 
@@ -327,6 +331,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS media_types,
 
           'public' AS visibility,
+          pc.created_at AS created_at,
           0 AS views,
           0 AS shares,
 
@@ -386,13 +391,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         UNION ALL
 
-        /* ------------------ PRODUCTS ------------------ */
+        /* ------------------ PRODUCTS (by user) ------------------ */
         SELECT
           'product' AS source,
           'product' AS item_type,
-          pr.id AS id,
-          pr.created_at AS created_at,
 
+          pr.id AS id,
           pr.seller_id AS user_id,
           NULL AS content,
 
@@ -402,6 +406,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS media_types,
 
           'public' AS visibility,
+          pr.created_at AS created_at,
           0 AS views,
           0 AS shares,
 
@@ -459,42 +464,31 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         LEFT JOIN users u ON u.id = pr.seller_id
         WHERE pr.seller_id = ?
       )
-
       SELECT * FROM items
       ORDER BY created_at DESC
       LIMIT ?
     `;
 
-    // Bind order MUST match all ? above:
-    // Posts: viewerId, userId
-    // Reels: viewerId, userId
-    // Songs: viewerId, userId
-    // Podcasts: userId
-    // Products: userId
-    // Limit: limit
+    // Bind order EXACTLY:
+    // posts: viewerId, userId
+    // reels: viewerId, userId
+    // songs: viewerId, userId
+    // podcasts: userId
+    // products: userId
+    // limit
     const binds = [
-      viewerId || 0, userId,      // posts
-      viewerId || 0, userId,      // reels
-      viewerId || 0, userId,      // songs
-      userId,                     // podcasts
-      userId,                     // products
-      limit,                      // limit
+      viewerId || 0, userId,
+      viewerId || 0, userId,
+      viewerId || 0, userId,
+      userId,
+      userId,
+      limit,
     ];
 
-    const res = await env.DB.prepare(q).bind(...binds).all();
-    const items = Array.isArray(res?.results) ? res.results : [];
+    const { results } = await env.DB.prepare(q).bind(...binds).all();
 
-    // Backward compatible "posts" array (only posts)
-    const postsOnly = items.filter((x: any) => x?.item_type === 'post');
-
-    return json({
-      success: true,
-      userId,
-      viewerId: viewerId || 0,
-      limit,
-      items,
-      posts: postsOnly,
-    });
+    // ✅ RAW ARRAY RESPONSE (as requested)
+    return json(Array.isArray(results) ? results : [], 200);
   } catch (e: any) {
     return json({ success: false, error: e?.message || String(e) }, 500);
   }
