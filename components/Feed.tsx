@@ -1,5 +1,3 @@
- 
-
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   User,
@@ -147,23 +145,6 @@ export const formatRelativeTime = (dateInput: any): string => {
 
   const years = Math.floor(days / 365);
   return years === 1 ? '1 year' : `${years} years`;
-};
-
-/**
- * =========================
- * ✅ JSON PARSER HELPER - CRITICAL FOR MARKETPLACE FIX
- * =========================
- */
-const parseJSON = (v: any) => {
-  if (!v) return null;
-  if (typeof v === 'string') {
-    try { 
-      return JSON.parse(v); 
-    } catch { 
-      return null; 
-    }
-  }
-  return v;
 };
 
 /**
@@ -1548,37 +1529,19 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
-  // ========== BULLETPROOF MARKETPLACE DETECTION ==========
-  // Helper to parse JSON strings safely
-  const parseJSON = (v: any) => {
-    if (!v) return null;
-    if (typeof v === 'string') {
-      try { 
-        return JSON.parse(v); 
-      } catch { 
-        return null; 
-      }
-    }
-    return v;
-  };
-
-  // Parse meta if it's a string - THIS FIXES YOUR ISSUE! 🎯
-  const metaObj = parseJSON(p?.meta) || {};
-
-  // Get marketplace object from all possible locations
-  const mp = 
-    metaObj?.marketplace ||
-    metaObj?.product ||
+  // ========== KEEP THIS FOR DEBUGGING/ANALYTICS ==========
+  const meta: any = p?.meta || {};
+  const mp: any =
+    meta?.marketplace ||
+    meta?.product ||
     p?.marketplace ||
     p?.product ||
     null;
 
-  // Get product ID from all possible locations
   const mpProductIdRaw =
     mp?.id ??
-    mp?.product_id ??
-    metaObj?.product_id ??
-    metaObj?.productId ??
+    meta?.product_id ??
+    meta?.productId ??
     p?.product_id ??
     p?.productId ??
     p?.marketplace_product_id ??
@@ -1587,52 +1550,32 @@ export const Post: React.FC<{
 
   const mpProductId = Number(mpProductIdRaw || 0);
 
-  // Get price and location from all possible locations
-  const mpPrice = mp?.price ?? mp?.main_price ?? p?.price ?? null;
-  const mpCurrency = mp?.currency_symbol ?? mp?.currency ?? p?.currency_symbol ?? p?.currency ?? 'TZS';
-  const mpCity = mp?.city ?? mp?.location ?? mp?.address ?? p?.location ?? p?.city ?? '';
+  const isMarketplace =
+    p?.type === 'marketplace' ||
+    p?.post_type === 'product' ||
+    p?.type === 'product' ||
+    p?.kind === 'product' ||
+    meta?.type === 'product' ||
+    meta?.kind === 'product' ||
+    !!mpProductId;
 
-  // Check ALL possible marketplace indicators
-  const isMarketplace = Boolean(
-    mp ||                                                    // Has marketplace object
-    mpProductId ||                                           // Has product ID
-    p?.type === 'marketplace' ||                            // Direct type check
-    p?.post_type === 'product' ||                           // Alternative type
-    p?.type === 'product' ||                                // Type is product
-    p?.kind === 'product' ||                                // Kind field
-    p?.item_type === 'product' ||                           // Item type
-    p?.source === 'product' ||                              // Source field
-    metaObj?.type === 'product' ||                          // Meta type
-    metaObj?.kind === 'product' ||                          // Meta kind
-    metaObj?.type === 'marketplace' ||                      // Meta type marketplace
-    metaObj?.kind === 'marketplace' ||                      // Meta kind marketplace
-    !!(p as any)?.product_id ||                             // Direct product ID
-    !!(p as any)?.marketplace_product_id                    // Direct marketplace ID
-  );
-
-  // Debug log for development
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Post meta debug:', {
-      postId: p.id,
-      metaRaw: p?.meta,
-      metaParsed: metaObj,
-      metaType: typeof p?.meta,
-      mp,
-      mpProductId,
-      isMarketplace
-    });
-  }
-  // ========================================================
+  // ✅ NO RENDERING OF MARKETPLACE CONTENT HERE - Handled by App.tsx
+  // ================================================
 
   // ✅ NEW: Music/Podcast detection
-  const isMusic = metaObj?.kind === 'music' || metaObj?.type === 'music';
-  const isPodcast = metaObj?.kind === 'podcast' || metaObj?.type === 'podcast';
-  const song = metaObj?.song;
-  const podcast = metaObj?.podcast;
+  const isMusic = meta?.kind === 'music' || meta?.type === 'music';
+  const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
+  const song = meta?.song;
+  const podcast = meta?.podcast;
 
   // ✅ NEW: Group detection
-  const groupId = Number(p?.group_id || p?.groupId || metaObj?.group_id || metaObj?.groupId || 0);
-  const groupName = p?.group_name || p?.groupName || metaObj?.group_name || metaObj?.groupName || '';
+  const groupId = Number(p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0);
+  const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
+
+  // Fallbacks for the strip text (kept for potential future use)
+  const mpCity = String(mp?.city ?? mp?.location ?? p?.location ?? '').trim();
+  const mpPrice = String(mp?.price ?? mp?.main_price ?? p?.price ?? p?.main_price ?? '').trim();
+  const mpCurrency = String(mp?.currency_symbol ?? mp?.currency ?? p?.currency_symbol ?? p?.currency ?? '').trim();
 
   const myReaction = p.myReaction ?? p.my_reaction ?? null;
   const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
@@ -1886,80 +1829,8 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ✅ FIXED: Marketplace strip with "View product" button */}
-{isMarketplace && (
-  <div className="mx-3 md:mx-4 mb-3 bg-[#1F2022] border border-[#3E4042] rounded-2xl overflow-hidden">
-    <div className="flex items-center justify-between gap-3 p-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center flex-shrink-0">
-          <i className="fas fa-store text-[#E4E6EB]"></i>
-        </div>
+          {/* ❌ MARKETPLACE STRIP REMOVED - Now handled by App.tsx */}
 
-        <div className="min-w-0">
-          <div className="text-[#E4E6EB] font-bold leading-tight">Marketplace</div>
-
-          <div className="text-[#B0B3B8] text-[13px] truncate">
-            {mpCity || p?.address || p?.location || 'Marketplace'}
-            {mpPrice ? ` • ${mpCurrency} ${mpPrice}` : ''}
-          </div>
-
-          {/* ✅ Show product title */}
-          <div className="text-[#B0B3B8] text-[12px] truncate mt-0.5">
-            {p?.title || p?.content || 'Product'}
-          </div>
-        </div>
-      </div>
-
-      <button
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-full text-sm flex-shrink-0"
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          
-          // DEBUG: Log what we have
-          console.log('🔍 View product clicked - post:', {
-            id: p.id,
-            meta: p.meta,
-            metaType: typeof p.meta,
-            mp,
-            mpProductId,
-            isMarketplace
-          });
-          
-          // CRITICAL: Use the product ID we already detected at the top
-          if (mpProductId && onViewProductFromPost) {
-            console.log('✅ Opening product:', mpProductId);
-            onViewProductFromPost(mpProductId);
-          } else if (onViewProductFromPost) {
-            // Last resort: try to extract from any available source
-            const fallbackId = 
-              p?.product_id || 
-              p?.productId || 
-              p?.marketplace_product_id ||
-              (p?.meta && typeof p.meta === 'string' ? 
-                (() => {
-                  try {
-                    const parsed = JSON.parse(p.meta);
-                    return parsed?.marketplace?.product_id || parsed?.product_id;
-                  } catch {
-                    return null;
-                  }
-                })() : null);
-            
-            if (fallbackId) {
-              console.log('⚠️ Using fallback product ID:', fallbackId);
-              onViewProductFromPost(Number(fallbackId));
-            }
-          }
-        }}
-      >
-        View product
-      </button>
-    </div>
-  </div>
-)}
-
-                 
           {p.link_preview && !mediaInfo.mediaUrl && (
             <div
               className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
