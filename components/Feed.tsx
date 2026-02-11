@@ -1949,31 +1949,68 @@ export const Post: React.FC<{
           )}
 
           {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-            <div className="mx-3 md:mx-4 my-3 p-4 bg-[#3A3B3C] rounded-lg border border-[#3E4042]">
-              <div className="flex items-center gap-3">
-                <i className="fas fa-music text-[#1877F2] text-2xl"></i>
-                <div className="flex-1">
-                  <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-                  <div className="text-[#B0B3B8] text-sm">
-                    {p.content || 'Listen to audio'}
-                  </div>
-                </div>
-                <button
-                  onClick={() => onPlayAudioTrack({
-                    id: postId,
-                    title: p.content || 'Audio',
-                    artist: a.name || 'Unknown',
-                    url: mediaInfo.mediaUrl,
-                    duration: 0,
-                    coverImage: a.profile_image_url,
-                  })}
-                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
-                >
-                  <i className="fas fa-play mr-1"></i> Play
-                </button>
+  <div className="mx-3 md:mx-4 my-3 p-4 bg-[#3A3B3C] rounded-lg border border-[#3E4042]">
+    {(() => {
+      const cover =
+        (p as any).song_cover_image_url ||
+        (mediaList?.[0]?.url) ||
+        a.profile_image_url;
+
+      return (
+        <div className="flex items-center gap-3">
+          {/* ✅ COVER IMAGE */}
+          <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
+            {cover ? (
+              <img
+                src={cover}
+                alt="Cover"
+                className="w-full h-full object-cover"
+                loading="lazy"
+                onError={(e) => {
+                  const img = e.currentTarget as HTMLImageElement;
+                  if (a.profile_image_url && img.src !== a.profile_image_url) {
+                    img.src = a.profile_image_url;
+                  }
+                }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <i className="fas fa-music text-[#1877F2] text-xl"></i>
               </div>
+            )}
+          </div>
+
+          {/* ✅ TEXT */}
+          <div className="flex-1 min-w-0">
+            <div className="text-[#E4E6EB] font-bold">Audio Track</div>
+            <div className="text-[#B0B3B8] text-sm truncate">
+              {p.content || 'Listen to audio'}
             </div>
-          )}
+          </div>
+
+          {/* ✅ PLAY BUTTON */}
+          <button
+            onClick={() =>
+              onPlayAudioTrack({
+                id: postId,
+                title: p.content || 'Audio',
+                artist: a.name || 'Unknown',
+                url: mediaInfo.mediaUrl,
+                duration: 0,
+                coverImage: cover || a.profile_image_url,
+              })
+            }
+            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors flex-shrink-0"
+          >
+            <i className="fas fa-play mr-1"></i> Play
+          </button>
+        </div>
+      );
+    })()}
+  </div>
+)}
+
+                
 
           {/* ✅ UPDATED: Facebook-style reaction bubbles with emojis */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
