@@ -1,5 +1,3 @@
-// App.tsx - UPDATED: Marketplace products as real posts + removed "products after 5 posts" mixer
-// ✅ FIXED: Meta field JSON parsing for marketplace posts
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -48,6 +46,7 @@ import {
 } from './types';
 import EventsPage from './components/EventsPage';
 
+
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
@@ -56,15 +55,6 @@ const safeNumber = (v: any, fallback = 0) => {
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
-/** ✅ ADDED: JSON parsing helper for meta fields */
-const parseJSON = (v: any) => {
-  if (!v) return null;
-  if (typeof v === 'string') {
-    try { return JSON.parse(v); } catch { return null; }
-  }
-  return v;
-};
-
 /** ✅ ADDED: safeImages helper for marketplace product posts ---------- */
 const safeImages = (imgs: any): string[] => {
   if (Array.isArray(imgs)) return imgs.filter(Boolean);
@@ -72,9 +62,7 @@ const safeImages = (imgs: any): string[] => {
     try {
       const p = JSON.parse(imgs);
       return Array.isArray(p) ? p.filter(Boolean) : [];
-    } catch {
-      return [];
-    }
+    } catch {}
   }
   return [];
 };
@@ -432,8 +420,9 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 };
 
 /**
- * ✅ FIXED: Normalize raw D1 rows to UI-safe PostType shape with multi-media support
- * ✅ FIXED: Parse meta field if it's a JSON string (critical for marketplace posts)
+ * ✅ UPDATED: Normalize raw D1 rows to UI-safe PostType shape with multi-media support
+ * ✅ ADDED: Support for media_urls + media_types arrays
+ * ✅ FIXED: created_at field normalization for MemoriesPage
  */
 const normalizePost = (p: any): PostType => {
   // ✅ multi media support (new)
@@ -496,9 +485,6 @@ const normalizePost = (p: any): PostType => {
     reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
     reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
     likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
-
-    // ✅ FIXED: CRITICAL - Parse meta field if it's a JSON string
-    meta: parseJSON(p?.meta) || null,
   } as any;
 };
 
@@ -645,7 +631,7 @@ const normalizeUser = (u: any): User => {
   const userName = hasValidIncomingName ? incomingName : 
                    hasValidIncomingUsername ? incomingUsername : 
                    'User';
-
+  
   const userUsername = hasValidIncomingUsername ? incomingUsername :
                        hasValidIncomingName ? userName.toLowerCase().replace(/\s+/g, '') :
                        'user';
@@ -1160,6 +1146,7 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
         ...p,
         reactions: (existing as any).reactions,
         shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
+        // ✅ FIXED 5: Change (existing as Any) to (existing as any)
         comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
       } as any);
     } else {
@@ -2195,58 +2182,7 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
-  /** ---------- ✅ ✅ ADDED: Helper to create marketplace posts ---------- */
-  const createMarketplacePost = useCallback(
-    async (product: any) => {
-      if (!currentUser) return;
-
-      // Use product images as post media
-      const media_urls: string[] = safeImages(product.images);
-
-      // Create a REAL post that APIs can return everywhere
-      const payload = {
-        user_id: currentUser.id,
-        content: product.title || '',
-        visibility: 'Public',
-        type: 'marketplace', // important for Feed.tsx rendering
-        media_urls,
-        media_types: media_urls.map(() => 'image'), // or infer by extension
-        // put marketplace meta into "meta" so you can render View product + location + price
-        meta: JSON.stringify({
-          marketplace: {
-            product_id: product.id,
-            location: product.address || '',
-            price: product.discount_price ?? product.main_price ?? null,
-            currency: product.currency_symbol || 'TZS', // optional
-          },
-        }),
-      };
-
-      // Use the SAME posts endpoint you already use for normal posts
-      const created = await apiFetch('/api/posts', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      const newPost = normalizePost(created?.post ?? created);
-      
-      // Add to posts list
-      setPosts(prev => [newPost, ...safeArray(prev)]);
-      
-      // Add to profile posts if it's the current user's product
-      if (Number(currentUser.id) === Number(selectedUserId)) {
-        setProfilePosts(prev => [newPost, ...safeArray(prev)]);
-      }
-
-      // Refresh feed
-      scheduleSilentRefresh();
-      
-      return newPost;
-    },
-    [currentUser, selectedUserId]
-  );
-
-  /** ---------- ✅ ADDED: CREATE PRODUCT FUNCTION (UPDATED to also create post) ---------- */
+  /** ---------- ✅ ADDED: CREATE PRODUCT FUNCTION ---------- */
   const createProduct = useCallback(async (productData: any) => {
     if (!requireAuth("Creating products")) return;
     if (!currentUser) return;
@@ -2271,25 +2207,17 @@ export default function App() {
         body: JSON.stringify(payload),
       });
 
-      const createdProduct = normalizeProduct(res?.product ?? res);
-      
-      // ✅ CRITICAL: Update products list
+      const created = normalizeProduct(res?.product ?? res);
       setProducts(prev => {
         const filtered = safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId));
-        return [createdProduct, ...filtered];
+        return [created, ...filtered];
       });
-
-      // ✅ CRITICAL: Also create a marketplace post
-      await createMarketplacePost(createdProduct);
-      
-      return createdProduct;
     } catch (e: any) {
       // rollback optimistic on failure
       setProducts(prev => safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId)));
       setLoginError(e?.message || "Failed to create product");
-      throw e;
     }
-  }, [currentUser, requireAuth, createMarketplacePost]);
+  }, [currentUser, requireAuth]);
 
   /** ---------- ADMIN ROLE GUARDS (PROFESSIONALLY FIXED) ---------- */
   const roleOf = (u: any) => String(u?.role || '').trim().toLowerCase();
@@ -3593,8 +3521,32 @@ export default function App() {
     return Array.isArray(feedToRank) ? feedToRank : [];
   }, [posts, filteredPosts, activeHashtag]);
 
-  /** ✅ REMOVED: Old feed "mixer" that inserted products after every 5 posts ---------- */
-  // This entire block has been removed as per requirements
+  /** ✅ ADDED: Feed "mixer" to insert products after every 5 posts ---------- */
+  type FeedItem =
+    | { kind: 'post'; post: any }
+    | { kind: 'product'; product: Product };
+
+  const feedItems: FeedItem[] = useMemo(() => {
+    const ps = rankedPosts || [];
+    const prods = (products || []).filter((p: any) => String(p?.status || 'active') === 'active');
+
+    if (!prods.length) return ps.map((p) => ({ kind: 'post', post: p }));
+
+    const items: FeedItem[] = [];
+    let prodIdx = 0;
+
+    for (let i = 0; i < ps.length; i++) {
+      items.push({ kind: 'post', post: ps[i] });
+
+      // ✅ Insert product after every 5 posts
+      if ((i + 1) % 5 === 0) {
+        items.push({ kind: 'product', product: prods[prodIdx % prods.length] });
+        prodIdx++;
+      }
+    }
+
+    return items;
+  }, [rankedPosts, products]);
 
   /** ✅ Updated activePost resolver to include profilePosts ---------- */
   const activePost = useMemo(() => {
@@ -4288,21 +4240,95 @@ export default function App() {
     return Array.from(map.values());
   }, [posts, profilePosts]);
 
-  /** ---------- ✅ ADDED: openProductFromPost handler ---------- */
-  const openProductFromPost = useCallback(
-    (productId: number) => {
-      const p = (products || []).find((x: any) => Number(x.id) === Number(productId));
-      if (!p) {
-        // fallback: navigate to marketplace anyway
-        setView('marketplace');
-        return;
-      }
-      setView('marketplace');
-      setActiveProduct(p); // whatever you use to open ProductDetailModal
-      // setShowProductDetail(true); // or your existing modal boolean
-    },
-    [products]
-  );
+  /** ✅ ADDED: MarketplaceProductPost component for Facebook-style product posts ---------- */
+  const MarketplaceProductPost: React.FC<{
+    product: Product;
+    onView: () => void;
+    onOpenImages?: (images: string[], index: number) => void;
+  }> = ({ product, onView, onOpenImages }) => {
+    const imgs = safeImages((product as any).images);
+    const cover = imgs[0] || 'https://via.placeholder.com/800x800?text=No+Image';
+
+    const locationText = String((product as any).address || '').split(',')[0] || 'Marketplace';
+
+    const price =
+      (product as any).discount_price
+        ? Number((product as any).discount_price).toFixed(0)
+        : Number((product as any).main_price).toFixed(0);
+
+    return (
+      <div className="bg-[#242526] rounded-xl border border-[#3E4042] overflow-hidden mb-2">
+        {/* Header */}
+        <div className="px-3 pt-3 pb-2 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center text-[#E4E6EB] font-black">
+              <i className="fas fa-store"></i>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[#E4E6EB] font-bold truncate">Marketplace</div>
+              <div className="text-[#B0B3B8] text-xs truncate">
+                {locationText} • {price}
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={onView}
+            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold text-sm"
+          >
+            View product
+          </button>
+        </div>
+
+        {/* Title */}
+        <div className="px-3 pb-2">
+          <div className="text-[#E4E6EB] font-bold leading-snug">
+            {(product as any).title}
+          </div>
+        </div>
+
+        {/* Images like post */}
+        <div className="bg-black">
+          {imgs.length <= 1 ? (
+            <button type="button" className="w-full" onClick={() => onOpenImages?.([cover], 0)}>
+              <img
+                src={cover}
+                alt={(product as any).title}
+                className="w-full max-h-[560px] object-cover"
+              />
+            </button>
+          ) : (
+            <div className="grid grid-cols-3 gap-[2px] bg-black">
+              {/* Big image */}
+              <button type="button" className="col-span-3" onClick={() => onOpenImages?.(imgs, 0)}>
+                <img src={imgs[0]} className="w-full max-h-[520px] object-cover" alt="" />
+              </button>
+
+              {/* Thumbnails */}
+              {imgs.slice(1, 4).map((src, idx) => (
+                <button
+                  key={`${src}-${idx}`}
+                  type="button"
+                  className="relative"
+                  onClick={() => onOpenImages?.(imgs, idx + 1)}
+                >
+                  <img src={src} className="w-full h-28 object-cover" alt="" />
+                  {idx === 2 && imgs.length > 4 && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white font-black text-xl">
+                      +{imgs.length - 4}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Bottom spacing like normal post */}
+        <div className="h-2 bg-[#242526]" />
+      </div>
+    );
+  };
 
   /** ✅ UPDATED: Render ---------- */
   const isLoading = false;
@@ -4404,41 +4430,57 @@ export default function App() {
               )}
 
               <div className="space-y-2">
-                {/* ✅ ✅ UPDATED: Render posts normally (NO product mixer) */}
-                {rankedPosts.length > 0 ? (
-                  rankedPosts.map((post, idx) => {
-                    const postAuthorId = Number((post as any).user_id);
-                    const isFollowing = checkIsFollowing(postAuthorId);
-                    
+                {feedItems.length > 0 ? (
+                  feedItems.map((item, idx) => {
+                    if (item.kind === 'post') {
+                      const post = item.post;
+                      const postAuthorId = Number((post as any).user_id);
+                      const isFollowing = checkIsFollowing(postAuthorId);
+                      
+                      return (
+                        <Post
+                          key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}-${idx}`}
+                          post={post}
+                          author={getPostAuthor(post)}
+                          currentUser={currentUser}
+                          users={users}
+                          onProfileClick={(id) => openProfile(id)}
+                          onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                          onShare={() => handleOpenShareSheet(post)}
+                          onViewImage={setFullScreenImage}
+                          onOpenComments={(postId: number) => onOpenComments(postId)}
+                          onVideoClick={(p: any) => {
+                            setActiveReelId(p.id);
+                            setView('reels');
+                          }}
+                          // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
+                          onPlayAudioTrack={onPlayTrack}
+                          groups={groups}
+                          brands={brands}
+                          chats={chats}
+                          // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
+                          onHashtagClick={handleHashtagClick}
+                          // ✅ CORRECT: Pass follow status and handler
+                          isFollowing={isFollowing}
+                          onFollow={() => followUser(postAuthorId)}
+                          followLoading={followLoading[postAuthorId] || false}
+                        />
+                      );
+                    }
+
+                    // ✅ Marketplace Product inserted after every 5 posts
                     return (
-                      <Post
-                        key={(post as any).id || `${(post as any).user_id}-${(post as any).created_at}-${idx}`}
-                        post={post}
-                        author={getPostAuthor(post)}
-                        currentUser={currentUser}
-                        users={users}
-                        onProfileClick={(id) => openProfile(id)}
-                        onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                        onShare={() => handleOpenShareSheet(post)}
-                        onViewImage={setFullScreenImage}
-                        onOpenComments={(postId: number) => onOpenComments(postId)}
-                        onVideoClick={(p: any) => {
-                          setActiveReelId(p.id);
-                          setView('reels');
+                      <MarketplaceProductPost
+                        key={`feed-product-${(item.product as any).id}-${idx}`}
+                        product={item.product}
+                        onView={() => {
+                          setView('marketplace');
+                          setActiveProduct(item.product);
                         }}
-                        // ✅ FIXED: Use onPlayTrack instead of setCurrentAudioTrack
-                        onPlayAudioTrack={onPlayTrack}
-                        groups={groups}
-                        brands={brands}
-                        chats={chats}
-                        // ✅ ADDED: Pass onHashtagClick handler for hashtag filtering
-                        onHashtagClick={handleHashtagClick}
-                        // ✅ CORRECT: Pass follow status and handler
-                        isFollowing={isFollowing}
-                        onFollow={() => followUser(postAuthorId)}
-                        followLoading={followLoading[postAuthorId] || false}
-                        // ✅ ADDED: Pass onViewProductFromPost callback for marketplace posts
-                        onViewProductFromPost={openProductFromPost}
+                        onOpenImages={(images, index) => {
+                          // for now opens single image (we will upgrade ImageViewer later for swipe)
+                          setFullScreenImage(images[index]);
+                        }}
                       />
                     );
                   })
@@ -4493,7 +4535,7 @@ export default function App() {
               currentUser={currentUser}
               products={products}
               onNavigateHome={() => handleNavigate('home')}
-              // ✅ UPDATED: Use createProduct function (which now also creates posts)
+              // ✅ UPDATED: Use createProduct function instead of requireAuth
               onCreateProduct={createProduct}
               onViewProduct={setActiveProduct}
             />
