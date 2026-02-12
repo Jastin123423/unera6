@@ -1548,8 +1548,8 @@ export const Post: React.FC<{
     meta?.productId ??
     p?.product_id ??
     p?.productId ??
-    meta?.marketplace?.id ||
-    meta?.product?.id ||
+    meta?.marketplace?.id ??
+    meta?.product?.id ??
     p?.marketplace_product_id ??
     p?.marketplaceProductId ??
     null;
