@@ -106,7 +106,7 @@ interface EventsPageProps {
   // ✅ Add these because App.tsx sends them
   onProfileClick?: (userId: number) => void;
   onFollow?: (userId: number) => Promise<void> | void;
-  checkIsFollowing?: (userId: number) => boolean;
+  checkIsFollowing?: (userId: number) => boolean;  // Note: this matches App.tsx (without the 's')
   followLoading?: Record<number, boolean>;
 }
 
