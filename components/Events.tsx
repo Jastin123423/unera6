@@ -447,3 +447,6 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
     </div>
   );
 };
+
+// Also export default for compatibility with different import styles
+export default CreateEventModal;
