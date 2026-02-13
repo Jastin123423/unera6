@@ -101,7 +101,13 @@ interface EventsPageProps {
   currentUser: User | null; 
   onJoinEvent: (eventId: number) => Promise<void>; 
   onInterestedEvent: (eventId: number) => Promise<void>;
-  onCreateEventClick: () => void; 
+  onCreateEventClick: () => void;
+
+  // ✅ Add these because App.tsx sends them
+  onProfileClick?: (userId: number) => void;
+  onFollow?: (userId: number) => Promise<void> | void;
+  checkIsFollowing?: (userId: number) => boolean;
+  followLoading?: Record<number, boolean>;
 }
 
 // --- COMPACT EVENT CARD COMPONENT ---
@@ -286,7 +292,18 @@ const EventDetailsModal: React.FC<{ event: any, currentUser: User | null, onClos
 };
 
 // --- MAIN EVENTS PAGE COMPONENT ---
-export const EventsPage: React.FC<EventsPageProps> = ({ events, currentUser, onJoinEvent, onInterestedEvent, onCreateEventClick }) => {
+export const EventsPage: React.FC<EventsPageProps> = ({ 
+  events, 
+  currentUser, 
+  onJoinEvent, 
+  onInterestedEvent, 
+  onCreateEventClick,
+  // These are received from App.tsx but not used yet
+  onProfileClick,
+  onFollow,
+  checkIsFollowing,
+  followLoading
+}) => {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [shuffledEvents, setShuffledEvents] = useState<any[]>([]);
