@@ -103,7 +103,7 @@ interface EventsPageProps {
   onInterestedEvent: (eventId: number) => Promise<void>;
   onCreateEventClick: () => void;
 
-  // ✅ These come from App.tsx and are used in the component
+  // These come from App.tsx and are used in the component
   onProfileClick?: (userId: number) => void;
   onFollow?: (userId: number) => Promise<void> | void;
   checkIsFollowing?: (userId: number) => boolean;
@@ -141,7 +141,14 @@ const CompactEventCard: React.FC<{
     >
       <div className="h-32 relative overflow-hidden">
         {/* Fixed image src with fallback */}
-        <img src={event.image || ''} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt={event.title} />
+        <img 
+          src={event.image || ''} 
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+          alt={event.title}
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = '/default-event.jpg';
+          }}
+        />
         <div className="absolute top-2 left-2 bg-white/95 text-black rounded-lg px-2 py-1 text-center shadow-lg min-w-[36px]">
           <div className="text-[8px] font-black uppercase text-[#1877F2] leading-none">{date.toLocaleString('default', { month: 'short' })}</div>
           <div className="text-[14px] font-black leading-tight">{date.getDate()}</div>
@@ -156,7 +163,7 @@ const CompactEventCard: React.FC<{
       <div className="p-3 flex flex-col flex-1">
         <h3 className="text-[14px] font-bold text-[#E4E6EB] line-clamp-1 mb-1 leading-tight group-hover:text-[#1877F2] transition-colors">{event.title}</h3>
         
-        {/* Organizer info - NEW */}
+        {/* Organizer info */}
         {event.organizerId && onProfileClick && (
           <button 
             onClick={handleOrganizerClick}
@@ -236,7 +243,14 @@ const EventDetailsModal: React.FC<{
       <div className="bg-[#242526] w-full max-w-[700px] h-full sm:h-auto sm:max-h-[90vh] sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl border border-[#3E4042]" onClick={e => e.stopPropagation()}>
         <div className="relative h-[250px] sm:h-[350px] shrink-0">
           {/* Fixed image src with fallback */}
-          <img src={event.image || ''} className="w-full h-full object-cover" alt={event.title} />
+          <img 
+            src={event.image || ''} 
+            className="w-full h-full object-cover" 
+            alt={event.title}
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = '/default-event.jpg';
+            }}
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-[#242526] via-transparent to-transparent"></div>
           <button onClick={onClose} className="absolute top-4 right-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-all border border-white/10">
             <i className="fas fa-times"></i>
@@ -251,7 +265,7 @@ const EventDetailsModal: React.FC<{
               </p>
               <h2 className="text-3xl font-black text-white leading-tight">{event.title}</h2>
               
-              {/* Organizer info - NEW */}
+              {/* Organizer info */}
               {event.organizerId && onProfileClick && (
                 <button 
                   onClick={handleOrganizerClick}
@@ -346,7 +360,6 @@ export const EventsPage: React.FC<EventsPageProps> = ({
   onJoinEvent, 
   onInterestedEvent, 
   onCreateEventClick,
-  // These are received from App.tsx and now used in the component
   onProfileClick,
   onFollow,
   checkIsFollowing,
@@ -587,3 +600,4 @@ export const EventsPage: React.FC<EventsPageProps> = ({
 };
 
 // Export both named and default for compatibility with App.tsx
+export default EventsPage;
