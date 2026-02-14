@@ -103,10 +103,10 @@ interface EventsPageProps {
   onInterestedEvent: (eventId: number) => Promise<void>;
   onCreateEventClick: () => void;
 
-  // ✅ Add these because App.tsx sends them
+  // ✅ These come from App.tsx and are used in the component
   onProfileClick?: (userId: number) => void;
   onFollow?: (userId: number) => Promise<void> | void;
-  checkIsFollowing?: (userId: number) => boolean;  // Note: this matches App.tsx (without the 's')
+  checkIsFollowing?: (userId: number) => boolean;
   followLoading?: Record<number, boolean>;
 }
 
@@ -117,14 +117,22 @@ const CompactEventCard: React.FC<{
   onClick: () => void,
   onJoin: (e: React.MouseEvent) => void,
   onInterested: (e: React.MouseEvent) => void,
+  onProfileClick?: (userId: number) => void,
   isWide?: boolean
-}> = ({ event, currentUser, onClick, onJoin, onInterested, isWide }) => {
+}> = ({ event, currentUser, onClick, onJoin, onInterested, onProfileClick, isWide }) => {
   const attendees = Array.isArray(event.attendees) ? event.attendees : [];
   const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
   
   const date = safeDate(event.date || event.event_date || event.created_at || Date.now());
   const isAttending = !!currentUser && attendees.includes(currentUser.id);
   const isInterested = !!currentUser && interestedIds.includes(currentUser.id);
+
+  const handleOrganizerClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onProfileClick && event.organizerId) {
+      onProfileClick(event.organizerId);
+    }
+  };
 
   return (
     <div 
@@ -147,6 +155,19 @@ const CompactEventCard: React.FC<{
       
       <div className="p-3 flex flex-col flex-1">
         <h3 className="text-[14px] font-bold text-[#E4E6EB] line-clamp-1 mb-1 leading-tight group-hover:text-[#1877F2] transition-colors">{event.title}</h3>
+        
+        {/* Organizer info - NEW */}
+        {event.organizerId && onProfileClick && (
+          <button 
+            onClick={handleOrganizerClick}
+            className="text-left mb-1 group/organizer"
+          >
+            <span className="text-[10px] text-[#B0B3B8] font-medium hover:text-[#1877F2] transition-colors">
+              By {event.organizer_name || 'Organizer'}
+            </span>
+          </button>
+        )}
+        
         <p className="text-[11px] text-[#B0B3B8] font-medium truncate mb-1">
           {date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} • {event.time}
         </p>
@@ -188,13 +209,27 @@ const CompactEventCard: React.FC<{
 };
 
 // --- EVENT DETAILS MODAL COMPONENT ---
-const EventDetailsModal: React.FC<{ event: any, currentUser: User | null, onClose: () => void, onJoin: () => void, onInterested: () => void }> = ({ event, currentUser, onClose, onJoin, onInterested }) => {
+const EventDetailsModal: React.FC<{ 
+  event: any, 
+  currentUser: User | null, 
+  onClose: () => void, 
+  onJoin: () => void, 
+  onInterested: () => void,
+  onProfileClick?: (userId: number) => void 
+}> = ({ event, currentUser, onClose, onJoin, onInterested, onProfileClick }) => {
   const attendees = Array.isArray(event.attendees) ? event.attendees : [];
   const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
   
   const date = safeDate(event.date || event.event_date || event.created_at || Date.now());
   const isAttending = !!currentUser && attendees.includes(currentUser.id);
   const isInterested = !!currentUser && interestedIds.includes(currentUser.id);
+
+  const handleOrganizerClick = () => {
+    if (onProfileClick && event.organizerId) {
+      onProfileClick(event.organizerId);
+      onClose();
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[600] bg-black/90 flex items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-md" onClick={onClose}>
@@ -215,6 +250,19 @@ const EventDetailsModal: React.FC<{ event: any, currentUser: User | null, onClos
                 {date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
               </p>
               <h2 className="text-3xl font-black text-white leading-tight">{event.title}</h2>
+              
+              {/* Organizer info - NEW */}
+              {event.organizerId && onProfileClick && (
+                <button 
+                  onClick={handleOrganizerClick}
+                  className="mt-2 text-left group"
+                >
+                  <span className="text-sm text-[#B0B3B8] hover:text-[#1877F2] transition-colors">
+                    Hosted by <span className="font-bold">{event.organizer_name || 'Organizer'}</span>
+                  </span>
+                </button>
+              )}
+              
               <div className="flex items-center gap-2 text-[#B0B3B8] font-bold mt-2">
                 <i className="fas fa-location-dot text-[#1877F2]"></i>
                 <span>{event.location}</span>
@@ -298,7 +346,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
   onJoinEvent, 
   onInterestedEvent, 
   onCreateEventClick,
-  // These are received from App.tsx but not used yet
+  // These are received from App.tsx and now used in the component
   onProfileClick,
   onFollow,
   checkIsFollowing,
@@ -439,10 +487,9 @@ export const EventsPage: React.FC<EventsPageProps> = ({
           <button 
             onClick={onCreateEventClick}
             className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95"
-            // Removed disabled state to keep create button always clickable
           >
             <i className="fas fa-calendar-plus text-xl"></i>
-            <span>Create Event</span> {/* Always shows "Create Event" */}
+            <span>Create Event</span>
           </button>
         )}
       </div>
@@ -489,6 +536,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
                         onClick={() => setSelectedEvent(event)}
                         onJoin={(e) => { e.stopPropagation(); handleJoin(event.id); }}
                         onInterested={(e) => { e.stopPropagation(); handleInterested(event.id); }}
+                        onProfileClick={onProfileClick}
                       />
                     ))}
                   </div>
@@ -505,6 +553,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
                       onClick={() => setSelectedEvent(event)}
                       onJoin={(e) => { e.stopPropagation(); handleJoin(event.id); }}
                       onInterested={(e) => { e.stopPropagation(); handleInterested(event.id); }}
+                      onProfileClick={onProfileClick}
                     />
                   ))}
                 </div>
@@ -530,6 +579,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
           onClose={() => setSelectedEvent(null)}
           onJoin={() => handleJoin(selectedEvent.id)}
           onInterested={() => handleInterested(selectedEvent.id)}
+          onProfileClick={onProfileClick}
         />
       )}
     </div>
