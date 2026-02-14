@@ -1,3 +1,5 @@
+// App.tsx - Complete updated version with all fixes
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -558,6 +560,10 @@ const normalizeEvent = (e: any): Event => {
     event_time: time,
 
     created_at: safeString(e?.created_at ?? e?.createdAt ?? '', new Date().toISOString()),
+    
+    // Group event specific fields
+    group_id: e?.group_id ? safeNumber(e.group_id) : null,
+    user_rsvp_status: e?.user_rsvp_status ?? null,
   } as any;
 };
 
@@ -758,6 +764,7 @@ const normalizeGroup = (g: any): Group => {
     posts: safeArray(g?.posts),
     events: safeArray(g?.events),
     member_posting_allowed: Boolean(g?.member_posting_allowed ?? true),
+    members_count: safeNumber(g?.members_count ?? safeArray(g?.members).length),
   } as any;
 };
 
@@ -2774,6 +2781,7 @@ export default function App() {
       creator_id: Number(currentUser.id),
       creator_name: safeString(currentUser.name),
       creator_avatar: safeString(currentUser.profile_image_url),
+      group_id: eventData?.group_id ? Number(eventData.group_id) : null,
     };
 
     const res = await apiFetch('/api/events', { method: 'POST', body: JSON.stringify(payload) });
@@ -2839,14 +2847,19 @@ export default function App() {
     }
   }, [currentUser]);
 
-  const toggleGroupPostLike = useCallback(async (postId: number) => {
-    if (!requireAuth("Liking")) return;
+  const toggleGroupPostLike = useCallback(async (postId: number, type?: ReactionType) => {
+    if (!requireAuth("Liking")) return { liked: false, likes_count: 0 };
     const meId = Number(currentUser!.id);
+    const reactionType = type || 'like';
 
     try {
       const res = await apiFetch("/api/group-post-likes", {
         method: "POST",
-        body: JSON.stringify({ user_id: meId, post_id: Number(postId) })
+        body: JSON.stringify({ 
+          user_id: meId, 
+          post_id: Number(postId),
+          type: reactionType 
+        })
       });
 
       return {
@@ -2896,29 +2909,37 @@ export default function App() {
     const meId = Number(currentUser!.id);
 
     try {
-      return await apiFetch("/api/group-members", {
+      const result = await apiFetch("/api/group-members", {
         method: "POST",
         body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
       });
+      
+      // Refresh groups data
+      fetchOtherData().catch(() => {});
+      return result;
     } catch (error) {
       console.error('Failed to join group:', error);
       throw error;
     }
-  }, [currentUser, requireAuth]);
+  }, [currentUser, requireAuth, fetchOtherData]);
 
   const leaveGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Leaving groups")) return;
     const meId = Number(currentUser!.id);
 
     try {
-      return await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`, {
+      const result = await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`, {
         method: "DELETE",
       });
+      
+      // Refresh groups data
+      fetchOtherData().catch(() => {});
+      return result;
     } catch (error) {
       console.error('Failed to leave group:', error);
       throw error;
     }
-  }, [currentUser, requireAuth]);
+  }, [currentUser, requireAuth, fetchOtherData]);
 
   const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
     if (!requireAuth("Posting")) return;
@@ -2931,7 +2952,7 @@ export default function App() {
     }
 
     try {
-      return await apiFetch("/api/group-posts", {
+      const result = await apiFetch("/api/group-posts", {
         method: "POST",
         body: JSON.stringify({
           group_id: Number(groupId),
@@ -2940,6 +2961,8 @@ export default function App() {
           media_url,
         }),
       });
+      
+      return result;
     } catch (error) {
       console.error('Failed to create group post:', error);
       throw error;
@@ -3017,6 +3040,107 @@ export default function App() {
       return { group: null, members: [] };
     }
   }, []);
+
+  /** ---------- NEW: Fetch group events ---------- */
+  const fetchGroupEvents = useCallback(async (groupId: number): Promise<Event[]> => {
+    if (!requireAuth('Viewing events')) return [];
+    
+    try {
+      const data = await apiFetch(`/api/groups/${groupId}/events?viewerId=${currentUser?.id || 0}`);
+      return safeArray(data?.events ?? data).map(normalizeEvent);
+    } catch (error) {
+      console.error('Failed to fetch group events:', error);
+      return [];
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- NEW: Create group event ---------- */
+  const createGroupEvent = useCallback(async (groupId: number, eventData: Partial<Event>): Promise<Event> => {
+    if (!requireAuth('Creating events')) throw new Error('Authentication required');
+    if (!currentUser) throw new Error('User not authenticated');
+
+    const payload = {
+      ...eventData,
+      group_id: groupId,
+      created_by: currentUser.id,
+      created_at: new Date().toISOString(),
+      cover_image: eventData.cover_image || DEFAULT_EVENT_COVER,
+    };
+
+    try {
+      const data = await apiFetch(`/api/groups/${groupId}/events`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const newEvent = normalizeEvent(data?.event ?? data);
+      
+      // Update events state if needed
+      setEvents(prev => [newEvent, ...safeArray(prev)]);
+      
+      return newEvent;
+    } catch (error) {
+      console.error('Failed to create group event:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- NEW: Event RSVP function ---------- */
+  const handleEventRSVP = useCallback(async (eventId: number, status: string): Promise<any> => {
+    if (!requireAuth('RSVP to events')) return;
+    if (!currentUser) return;
+
+    try {
+      const response = await apiFetch(`/api/events/${eventId}/rsvp`, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          user_id: currentUser.id, 
+          status: status 
+        }),
+      });
+
+      // Update local events state
+      setEvents(prev => 
+        safeArray(prev).map(event => {
+          if (Number(event.id) !== Number(eventId)) return event;
+          
+          const attendees = new Set(event.attendees || []);
+          if (status === 'going') {
+            attendees.add(currentUser.id);
+          } else {
+            attendees.delete(currentUser.id);
+          }
+          
+          return {
+            ...event,
+            attendees: Array.from(attendees),
+            user_rsvp_status: status,
+          } as Event;
+        })
+      );
+
+      return response;
+    } catch (error) {
+      console.error('Failed to RSVP to event:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- NEW: Like comment function (needed for CommentsSheet) ---------- */
+  const handleLikeComment = useCallback(async (commentId: number): Promise<any> => {
+    if (!requireAuth('Liking comments')) return;
+    if (!currentUser) return;
+
+    try {
+      return await apiFetch(`/api/comments/${commentId}/like`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+    } catch (error) {
+      console.error('Failed to like comment:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
 
   const inviteToGroup = useCallback(async (groupId: number, userIds: number[]) => {
     if (!requireAuth("Inviting to groups")) return;
@@ -3416,16 +3540,6 @@ export default function App() {
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
-  };
-
-  const handleLikeComment = async (commentId: number) => {
-    if (!currentUser) return;
-
-    await fetch(`/api/comments/${commentId}/like`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: currentUser.id }),
-    });
   };
 
   const followUser = useCallback(
@@ -4181,22 +4295,37 @@ export default function App() {
                 onDeleteGroup={deleteGroup}
                 onUpdateGroupImage={updateGroupImage}
                 onPostToGroup={createGroupPost}
-                onCreateGroupEvent={() => requireAuth('Creating events')}
+                onCreateGroupEvent={createGroupEvent}
                 onInviteToGroup={inviteToGroup}
-                onProfileClick={(id) => openProfile(id)}
+                onProfileClick={openProfile}
                 onLikePost={toggleGroupPostLike}
-                onOpenComments={() => requireAuth('Commenting')}
-                onSharePost={(post: any) => handleOpenShareSheet(post)}
+                onSharePost={(postId: number, newShareCount: number) => {
+                  // Update local state
+                  setPosts(prev => prev.map(p => 
+                    p.id === postId ? { ...p, shares: newShareCount } as any : p
+                  ));
+                }}
                 onDeleteGroupPost={deleteGroupPost}
                 onRemoveMember={removeGroupMember}
                 onUpdateGroupSettings={updateGroupSettings}
+                onEventRSVP={handleEventRSVP}
+                fetchGroupPosts={fetchGroupPosts}
+                fetchGroupDetails={fetchGroupDetails}
+                fetchGroupEvents={fetchGroupEvents}
+                fetchComments={fetchGroupPostComments}
+                onComment={createGroupPostComment}
+                onLikeComment={handleLikeComment}
                 onPlayAudioTrack={onPlayTrack}
                 onFollow={followUser}
                 checkIsFollowing={checkIsFollowing}
-                fetchGroupPosts={fetchGroupPosts}
-                fetchGroupDetails={fetchGroupDetails}
-                fetchComments={fetchGroupPostComments}
-                onComment={createGroupPostComment}
+                onHashtagClick={handleHashtagClick}
+                onViewImage={setFullScreenImage}
+                onVideoClick={(post) => {
+                  if (post.media_url) {
+                    setActiveReelId(post.id);
+                    setView('reels');
+                  }
+                }}
                 initialGroupId={null}
               />
             </ErrorBoundary>
@@ -4436,7 +4565,7 @@ export default function App() {
             setActiveCommentsPostId(null);
             setCommentPostSnapshot(null);
           }}
-          onComment={() => {}}
+          onComment={createGroupPostComment}
           onLikeComment={handleLikeComment}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
