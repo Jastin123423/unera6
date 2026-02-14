@@ -1,4 +1,4 @@
-// Groups.tsx - Fixed version with all required components locally implemented
+// Groups.tsx - Fixed version with all required components locally implemented and event creation working
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { User, Group, Event, Post as PostType, ReactionType } from '../types';
@@ -151,7 +151,7 @@ const MediaGrid: React.FC<{
         onOpen(url, index);
       }}
       className={`relative overflow-hidden ${className}`}
-      style={{ borderRadius: 0 }} // ✅ no inner rounding; card handles rounding with overflow-hidden
+      style={{ borderRadius: 0 }}
     >
       <img
         src={url}
@@ -159,7 +159,6 @@ const MediaGrid: React.FC<{
         loading="lazy"
         className="w-full h-full object-cover"
         onError={(e) => {
-          // hide broken tile cleanly
           (e.currentTarget as HTMLImageElement).style.display = 'none';
         }}
       />
@@ -172,7 +171,7 @@ const MediaGrid: React.FC<{
     </button>
   );
 
-  // ✅ 1 image: full width normal (still grid-friendly)
+  // ✅ 1 image: full width normal
   if (total === 1) {
     return (
       <div className="w-full bg-black">
@@ -340,7 +339,109 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
 };
 
 /**
- * ✅ NEW: GroupPost Component with Multi-image Support and See More/Less
+ * Group Event Card Component
+ */
+const GroupEventCard: React.FC<{
+  event: Event;
+  group: Group;
+  currentUser: User | null;
+  onRSVP?: (eventId: number, status: string) => Promise<any>;
+  onProfileClick: (id: number) => void;
+}> = ({ event, group, currentUser, onRSVP, onProfileClick }) => {
+  const [rsvpStatus, setRsvpStatus] = useState<string>(event.user_rsvp_status || '');
+  const [loading, setLoading] = useState(false);
+
+  const eventDate = new Date(event.start_time || event.date || '');
+  const formattedDate = eventDate.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const handleRSVP = async (status: string) => {
+    if (!currentUser || !onRSVP) return;
+    setLoading(true);
+    try {
+      await onRSVP(event.id, status);
+      setRsvpStatus(status);
+    } catch (error) {
+      console.error('Failed to RSVP:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#1e1e1e] rounded-xl border border-[#333] overflow-hidden hover:shadow-lg transition-all">
+      {event.cover_image && (
+        <div className="h-40 overflow-hidden">
+          <img 
+            src={event.cover_image} 
+            alt={event.title}
+            className="w-full h-full object-cover"
+          />
+        </div>
+      )}
+      <div className="p-4">
+        <h4 className="text-[#e4e6eb] font-bold text-lg mb-2">{event.title}</h4>
+        <p className="text-[#b0b3b8] text-sm mb-3 line-clamp-2">{event.description}</p>
+        
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center gap-2 text-[#b0b3b8] text-sm">
+            <i className="fas fa-calendar text-[#1877f2] w-5"></i>
+            <span>{formattedDate}</span>
+          </div>
+          {event.location && (
+            <div className="flex items-center gap-2 text-[#b0b3b8] text-sm">
+              <i className="fas fa-map-marker-alt text-[#1877f2] w-5"></i>
+              <span>{event.location}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2 text-[#b0b3b8] text-sm">
+            <i className="fas fa-users text-[#1877f2] w-5"></i>
+            <span>{event.attendees?.length || 0} attending</span>
+          </div>
+        </div>
+
+        {currentUser && onRSVP && (
+          <div className="flex gap-2">
+            {rsvpStatus === 'going' ? (
+              <button
+                onClick={() => handleRSVP('not_going')}
+                disabled={loading}
+                className="flex-1 bg-[#45BD62] text-white px-3 py-2 rounded-lg font-bold text-sm hover:bg-[#3aa34f] transition-colors disabled:opacity-50"
+              >
+                <i className="fas fa-check mr-2"></i>Going
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => handleRSVP('going')}
+                  disabled={loading}
+                  className="flex-1 bg-[#1877f2] text-white px-3 py-2 rounded-lg font-bold text-sm hover:bg-[#166fe5] transition-colors disabled:opacity-50"
+                >
+                  Going
+                </button>
+                <button
+                  onClick={() => handleRSVP('interested')}
+                  disabled={loading}
+                  className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] px-3 py-2 rounded-lg font-bold text-sm hover:bg-[#3a3a3a] transition-colors disabled:opacity-50"
+                >
+                  Interested
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * GroupPost Component with Multi-image Support and See More/Less
  */
 const GroupPost: React.FC<{
   post: PostType;
@@ -376,7 +477,7 @@ const GroupPost: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
-  // ✅ Enhanced reaction logic
+  // Enhanced reaction logic
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
     (p as any).likesCount ?? 
@@ -415,10 +516,9 @@ const GroupPost: React.FC<{
   const createdAtLabel = formatRelativeTime(p.created_at);
   const postId = Number(p.id ?? p.post_id ?? 0);
 
-  // ✅ Get media list for multiple images
+  // Get media list for multiple images
   const mediaList = useMemo(() => {
     const list = getPostMediaList(p);
-    // For grid display, focus on images only
     return list.filter((x) => x.kind === 'image');
   }, [p]);
 
@@ -461,7 +561,7 @@ const GroupPost: React.FC<{
     setShowShareSheet(false);
   };
 
-  // ✅ Handle "See more" click to open Full Post View
+  // Handle "See more" click to open Full Post View
   const handleSeeMore = () => {
     onOpenComments(postId);
   };
@@ -511,7 +611,7 @@ const GroupPost: React.FC<{
           )}
         </div>
 
-        {/* ✅ UPDATED: Use ExpandableRichText with onSeeMore prop */}
+        {/* UPDATED: Use ExpandableRichText with onSeeMore prop */}
         {p.content && (
           <div className="px-3 md:px-4 pb-2">
             <ExpandableRichText
@@ -521,12 +621,12 @@ const GroupPost: React.FC<{
               onHashtagClick={onHashtagClick}
               maxWords={25}
               fontSizePx={21}
-              onSeeMore={handleSeeMore} // ✅ Opens Full Post View
+              onSeeMore={handleSeeMore}
             />
           </div>
         )}
 
-        {/* ✅ MULTI-IMAGE SUPPORT: Use MediaGrid for multiple images */}
+        {/* MULTI-IMAGE SUPPORT: Use MediaGrid for multiple images */}
         {mediaList.length > 0 && (
           <MediaGrid
             media={mediaList.map((m) => ({ url: m.url }))}
@@ -534,7 +634,7 @@ const GroupPost: React.FC<{
           />
         )}
 
-        {/* ✅ Single image (fallback) */}
+        {/* Single image (fallback) */}
         {mediaList.length === 0 && mediaUrl && !isVideo && (
           <div
             className="cursor-pointer bg-black"
@@ -553,7 +653,7 @@ const GroupPost: React.FC<{
           </div>
         )}
 
-        {/* ✅ Video support */}
+        {/* Video support */}
         {isVideo && mediaUrl && (
           <div
             className="cursor-pointer relative h-[500px] bg-black"
@@ -664,9 +764,13 @@ interface GroupsPageProps {
   onRemoveMember: (groupId: number, memberId: number) => Promise<any>;
   onUpdateGroupSettings: (groupId: number, settings: Partial<Group>) => Promise<any>;
 
+  // Event RSVP function
+  onEventRSVP?: (eventId: number, status: string) => Promise<any>;
+
   // Optional functions
   fetchGroupPosts?: (groupId: number) => Promise<any[]>;
-  fetchGroupDetails?: (groupId: number) => Promise<{ group: Group; members: any[] }>;
+  fetchGroupDetails?: (groupId: number) => Promise<{ group: Group; members: any[]; events?: Event[] }>;
+  fetchGroupEvents?: (groupId: number) => Promise<Event[]>;
   fetchComments?: (postId: number) => Promise<any[]>;
   onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>;
   onLikeComment?: (commentId: number) => Promise<any>;
@@ -734,6 +838,27 @@ function normalizePost(post: any): PostType {
   } as any;
 }
 
+/**
+ * Normalize event data for UI safety
+ */
+function normalizeEvent(event: any): Event {
+  return {
+    ...event,
+    id: Number(event?.id ?? 0),
+    title: String(event?.title ?? ''),
+    description: String(event?.description ?? ''),
+    start_time: event?.start_time ?? event?.date ?? new Date().toISOString(),
+    end_time: event?.end_time ?? null,
+    location: event?.location ?? null,
+    cover_image: event?.cover_image ?? null,
+    attendees: Array.isArray(event?.attendees) ? event.attendees : [],
+    created_by: Number(event?.created_by ?? 0),
+    group_id: event?.group_id ? Number(event.group_id) : null,
+    created_at: event?.created_at ?? new Date().toISOString(),
+    user_rsvp_status: event?.user_rsvp_status ?? null,
+  };
+}
+
 export const GroupsPage: React.FC<GroupsPageProps> = ({
   currentUser,
   groups,
@@ -752,8 +877,10 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   onDeleteGroupPost,
   onRemoveMember,
   onUpdateGroupSettings,
+  onEventRSVP,
   fetchGroupPosts,
   fetchGroupDetails,
+  fetchGroupEvents,
   fetchComments,
   onComment,
   onLikeComment,
@@ -775,10 +902,14 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
 
-  // ✅ NEW: Full Post View state
+  // Full Post View state
   const [showPostView, setShowPostView] = useState(false);
   const [selectedPost, setSelectedPost] = useState<PostType | null>(null);
   const [selectedPostAuthor, setSelectedPostAuthor] = useState<User | null>(null);
+
+  // Events state
+  const [groupEvents, setGroupEvents] = useState<Event[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
 
   // Facebook-like tabs for groups feed
   const [fbTab, setFbTab] = useState<'Your groups' | 'Posts' | 'Discover' | 'Invites'>('Your groups');
@@ -803,7 +934,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [postContent, setPostContent] = useState('');
   const [postFile, setPostFile] = useState<File | null>(null);
 
-  // ✅ normalize ALL groups so missing arrays never crash UI
+  // normalize ALL groups so missing arrays never crash UI
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
 
   useEffect(() => {
@@ -831,6 +962,13 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup]);
 
+  // Load group events when active group changes and Events tab is selected
+  useEffect(() => {
+    if (activeGroup && groupTab === 'Events' && fetchGroupEvents) {
+      loadGroupEvents();
+    }
+  }, [activeGroup, groupTab]);
+
   const loadGroupPosts = async () => {
     if (!activeGroup || !fetchGroupPosts) return;
     
@@ -843,6 +981,21 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       setGroupPosts([]);
     } finally {
       setLoadingPosts(false);
+    }
+  };
+
+  const loadGroupEvents = async () => {
+    if (!activeGroup || !fetchGroupEvents) return;
+    
+    setLoadingEvents(true);
+    try {
+      const events = await fetchGroupEvents(activeGroup.id);
+      setGroupEvents(events.map(normalizeEvent));
+    } catch (error) {
+      console.error('Failed to load group events:', error);
+      setGroupEvents([]);
+    } finally {
+      setLoadingEvents(false);
     }
   };
 
@@ -928,6 +1081,54 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       } catch (error) {
         console.error('Failed to update group image:', error);
       }
+    }
+  };
+
+  // ✅ NEW: Handle event creation
+  const handleCreateEvent = async (eventData: Partial<Event>) => {
+    if (!activeGroup || !currentUser) return;
+    
+    try {
+      await onCreateGroupEvent(activeGroup.id, {
+        ...eventData,
+        created_by: currentUser.id,
+        group_id: activeGroup.id
+      });
+      
+      setShowEventModal(false);
+      
+      // Reload events if we're on the Events tab
+      if (groupTab === 'Events' && fetchGroupEvents) {
+        await loadGroupEvents();
+      }
+    } catch (error) {
+      console.error('Failed to create event:', error);
+      throw error;
+    }
+  };
+
+  // ✅ NEW: Handle RSVP to event
+  const handleEventRSVP = async (eventId: number, status: string) => {
+    if (!onEventRSVP) return;
+    
+    try {
+      await onEventRSVP(eventId, status);
+      
+      // Update local state
+      setGroupEvents(prev => prev.map(event => {
+        if (event.id === eventId) {
+          return { 
+            ...event, 
+            user_rsvp_status: status,
+            attendees: status === 'going' 
+              ? [...(event.attendees || []), currentUser?.id]
+              : (event.attendees || []).filter(id => id !== currentUser?.id)
+          } as any;
+        }
+        return event;
+      }));
+    } catch (error) {
+      console.error('Failed to RSVP to event:', error);
     }
   };
 
@@ -1038,7 +1239,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  // ✅ NEW: Handle open comments (Full Post View)
+  // Handle open comments (Full Post View)
   const handleOpenComments = (postId: number) => {
     const post = groupPosts.find(p => p.id === postId);
     if (!post) return;
@@ -1051,7 +1252,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     setShowPostView(true);
   };
 
-  // ✅ NEW: Handle share post
+  // Handle share post
   const handleSharePost = async (postId: number, newShareCount: number) => {
     try {
       await onSharePost(postId, newShareCount);
@@ -1073,7 +1274,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  // ✅ NEW: Handle delete post
+  // Handle delete post
   const handleDeletePost = async (postId: number) => {
     if (!activeGroup || !confirm('Are you sure you want to delete this post?')) return;
     
@@ -1473,7 +1674,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           )}
         </div>
 
-        {/* ✅ Full Post View */}
+        {/* Full Post View */}
         {showPostView && selectedPost && selectedPostAuthor && currentUser && (
           <CommentsSheet
             post={selectedPost}
@@ -1626,6 +1827,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
         </div>
 
         <div className="max-w-[700px] mx-auto px-0 md:px-4">
+          {/* Discussion Tab */}
           {groupTab === 'Discussion' && (
             <div className="animate-fade-in">
               {isMember && canPost && (
@@ -1716,6 +1918,76 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             </div>
           )}
 
+          {/* ✅ FIXED: Events Tab with full event creation and display functionality */}
+          {groupTab === 'Events' && (
+            <div className="animate-fade-in">
+              {/* Create Event Button - visible to members only */}
+              {isMember && (
+                <div className="bg-[#1e1e1e] rounded-xl p-4 mb-4 border border-[#333] mx-2 md:mx-0">
+                  <button
+                    onClick={() => setShowEventModal(true)}
+                    className="w-full bg-[#1877f2] text-white px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-[#166fe5] transition-all"
+                  >
+                    <i className="fas fa-calendar-plus"></i>
+                    Create Event in {activeGroup.name}
+                  </button>
+                </div>
+              )}
+
+              {/* Events List */}
+              <div className="space-y-4">
+                {!isMember && activeGroup.type === 'private' ? (
+                  <div className="bg-[#1e1e1e] rounded-xl p-12 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
+                      <i className="fas fa-lock text-[#b0b3b8] text-2xl"></i>
+                    </div>
+                    <h3 className="text-[#e4e6eb] font-bold text-xl mb-2">Join to See Events</h3>
+                    <p className="text-[#b0b3b8] mb-8 max-w-xs mx-auto">Only members can view and RSVP to events in this group.</p>
+                    <button
+                      onClick={handleJoinGroup}
+                      className="bg-[#1877f2] text-white px-10 py-2.5 rounded-lg font-black shadow-lg hover:bg-[#166fe5] transition-all active:scale-95"
+                    >
+                      Join Group
+                    </button>
+                  </div>
+                ) : groupEvents.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mx-2 md:mx-0">
+                    {groupEvents.map(event => (
+                      <GroupEventCard
+                        key={event.id}
+                        event={event}
+                        group={activeGroup}
+                        currentUser={currentUser}
+                        onRSVP={onEventRSVP ? handleEventRSVP : undefined}
+                        onProfileClick={onProfileClick}
+                      />
+                    ))}
+                  </div>
+                ) : loadingEvents ? (
+                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
+                      <i className="fas fa-spinner fa-spin text-[#b0b3b8] text-2xl"></i>
+                    </div>
+                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">Loading events...</h3>
+                  </div>
+                ) : (
+                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
+                      <i className="fas fa-calendar text-[#b0b3b8] text-2xl"></i>
+                    </div>
+                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">No upcoming events</h3>
+                    {isMember ? (
+                      <p className="text-[#b0b3b8] text-sm">Create an event to bring the community together!</p>
+                    ) : (
+                      <p className="text-[#b0b3b8] text-sm">Check back later for events in this group.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* About Tab */}
           {groupTab === 'About' && (
             <div className="bg-[#1e1e1e] rounded-xl p-8 border border-[#333] mx-4 md:mx-0 shadow-sm animate-fade-in">
               <h3 className="text-xl font-bold text-[#e4e6eb] mb-4">About this group</h3>
@@ -1747,6 +2019,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             </div>
           )}
 
+          {/* Members Tab */}
           {groupTab === 'Members' && (
             <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-4 md:mx-0 overflow-hidden shadow-sm animate-fade-in">
               <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
@@ -1794,6 +2067,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           )}
         </div>
 
+        {/* Create Post Modal */}
         {showGroupPostModal && (
           <div className="fixed inset-0 z-[150] bg-[#121212] flex flex-col animate-slide-up font-sans">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#333] bg-[#1e1e1e]">
@@ -1870,11 +2144,9 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
               ref={postFileInputRef}
               className="hidden"
               accept="image/*,video/*"
-              multiple // ✅ Support multiple files
+              multiple
               onChange={e => {
                 if (e.target.files && e.target.files[0]) {
-                  // For simplicity, take the first file
-                  // In a real implementation, you'd need to handle multiple files
                   setPostFile(e.target.files[0]);
                 }
               }}
@@ -1882,6 +2154,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           </div>
         )}
 
+        {/* Settings Modal */}
         {showSettingsModal && activeGroup && (
           <GroupSettingsModal
             group={activeGroup}
@@ -1896,16 +2169,19 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           />
         )}
 
-        {showEventModal && currentUser && (
+        {/* ✅ FIXED: Create Event Modal - Now properly connected */}
+        {showEventModal && currentUser && activeGroup && (
           <CreateEventModal
             currentUser={currentUser}
             onClose={() => setShowEventModal(false)}
-            onCreate={event => activeGroup && onCreateGroupEvent(activeGroup.id, event)}
+            onCreate={(eventData) => handleCreateEvent(eventData)}
+            groupId={activeGroup.id}
+            groupName={activeGroup.name}
           />
         )}
       </div>
 
-      {/* ✅ Full Post View for Groups */}
+      {/* Full Post View for Groups */}
       {showPostView && selectedPost && selectedPostAuthor && currentUser && (
         <CommentsSheet
           post={selectedPost}
