@@ -1,4 +1,4 @@
-// Events.tsx - Updated with all fixes
+// Events.tsx - Updated with all fixes and App.tsx compatibility improvements
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { User, Event } from '../types';
 
@@ -223,6 +223,9 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
         } catch (uploadError: any) {
           console.error('Image upload failed:', uploadError);
           // Continue with default image if upload fails
+          // Show a warning but don't block event creation
+          setError('Image upload failed, but event will be created with default cover.');
+          setTimeout(() => setError(null), 3000);
         }
       }
 
@@ -239,6 +242,9 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
         // Note: App.tsx will add organizer + attendees fields
       };
 
+      // Log the data being sent (helpful for debugging)
+      console.log('Creating event with data:', eventData);
+      
       await onCreate(eventData as any);
       
       // Clean up blob URL if created
