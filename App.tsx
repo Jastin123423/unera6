@@ -1,9 +1,3 @@
-// App.tsx - UPDATED: Marketplace products as real posts + removed "products after 5 posts" mixer
-// ✅ FIXED: Meta field JSON parsing for marketplace posts
-// ✅ REMOVED: MarketplaceProductPost component and feedItems mixer
-// ✅ ADDED: MarketplaceContext for Post.tsx integration
-// ✅ FIXED: createMarketplacePost payload matches ALL Feed.tsx detection paths
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -50,7 +44,6 @@ import {
   Song,
 } from './types';
 
-
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
@@ -84,6 +77,7 @@ const safeImages = (imgs: any): string[] => {
 
 /** ---------- Constants ---------- */
 const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
+const DEFAULT_EVENT_COVER = 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
 const LS_USER_KEY = 'user';
 
 /** ===== FB-LIKE STORY SEEN SYSTEM ===== */
@@ -490,10 +484,7 @@ const normalizePost = (p: any): PostType => {
   } as any;
 };
 
-/** Normalize event data */
-const DEFAULT_EVENT_COVER =
-  'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
-
+/** Event normalization helpers from App.tsx 1 */
 const toISO = (d: any) => {
   const dt = new Date(d);
   return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
@@ -513,6 +504,7 @@ const toTimeHM = (d: any) => {
   return `${hh}:${mm}`;
 };
 
+/** Normalize event data */
 const normalizeEvent = (e: any): Event => {
   const id = safeNumber(e?.id ?? e?.event_id ?? 0);
 
@@ -2636,6 +2628,7 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
+  /** ---------- Event Functions from App.tsx 1 ---------- */
   const fetchEvents = useCallback(async (): Promise<Event[]> => {
     try {
       const data = await apiFetch('/api/events');
@@ -2711,7 +2704,7 @@ export default function App() {
       setLoginError(err?.message || 'Failed to join event');
       throw err;
     }
-  }, [apiFetch, currentUser, requireAuth, updateEventState, fetchEvents]);
+  }, [currentUser, requireAuth, updateEventState, fetchEvents]);
 
   const markEventInterested = useCallback(async (eventId: number) => {
     if (!requireAuth('Marking event as interested')) return;
@@ -2750,7 +2743,7 @@ export default function App() {
       setLoginError(err?.message || 'Failed to mark interest');
       throw err;
     }
-  }, [apiFetch, currentUser, requireAuth, updateEventState, fetchEvents]);
+  }, [currentUser, requireAuth, updateEventState, fetchEvents]);
 
   const createEvent = useCallback(async (eventData: any) => {
     if (!requireAuth('Creating events')) return;
@@ -2787,7 +2780,7 @@ export default function App() {
     const newEvent = normalizeEvent(res?.event ?? res);
     setEvents((prev: any) => [newEvent, ...safeArray(prev)]);
     return newEvent;
-  }, [apiFetch, currentUser, requireAuth]);
+  }, [currentUser, requireAuth]);
 
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
