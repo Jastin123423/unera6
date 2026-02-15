@@ -582,7 +582,7 @@ export const CreatePostModal: React.FC<{
 
 // Export all components
 export {  
-
+  post,
   SuggestedProductsWidget,
   GalleryViewer,
   MediaGrid,
