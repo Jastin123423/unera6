@@ -1,11 +1,11 @@
-//. functions/api/group-posts.ts
+// functions/api/group-posts.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { cors, ok, bad, server } from "./_cors";
 
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-// CREATE post
+// CREATE: POST /api/group-posts
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => ({} as any));
@@ -32,16 +32,16 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
       .bind(group_id, user_id, content, media_url)
       .run();
 
-    return ok({ post_id: Number(result.meta.last_row_id) });
+    return ok({ success: true, post_id: Number(result.meta.last_row_id) });
   } catch (e: any) {
     return server(e?.message || "Failed to create group post");
   }
 };
 
-// LIST posts
+// LIST:
 // - all: /api/group-posts
 // - by group: /api/group-posts?group_id=123
-// - include viewer: /api/group-posts?group_id=123&viewerId=4  (returns my_reaction=like if liked)
+// - include viewer: /api/group-posts?group_id=123&viewerId=4  (returns my_reaction='like' if liked)
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
@@ -52,7 +52,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     const binds: any[] = [];
     if (group_id) binds.push(group_id);
 
-    // if viewerId provided, compute my_like (my_reaction) cheaply
+    // if viewerId provided, compute my_reaction cheaply
     const myLikeSelect = viewerId
       ? `(SELECT CASE WHEN EXISTS(
             SELECT 1 FROM group_post_likes l
@@ -81,8 +81,85 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     const q = env.DB.prepare(stmt);
     const { results } = group_id ? await q.bind(...binds).all() : await q.all();
 
-    return ok({ posts: results || [] });
+    return ok({ success: true, posts: results || [] });
   } catch (e: any) {
     return server(e?.message || "Failed to fetch group posts");
+  }
+};
+
+// EDIT: PUT /api/group-posts?post_id=123   body: { user_id, content }
+export const onRequestPut: PagesFunction = async ({ request, env }) => {
+  try {
+    const url = new URL(request.url);
+    const post_id = Number(url.searchParams.get("post_id") || 0);
+    if (!post_id) return bad("post_id is required");
+
+    const body = await request.json().catch(() => ({} as any));
+    const user_id = Number(body.user_id || 0);
+    const content = body.content == null ? "" : String(body.content).trim();
+
+    if (!user_id) return bad("user_id is required");
+    if (!content) return bad("content is required");
+
+    const post = await env.DB.prepare(
+      `SELECT id, group_id, user_id FROM group_posts WHERE id=? LIMIT 1`
+    ).bind(post_id).first();
+    if (!post) return bad("Post not found", 404);
+
+    const group_id = Number((post as any).group_id);
+    const author_id = Number((post as any).user_id);
+
+    const member = await env.DB.prepare(
+      `SELECT role FROM group_members WHERE group_id=? AND user_id=? LIMIT 1`
+    ).bind(group_id, user_id).first();
+
+    const isGroupAdmin = String((member as any)?.role || "") === "admin";
+    const isAuthor = author_id === user_id;
+
+    if (!isAuthor && !isGroupAdmin) return bad("Not allowed to edit this post", 403);
+
+    await env.DB.prepare(`UPDATE group_posts SET content=? WHERE id=?`)
+      .bind(content, post_id)
+      .run();
+
+    return ok({ success: true });
+  } catch (e: any) {
+    return server(e?.message || "Failed to edit group post");
+  }
+};
+
+// DELETE: DELETE /api/group-posts?post_id=123&user_id=4
+export const onRequestDelete: PagesFunction = async ({ request, env }) => {
+  try {
+    const url = new URL(request.url);
+    const post_id = Number(url.searchParams.get("post_id") || 0);
+    const user_id = Number(url.searchParams.get("user_id") || 0);
+
+    if (!post_id) return bad("post_id is required");
+    if (!user_id) return bad("user_id is required");
+
+    const post = await env.DB.prepare(
+      `SELECT id, group_id, user_id FROM group_posts WHERE id=? LIMIT 1`
+    ).bind(post_id).first();
+    if (!post) return bad("Post not found", 404);
+
+    const group_id = Number((post as any).group_id);
+    const author_id = Number((post as any).user_id);
+
+    const member = await env.DB.prepare(
+      `SELECT role FROM group_members WHERE group_id=? AND user_id=? LIMIT 1`
+    ).bind(group_id, user_id).first();
+
+    const isGroupAdmin = String((member as any)?.role || "") === "admin";
+    const isAuthor = author_id === user_id;
+
+    if (!isAuthor && !isGroupAdmin) return bad("Not allowed to delete this post", 403);
+
+    // ✅ CASCADE will delete likes/comments due to FK ON DELETE CASCADE
+    await env.DB.prepare(`DELETE FROM group_posts WHERE id=?`).bind(post_id).run();
+
+    return ok({ success: true });
+  } catch (e: any) {
+    return server(e?.message || "Failed to delete group post");
   }
 };
