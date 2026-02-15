@@ -2906,41 +2906,64 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
+  /** ---------- ✅ FIXED: joinGroup with optimistic update ---------- */
+  const uniq = (arr: number[]) => Array.from(new Set(arr));
+
   const joinGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Joining groups")) return;
     const meId = Number(currentUser!.id);
 
-    try {
-      const result = await apiFetch("/api/group-members", {
-        method: "POST",
-        body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
-      });
-      
-      // Refresh groups data
-      fetchOtherData().catch(() => {});
-      return result;
-    } catch (error) {
-      console.error('Failed to join group:', error);
-      throw error;
-    }
+    const result = await apiFetch("/api/group-members", {
+      method: "POST",
+      body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
+    });
+
+    // ✅ OPTIMISTIC UPDATE: Update UI immediately
+    setGroups(prev =>
+      prev.map(g => {
+        if (Number((g as any).id) !== Number(groupId)) return g as any;
+        const members = uniq([...(Array.isArray((g as any).members) ? (g as any).members : []), meId]);
+        return {
+          ...g,
+          members,
+          members_count: Number((g as any).members_count ?? members.length),
+        } as any;
+      })
+    );
+
+    // ✅ Then refresh in background
+    await fetchOtherData().catch(() => {});
+
+    return result;
   }, [currentUser, requireAuth, fetchOtherData]);
 
+  /** ---------- ✅ FIXED: leaveGroup with optimistic update ---------- */
   const leaveGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Leaving groups")) return;
     const meId = Number(currentUser!.id);
 
-    try {
-      const result = await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`, {
-        method: "DELETE",
-      });
-      
-      // Refresh groups data
-      fetchOtherData().catch(() => {});
-      return result;
-    } catch (error) {
-      console.error('Failed to leave group:', error);
-      throw error;
-    }
+    const result = await apiFetch(
+      `/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`,
+      { method: "DELETE" }
+    );
+
+    // ✅ OPTIMISTIC UPDATE: Update UI immediately
+    setGroups(prev =>
+      prev.map(g => {
+        if (Number((g as any).id) !== Number(groupId)) return g as any;
+        const members = (Array.isArray((g as any).members) ? (g as any).members : [])
+          .map(Number)
+          .filter((id: number) => id !== meId);
+        return {
+          ...g,
+          members,
+          members_count: Number((g as any).members_count ?? members.length),
+        } as any;
+      })
+    );
+
+    await fetchOtherData().catch(() => {});
+    return result;
   }, [currentUser, requireAuth, fetchOtherData]);
 
   const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
