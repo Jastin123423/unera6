@@ -61,6 +61,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const url = new URL(request.url);
 
     // ✅ allow opening /api/feeds directly in browser
+    // App can still pass ?userId=...
     const userId = toInt(url.searchParams.get('userId'), 0);
     const reactionUserId = userId || 0;
 
@@ -168,17 +169,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS event_id,
-        NULL AS event_date,
-        NULL AS meta,
-        NULL AS type,
-        NULL AS kind,
-        NULL AS post_type,
-        NULL AS product_id
+        NULL AS podcast_plays_count
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
     `;
@@ -260,17 +251,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS event_id,
-        NULL AS event_date,
-        NULL AS meta,
-        NULL AS type,
-        NULL AS kind,
-        NULL AS post_type,
-        NULL AS product_id
+        NULL AS podcast_plays_count
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
     `;
@@ -370,17 +351,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS event_id,
-        NULL AS event_date,
-        NULL AS meta,
-        NULL AS type,
-        NULL AS kind,
-        NULL AS post_type,
-        NULL AS product_id
+        NULL AS podcast_plays_count
       FROM songs s
       LEFT JOIN users u ON u.id = s.uploader_id
     `;
@@ -469,23 +440,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         pc.description AS podcast_description,
         pc.audio_url AS podcast_audio_url,
         pc.cover_url AS podcast_cover_url,
-        COALESCE(pc.plays_count, 0) AS podcast_plays_count,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS event_id,
-        NULL AS event_date,
-        NULL AS meta,
-        NULL AS type,
-        NULL AS kind,
-        NULL AS post_type,
-        NULL AS product_id
+        COALESCE(pc.plays_count, 0) AS podcast_plays_count
       FROM podcasts pc
       LEFT JOIN users u ON u.id = pc.creator_id
     `;
 
     // ============================================================
-    // 5) EVENTS
+    // 5) EVENTS (NEW)
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -522,11 +483,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
+        /* use title as content */
         e.title AS content,
         'public' AS visibility,
         0 AS views,
         0 AS shares,
 
+        /* cover */
         CASE
           WHEN e.cover_url LIKE 'data:%' THEN NULL
           WHEN length(e.cover_url) > 300 THEN NULL
@@ -559,7 +522,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS audio_url,
         0 AS audio_start,
         0 AS audio_end,
-
         e.location AS location,
         NULL AS song_id,
         NULL AS sound_key,
@@ -578,31 +540,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        e.group_id AS group_id,
-        NULL AS group_name,
-        e.id AS event_id,
-        e.event_date AS event_date,
-
-        json_object(
-          'kind','event',
-          'event_id', e.id,
-          'event_date', e.event_date,
-          'location', e.location,
-          'group_id', e.group_id
-        ) AS meta,
-
-        'event' AS type,
-        'event' AS kind,
-        NULL AS post_type,
-        NULL AS product_id
+        NULL AS podcast_plays_count
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
     `;
 
     // ============================================================
-    // 6) GROUP POSTS
+    // 6) GROUP POSTS (NEW)
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -651,9 +595,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         END AS media_url,
 
         CASE
-          WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
-          WHEN gp.media_url IS NOT NULL AND gp.media_url != '' THEN 'image'
-          ELSE NULL
+          WHEN gp.media_url LIKE 'data:%' THEN NULL
+          WHEN length(gp.media_url) > 300 THEN NULL
+          ELSE
+            CASE
+              WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+              ELSE 'image'
+            END
         END AS media_type,
 
         CASE
@@ -663,8 +611,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         END AS media_urls,
 
         CASE
-          WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN json_array('video')
-          WHEN gp.media_url IS NOT NULL AND gp.media_url != '' THEN json_array('image')
+          WHEN gp.media_url IS NOT NULL AND gp.media_url != ''
+          THEN json_array(
+            CASE
+              WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+              ELSE 'image'
+            END
+          )
           ELSE NULL
         END AS media_types,
 
@@ -699,26 +652,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        gp.group_id AS group_id,
-        COALESCE(g.name, 'Group') AS group_name,
-        NULL AS event_id,
-        NULL AS event_date,
-
-        json_object(
-          'kind','group_post',
-          'group_id', gp.group_id,
-          'group_name', COALESCE(g.name,'Group')
-        ) AS meta,
-
-        'group' AS type,
-        'group_post' AS kind,
-        NULL AS post_type,
-        NULL AS product_id
+        NULL AS podcast_plays_count
       FROM group_posts gp
       LEFT JOIN users u ON u.id = gp.user_id
-      LEFT JOIN groups g ON g.id = gp.group_id
     `;
 
     // ============================================================
@@ -752,7 +688,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const freshGroupPostsRes = await env.DB.prepare(
       `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY gp.created_at DESC LIMIT ?`
     ).bind(reactionUserId, ...bindsGroupPosts, freshCount).all();
-    const freshGroupPosts = Array.isArray(freshGroupPostsRes?.results) ? freshGroupPostsRes.results : [];
+    const freshGroupPosts = Array.isArray(freshGroupPostsRes?.results)
+      ? freshGroupPostsRes.results
+      : [];
 
     // ============================================================
     // RUN QUERIES (Explore)
@@ -793,11 +731,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       const exploreGroupPostsRes = await env.DB.prepare(
         `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, ...bindsGroupPosts, exploreCount).all();
-      exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results) ? exploreGroupPostsRes.results : [];
+      exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results)
+        ? exploreGroupPostsRes.results
+        : [];
     }
 
     // ============================================================
-    // Merge + dedup FEED (posts + reels + songs + podcasts + events + group posts)
+    // Merge + dedup FEED
     // ============================================================
     const map = new Map<string, any>();
     const allFeedRows = [
@@ -807,7 +747,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...freshPodcasts,
       ...freshEvents,
       ...freshGroupPosts,
-
       ...explorePosts,
       ...exploreReels,
       ...exploreSongs,
@@ -835,49 +774,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const ordered = seededShuffle(merged, seed);
 
     // ============================================================
-    // hasMore (across all sources)
+    // hasMore (posts-only simple)  ✅ KEEP SAME STYLE AS YOURS
     // ============================================================
     let hasMore = false;
     if (nextCursor) {
       const qMore = `
-        SELECT 1 AS ok
-        FROM (
-          SELECT created_at FROM posts
-          WHERE (visibility IS NULL OR visibility = 'public' OR visibility = '' OR visibility = 'Public')
-            AND created_at < ?
-          UNION ALL
-          SELECT created_at FROM reels
-          WHERE (visibility IS NULL OR visibility = 'public' OR visibility = '' OR visibility = 'Public')
-            AND created_at < ?
-          UNION ALL
-          SELECT created_at FROM songs
-          WHERE created_at < ?
-          UNION ALL
-          SELECT created_at FROM podcasts
-          WHERE created_at < ?
-          UNION ALL
-          SELECT created_at FROM events
-          WHERE (visibility IS NULL OR visibility = 'worldwide' OR visibility = 'targeted')
-            AND created_at < ?
-          UNION ALL
-          SELECT created_at FROM group_posts
-          WHERE (visibility IS NULL OR visibility = 'public')
-            AND created_at < ?
-        ) x
+        SELECT p.id
+        FROM posts p
+        WHERE
+          (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')
+          AND p.created_at < ?
+        ORDER BY p.created_at DESC
         LIMIT 1
       `;
-      const more = await env.DB.prepare(qMore).bind(
-        nextCursor,
-        nextCursor,
-        nextCursor,
-        nextCursor,
-        nextCursor,
-        nextCursor
-      ).first();
+      const more = await env.DB.prepare(qMore).bind(nextCursor).first();
       hasMore = !!more;
     }
 
-    const payload: any = {
+    const payload = {
       success: true,
       userId,
       limit,
