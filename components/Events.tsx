@@ -140,16 +140,23 @@ const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void 
   );
 };
 
+// ✅ UPDATED: Interface now accepts group info for Groups.tsx compatibility
 interface CreateEventModalProps {
   currentUser: User;
   onClose: () => void;
   onCreate: (event: Partial<Event>) => Promise<void>;
+  // ✅ allow Groups.tsx to pass these without TS crashing
+  groupId?: number;
+  groupName?: string;
 }
 
+// ✅ UPDATED: Component now receives groupId and groupName props
 export const CreateEventModal: React.FC<CreateEventModalProps> = ({
   currentUser,
   onClose,
   onCreate,
+  groupId,
+  groupName,
 }) => {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -244,6 +251,9 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
 
       // Log the data being sent (helpful for debugging)
       console.log('Creating event with data:', eventData);
+      if (groupId) {
+        console.log(`Creating event for group: ${groupName} (ID: ${groupId})`);
+      }
       
       await onCreate(eventData as any);
       
@@ -274,7 +284,9 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
     <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in font-sans backdrop-blur-sm">
       <div className="bg-[#242526] w-full max-w-[500px] rounded-xl border border-[#3E4042] shadow-2xl flex flex-col max-h-[90vh] animate-slide-up">
         <div className="p-4 border-b border-[#3E4042] flex justify-between items-center">
-          <h2 className="text-xl font-bold text-[#E4E6EB]">Create Event</h2>
+          <h2 className="text-xl font-bold text-[#E4E6EB]">
+            {groupId ? `Create Event in ${groupName}` : 'Create Event'}
+          </h2>
           <div
             onClick={onClose}
             className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center cursor-pointer transition-colors"
@@ -454,5 +466,5 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
   );
 };
 
-// Also export default for compatibility with different import styles
-export default CreateEventModal;
+// ✅ Remove default export - use named export only
+// export default CreateEventModal; - COMMENTED OUT/DELETED
