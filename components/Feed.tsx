@@ -2174,7 +2174,7 @@ export const Post: React.FC<{
 
 /**
  * =========================
- * CREATE POST CARD
+ * CREATE POST CARD - WITH CREATE EVENT BUTTON
  * =========================
  */
 export const CreatePost: React.FC<{
@@ -2228,8 +2228,8 @@ export const CreatePost: React.FC<{
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onCreateEventClick}
         >
-          <i className="fas fa-flag text-[#F7B928] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Life Event</span>
+          <i className="fas fa-calendar-alt text-[#F7B928] text-[22px]"></i>
+          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Create Event</span>
         </div>
       </div>
     </div>
