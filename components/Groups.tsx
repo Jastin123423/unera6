@@ -10,7 +10,7 @@ import {
 } from './Feed';
 import { CreateEventModal } from './Events';
 
-// ✅ SAFETY HELPERS - Add these at the top
+// ✅ SAFETY HELPERS
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
   const n = typeof v === 'number' ? v : Number(v);
@@ -444,19 +444,167 @@ const GroupEventCard: React.FC<{
   );
 };
 
+// ✅ NEW: Post Actions Menu Component - Three dots menu for edit/delete
+const PostActionsMenu: React.FC<{
+  post: PostType;
+  currentUser: User | null;
+  isGroupAdmin: boolean;
+  isPostAuthor: boolean;
+  onEdit?: (postId: number, content: string) => Promise<any>;
+  onDelete?: (postId: number) => Promise<any>;
+  onReport?: (postId: number) => Promise<any>;
+  onClose: () => void;
+}> = ({ post, currentUser, isGroupAdmin, isPostAuthor, onEdit, onDelete, onReport, onClose }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(post.content || '');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [onClose]);
+
+  const handleEdit = async () => {
+    if (!onEdit || !editText.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onEdit(post.id, editText.trim());
+      setIsEditing(false);
+      onClose();
+    } catch (error) {
+      console.error('Failed to edit post:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    if (window.confirm('Are you sure you want to delete this post?')) {
+      try {
+        await onDelete(post.id);
+        onClose();
+      } catch (error) {
+        console.error('Failed to delete post:', error);
+      }
+    }
+  };
+
+  const handleReport = async () => {
+    if (!onReport) return;
+    try {
+      await onReport(post.id);
+      alert('Post reported to group admins');
+      onClose();
+    } catch (error) {
+      console.error('Failed to report post:', error);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <div className="absolute right-0 top-8 z-50 w-80 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] p-4" ref={menuRef}>
+        <h4 className="text-[#e4e6eb] font-bold mb-3">Edit Post</h4>
+        <textarea
+          className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-3 text-[#e4e6eb] resize-none h-24 outline-none"
+          value={editText}
+          onChange={(e) => setEditText(e.target.value)}
+        />
+        <div className="flex justify-end gap-2 mt-3">
+          <button
+            onClick={() => setIsEditing(false)}
+            className="px-4 py-2 text-[#b0b3b8] hover:bg-[#2d2d2d] rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleEdit}
+            disabled={isSubmitting || !editText.trim()}
+            className="px-4 py-2 bg-[#1877f2] text-white rounded-lg hover:bg-[#166fe5] transition-colors disabled:opacity-50"
+          >
+            {isSubmitting ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute right-0 top-8 z-50 w-56 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] overflow-hidden" ref={menuRef}>
+      <div className="py-1">
+        {/* Show Edit/Delete for post author or group admin */}
+        {(isPostAuthor || isGroupAdmin) && (
+          <>
+            {onEdit && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb] transition-colors"
+              >
+                <i className="fas fa-edit w-5 text-[#b0b3b8]"></i>
+                <span>Edit Post</span>
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={handleDelete}
+                className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f] transition-colors"
+              >
+                <i className="fas fa-trash w-5 text-[#f3425f]"></i>
+                <span>Delete Post</span>
+              </button>
+            )}
+            <div className="border-t border-[#333] my-1"></div>
+          </>
+        )}
+        
+        {/* Report option for non-authors */}
+        {!isPostAuthor && onReport && (
+          <button
+            onClick={handleReport}
+            className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb] transition-colors"
+          >
+            <i className="fas fa-flag w-5 text-[#b0b3b8]"></i>
+            <span>Report Post</span>
+          </button>
+        )}
+
+        <button
+          onClick={onClose}
+          className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#b0b3b8] transition-colors"
+        >
+          <i className="fas fa-times w-5"></i>
+          <span>Close</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
 /**
- * GroupPost Component with Multi-image Support and See More/Less
+ * GroupPost Component with Three-Dots Menu (removed trash icon)
  */
 const GroupPost: React.FC<{
   post: PostType;
   author: User;
   currentUser: User | null;
   users: User[];
+  isGroupAdmin?: boolean;
+  isPlatformAdmin?: boolean;
   onProfileClick: (id: number) => void;
   onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
   onOpenComments: (postId: number) => void;
   onSharePost: (postId: number, newShareCount: number) => void;
+  onEditPost?: (postId: number, content: string) => Promise<any>;
   onDeletePost?: (postId: number) => Promise<any>;
+  onReportPost?: (postId: number) => Promise<any>;
   onViewImage?: (url: string) => void;
   onVideoClick?: (post: PostType) => void;
   onHashtagClick?: (tag: string) => void;
@@ -467,11 +615,15 @@ const GroupPost: React.FC<{
   author,
   currentUser,
   users = [],
+  isGroupAdmin = false,
+  isPlatformAdmin = false,
   onProfileClick,
   onLikePost,
   onOpenComments,
   onSharePost,
+  onEditPost,
   onDeletePost,
+  onReportPost,
   onViewImage,
   onVideoClick,
   onHashtagClick,
@@ -480,6 +632,19 @@ const GroupPost: React.FC<{
 }) => {
   const p: any = post as any;
   const a: any = author as any;
+
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [commentCount, setCommentCount] = useState(() => {
+    if (typeof p.comment_count === 'number') return p.comment_count;
+    if (Array.isArray(p.comments)) return p.comments.length;
+    return 0;
+  });
+
+  const [shareCount, setShareCount] = useState(() => {
+    return Number(p.shares ?? p.shares_count ?? 0);
+  });
+
+  const [showShareSheet, setShowShareSheet] = useState(false);
 
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
@@ -504,21 +669,11 @@ const GroupPost: React.FC<{
         ? reactionsArr.length
         : 0;
 
-  const [commentCount, setCommentCount] = useState(() => {
-    if (typeof p.comment_count === 'number') return p.comment_count;
-    if (Array.isArray(p.comments)) return p.comments.length;
-    return 0;
-  });
-
-  const [shareCount, setShareCount] = useState(() => {
-    return Number(p.shares ?? p.shares_count ?? 0);
-  });
-
-  const [showShareSheet, setShowShareSheet] = useState(false);
-
-  // ✅ FIXED: Add fallback for created_at
   const createdAtLabel = formatRelativeTime(p.created_at || p.createdAt || '');
   const postId = Number(p.id ?? p.post_id ?? 0);
+
+  const isPostAuthor = currentUser?.id === author.id;
+  const canModerate = Boolean(isPostAuthor || isGroupAdmin || isPlatformAdmin);
 
   // Get media list for multiple images
   const mediaList = useMemo(() => {
@@ -600,17 +755,33 @@ const GroupPost: React.FC<{
             </div>
           </div>
 
-          {onDeletePost && currentUser && currentUser.id === p.user_id && (
-            <button
-              className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeletePost(postId);
-              }}
-              title="Delete"
-            >
-              <i className="fas fa-trash text-[#B0B3B8]"></i>
-            </button>
+          {/* ✅ REPLACED: Three-dots menu button instead of trash icon */}
+          {(canModerate || onReportPost) && (
+            <div className="relative">
+              <button
+                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowActionsMenu(!showActionsMenu);
+                }}
+                aria-label="Post actions"
+              >
+                <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
+              </button>
+
+              {showActionsMenu && (
+                <PostActionsMenu
+                  post={post}
+                  currentUser={currentUser}
+                  isGroupAdmin={canModerate}
+                  isPostAuthor={isPostAuthor}
+                  onEdit={onEditPost}
+                  onDelete={onDeletePost}
+                  onReport={onReportPost}
+                  onClose={() => setShowActionsMenu(false)}
+                />
+              )}
+            </div>
           )}
         </div>
 
@@ -760,13 +931,15 @@ interface GroupsPageProps {
   onLikePost: (postId: number, type?: ReactionType) => Promise<{ liked: boolean; likes_count: number }>;
   onSharePost: (postId: number, newShareCount: number) => void;
   onDeleteGroupPost: (groupId: number, postId: number) => Promise<any>;
+  onEditGroupPost?: (postId: number, content: string) => Promise<any>;
+  onReportGroupPost?: (postId: number) => Promise<any>;
   onRemoveMember: (groupId: number, memberId: number) => Promise<any>;
   onUpdateGroupSettings: (groupId: number, settings: Partial<Group>) => Promise<any>;
 
   // Event RSVP function
   onEventRSVP?: (eventId: number, status: string) => Promise<any>;
 
-  // ✅ CRITICAL: These functions must be optional
+  // Optional functions
   fetchGroupPosts?: (groupId: number) => Promise<any[]>;
   fetchGroupDetails?: (groupId: number) => Promise<{ group: Group; members: any[]; events?: Event[] }>;
   fetchGroupEvents?: (groupId: number) => Promise<Event[]>;
@@ -838,7 +1011,7 @@ function normalizePost(post: any): PostType {
 }
 
 /**
- * ✅ FIXED: Normalize event data with proper group_id handling
+ * Normalize event data for UI safety
  */
 function normalizeEvent(event: any): Event {
   const groupId = event?.group_id ?? event?.groupId ?? event?.groupID ?? null;
@@ -862,8 +1035,8 @@ function normalizeEvent(event: any): Event {
 
 export const GroupsPage: React.FC<GroupsPageProps> = ({
   currentUser,
-  groups = [], // ✅ Default to empty array
-  users = [], // ✅ Default to empty array
+  groups = [],
+  users = [],
   onCreateGroup,
   onJoinGroup,
   onLeaveGroup,
@@ -876,6 +1049,8 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   onLikePost,
   onSharePost,
   onDeleteGroupPost,
+  onEditGroupPost,
+  onReportGroupPost,
   onRemoveMember,
   onUpdateGroupSettings,
   onEventRSVP,
@@ -908,21 +1083,24 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [selectedPost, setSelectedPost] = useState<PostType | null>(null);
   const [selectedPostAuthor, setSelectedPostAuthor] = useState<User | null>(null);
 
-  // Events state
+  // Events state - using ref to prevent unnecessary reloads
   const [groupEvents, setGroupEvents] = useState<Event[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const eventsLoadedRef = useRef<boolean>(false);
+  const activeGroupIdRef = useRef<number | null>(null);
 
   // Facebook-like tabs for groups feed
   const [fbTab, setFbTab] = useState<'Your groups' | 'Posts' | 'Discover' | 'Invites'>('Your groups');
   const [sortOpen, setSortOpen] = useState(false);
   const [sortMode, setSortMode] = useState<'Most visited' | 'Recently active' | 'Alphabetical'>('Most visited');
   
-  // Pinned groups state - with localStorage guard
+  // Pinned groups state
   const [pinnedGroups, setPinnedGroups] = useState<Set<number>>(new Set());
 
   // Group posts state
   const [groupPosts, setGroupPosts] = useState<PostType[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const postsLoadedRef = useRef<boolean>(false);
 
   const groupCoverInputRef = useRef<HTMLInputElement>(null);
   const groupProfileInputRef = useRef<HTMLInputElement>(null);
@@ -935,7 +1113,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [postContent, setPostContent] = useState('');
   const [postFile, setPostFile] = useState<File | null>(null);
 
-  // ✅ normalize ALL groups so missing arrays never crash UI
+  // normalize ALL groups so missing arrays never crash UI
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
 
   useEffect(() => {
@@ -956,10 +1134,20 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     [safeGroups, activeGroupId]
   );
 
-  // ✅ FIXED: Load group posts with safe handling
-  const loadGroupPosts = useCallback(async () => {
+  // Update ref when active group changes
+  useEffect(() => {
+    activeGroupIdRef.current = activeGroupId;
+  }, [activeGroupId]);
+
+  // ✅ FIXED: Load group posts with ref to prevent unnecessary reloads
+  const loadGroupPosts = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupPosts) {
       setGroupPosts([]);
+      return;
+    }
+    
+    // Skip if already loaded and not forced
+    if (postsLoadedRef.current && !force) {
       return;
     }
     
@@ -968,6 +1156,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       const res = await fetchGroupPosts(activeGroup.id);
       const list = Array.isArray(res) ? res : Array.isArray((res as any)?.posts) ? (res as any).posts : [];
       setGroupPosts(list.map((p: any) => normalizePost(p)));
+      postsLoadedRef.current = true;
     } catch (error) {
       console.error('Failed to load group posts:', error);
       setGroupPosts([]);
@@ -976,14 +1165,22 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, fetchGroupPosts]);
 
+  // Load posts when entering Discussion tab or when group changes
   useEffect(() => {
-    loadGroupPosts();
-  }, [loadGroupPosts]);
+    if (activeGroup && groupTab === 'Discussion') {
+      loadGroupPosts();
+    }
+  }, [activeGroup, groupTab, loadGroupPosts]);
 
-  // ✅ FIXED: Load group events with safe handling
-  const loadGroupEvents = useCallback(async () => {
+  // ✅ FIXED: Load group events with ref to prevent unnecessary reloads
+  const loadGroupEvents = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupEvents) {
       setGroupEvents([]);
+      return;
+    }
+    
+    // Skip if already loaded for this group and not forced
+    if (eventsLoadedRef.current && activeGroupIdRef.current === activeGroup.id && !force) {
       return;
     }
     
@@ -992,6 +1189,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       const res = await fetchGroupEvents(activeGroup.id);
       const list = Array.isArray(res) ? res : Array.isArray((res as any)?.events) ? (res as any).events : [];
       setGroupEvents(list.map((e: any) => normalizeEvent(e)));
+      eventsLoadedRef.current = true;
     } catch (error) {
       console.error('Failed to load group events:', error);
       setGroupEvents([]);
@@ -1000,11 +1198,20 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, fetchGroupEvents]);
 
+  // Load events only when explicitly switching to Events tab, not automatically
   useEffect(() => {
     if (activeGroup && groupTab === 'Events') {
       loadGroupEvents();
     }
   }, [activeGroup, groupTab, loadGroupEvents]);
+
+  // Reset loaded flags when active group changes
+  useEffect(() => {
+    postsLoadedRef.current = false;
+    eventsLoadedRef.current = false;
+    setGroupPosts([]);
+    setGroupEvents([]);
+  }, [activeGroupId]);
 
   useEffect(() => {
     if (!showGroupPostModal) {
@@ -1013,7 +1220,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [showGroupPostModal]);
 
-  // ✅ FIXED: Load pinned groups from localStorage with try/catch
+  // Load pinned groups from localStorage on mount
   useEffect(() => {
     try {
       if (typeof window === 'undefined') return;
@@ -1029,7 +1236,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, []);
 
-  // ✅ FIXED: Save pinned groups to localStorage with try/catch
+  // Save pinned groups to localStorage when they change
   useEffect(() => {
     try {
       if (typeof window === 'undefined') return;
@@ -1078,9 +1285,9 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       setPostContent('');
       setPostFile(null);
       
-      if (fetchGroupPosts) {
-        loadGroupPosts();
-      }
+      // Reload posts with force flag
+      postsLoadedRef.current = false;
+      loadGroupPosts(true);
     } catch (error) {
       console.error('Failed to create group post:', error);
     }
@@ -1108,8 +1315,10 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       
       setShowEventModal(false);
       
+      // Reload events with force flag
       if (groupTab === 'Events' && fetchGroupEvents) {
-        await loadGroupEvents();
+        eventsLoadedRef.current = false;
+        loadGroupEvents(true);
       }
     } catch (error) {
       console.error('Failed to create event:', error);
@@ -1269,7 +1478,8 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   };
 
   const handleDeletePost = async (postId: number) => {
-    if (!activeGroup || !confirm('Are you sure you want to delete this post?')) return;
+    if (!activeGroup) return;
+    if (!confirm('Are you sure you want to delete this post?')) return;
     
     try {
       await onDeleteGroupPost(activeGroup.id, postId);
@@ -1284,7 +1494,39 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  // ✅ FIXED: Default values for sort options
+  const handleEditPost = async (postId: number, content: string) => {
+    if (!onEditGroupPost) return;
+    
+    try {
+      await onEditGroupPost(postId, content);
+      
+      setGroupPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          return { ...post, content } as any;
+        }
+        return post;
+      }));
+
+      if (selectedPost && selectedPost.id === postId) {
+        setSelectedPost(prev => prev ? { ...prev, content } as any : null);
+      }
+    } catch (error) {
+      console.error('Failed to edit post:', error);
+      throw error;
+    }
+  };
+
+  const handleReportPost = async (postId: number) => {
+    if (!onReportGroupPost) return;
+    
+    try {
+      await onReportGroupPost(postId);
+    } catch (error) {
+      console.error('Failed to report post:', error);
+      throw error;
+    }
+  };
+
   const sortedGroups = useMemo(() => {
     if (sortMode === 'Alphabetical') {
       return [...safeGroups].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -1700,7 +1942,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     );
   }
 
-  // DETAIL VIEW (safe: activeGroup always normalized)
+  // DETAIL VIEW
   const isMember = currentUser
     ? (activeGroup.members ?? []).includes(currentUser.id) || activeGroup.admin_id === currentUser.id
     : false;
@@ -1888,11 +2130,15 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         author={author}
                         currentUser={currentUser}
                         users={users}
+                        isGroupAdmin={isGroupAdmin}
+                        isPlatformAdmin={isAdmin}
                         onProfileClick={onProfileClick}
                         onLikePost={handleLikePost}
                         onOpenComments={handleOpenComments}
                         onSharePost={handleSharePost}
-                        onDeletePost={() => handleDeletePost(post.id)}
+                        onEditPost={onEditGroupPost ? handleEditPost : undefined}
+                        onDeletePost={onDeleteGroupPost ? handleDeletePost : undefined}
+                        onReportPost={onReportGroupPost ? handleReportPost : undefined}
                         onViewImage={onViewImage}
                         onVideoClick={onVideoClick}
                         onHashtagClick={onHashtagClick}
@@ -1921,7 +2167,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             </div>
           )}
 
-          {/* Events Tab */}
+          {/* Events Tab - Now only loads when clicked */}
           {groupTab === 'Events' && (
             <div className="animate-fade-in">
               {isMember && (
