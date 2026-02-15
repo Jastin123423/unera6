@@ -1,72 +1,61 @@
 // functions/api/events.ts
-import type { PagesFunction } from '@cloudflare/workers-types';
+import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
 
 const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 const json = (data: any, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json" },
+  });
 
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-const str = (v: any) => String(v ?? '').trim();
+const str = (v: any) => String(v ?? "").trim();
 
-// Helper to parse numeric ID from path
-const getIdFromPath = (path: string): number | null => {
-  const match = path.match(/\/api\/groups\/(\d+)\/events/);
+// Helper to parse numeric group ID from path
+const getGroupIdFromPath = (path: string): number | null => {
+  const match = path.match(/\/api\/groups\/(\d+)\/events$/);
   return match ? parseInt(match[1], 10) : null;
 };
 
-// Main handler that routes based on URL
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method;
 
-  // Handle CORS preflight
-  if (method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: cors });
-  }
+  if (method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
 
-  // Route: GET /api/events - Get all events
-  if (method === 'GET' && path === '/api/events') {
-    return handleGetAllEvents(env);
-  }
+  if (method === "GET" && path === "/api/events") return handleGetAllEvents(env);
 
-  // Route: GET /api/groups/:groupId/events - Get group events
-  if (method === 'GET' && path.match(/^\/api\/groups\/\d+\/events$/)) {
-    const groupId = getIdFromPath(path);
-    if (!groupId) return json({ success: false, error: 'Invalid group ID' }, 400);
+  if (method === "GET" && path.match(/^\/api\/groups\/\d+\/events$/)) {
+    const groupId = getGroupIdFromPath(path);
+    if (!groupId) return json({ success: false, error: "Invalid group ID" }, 400);
     return handleGetGroupEvents(env, groupId);
   }
 
-  // Route: POST /api/events - Create a regular event
-  if (method === 'POST' && path === '/api/events') {
-    return handleCreateEvent(request, env);
-  }
+  if (method === "POST" && path === "/api/events") return handleCreateEvent(request, env);
 
-  // Route: POST /api/groups/:groupId/events - Create a group event
-  if (method === 'POST' && path.match(/^\/api\/groups\/\d+\/events$/)) {
-    const groupId = getIdFromPath(path);
-    if (!groupId) return json({ success: false, error: 'Invalid group ID' }, 400);
+  if (method === "POST" && path.match(/^\/api\/groups\/\d+\/events$/)) {
+    const groupId = getGroupIdFromPath(path);
+    if (!groupId) return json({ success: false, error: "Invalid group ID" }, 400);
     return handleCreateGroupEvent(request, env, groupId);
   }
 
-  // 404 for unmatched routes
-  return json({ success: false, error: 'Not found' }, 404);
+  return json({ success: false, error: "Not found" }, 404);
 };
 
-// Get all events
 async function handleGetAllEvents(env: Env) {
   try {
-    if (!env.DB) return json({ success: false, error: 'DB binding missing' }, 500);
+    if (!env.DB) return json({ success: false, error: "DB binding missing" }, 500);
 
     const events = await env.DB.prepare(
       `SELECT e.*
@@ -76,11 +65,10 @@ async function handleGetAllEvents(env: Env) {
     ).all();
 
     const list = (events.results || []) as any[];
-
-    const eventIds = list.map(e => Number(e.id)).filter(Boolean);
+    const eventIds = list.map((e) => Number(e.id)).filter(Boolean);
     if (!eventIds.length) return json({ success: true, events: [] });
 
-    const idPlaceholders = eventIds.map(() => '?').join(',');
+    const idPlaceholders = eventIds.map(() => "?").join(",");
 
     const attendeesRows = await env.DB.prepare(
       `SELECT event_id, user_id FROM event_attendees WHERE event_id IN (${idPlaceholders})`
@@ -106,7 +94,7 @@ async function handleGetAllEvents(env: Env) {
       interestedMap.get(eid)!.push(uid);
     }
 
-    const hydrated = list.map(e => ({
+    const hydrated = list.map((e) => ({
       ...e,
       attendees: attendeesMap.get(Number(e.id)) || [],
       interested_ids: interestedMap.get(Number(e.id)) || [],
@@ -117,14 +105,13 @@ async function handleGetAllEvents(env: Env) {
 
     return json({ success: true, events: hydrated });
   } catch (err: any) {
-    return json({ success: false, error: err?.message || 'Failed to load events' }, 500);
+    return json({ success: false, error: err?.message || "Failed to load events" }, 500);
   }
 }
 
-// Get group events
 async function handleGetGroupEvents(env: Env, groupId: number) {
   try {
-    if (!env.DB) return json({ success: false, error: 'DB binding missing' }, 500);
+    if (!env.DB) return json({ success: false, error: "DB binding missing" }, 500);
 
     const events = await env.DB.prepare(
       `SELECT e.*
@@ -135,11 +122,10 @@ async function handleGetGroupEvents(env: Env, groupId: number) {
     ).bind(groupId).all();
 
     const list = (events.results || []) as any[];
-
-    const eventIds = list.map(e => Number(e.id)).filter(Boolean);
+    const eventIds = list.map((e) => Number(e.id)).filter(Boolean);
     if (!eventIds.length) return json({ success: true, events: [] });
 
-    const idPlaceholders = eventIds.map(() => '?').join(',');
+    const idPlaceholders = eventIds.map(() => "?").join(",");
 
     const attendeesRows = await env.DB.prepare(
       `SELECT event_id, user_id FROM event_attendees WHERE event_id IN (${idPlaceholders})`
@@ -165,7 +151,7 @@ async function handleGetGroupEvents(env: Env, groupId: number) {
       interestedMap.get(eid)!.push(uid);
     }
 
-    const hydrated = list.map(e => ({
+    const hydrated = list.map((e) => ({
       ...e,
       attendees: attendeesMap.get(Number(e.id)) || [],
       interested_ids: interestedMap.get(Number(e.id)) || [],
@@ -176,39 +162,39 @@ async function handleGetGroupEvents(env: Env, groupId: number) {
 
     return json({ success: true, events: hydrated });
   } catch (err: any) {
-    return json({ success: false, error: err?.message || 'Failed to load group events' }, 500);
+    return json({ success: false, error: err?.message || "Failed to load group events" }, 500);
   }
 }
 
-// Create regular event
 async function handleCreateEvent(request: Request, env: Env) {
   try {
-    if (!env.DB) return json({ success: false, error: 'DB binding missing' }, 500);
+    if (!env.DB) return json({ success: false, error: "DB binding missing" }, 500);
 
     const body = await request.json().catch(() => ({}));
-
     const creator_id = Number(body.creator_id ?? body.organizerId ?? body.user_id ?? 0);
+
     const title = str(body.title);
     const description = str(body.description);
     const event_date = str(body.event_date ?? body.date);
     const location = str(body.location);
-    const cover_url = str(body.cover_url ?? body.image ?? body.cover_image ?? '');
-    const visibility = str(body.visibility || 'worldwide') || 'worldwide';
-    const group_id = body.group_id ? Number(body.group_id) : null;
+    const cover_url = str(body.cover_url ?? body.image ?? body.cover_image ?? "");
+    const visibility = str(body.visibility || "worldwide") || "worldwide";
+    const group_id = body.group_id != null ? Number(body.group_id) : null;
 
-    if (!creator_id) return json({ success: false, error: 'creator_id missing' }, 400);
-    if (!title) return json({ success: false, error: 'title missing' }, 400);
-    if (!event_date) return json({ success: false, error: 'event_date missing' }, 400);
+    if (!creator_id) return json({ success: false, error: "creator_id missing" }, 400);
+    if (!title) return json({ success: false, error: "title missing" }, 400);
+    if (!event_date) return json({ success: false, error: "event_date missing" }, 400);
 
     const created_at = new Date().toISOString();
 
     const ins = await env.DB.prepare(
       `INSERT INTO events (creator_id, title, description, event_date, location, cover_url, visibility, group_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(creator_id, title, description, event_date, location, cover_url, visibility, group_id, created_at).run();
+    )
+      .bind(creator_id, title, description, event_date, location, cover_url, visibility, group_id, created_at)
+      .run();
 
     const id = Number(ins.meta.last_row_id);
-
     const row = await env.DB.prepare(`SELECT * FROM events WHERE id=?`).bind(id).first();
 
     return json({
@@ -220,41 +206,41 @@ async function handleCreateEvent(request: Request, env: Env) {
         organizerId: (row as any).creator_id,
         date: (row as any).event_date,
         image: (row as any).cover_url,
-      }
+      },
     });
   } catch (err: any) {
-    return json({ success: false, error: err?.message || 'Failed to create event' }, 500);
+    return json({ success: false, error: err?.message || "Failed to create event" }, 500);
   }
 }
 
-// Create group event (same as regular but with group_id)
 async function handleCreateGroupEvent(request: Request, env: Env, groupId: number) {
   try {
-    if (!env.DB) return json({ success: false, error: 'DB binding missing' }, 500);
+    if (!env.DB) return json({ success: false, error: "DB binding missing" }, 500);
 
     const body = await request.json().catch(() => ({}));
-
     const creator_id = Number(body.creator_id ?? body.organizerId ?? body.user_id ?? 0);
+
     const title = str(body.title);
     const description = str(body.description);
     const event_date = str(body.event_date ?? body.date);
     const location = str(body.location);
-    const cover_url = str(body.cover_url ?? body.image ?? body.cover_image ?? '');
-    const visibility = str(body.visibility || 'worldwide') || 'worldwide';
+    const cover_url = str(body.cover_url ?? body.image ?? body.cover_image ?? "");
+    const visibility = str(body.visibility || "worldwide") || "worldwide";
 
-    if (!creator_id) return json({ success: false, error: 'creator_id missing' }, 400);
-    if (!title) return json({ success: false, error: 'title missing' }, 400);
-    if (!event_date) return json({ success: false, error: 'event_date missing' }, 400);
+    if (!creator_id) return json({ success: false, error: "creator_id missing" }, 400);
+    if (!title) return json({ success: false, error: "title missing" }, 400);
+    if (!event_date) return json({ success: false, error: "event_date missing" }, 400);
 
     const created_at = new Date().toISOString();
 
     const ins = await env.DB.prepare(
       `INSERT INTO events (creator_id, title, description, event_date, location, cover_url, visibility, group_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(creator_id, title, description, event_date, location, cover_url, visibility, groupId, created_at).run();
+    )
+      .bind(creator_id, title, description, event_date, location, cover_url, visibility, groupId, created_at)
+      .run();
 
     const id = Number(ins.meta.last_row_id);
-
     const row = await env.DB.prepare(`SELECT * FROM events WHERE id=?`).bind(id).first();
 
     return json({
@@ -266,9 +252,9 @@ async function handleCreateGroupEvent(request: Request, env: Env, groupId: numbe
         organizerId: (row as any).creator_id,
         date: (row as any).event_date,
         image: (row as any).cover_url,
-      }
+      },
     });
   } catch (err: any) {
-    return json({ success: false, error: err?.message || 'Failed to create group event' }, 500);
+    return json({ success: false, error: err?.message || "Failed to create group event" }, 500);
   }
 }
