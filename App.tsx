@@ -2834,14 +2834,18 @@ export default function App() {
     }
   }, [fetchEvents]);
 
+  /** ---------- ✅ FIXED: fetchGroupPosts always returns array ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
     try {
       const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
       const res = await apiFetch(`/api/group-posts?group_id=${groupId}&viewerId=${viewerId}`);
-      return safeArray((res as any)?.posts).map(normalizePost);
+      
+      // ✅ Always return an array
+      const posts = safeArray((res as any)?.posts ?? res);
+      return posts.map(normalizePost);
     } catch (error) {
       console.error('Failed to fetch group posts:', error);
-      return [];
+      return []; // Always return array on error
     }
   }, [currentUser]);
 
@@ -3039,16 +3043,19 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- NEW: Fetch group events ---------- */
+  /** ---------- ✅ FIXED: fetchGroupEvents always returns array ---------- */
   const fetchGroupEvents = useCallback(async (groupId: number): Promise<Event[]> => {
     if (!requireAuth('Viewing events')) return [];
     
     try {
       const data = await apiFetch(`/api/groups/${groupId}/events?viewerId=${currentUser?.id || 0}`);
-      return safeArray(data?.events ?? data).map(normalizeEvent);
+      
+      // ✅ Always return an array
+      const events = safeArray(data?.events ?? data);
+      return events.map(normalizeEvent);
     } catch (error) {
       console.error('Failed to fetch group events:', error);
-      return [];
+      return []; // Always return array on error
     }
   }, [currentUser, requireAuth]);
 
