@@ -1365,11 +1365,22 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     try {
       await onJoinGroup(activeGroup.id);
 
-      // Force reload posts/events and UI
+      // Force reload posts/events
       postsLoadedRef.current = false;
       eventsLoadedRef.current = false;
       await loadGroupPosts(true);
       if (groupTab === 'Events') await loadGroupEvents(true);
+      
+      // If fetchGroupDetails is available, refresh group details to get updated members
+      if (fetchGroupDetails) {
+        const details = await fetchGroupDetails(activeGroup.id);
+        if (details?.group) {
+          // The groups prop will be updated by App.tsx, but we can also update local state
+          // to make UI update immediately
+          const updatedGroup = normalizeGroup(details.group);
+          setActiveGroupId(prev => prev); // Trigger re-render
+        }
+      }
     } catch (error) {
       console.error('Failed to join group:', error);
       alert('Failed to join group. Please try again.');
@@ -1398,6 +1409,17 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       setGroupEvents([]);
       postsLoadedRef.current = false;
       eventsLoadedRef.current = false;
+      
+      // If fetchGroupDetails is available, refresh group details to get updated members
+      if (fetchGroupDetails) {
+        const details = await fetchGroupDetails(activeGroup.id);
+        if (details?.group) {
+          // The groups prop will be updated by App.tsx, but we can also update local state
+          // to make UI update immediately
+          const updatedGroup = normalizeGroup(details.group);
+          setActiveGroupId(prev => prev); // Trigger re-render
+        }
+      }
     } catch (error) {
       console.error('Failed to leave group:', error);
       alert('Failed to leave group. Please try again.');
