@@ -1,4 +1,4 @@
-//. functions/api/groups.ts
+// functions/api/groups.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { cors, ok, bad, server, json } from "./_cors";
 
@@ -8,6 +8,7 @@ export const onRequestOptions: PagesFunction = async () =>
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => ({} as any));
+
     const admin_id = Number(body.admin_id || 0);
     const name = String(body.name || "").trim();
     const description = String(body.description || "").trim();
@@ -29,7 +30,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 
     const group_id = Number(result.meta.last_row_id);
 
-    // ✅ auto-add admin as member
+    // ✅ auto-add admin as member (idempotent)
     await env.DB.prepare(
       `INSERT OR IGNORE INTO group_members (group_id, user_id, role) VALUES (?, ?, 'admin')`
     )
@@ -61,13 +62,14 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
 
       if (!group) return bad("Group not found", 404);
 
+      // ✅ FIX: group_members uses joined_at (not created_at)
       const members = await env.DB.prepare(
-        `SELECT gm.user_id, gm.role, gm.created_at,
+        `SELECT gm.user_id, gm.role, gm.joined_at,
                 u.username, u.name, u.profile_image_url, u.is_verified, u.role as user_role
          FROM group_members gm
          JOIN users u ON u.id = gm.user_id
          WHERE gm.group_id = ?
-         ORDER BY gm.created_at DESC`
+         ORDER BY gm.joined_at DESC`
       )
         .bind(groupId)
         .all();
