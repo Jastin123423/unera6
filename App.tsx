@@ -2790,6 +2790,27 @@ export default function App() {
     return newEvent;
   }, [currentUser, requireAuth]);
 
+  /** ---------- ✅ FIXED: Refresh group members helper ---------- */
+  const refreshGroupMembers = useCallback(async (groupId: number) => {
+    try {
+      const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
+      const members = safeArray(res?.members)
+        .map((m: any) => Number(m.user_id))
+        .filter(Number.isFinite);
+      
+      setGroups(prev => prev.map(g => {
+        if (Number(g.id) !== Number(groupId)) return g;
+        return { 
+          ...g, 
+          members, 
+          members_count: members.length 
+        };
+      }));
+    } catch (error) {
+      console.error('Failed to refresh group members:', error);
+    }
+  }, []);
+
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
     otherDataInFlightRef.current = true;
@@ -2820,7 +2841,21 @@ export default function App() {
         : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
         : [];
       
-      setGroups(gList.map(normalizeGroup));
+      // ✅ Merge new groups with existing ones to preserve members if backend doesn't send them
+      setGroups(prev => {
+        const byId = new Map(prev.map(g => [Number(g.id), g]));
+        return gList.map((ng: any) => {
+          const old = byId.get(Number(ng.id));
+          // If backend didn't send members, keep old members
+          const hasMembers = Array.isArray(ng.members);
+          return normalizeGroup({
+            ...old,
+            ...ng,
+            members: hasMembers ? ng.members : (old?.members ?? []),
+            members_count: hasMembers ? ng.members.length : (old?.members_count ?? old?.members?.length ?? 0),
+          });
+        });
+      });
       
       setBrands(safeArray(b));
       
@@ -2908,8 +2943,6 @@ export default function App() {
   }, [currentUser, requireAuth]);
 
   /** ---------- ✅ FIXED: joinGroup with optimistic update ---------- */
-  const uniq = (arr: number[]) => Array.from(new Set(arr));
-
   const joinGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Joining groups")) return;
     if (!currentUser) return;
@@ -2941,8 +2974,8 @@ export default function App() {
         body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
       });
 
-      // ✅ Then refresh in background to ensure consistency
-      await fetchOtherData().catch(() => {});
+      // ✅ Then refresh just this group's members to ensure consistency
+      await refreshGroupMembers(groupId);
       
       return result;
     } catch (error) {
@@ -2965,7 +2998,7 @@ export default function App() {
       setLoginError('Failed to join group');
       throw error;
     }
-  }, [currentUser, requireAuth, fetchOtherData]);
+  }, [currentUser, requireAuth, refreshGroupMembers]);
 
   /** ---------- ✅ FIXED: leaveGroup with optimistic update ---------- */
   const leaveGroup = useCallback(async (groupId: number) => {
@@ -2996,7 +3029,9 @@ export default function App() {
         { method: "DELETE" }
       );
 
-      await fetchOtherData().catch(() => {});
+      // ✅ Then refresh just this group's members to ensure consistency
+      await refreshGroupMembers(groupId);
+      
       return result;
     } catch (error) {
       // Revert on error
@@ -3021,7 +3056,7 @@ export default function App() {
       setLoginError('Failed to leave group');
       throw error;
     }
-  }, [currentUser, requireAuth, fetchOtherData]);
+  }, [currentUser, requireAuth, refreshGroupMembers]);
 
   const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
     if (!requireAuth("Posting")) return;
@@ -4337,10 +4372,6 @@ export default function App() {
                     if (!requireAuth('Creating posts')) return;
                     setShowCreatePostModal(true);
                   }}
-                  onCreateEventClick={() => {
-                    if (!requireAuth('Creating events')) return;
-                    setShowCreateEventModal(true);
-                  }}
                 />
               )}
 
@@ -4725,10 +4756,6 @@ export default function App() {
           users={users}
           onClose={() => setShowCreatePostModal(false)}
           onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
-          onCreateEventClick={() => {
-            setShowCreatePostModal(false); // Close the post modal first
-            setShowCreateEventModal(true);  // Then open the event modal
-          }}
         />
       )}
 
