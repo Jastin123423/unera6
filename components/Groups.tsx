@@ -1,6 +1,6 @@
-// Groups.tsx - Updated with professional three-dots menu
+// Groups.tsx - Updated with fixes for blank screen issues
 
-import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';  // ✅ Added useCallback
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { User, Group, Event, Post as PostType, ReactionType } from '../types';
 import { 
   Post, 
@@ -333,7 +333,7 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
 };
 
 /**
- * Group Event Card Component - ✅ Fixed date handling to prevent crashes
+ * Group Event Card Component
  */
 const GroupEventCard: React.FC<{
   event: Event;
@@ -345,19 +345,14 @@ const GroupEventCard: React.FC<{
   const [rsvpStatus, setRsvpStatus] = useState<string>(event.user_rsvp_status || '');
   const [loading, setLoading] = useState(false);
 
-  // ✅ Safe date handling to prevent crashes from invalid dates
-  const rawDate = event.start_time || (event as any).date || '';
-  const eventDate = rawDate ? new Date(rawDate) : null;
-  
-  const formattedDate = eventDate && !Number.isNaN(eventDate.getTime())
-    ? eventDate.toLocaleDateString('en-US', { 
-        weekday: 'short', 
-        month: 'short', 
-        day: 'numeric', 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      })
-    : 'Date TBD';
+  const eventDate = new Date(event.start_time || event.date || '');
+  const formattedDate = eventDate.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 
   const handleRSVP = async (status: string) => {
     if (!currentUser || !onRSVP) return;
@@ -586,7 +581,7 @@ const GroupPost: React.FC<{
   currentUser: User | null;
   users: User[];
   isGroupAdmin?: boolean;
-  isPlatformAdmin?: boolean;  // ✅ Added platform admin prop
+  isPlatformAdmin?: boolean;
   onProfileClick: (id: number) => void;
   onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
   onOpenComments: (postId: number) => void;
@@ -605,7 +600,7 @@ const GroupPost: React.FC<{
   currentUser,
   users,
   isGroupAdmin = false,
-  isPlatformAdmin = false,  // ✅ Added with default false
+  isPlatformAdmin = false,
   onProfileClick,
   onLikePost,
   onOpenComments,
@@ -662,8 +657,6 @@ const GroupPost: React.FC<{
   const postId = Number(p.id ?? p.post_id ?? 0);
 
   const isPostAuthor = currentUser?.id === author.id;
-  
-  // ✅ Updated canModerate logic to include platform admin
   const canModerate = Boolean(isPostAuthor || isGroupAdmin || isPlatformAdmin);
 
   // Get media list for multiple images
@@ -746,7 +739,7 @@ const GroupPost: React.FC<{
             </div>
           </div>
 
-          {/* Three-dots menu button - only show if user can moderate */}
+          {/* Three-dots menu button */}
           {(canModerate || onReportPost) && (
             <div className="relative">
               <button
@@ -764,7 +757,6 @@ const GroupPost: React.FC<{
                 <PostActionsMenu
                   post={post}
                   currentUser={currentUser}
-                  // ✅ Pass combined admin status
                   isGroupAdmin={canModerate}
                   isPostAuthor={isPostAuthor}
                   onEdit={onEditPost}
@@ -1047,14 +1039,16 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     [safeGroups, activeGroupId]
   );
 
-  // Load group posts when active group changes - ✅ Fixed dependency
+  // ✅ FIXED: Load group posts with safe array handling
   const loadGroupPosts = useCallback(async () => {
     if (!activeGroup || !fetchGroupPosts) return;
     
     setLoadingPosts(true);
     try {
-      const posts = await fetchGroupPosts(activeGroup.id);
-      setGroupPosts(posts.map(normalizePost));
+      const res = await fetchGroupPosts(activeGroup.id);
+      // Handle both array response and {posts: [...]} response
+      const list = Array.isArray(res) ? res : Array.isArray((res as any)?.posts) ? (res as any).posts : [];
+      setGroupPosts(list.map(normalizePost));
     } catch (error) {
       console.error('Failed to load group posts:', error);
       setGroupPosts([]);
@@ -1063,19 +1057,20 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, fetchGroupPosts]);
 
-  // ✅ Updated useEffect with proper dependencies
   useEffect(() => {
     loadGroupPosts();
   }, [loadGroupPosts]);
 
-  // Load group events when active group changes and Events tab is selected
+  // ✅ FIXED: Load group events with safe array handling
   const loadGroupEvents = useCallback(async () => {
     if (!activeGroup || !fetchGroupEvents) return;
     
     setLoadingEvents(true);
     try {
-      const events = await fetchGroupEvents(activeGroup.id);
-      setGroupEvents(events.map(normalizeEvent));
+      const res = await fetchGroupEvents(activeGroup.id);
+      // Handle both array response and {events: [...]} response
+      const list = Array.isArray(res) ? res : Array.isArray((res as any)?.events) ? (res as any).events : [];
+      setGroupEvents(list.map(normalizeEvent));
     } catch (error) {
       console.error('Failed to load group events:', error);
       setGroupEvents([]);
@@ -1521,13 +1516,13 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         currentUser={currentUser}
                         users={users}
                         isGroupAdmin={isGroupAdmin}
-                        isPlatformAdmin={isAdmin}  // ✅ Pass platform admin status
+                        isPlatformAdmin={isAdmin}
                         onProfileClick={onProfileClick}
                         onLikePost={handleLikePost}
                         onOpenComments={handleOpenComments}
                         onSharePost={handleSharePost}
                         onEditPost={onEditGroupPost ? handleEditPost : undefined}
-                        onDeletePost={(postId) => handleDeletePost(postId)}  // ✅ Fixed: passes postId correctly
+                        onDeletePost={(postId) => handleDeletePost(postId)}
                         onReportPost={onReportGroupPost ? handleReportPost : undefined}
                         onViewImage={onViewImage}
                         onVideoClick={onVideoClick}
@@ -1601,7 +1596,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           />
         )}
 
-        {/* Create Event Modal - ✅ Now works with groupId/groupName props */}
+        {/* Create Event Modal */}
         {showEventModal && currentUser && activeGroup && (
           <CreateEventModal
             currentUser={currentUser}
@@ -1636,7 +1631,33 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   );
 };
 
-// Helper functions
+// ✅ FIXED: normalizeEvent with proper group_id handling
+function normalizeEvent(event: any): Event {
+  const groupId =
+    event?.group_id ?? event?.groupId ?? event?.groupID ?? null;
+
+  return {
+    ...event,
+    id: Number(event?.id ?? 0),
+    title: String(event?.title ?? ''),
+    description: String(event?.description ?? ''),
+    start_time: event?.start_time ?? event?.date ?? event?.event_date ?? new Date().toISOString(),
+    end_time: event?.end_time ?? null,
+    location: event?.location ?? null,
+
+    // support both backend styles
+    cover_image: event?.cover_image ?? event?.cover_url ?? event?.coverImage ?? null,
+
+    attendees: Array.isArray(event?.attendees) ? event.attendees : [],
+    created_by: Number(event?.created_by ?? event?.organizer_id ?? 0),
+
+    group_id: groupId == null ? null : Number(groupId),
+
+    created_at: event?.created_at ?? new Date().toISOString(),
+    user_rsvp_status: event?.user_rsvp_status ?? null,
+  } as any;
+}
+
 function normalizeGroup(raw: any): Group {
   const members = Array.isArray(raw?.members) ? raw.members : [];
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
@@ -1682,22 +1703,4 @@ function normalizePost(post: any): PostType {
     my_reaction: post?.my_reaction ?? null,
     reactions_count: Number(post?.reactions_count ?? post?.likesCount ?? 0),
   } as any;
-}
-
-function normalizeEvent(event: any): Event {
-  return {
-    ...event,
-    id: Number(event?.id ?? 0),
-    title: String(event?.title ?? ''),
-    description: String(event?.description ?? ''),
-    start_time: event?.start_time ?? event?.date ?? new Date().toISOString(),
-    end_time: event?.end_time ?? null,
-    location: event?.location ?? null,
-    cover_image: event?.cover_image ?? null,
-    attendees: Array.isArray(event?.attendees) ? event.attendees : [],
-    created_by: Number(event?.created_by ?? 0),
-    group_id: event?.group_id ? Number(event.groupId) : null,
-    created_at: event?.created_at ?? new Date().toISOString(),
-    user_rsvp_status: event?.user_rsvp_status ?? null,
-  };
 }
