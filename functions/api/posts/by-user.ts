@@ -1,11 +1,4 @@
 // functions/api/by-user.ts
-// ✅ Option B: Upgrade to include posts + reels + songs + podcasts + products (NO groups)
-// ✅ Response stays RAW ARRAY (so frontend doesn't break)
-// Query params:
-// - userId (profile owner)  REQUIRED
-// - viewerId (optional)     used for my_reaction on posts/reels/songs
-// - limit (optional, default 30, max 50)
-
 import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = { DB: D1Database };
@@ -117,7 +110,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS sound_key,
           NULL AS sound_id,
 
-          /* product fields */
+          /* product fields (legacy) */
           NULL AS product_title,
           NULL AS product_category,
           NULL AS product_description,
@@ -144,7 +137,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS podcast_description,
           NULL AS podcast_audio_url,
           NULL AS podcast_cover_url,
-          NULL AS podcast_plays_count
+          NULL AS podcast_plays_count,
+
+          /* ✅ NEW: feed-compatible marketplace / meta fields */
+          NULL AS type,
+          NULL AS post_type,
+          NULL AS kind,
+          NULL AS product_id,
+          NULL AS meta,
+
+          /* ✅ NEW: group/event helper fields */
+          NULL AS group_id,
+          NULL AS event_id
 
         FROM posts p
         LEFT JOIN users u ON u.id = p.user_id
@@ -224,7 +228,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS podcast_description,
           NULL AS podcast_audio_url,
           NULL AS podcast_cover_url,
-          NULL AS podcast_plays_count
+          NULL AS podcast_plays_count,
+
+          NULL AS type,
+          NULL AS post_type,
+          NULL AS kind,
+          NULL AS product_id,
+          NULL AS meta,
+
+          NULL AS group_id,
+          NULL AS event_id
 
         FROM reels r
         LEFT JOIN users u ON u.id = r.user_id
@@ -308,7 +321,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS podcast_description,
           NULL AS podcast_audio_url,
           NULL AS podcast_cover_url,
-          NULL AS podcast_plays_count
+          NULL AS podcast_plays_count,
+
+          NULL AS type,
+          NULL AS post_type,
+          NULL AS kind,
+          NULL AS product_id,
+          NULL AS meta,
+
+          NULL AS group_id,
+          NULL AS event_id
 
         FROM songs s
         LEFT JOIN users u ON u.id = s.uploader_id
@@ -383,7 +405,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           pc.description AS podcast_description,
           pc.audio_url AS podcast_audio_url,
           pc.cover_url AS podcast_cover_url,
-          COALESCE(pc.plays_count, 0) AS podcast_plays_count
+          COALESCE(pc.plays_count, 0) AS podcast_plays_count,
+
+          NULL AS type,
+          NULL AS post_type,
+          NULL AS kind,
+          NULL AS product_id,
+          NULL AS meta,
+
+          NULL AS group_id,
+          NULL AS event_id
 
         FROM podcasts pc
         LEFT JOIN users u ON u.id = pc.creator_id
@@ -391,14 +422,237 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         UNION ALL
 
+        /* ------------------ EVENTS (created by user) ------------------ */
+        SELECT
+          'event' AS source,
+          'event' AS item_type,
+
+          e.id AS id,
+          e.creator_id AS user_id,
+          e.title AS content,
+
+          CASE
+            WHEN e.cover_url LIKE 'data:%' THEN NULL
+            WHEN length(e.cover_url) > 300 THEN NULL
+            ELSE e.cover_url
+          END AS media_url,
+
+          CASE
+            WHEN e.cover_url IS NOT NULL AND e.cover_url != '' THEN 'image'
+            ELSE NULL
+          END AS media_type,
+
+          CASE
+            WHEN e.cover_url IS NOT NULL AND e.cover_url != ''
+            THEN json_array(e.cover_url)
+            ELSE NULL
+          END AS media_urls,
+
+          CASE
+            WHEN e.cover_url IS NOT NULL AND e.cover_url != ''
+            THEN json_array('image')
+            ELSE NULL
+          END AS media_types,
+
+          'public' AS visibility,
+          e.created_at AS created_at,
+          0 AS views,
+          0 AS shares,
+
+          0 AS reactions_count,
+          NULL AS my_reaction,
+
+          COALESCE(u.username, 'user') AS username,
+          COALESCE(u.username, 'User') AS name,
+          CASE
+            WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+            WHEN length(u.profile_image_url) > 300 THEN NULL
+            ELSE u.profile_image_url
+          END AS profile_image_url,
+          COALESCE(u.is_verified, 0) AS is_verified,
+          COALESCE(u.role, 'user') AS role,
+
+          NULL AS video_url,
+          NULL AS caption,
+          NULL AS song_name,
+          NULL AS audio_url,
+          0 AS audio_start,
+          0 AS audio_end,
+          e.location AS location,
+          NULL AS song_id,
+          NULL AS sound_key,
+          NULL AS sound_id,
+
+          NULL AS product_title,
+          NULL AS product_category,
+          NULL AS product_description,
+          NULL AS product_country,
+          NULL AS product_address,
+          NULL AS product_main_price,
+          NULL AS product_discount_price,
+          NULL AS product_quantity,
+          NULL AS product_phone_number,
+          NULL AS product_images,
+
+          NULL AS song_title,
+          NULL AS song_artist_name,
+          NULL AS song_album_name,
+          NULL AS song_cover_image_url,
+          NULL AS song_duration_seconds,
+          NULL AS song_genre,
+          NULL AS song_likes_count,
+          NULL AS song_plays_count,
+
+          NULL AS podcast_title,
+          NULL AS podcast_description,
+          NULL AS podcast_audio_url,
+          NULL AS podcast_cover_url,
+          NULL AS podcast_plays_count,
+
+          NULL AS type,
+          NULL AS post_type,
+          NULL AS kind,
+          NULL AS product_id,
+          NULL AS meta,
+
+          e.group_id AS group_id,
+          e.id AS event_id
+
+        FROM events e
+        LEFT JOIN users u ON u.id = e.creator_id
+        WHERE e.creator_id = ?
+
+        UNION ALL
+
+        /* ------------------ GROUP POSTS (by user) ------------------ */
+        SELECT
+          'group_post' AS source,
+          'post' AS item_type,
+
+          gp.id AS id,
+          gp.user_id AS user_id,
+          gp.content AS content,
+
+          CASE
+            WHEN gp.media_url LIKE 'data:%' THEN NULL
+            WHEN length(gp.media_url) > 300 THEN NULL
+            ELSE gp.media_url
+          END AS media_url,
+
+          CASE
+            WHEN gp.media_url LIKE 'data:%' THEN NULL
+            WHEN length(gp.media_url) > 300 THEN NULL
+            ELSE
+              CASE
+                WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+                ELSE 'image'
+              END
+          END AS media_type,
+
+          CASE
+            WHEN gp.media_url IS NOT NULL AND gp.media_url != ''
+            THEN json_array(gp.media_url)
+            ELSE NULL
+          END AS media_urls,
+
+          CASE
+            WHEN gp.media_url IS NOT NULL AND gp.media_url != ''
+            THEN json_array(
+              CASE
+                WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+                ELSE 'image'
+              END
+            )
+            ELSE NULL
+          END AS media_types,
+
+          'public' AS visibility,
+          gp.created_at AS created_at,
+          0 AS views,
+          0 AS shares,
+
+          (SELECT COUNT(*) FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id) AS reactions_count,
+          (SELECT 'like'
+             FROM group_post_likes gpl
+            WHERE gpl.group_post_id = gp.id
+              AND gpl.user_id = ?
+            LIMIT 1
+          ) AS my_reaction,
+
+          COALESCE(u.username, 'user') AS username,
+          COALESCE(u.username, 'User') AS name,
+          CASE
+            WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+            WHEN length(u.profile_image_url) > 300 THEN NULL
+            ELSE u.profile_image_url
+          END AS profile_image_url,
+          COALESCE(u.is_verified, 0) AS is_verified,
+          COALESCE(u.role, 'user') AS role,
+
+          CASE
+            WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN gp.media_url
+            ELSE NULL
+          END AS video_url,
+
+          NULL AS caption,
+          NULL AS song_name,
+          NULL AS audio_url,
+          0 AS audio_start,
+          0 AS audio_end,
+          NULL AS location,
+          NULL AS song_id,
+          NULL AS sound_key,
+          NULL AS sound_id,
+
+          NULL AS product_title,
+          NULL AS product_category,
+          NULL AS product_description,
+          NULL AS product_country,
+          NULL AS product_address,
+          NULL AS product_main_price,
+          NULL AS product_discount_price,
+          NULL AS product_quantity,
+          NULL AS product_phone_number,
+          NULL AS product_images,
+
+          NULL AS song_title,
+          NULL AS song_artist_name,
+          NULL AS song_album_name,
+          NULL AS song_cover_image_url,
+          NULL AS song_duration_seconds,
+          NULL AS song_genre,
+          NULL AS song_likes_count,
+          NULL AS song_plays_count,
+
+          NULL AS podcast_title,
+          NULL AS podcast_description,
+          NULL AS podcast_audio_url,
+          NULL AS podcast_cover_url,
+          NULL AS podcast_plays_count,
+
+          NULL AS type,
+          NULL AS post_type,
+          NULL AS kind,
+          NULL AS product_id,
+          NULL AS meta,
+
+          gp.group_id AS group_id,
+          NULL AS event_id
+
+        FROM group_posts gp
+        LEFT JOIN users u ON u.id = gp.user_id
+        WHERE gp.user_id = ?
+
+        UNION ALL
+
         /* ------------------ PRODUCTS (by user) ------------------ */
         SELECT
           'product' AS source,
-          'product' AS item_type,
+          'post' AS item_type,
 
           pr.id AS id,
           pr.seller_id AS user_id,
-          NULL AS content,
+          pr.title AS content,
 
           NULL AS media_url,
           NULL AS media_type,
@@ -458,7 +712,22 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           NULL AS podcast_description,
           NULL AS podcast_audio_url,
           NULL AS podcast_cover_url,
-          NULL AS podcast_plays_count
+          NULL AS podcast_plays_count,
+
+          /* ✅ IMPORTANT: these make "View product" work in profile too */
+          'marketplace' AS type,
+          'product' AS post_type,
+          'product' AS kind,
+          pr.id AS product_id,
+          json_object(
+            'kind','product',
+            'type','product',
+            'product_id', pr.id,
+            'marketplace', json_object('id', pr.id)
+          ) AS meta,
+
+          NULL AS group_id,
+          NULL AS event_id
 
         FROM products pr
         LEFT JOIN users u ON u.id = pr.seller_id
@@ -474,6 +743,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     // reels: viewerId, userId
     // songs: viewerId, userId
     // podcasts: userId
+    // events: userId
+    // group_posts: viewerId, userId
     // products: userId
     // limit
     const binds = [
@@ -481,6 +752,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       viewerId || 0, userId,
       viewerId || 0, userId,
       userId,
+      userId,
+      viewerId || 0, userId,
       userId,
       limit,
     ];
