@@ -747,6 +747,7 @@ const normalizeGroup = (g: any): Group => {
   const name = safeString(g?.name, "Untitled Group");
   const description = safeString(g?.description, "");
   const type = String(g?.type || "public").toLowerCase() === "private" ? "private" : "public";
+  const members = safeArray(g?.members).map(Number).filter(Number.isFinite);
 
   return {
     ...g,
@@ -758,11 +759,11 @@ const normalizeGroup = (g: any): Group => {
     cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
     profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
     created_at: g?.created_at ?? new Date().toISOString(),
-    members: safeArray(g?.members),
+    members,
     posts: safeArray(g?.posts),
     events: safeArray(g?.events),
     member_posting_allowed: Boolean(g?.member_posting_allowed ?? true),
-    members_count: safeNumber(g?.members_count ?? safeArray(g?.members).length),
+    members_count: safeNumber(g?.members_count ?? members.length),
   } as any;
 };
 
@@ -2911,59 +2912,115 @@ export default function App() {
 
   const joinGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Joining groups")) return;
-    const meId = Number(currentUser!.id);
+    if (!currentUser) return;
 
-    const result = await apiFetch("/api/group-members", {
-      method: "POST",
-      body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
-    });
+    const meId = Number(currentUser.id);
 
     // ✅ OPTIMISTIC UPDATE: Update UI immediately
     setGroups(prev =>
       prev.map(g => {
-        if (Number((g as any).id) !== Number(groupId)) return g as any;
-        const members = uniq([...(Array.isArray((g as any).members) ? (g as any).members : []), meId]);
+        if (Number(g.id) !== Number(groupId)) return g;
+        
+        const currentMembers = Array.isArray(g.members) ? g.members : [];
+        // Don't add if already a member
+        if (currentMembers.includes(meId)) return g;
+        
+        const nextMembers = [...currentMembers, meId];
+        
         return {
           ...g,
-          members,
-          members_count: Number((g as any).members_count ?? members.length),
-        } as any;
+          members: nextMembers,
+          members_count: nextMembers.length,
+        };
       })
     );
 
-    // ✅ Then refresh in background
-    await fetchOtherData().catch(() => {});
+    try {
+      const result = await apiFetch("/api/group-members", {
+        method: "POST",
+        body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
+      });
 
-    return result;
+      // ✅ Then refresh in background to ensure consistency
+      await fetchOtherData().catch(() => {});
+      
+      return result;
+    } catch (error) {
+      // Revert on error
+      console.error('Failed to join group:', error);
+      setGroups(prev =>
+        prev.map(g => {
+          if (Number(g.id) !== Number(groupId)) return g;
+          
+          const currentMembers = Array.isArray(g.members) ? g.members : [];
+          const nextMembers = currentMembers.filter(id => id !== meId);
+          
+          return {
+            ...g,
+            members: nextMembers,
+            members_count: nextMembers.length,
+          };
+        })
+      );
+      setLoginError('Failed to join group');
+      throw error;
+    }
   }, [currentUser, requireAuth, fetchOtherData]);
 
   /** ---------- ✅ FIXED: leaveGroup with optimistic update ---------- */
   const leaveGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Leaving groups")) return;
-    const meId = Number(currentUser!.id);
+    if (!currentUser) return;
 
-    const result = await apiFetch(
-      `/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`,
-      { method: "DELETE" }
-    );
+    const meId = Number(currentUser.id);
 
     // ✅ OPTIMISTIC UPDATE: Update UI immediately
     setGroups(prev =>
       prev.map(g => {
-        if (Number((g as any).id) !== Number(groupId)) return g as any;
-        const members = (Array.isArray((g as any).members) ? (g as any).members : [])
-          .map(Number)
-          .filter((id: number) => id !== meId);
+        if (Number(g.id) !== Number(groupId)) return g;
+        
+        const currentMembers = Array.isArray(g.members) ? g.members : [];
+        const nextMembers = currentMembers.filter(id => id !== meId);
+        
         return {
           ...g,
-          members,
-          members_count: Number((g as any).members_count ?? members.length),
-        } as any;
+          members: nextMembers,
+          members_count: nextMembers.length,
+        };
       })
     );
 
-    await fetchOtherData().catch(() => {});
-    return result;
+    try {
+      const result = await apiFetch(
+        `/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`,
+        { method: "DELETE" }
+      );
+
+      await fetchOtherData().catch(() => {});
+      return result;
+    } catch (error) {
+      // Revert on error
+      console.error('Failed to leave group:', error);
+      setGroups(prev =>
+        prev.map(g => {
+          if (Number(g.id) !== Number(groupId)) return g;
+          
+          const currentMembers = Array.isArray(g.members) ? g.members : [];
+          // Don't add if already a member
+          if (currentMembers.includes(meId)) return g;
+          
+          const nextMembers = [...currentMembers, meId];
+          
+          return {
+            ...g,
+            members: nextMembers,
+            members_count: nextMembers.length,
+          };
+        })
+      );
+      setLoginError('Failed to leave group');
+      throw error;
+    }
   }, [currentUser, requireAuth, fetchOtherData]);
 
   const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
