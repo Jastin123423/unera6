@@ -581,6 +581,7 @@ const GroupPost: React.FC<{
   currentUser: User | null;
   users: User[];
   isGroupAdmin?: boolean;
+  isPlatformAdmin?: boolean;  // ✅ Added platform admin prop
   onProfileClick: (id: number) => void;
   onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
   onOpenComments: (postId: number) => void;
@@ -599,6 +600,7 @@ const GroupPost: React.FC<{
   currentUser,
   users,
   isGroupAdmin = false,
+  isPlatformAdmin = false,  // ✅ Added with default false
   onProfileClick,
   onLikePost,
   onOpenComments,
@@ -655,6 +657,9 @@ const GroupPost: React.FC<{
   const postId = Number(p.id ?? p.post_id ?? 0);
 
   const isPostAuthor = currentUser?.id === author.id;
+  
+  // ✅ Updated canModerate logic to include platform admin
+  const canModerate = Boolean(isPostAuthor || isGroupAdmin || isPlatformAdmin);
 
   // Get media list for multiple images
   const mediaList = useMemo(() => {
@@ -705,8 +710,6 @@ const GroupPost: React.FC<{
     onOpenComments(postId);
   };
 
-  // Close menu when clicking outside (handled in PostActionsMenu component)
-
   return (
     <>
       <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
@@ -738,32 +741,35 @@ const GroupPost: React.FC<{
             </div>
           </div>
 
-          {/* Three-dots menu button */}
-          <div className="relative">
-            <button
-              className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowActionsMenu(!showActionsMenu);
-              }}
-              aria-label="Post actions"
-            >
-              <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
-            </button>
+          {/* Three-dots menu button - only show if user can moderate */}
+          {(canModerate || onReportPost) && (
+            <div className="relative">
+              <button
+                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowActionsMenu(!showActionsMenu);
+                }}
+                aria-label="Post actions"
+              >
+                <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
+              </button>
 
-            {showActionsMenu && (
-              <PostActionsMenu
-                post={post}
-                currentUser={currentUser}
-                isGroupAdmin={isGroupAdmin}
-                isPostAuthor={isPostAuthor}
-                onEdit={onEditPost}
-                onDelete={onDeletePost}
-                onReport={onReportPost}
-                onClose={() => setShowActionsMenu(false)}
-              />
-            )}
-          </div>
+              {showActionsMenu && (
+                <PostActionsMenu
+                  post={post}
+                  currentUser={currentUser}
+                  // ✅ Pass combined admin status
+                  isGroupAdmin={canModerate}
+                  isPostAuthor={isPostAuthor}
+                  onEdit={onEditPost}
+                  onDelete={onDeletePost}
+                  onReport={onReportPost}
+                  onClose={() => setShowActionsMenu(false)}
+                />
+              )}
+            </div>
+          )}
         </div>
 
         {p.content && (
@@ -890,8 +896,6 @@ const GroupPost: React.FC<{
   );
 };
 
-// ... (rest of the GroupsPage component remains the same)
-
 interface GroupsPageProps {
   currentUser: User | null;
   groups: Group[];
@@ -939,8 +943,6 @@ interface GroupsPageProps {
   onViewImage?: (url: string) => void;
   onVideoClick?: (post: PostType) => void;
 }
-
-// ... (rest of the normalize functions remain the same)
 
 export const GroupsPage: React.FC<GroupsPageProps> = ({
   currentUser,
@@ -1040,21 +1042,8 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     [safeGroups, activeGroupId]
   );
 
-  // Load group posts when active group changes
-  useEffect(() => {
-    if (activeGroup && fetchGroupPosts) {
-      loadGroupPosts();
-    }
-  }, [activeGroup]);
-
-  // Load group events when active group changes and Events tab is selected
-  useEffect(() => {
-    if (activeGroup && groupTab === 'Events' && fetchGroupEvents) {
-      loadGroupEvents();
-    }
-  }, [activeGroup, groupTab]);
-
-  const loadGroupPosts = async () => {
+  // Load group posts when active group changes - ✅ Fixed dependency
+  const loadGroupPosts = useCallback(async () => {
     if (!activeGroup || !fetchGroupPosts) return;
     
     setLoadingPosts(true);
@@ -1067,9 +1056,15 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     } finally {
       setLoadingPosts(false);
     }
-  };
+  }, [activeGroup, fetchGroupPosts]);
 
-  const loadGroupEvents = async () => {
+  // ✅ Updated useEffect with proper dependencies
+  useEffect(() => {
+    loadGroupPosts();
+  }, [loadGroupPosts]);
+
+  // Load group events when active group changes and Events tab is selected
+  const loadGroupEvents = useCallback(async () => {
     if (!activeGroup || !fetchGroupEvents) return;
     
     setLoadingEvents(true);
@@ -1082,7 +1077,13 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     } finally {
       setLoadingEvents(false);
     }
-  };
+  }, [activeGroup, fetchGroupEvents]);
+
+  useEffect(() => {
+    if (activeGroup && groupTab === 'Events' && fetchGroupEvents) {
+      loadGroupEvents();
+    }
+  }, [activeGroup, groupTab, fetchGroupEvents, loadGroupEvents]);
 
   useEffect(() => {
     if (!showGroupPostModal) {
@@ -1391,8 +1392,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  // ... (rest of the JSX remains the same)
-
   // FEED VIEW (Facebook-style with dark theme)
   if (view === 'feed' || !activeGroup) {
     return (
@@ -1517,12 +1516,13 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         currentUser={currentUser}
                         users={users}
                         isGroupAdmin={isGroupAdmin}
+                        isPlatformAdmin={isAdmin}  // ✅ Pass platform admin status
                         onProfileClick={onProfileClick}
                         onLikePost={handleLikePost}
                         onOpenComments={handleOpenComments}
                         onSharePost={handleSharePost}
                         onEditPost={onEditGroupPost ? handleEditPost : undefined}
-                        onDeletePost={() => handleDeletePost(post.id)}
+                        onDeletePost={(postId) => handleDeletePost(postId)}  // ✅ Fixed: passes postId correctly
                         onReportPost={onReportGroupPost ? handleReportPost : undefined}
                         onViewImage={onViewImage}
                         onVideoClick={onVideoClick}
@@ -1596,7 +1596,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           />
         )}
 
-        {/* Create Event Modal */}
+        {/* Create Event Modal - ✅ Now works with groupId/groupName props */}
         {showEventModal && currentUser && activeGroup && (
           <CreateEventModal
             currentUser={currentUser}
