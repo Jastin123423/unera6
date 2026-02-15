@@ -581,12 +581,8 @@ export const CreatePostModal: React.FC<{
 // ... (rest of the components remain the same)
 
 // Export all components
-export { 
-  Post, 
-  CreatePost, 
-  CreatePostModal, 
-  CommentsSheet, 
-  ShareBottomSheet,
+export {  
+
   SuggestedProductsWidget,
   GalleryViewer,
   MediaGrid,
