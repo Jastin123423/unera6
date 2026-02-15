@@ -755,7 +755,7 @@ const GroupPost: React.FC<{
             </div>
           </div>
 
-          {/* ✅ REPLACED: Three-dots menu button instead of trash icon */}
+          {/* Three-dots menu button */}
           {(canModerate || onReportPost) && (
             <div className="relative">
               <button
@@ -1011,22 +1011,21 @@ function normalizePost(post: any): PostType {
 }
 
 /**
- * Normalize event data for UI safety
+ * Normalize event data for UI safety - FIXED to use creator_id and cover_url
  */
 function normalizeEvent(event: any): Event {
-  const groupId = event?.group_id ?? event?.groupId ?? event?.groupID ?? null;
+  const groupId = event?.group_id ?? event?.groupId ?? null;
 
   return {
     ...event,
     id: Number(event?.id ?? 0),
     title: String(event?.title ?? ''),
     description: String(event?.description ?? ''),
-    start_time: event?.start_time ?? event?.date ?? event?.event_date ?? new Date().toISOString(),
-    end_time: event?.end_time ?? null,
+    start_time: event?.event_date ?? event?.start_time ?? event?.date ?? new Date().toISOString(),
     location: event?.location ?? null,
-    cover_image: event?.cover_image ?? event?.cover_url ?? event?.coverImage ?? null,
+    cover_image: event?.cover_url ?? event?.cover_image ?? null, // Accept cover_url from backend
     attendees: Array.isArray(event?.attendees) ? event.attendees : [],
-    created_by: Number(event?.created_by ?? event?.organizer_id ?? 0),
+    created_by: Number(event?.creator_id ?? event?.created_by ?? 0), // Accept creator_id from backend
     group_id: groupId == null ? null : Number(groupId),
     created_at: event?.created_at ?? new Date().toISOString(),
     user_rsvp_status: event?.user_rsvp_status ?? null,
@@ -1139,7 +1138,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     activeGroupIdRef.current = activeGroupId;
   }, [activeGroupId]);
 
-  // ✅ FIXED: Load group posts with ref to prevent unnecessary reloads
+  // Load group posts with ref to prevent unnecessary reloads
   const loadGroupPosts = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupPosts) {
       setGroupPosts([]);
@@ -1172,7 +1171,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, groupTab, loadGroupPosts]);
 
-  // ✅ FIXED: Load group events with ref to prevent unnecessary reloads
+  // Load group events with ref to prevent unnecessary reloads
   const loadGroupEvents = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupEvents) {
       setGroupEvents([]);
@@ -1198,7 +1197,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, fetchGroupEvents]);
 
-  // Load events only when explicitly switching to Events tab, not automatically
+  // Load events only when explicitly switching to Events tab
   useEffect(() => {
     if (activeGroup && groupTab === 'Events') {
       loadGroupEvents();
@@ -1349,47 +1348,51 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  const isAdmin = currentUser?.role === 'admin';
+  // ✅ FIXED: handleJoinGroup with forced refresh
+  const handleJoinGroup = async () => {
+    if (!activeGroup || !currentUser) return;
 
-  const togglePinGroup = (groupId: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setPinnedGroups(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(groupId)) {
-        newSet.delete(groupId);
-      } else {
-        newSet.add(groupId);
-      }
-      return newSet;
-    });
+    try {
+      await onJoinGroup(activeGroup.id);
+
+      // Force reload posts/events and UI
+      postsLoadedRef.current = false;
+      eventsLoadedRef.current = false;
+      await loadGroupPosts(true);
+      if (groupTab === 'Events') await loadGroupEvents(true);
+    } catch (error) {
+      console.error('Failed to join group:', error);
+    }
   };
 
-  const computeVisits = (g: Group) => {
-    return Number((g as any)?.visits ?? ((g.posts?.length ?? 0) * 5 + (g.members?.length ?? 0)));
+  // ✅ FIXED: handleLeaveGroup with forced refresh
+  const handleLeaveGroup = async () => {
+    if (!activeGroup || !currentUser) return;
+
+    try {
+      await onLeaveGroup(activeGroup.id);
+
+      // Clear group content immediately
+      setGroupPosts([]);
+      setGroupEvents([]);
+      postsLoadedRef.current = false;
+      eventsLoadedRef.current = false;
+    } catch (error) {
+      console.error('Failed to leave group:', error);
+    }
   };
 
-  const computeLastActive = (g: Group) => {
-    const fromField = Number((g as any)?.lastActiveAt ?? 0);
-    if (fromField) return fromField;
+  const handleOpenComments = (postId: number) => {
+    const post = groupPosts.find(p => p.id === postId);
+    if (!post) return;
 
-    const newest = (g.posts ?? [])
-      .map((p: any) => new Date(p?.created_at ?? 0).getTime())
-      .filter((t: number) => Number.isFinite(t))
-      .sort((a: number, b: number) => b - a)[0];
+    const author = users.find(u => u.id === post.user_id);
+    if (!author) return;
 
-    return newest || 0;
+    setSelectedPost(post);
+    setSelectedPostAuthor(author);
+    setShowPostView(true);
   };
-
-  const formatNewPostsText = (g: Group) => {
-    const count = Number((g as any)?.newPostsCount ?? 0);
-    if (count > 25) return '25+ new posts';
-    if (count > 0) return `${count} new posts`;
-
-    const updated = String((g as any)?.updatedAt ?? '').trim();
-    return updated ? updated : 'Updated recently';
-  };
-
-  const hasNewPosts = (g: Group) => Number((g as any)?.newPostsCount ?? 0) > 0;
 
   const handleLikePost = async (postId: number, type?: ReactionType) => {
     if (!currentUser) return;
@@ -1418,44 +1421,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     } catch (error) {
       console.error('Failed to like post:', error);
     }
-  };
-
-  const handleJoinGroup = async () => {
-    if (!activeGroup || !currentUser) return;
-    
-    try {
-      await onJoinGroup(activeGroup.id);
-      if (fetchGroupDetails) {
-        const details = await fetchGroupDetails(activeGroup.id);
-      }
-    } catch (error) {
-      console.error('Failed to join group:', error);
-    }
-  };
-
-  const handleLeaveGroup = async () => {
-    if (!activeGroup || !currentUser) return;
-    
-    try {
-      await onLeaveGroup(activeGroup.id);
-      if (fetchGroupDetails) {
-        const details = await fetchGroupDetails(activeGroup.id);
-      }
-    } catch (error) {
-      console.error('Failed to leave group:', error);
-    }
-  };
-
-  const handleOpenComments = (postId: number) => {
-    const post = groupPosts.find(p => p.id === postId);
-    if (!post) return;
-
-    const author = users.find(u => u.id === post.user_id);
-    if (!author) return;
-
-    setSelectedPost(post);
-    setSelectedPostAuthor(author);
-    setShowPostView(true);
   };
 
   const handleSharePost = async (postId: number, newShareCount: number) => {
@@ -1526,6 +1491,48 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       throw error;
     }
   };
+
+  const isAdmin = currentUser?.role === 'admin';
+
+  const togglePinGroup = (groupId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPinnedGroups(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupId)) {
+        newSet.delete(groupId);
+      } else {
+        newSet.add(groupId);
+      }
+      return newSet;
+    });
+  };
+
+  const computeVisits = (g: Group) => {
+    return Number((g as any)?.visits ?? ((g.posts?.length ?? 0) * 5 + (g.members?.length ?? 0)));
+  };
+
+  const computeLastActive = (g: Group) => {
+    const fromField = Number((g as any)?.lastActiveAt ?? 0);
+    if (fromField) return fromField;
+
+    const newest = (g.posts ?? [])
+      .map((p: any) => new Date(p?.created_at ?? 0).getTime())
+      .filter((t: number) => Number.isFinite(t))
+      .sort((a: number, b: number) => b - a)[0];
+
+    return newest || 0;
+  };
+
+  const formatNewPostsText = (g: Group) => {
+    const count = Number((g as any)?.newPostsCount ?? 0);
+    if (count > 25) return '25+ new posts';
+    if (count > 0) return `${count} new posts`;
+
+    const updated = String((g as any)?.updatedAt ?? '').trim();
+    return updated ? updated : 'Updated recently';
+  };
+
+  const hasNewPosts = (g: Group) => Number((g as any)?.newPostsCount ?? 0) > 0;
 
   const sortedGroups = useMemo(() => {
     if (sortMode === 'Alphabetical') {
@@ -1932,6 +1939,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             }}
             onComment={onComment}
             onLikeComment={onLikeComment}
+            getCommentAuthor={(id) => users.find(u => u.id === id)}
             onProfileClick={onProfileClick}
             onHashtagClick={onHashtagClick}
             onFollow={onFollow}
@@ -2441,6 +2449,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           }}
           onComment={onComment}
           onLikeComment={onLikeComment}
+          getCommentAuthor={(id) => users.find(u => u.id === id)}
           onProfileClick={onProfileClick}
           onHashtagClick={onHashtagClick}
           onFollow={onFollow}
