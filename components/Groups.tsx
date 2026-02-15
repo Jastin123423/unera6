@@ -444,7 +444,7 @@ const GroupEventCard: React.FC<{
   );
 };
 
-// ✅ NEW: Post Actions Menu Component - Three dots menu for edit/delete
+// Post Actions Menu Component - Three dots menu for edit/delete
 const PostActionsMenu: React.FC<{
   post: PostType;
   currentUser: User | null;
@@ -589,7 +589,7 @@ const PostActionsMenu: React.FC<{
 };
 
 /**
- * GroupPost Component with Three-Dots Menu (removed trash icon)
+ * GroupPost Component with Three-Dots Menu
  */
 const GroupPost: React.FC<{
   post: PostType;
@@ -1101,6 +1101,10 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [loadingPosts, setLoadingPosts] = useState(false);
   const postsLoadedRef = useRef<boolean>(false);
 
+  // Loading states for join/leave
+  const [joining, setJoining] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+
   const groupCoverInputRef = useRef<HTMLInputElement>(null);
   const groupProfileInputRef = useRef<HTMLInputElement>(null);
   const postFileInputRef = useRef<HTMLInputElement>(null);
@@ -1348,10 +1352,16 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  // ✅ FIXED: handleJoinGroup with forced refresh
+  // ✅ FIXED: handleJoinGroup with loading state and better error handling
   const handleJoinGroup = async () => {
-    if (!activeGroup || !currentUser) return;
+    if (!activeGroup) return;
+    if (!currentUser) {
+      alert('Please login to join groups');
+      return;
+    }
+    if (joining) return;
 
+    setJoining(true);
     try {
       await onJoinGroup(activeGroup.id);
 
@@ -1362,13 +1372,24 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       if (groupTab === 'Events') await loadGroupEvents(true);
     } catch (error) {
       console.error('Failed to join group:', error);
+      alert('Failed to join group. Please try again.');
+    } finally {
+      setJoining(false);
     }
   };
 
-  // ✅ FIXED: handleLeaveGroup with forced refresh
+  // ✅ FIXED: handleLeaveGroup with loading state and better error handling
   const handleLeaveGroup = async () => {
-    if (!activeGroup || !currentUser) return;
+    if (!activeGroup) return;
+    if (!currentUser) {
+      alert('Please login to leave groups');
+      return;
+    }
+    if (leaving) return;
 
+    if (!confirm('Are you sure you want to leave this group?')) return;
+
+    setLeaving(true);
     try {
       await onLeaveGroup(activeGroup.id);
 
@@ -1379,6 +1400,9 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       eventsLoadedRef.current = false;
     } catch (error) {
       console.error('Failed to leave group:', error);
+      alert('Failed to leave group. Please try again.');
+    } finally {
+      setLeaving(false);
     }
   };
 
@@ -2032,10 +2056,16 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                       </button>
 
                       <button 
-                        className="bg-[#2d2d2d] text-[#e4e6eb] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#3a3a3a] flex-1 md:flex-none transition-all"
+                        className="bg-[#2d2d2d] text-[#e4e6eb] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#3a3a3a] flex-1 md:flex-none transition-all disabled:opacity-50"
                         onClick={handleLeaveGroup}
+                        disabled={leaving}
                       >
-                        <i className="fas fa-check"></i> Joined
+                        {leaving ? (
+                          <i className="fas fa-spinner fa-spin mr-2"></i>
+                        ) : (
+                          <i className="fas fa-check mr-2"></i>
+                        )}
+                        {leaving ? 'Leaving...' : 'Joined'}
                       </button>
 
                       {canManage && (
@@ -2050,9 +2080,17 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                   ) : (
                     <button
                       onClick={handleJoinGroup}
-                      className="bg-[#1877f2] text-white px-8 py-2 rounded-lg font-bold text-base hover:bg-[#166fe5] w-full md:w-auto transition-all shadow-lg"
+                      disabled={joining}
+                      className="bg-[#1877f2] text-white px-8 py-2 rounded-lg font-bold text-base hover:bg-[#166fe5] w-full md:w-auto transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Join Group
+                      {joining ? (
+                        <span className="flex items-center gap-2">
+                          <i className="fas fa-spinner fa-spin"></i>
+                          Joining...
+                        </span>
+                      ) : (
+                        'Join Group'
+                      )}
                     </button>
                   )}
                 </div>
@@ -2108,9 +2146,10 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     <p className="text-[#b0b3b8] mb-8 max-w-xs mx-auto">Only members of this community can see the discussions and members.</p>
                     <button
                       onClick={handleJoinGroup}
-                      className="bg-[#1877f2] text-white px-10 py-2.5 rounded-lg font-black shadow-lg hover:bg-[#166fe5] transition-all active:scale-95"
+                      disabled={joining}
+                      className="bg-[#1877f2] text-white px-10 py-2.5 rounded-lg font-black shadow-lg hover:bg-[#166fe5] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Join Group
+                      {joining ? 'Joining...' : 'Join Group'}
                     </button>
                   </div>
                 ) : groupPosts.length > 0 ? (
@@ -2200,9 +2239,10 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     <p className="text-[#b0b3b8] mb-8 max-w-xs mx-auto">Only members can view and RSVP to events in this group.</p>
                     <button
                       onClick={handleJoinGroup}
-                      className="bg-[#1877f2] text-white px-10 py-2.5 rounded-lg font-black shadow-lg hover:bg-[#166fe5] transition-all active:scale-95"
+                      disabled={joining}
+                      className="bg-[#1877f2] text-white px-10 py-2.5 rounded-lg font-black shadow-lg hover:bg-[#166fe5] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Join Group
+                      {joining ? 'Joining...' : 'Join Group'}
                     </button>
                   </div>
                 ) : groupEvents.length > 0 ? (
