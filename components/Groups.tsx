@@ -1,6 +1,6 @@
 // Groups.tsx - Updated with professional three-dots menu
 
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';  // ✅ Added useCallback
 import { User, Group, Event, Post as PostType, ReactionType } from '../types';
 import { 
   Post, 
@@ -333,7 +333,7 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
 };
 
 /**
- * Group Event Card Component
+ * Group Event Card Component - ✅ Fixed date handling to prevent crashes
  */
 const GroupEventCard: React.FC<{
   event: Event;
@@ -345,14 +345,19 @@ const GroupEventCard: React.FC<{
   const [rsvpStatus, setRsvpStatus] = useState<string>(event.user_rsvp_status || '');
   const [loading, setLoading] = useState(false);
 
-  const eventDate = new Date(event.start_time || event.date || '');
-  const formattedDate = eventDate.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  // ✅ Safe date handling to prevent crashes from invalid dates
+  const rawDate = event.start_time || (event as any).date || '';
+  const eventDate = rawDate ? new Date(rawDate) : null;
+  
+  const formattedDate = eventDate && !Number.isNaN(eventDate.getTime())
+    ? eventDate.toLocaleDateString('en-US', { 
+        weekday: 'short', 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      })
+    : 'Date TBD';
 
   const handleRSVP = async (status: string) => {
     if (!currentUser || !onRSVP) return;
@@ -1691,7 +1696,7 @@ function normalizeEvent(event: any): Event {
     cover_image: event?.cover_image ?? null,
     attendees: Array.isArray(event?.attendees) ? event.attendees : [],
     created_by: Number(event?.created_by ?? 0),
-    group_id: event?.group_id ? Number(event.group_id) : null,
+    group_id: event?.group_id ? Number(event.groupId) : null,
     created_at: event?.created_at ?? new Date().toISOString(),
     user_rsvp_status: event?.user_rsvp_status ?? null,
   };
