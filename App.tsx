@@ -1,5 +1,3 @@
-// App.tsx - Complete updated version with all fixes
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -3174,6 +3172,21 @@ export default function App() {
     }
   }, [requireAuth]);
 
+  /** ---------- ✅ NEW: Edit group post function ---------- */
+  const editGroupPost = useCallback(async (postId: number, content: string) => {
+    if (!requireAdmin('Editing group posts')) return;
+
+    const clean = String(content || '').trim();
+    if (!clean) throw new Error('Content is empty');
+
+    const res = await apiFetch(`/api/group-posts?post_id=${Number(postId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content: clean }),
+    });
+
+    return res;
+  }, [requireAdmin]);
+
   const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
     if (!requireAdmin('Removing group members')) return;
 
@@ -4306,6 +4319,7 @@ export default function App() {
                   ));
                 }}
                 onDeleteGroupPost={deleteGroupPost}
+                onEditGroupPost={editGroupPost}
                 onRemoveMember={removeGroupMember}
                 onUpdateGroupSettings={updateGroupSettings}
                 onEventRSVP={handleEventRSVP}
