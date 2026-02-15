@@ -4372,6 +4372,10 @@ export default function App() {
                     if (!requireAuth('Creating posts')) return;
                     setShowCreatePostModal(true);
                   }}
+                  onCreateEventClick={() => {
+                    if (!requireAuth('Creating events')) return;
+                    setShowCreateEventModal(true);
+                  }}
                 />
               )}
 
@@ -4756,6 +4760,10 @@ export default function App() {
           users={users}
           onClose={() => setShowCreatePostModal(false)}
           onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
+          onCreateEventClick={() => {
+            setShowCreatePostModal(false); // Close the post modal first
+            setShowCreateEventModal(true);  // Then open the event modal
+          }}
         />
       )}
 
