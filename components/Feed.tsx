@@ -8,10 +8,12 @@ import {
   AudioTrack,
   Group,
   Brand,
+  Event,
 } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
+import { CreateEventModal } from './Events';
 
 /**
  * =========================
@@ -2181,7 +2183,7 @@ export const CreatePost: React.FC<{
   currentUser: User;
   onProfileClick: (id: number) => void;
   onClick: () => void;
-  onCreateEventClick?: () => void;
+  onCreateEventClick: () => void;
 }> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
   <div className="w-full">
     <div className="bg-[#242526] w-full p-3 md:p-4">
@@ -2261,7 +2263,7 @@ export const CreatePostModal: React.FC<{
     }
   ) => void;
   onCreateEventClick?: () => void;
-}> = ({ currentUser, users, onClose, onCreatePost }) => {
+}> = ({ currentUser, users, onClose, onCreatePost, onCreateEventClick }) => {
   const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
   
@@ -2707,6 +2709,17 @@ export const CreatePostModal: React.FC<{
           <OptionsItem icon="fas fa-user-tag" color="#1877F2" label="Tag people" onClick={() => setView('tag')} />
           <OptionsItem icon="far fa-smile" color="#F7B928" label="Feeling/activity" onClick={() => setView('feeling')} />
           <OptionsItem icon="fas fa-map-marker-alt" color="#F02849" label="Check in" onClick={() => setView('location')} />
+          {/* Create Event option in modal footer */}
+          <div
+            className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors border-t border-[#3E4042]/50 mt-2"
+            onClick={() => {
+              onClose();
+              if (onCreateEventClick) onCreateEventClick();
+            }}
+          >
+            <i className="fas fa-calendar-alt text-[24px] w-8 text-center" style={{ color: '#F7B928' }}></i>
+            <span className="text-[#E4E6EB] text-[17px] font-medium">Create Event</span>
+          </div>
         </div>
       </div>
 
