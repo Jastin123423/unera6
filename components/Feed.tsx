@@ -581,4 +581,18 @@ export const CreatePostModal: React.FC<{
 // ... (rest of the components remain the same)
 
 // Export all components
-export { getMediaTypeInfo };
+export { 
+  Post, 
+  CreatePost, 
+  CreatePostModal, 
+  CommentsSheet, 
+  ShareBottomSheet,
+  SuggestedProductsWidget,
+  GalleryViewer,
+  MediaGrid,
+  ReactionButton,
+  RichText,
+  ExpandableRichText,
+  getMediaTypeInfo,
+  formatRelativeTime 
+};
