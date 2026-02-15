@@ -61,7 +61,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const url = new URL(request.url);
 
     // ✅ allow opening /api/feeds directly in browser
-    // App can still pass ?userId=...
     const userId = toInt(url.searchParams.get('userId'), 0);
     const reactionUserId = userId || 0;
 
@@ -169,7 +168,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count
+        NULL AS podcast_plays_count,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS event_id,
+        NULL AS event_date,
+        NULL AS meta,
+        NULL AS type,
+        NULL AS kind,
+        NULL AS post_type,
+        NULL AS product_id
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
     `;
@@ -251,7 +260,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count
+        NULL AS podcast_plays_count,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS event_id,
+        NULL AS event_date,
+        NULL AS meta,
+        NULL AS type,
+        NULL AS kind,
+        NULL AS post_type,
+        NULL AS product_id
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
     `;
@@ -351,7 +370,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count
+        NULL AS podcast_plays_count,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS event_id,
+        NULL AS event_date,
+        NULL AS meta,
+        NULL AS type,
+        NULL AS kind,
+        NULL AS post_type,
+        NULL AS product_id
       FROM songs s
       LEFT JOIN users u ON u.id = s.uploader_id
     `;
@@ -440,37 +469,49 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         pc.description AS podcast_description,
         pc.audio_url AS podcast_audio_url,
         pc.cover_url AS podcast_cover_url,
-        COALESCE(pc.plays_count, 0) AS podcast_plays_count
+        COALESCE(pc.plays_count, 0) AS podcast_plays_count,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS event_id,
+        NULL AS event_date,
+        NULL AS meta,
+        NULL AS type,
+        NULL AS kind,
+        NULL AS post_type,
+        NULL AS product_id
       FROM podcasts pc
       LEFT JOIN users u ON u.id = pc.creator_id
     `;
 
     // ============================================================
-    // 5) PRODUCTS (A) feed-injection as marketplace posts ✅
+    // 5) EVENTS
     // ============================================================
-    const whereProductsFeed: string[] = [];
-    const bindsProductsFeed: any[] = [];
+    const whereEvents: string[] = [];
+    const bindsEvents: any[] = [];
+
+    whereEvents.push(`(e.visibility IS NULL OR e.visibility = 'worldwide' OR e.visibility = 'targeted')`);
 
     if (cursor && cursor.trim()) {
-      whereProductsFeed.push(`pr.created_at < ?`);
-      bindsProductsFeed.push(cursor.trim());
+      whereEvents.push(`e.created_at < ?`);
+      bindsEvents.push(cursor.trim());
     }
 
     if (seen.length > 0) {
-      whereProductsFeed.push(`pr.id NOT IN (${seen.map(() => '?').join(',')})`);
-      bindsProductsFeed.push(...seen);
+      whereEvents.push(`e.id NOT IN (${seen.map(() => '?').join(',')})`);
+      bindsEvents.push(...seen);
     }
 
-    const whereProductsFeedSql = whereProductsFeed.length ? `WHERE ${whereProductsFeed.join(' AND ')}` : '';
+    const whereEventsSql = whereEvents.length ? `WHERE ${whereEvents.join(' AND ')}` : '';
 
-    const baseSelectProductsFeed = `
+    const baseSelectEvents = `
       SELECT
-        'product' AS source,
-        'post' AS item_type,
-        pr.id AS id,
-        pr.created_at AS created_at,
+        'event' AS source,
+        'event' AS item_type,
+        e.id AS id,
+        e.created_at AS created_at,
 
-        pr.seller_id AS user_id,
+        e.creator_id AS user_id,
         COALESCE(u.username, 'user') AS username,
         COALESCE(u.username, 'User') AS name,
         CASE
@@ -481,24 +522,160 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        /* marketplace text */
-        pr.title AS content,
+        e.title AS content,
         'public' AS visibility,
         0 AS views,
         0 AS shares,
 
-        /* fallback media */
-        NULL AS media_url,
-        NULL AS media_type,
+        CASE
+          WHEN e.cover_url LIKE 'data:%' THEN NULL
+          WHEN length(e.cover_url) > 300 THEN NULL
+          ELSE e.cover_url
+        END AS media_url,
 
-        /* IMPORTANT: Feed.tsx marketplace renderer uses media_urls/images */
-        pr.images AS media_urls,
-        NULL AS media_types,
+        CASE
+          WHEN e.cover_url IS NOT NULL AND e.cover_url != '' THEN 'image'
+          ELSE NULL
+        END AS media_type,
+
+        CASE
+          WHEN e.cover_url IS NOT NULL AND e.cover_url != ''
+          THEN json_array(e.cover_url)
+          ELSE NULL
+        END AS media_urls,
+
+        CASE
+          WHEN e.cover_url IS NOT NULL AND e.cover_url != ''
+          THEN json_array('image')
+          ELSE NULL
+        END AS media_types,
 
         0 AS reactions_count,
         NULL AS my_reaction,
 
         NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+
+        e.location AS location,
+        NULL AS song_id,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        e.group_id AS group_id,
+        NULL AS group_name,
+        e.id AS event_id,
+        e.event_date AS event_date,
+
+        json_object(
+          'kind','event',
+          'event_id', e.id,
+          'event_date', e.event_date,
+          'location', e.location,
+          'group_id', e.group_id
+        ) AS meta,
+
+        'event' AS type,
+        'event' AS kind,
+        NULL AS post_type,
+        NULL AS product_id
+      FROM events e
+      LEFT JOIN users u ON u.id = e.creator_id
+    `;
+
+    // ============================================================
+    // 6) GROUP POSTS
+    // ============================================================
+    const whereGroupPosts: string[] = [];
+    const bindsGroupPosts: any[] = [];
+
+    whereGroupPosts.push(`(gp.visibility IS NULL OR gp.visibility = 'public')`);
+
+    if (cursor && cursor.trim()) {
+      whereGroupPosts.push(`gp.created_at < ?`);
+      bindsGroupPosts.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereGroupPosts.push(`gp.id NOT IN (${seen.map(() => '?').join(',')})`);
+      bindsGroupPosts.push(...seen);
+    }
+
+    const whereGroupPostsSql = whereGroupPosts.length ? `WHERE ${whereGroupPosts.join(' AND ')}` : '';
+
+    const baseSelectGroupPosts = `
+      SELECT
+        'group_post' AS source,
+        'post' AS item_type,
+        gp.id AS id,
+        gp.created_at AS created_at,
+
+        gp.user_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        gp.content AS content,
+        'public' AS visibility,
+        0 AS views,
+        0 AS shares,
+
+        CASE
+          WHEN gp.media_url LIKE 'data:%' THEN NULL
+          WHEN length(gp.media_url) > 300 THEN NULL
+          ELSE gp.media_url
+        END AS media_url,
+
+        CASE
+          WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+          WHEN gp.media_url IS NOT NULL AND gp.media_url != '' THEN 'image'
+          ELSE NULL
+        END AS media_type,
+
+        CASE
+          WHEN gp.media_url IS NOT NULL AND gp.media_url != ''
+          THEN json_array(gp.media_url)
+          ELSE NULL
+        END AS media_urls,
+
+        CASE
+          WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN json_array('video')
+          WHEN gp.media_url IS NOT NULL AND gp.media_url != '' THEN json_array('image')
+          ELSE NULL
+        END AS media_types,
+
+        (SELECT COUNT(*) FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id) AS reactions_count,
+        (SELECT 'like' FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id AND gpl.user_id = ? LIMIT 1) AS my_reaction,
+
+        CASE
+          WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN gp.media_url
+          ELSE NULL
+        END AS video_url,
+
         NULL AS caption,
         NULL AS song_name,
         NULL AS audio_url,
@@ -524,60 +701,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        /* ✅ THESE TRIGGER isMarketplace in Feed.tsx */
-        'marketplace' AS type,
-        'product' AS post_type,
-        'product' AS kind,
-        pr.id AS product_id,
+        gp.group_id AS group_id,
+        COALESCE(g.name, 'Group') AS group_name,
+        NULL AS event_id,
+        NULL AS event_date,
 
-        /* ✅ meta object with marketplace.id */
         json_object(
-          'kind','product',
-          'type','product',
-          'product_id', pr.id,
-          'marketplace', json_object('id', pr.id)
-        ) AS meta
-      FROM products pr
-      LEFT JOIN users u ON u.id = pr.seller_id
-    `;
+          'kind','group_post',
+          'group_id', gp.group_id,
+          'group_name', COALESCE(g.name,'Group')
+        ) AS meta,
 
-    // ============================================================
-    // 6) PRODUCTS (B) separate list (your old behavior kept)
-    // ============================================================
-    const whereProducts: string[] = [];
-    const bindsProducts: any[] = [];
-
-    if (cursor && cursor.trim()) {
-      whereProducts.push(`pr.created_at < ?`);
-      bindsProducts.push(cursor.trim());
-    }
-
-    if (seen.length > 0) {
-      whereProducts.push(`pr.id NOT IN (${seen.map(() => '?').join(',')})`);
-      bindsProducts.push(...seen);
-    }
-
-    const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(' AND ')}` : '';
-
-    const selectProducts = `
-      SELECT
-        pr.id,
-        pr.seller_id,
-        pr.title,
-        pr.category,
-        pr.description,
-        pr.country,
-        pr.address,
-        pr.main_price,
-        pr.discount_price,
-        pr.quantity,
-        pr.phone_number,
-        pr.images,
-        pr.created_at
-      FROM products pr
-      ${whereProductsSql}
-      ORDER BY pr.created_at DESC
-      LIMIT ?
+        'group' AS type,
+        'group_post' AS kind,
+        NULL AS post_type,
+        NULL AS product_id
+      FROM group_posts gp
+      LEFT JOIN users u ON u.id = gp.user_id
+      LEFT JOIN groups g ON g.id = gp.group_id
     `;
 
     // ============================================================
@@ -603,19 +744,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(...bindsPodcasts, freshCount).all();
     const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
 
-    // ✅ NEW: products injected into feed (fresh)
-    const freshProductsFeedRes = await env.DB.prepare(
-      `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY pr.created_at DESC LIMIT ?`
-    ).bind(...bindsProductsFeed, freshCount).all();
-    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results)
-      ? freshProductsFeedRes.results
-      : [];
+    const freshEventsRes = await env.DB.prepare(
+      `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
+    ).bind(...bindsEvents, freshCount).all();
+    const freshEvents = Array.isArray(freshEventsRes?.results) ? freshEventsRes.results : [];
 
-    // old products list
-    const freshProductsRes = await env.DB.prepare(selectProducts)
-      .bind(...bindsProducts, freshCount)
-      .all();
-    const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
+    const freshGroupPostsRes = await env.DB.prepare(
+      `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY gp.created_at DESC LIMIT ?`
+    ).bind(reactionUserId, ...bindsGroupPosts, freshCount).all();
+    const freshGroupPosts = Array.isArray(freshGroupPostsRes?.results) ? freshGroupPostsRes.results : [];
 
     // ============================================================
     // RUN QUERIES (Explore)
@@ -624,8 +761,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     let exploreReels: any[] = [];
     let exploreSongs: any[] = [];
     let explorePodcasts: any[] = [];
-    let exploreProductsFeed: any[] = [];
-    let exploreProducts: any[] = [];
+    let exploreEvents: any[] = [];
+    let exploreGroupPosts: any[] = [];
 
     if (exploreCount > 0) {
       const explorePostsRes = await env.DB.prepare(
@@ -648,31 +785,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ).bind(...bindsPodcasts, exploreCount).all();
       explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
 
-      // ✅ NEW: products injected into feed (explore)
-      const exploreProductsFeedRes = await env.DB.prepare(
-        `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(...bindsProductsFeed, exploreCount).all();
-      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results)
-        ? exploreProductsFeedRes.results
-        : [];
+      const exploreEventsRes = await env.DB.prepare(
+        `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(...bindsEvents, exploreCount).all();
+      exploreEvents = Array.isArray(exploreEventsRes?.results) ? exploreEventsRes.results : [];
 
-      // old products list explore
-      const exploreProductsRes = await env.DB.prepare(
-        `
-          SELECT
-            pr.id, pr.seller_id, pr.title, pr.category, pr.description, pr.country, pr.address,
-            pr.main_price, pr.discount_price, pr.quantity, pr.phone_number, pr.images, pr.created_at
-          FROM products pr
-          ${whereProductsSql}
-          ORDER BY RANDOM()
-          LIMIT ?
-        `
-      ).bind(...bindsProducts, exploreCount).all();
-      exploreProducts = Array.isArray(exploreProductsRes?.results) ? exploreProductsRes.results : [];
+      const exploreGroupPostsRes = await env.DB.prepare(
+        `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(reactionUserId, ...bindsGroupPosts, exploreCount).all();
+      exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results) ? exploreGroupPostsRes.results : [];
     }
 
     // ============================================================
-    // Merge + dedup FEED (NOW includes injected products ✅)
+    // Merge + dedup FEED (posts + reels + songs + podcasts + events + group posts)
     // ============================================================
     const map = new Map<string, any>();
     const allFeedRows = [
@@ -680,12 +805,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...freshReels,
       ...freshSongs,
       ...freshPodcasts,
-      ...freshProductsFeed,
+      ...freshEvents,
+      ...freshGroupPosts,
+
       ...explorePosts,
       ...exploreReels,
       ...exploreSongs,
       ...explorePodcasts,
-      ...exploreProductsFeed,
+      ...exploreEvents,
+      ...exploreGroupPosts,
     ];
 
     for (const row of allFeedRows) {
@@ -707,35 +835,49 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const ordered = seededShuffle(merged, seed);
 
     // ============================================================
-    // Merge + dedup PRODUCTS (separate list)
-    // ============================================================
-    const productMap = new Map<number, any>();
-    for (const row of [...freshProducts, ...exploreProducts]) {
-      const id = Number((row as any)?.id);
-      if (!Number.isFinite(id)) continue;
-      if (!productMap.has(id)) productMap.set(id, row);
-    }
-    const products = Array.from(productMap.values());
-
-    // ============================================================
-    // hasMore (posts-only simple)
+    // hasMore (across all sources)
     // ============================================================
     let hasMore = false;
     if (nextCursor) {
       const qMore = `
-        SELECT p.id
-        FROM posts p
-        WHERE
-          (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')
-          AND p.created_at < ?
-        ORDER BY p.created_at DESC
+        SELECT 1 AS ok
+        FROM (
+          SELECT created_at FROM posts
+          WHERE (visibility IS NULL OR visibility = 'public' OR visibility = '' OR visibility = 'Public')
+            AND created_at < ?
+          UNION ALL
+          SELECT created_at FROM reels
+          WHERE (visibility IS NULL OR visibility = 'public' OR visibility = '' OR visibility = 'Public')
+            AND created_at < ?
+          UNION ALL
+          SELECT created_at FROM songs
+          WHERE created_at < ?
+          UNION ALL
+          SELECT created_at FROM podcasts
+          WHERE created_at < ?
+          UNION ALL
+          SELECT created_at FROM events
+          WHERE (visibility IS NULL OR visibility = 'worldwide' OR visibility = 'targeted')
+            AND created_at < ?
+          UNION ALL
+          SELECT created_at FROM group_posts
+          WHERE (visibility IS NULL OR visibility = 'public')
+            AND created_at < ?
+        ) x
         LIMIT 1
       `;
-      const more = await env.DB.prepare(qMore).bind(nextCursor).first();
+      const more = await env.DB.prepare(qMore).bind(
+        nextCursor,
+        nextCursor,
+        nextCursor,
+        nextCursor,
+        nextCursor,
+        nextCursor
+      ).first();
       hasMore = !!more;
     }
 
-    const payload = {
+    const payload: any = {
       success: true,
       userId,
       limit,
@@ -743,7 +885,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       nextCursor,
       hasMore,
       feed: ordered,
-      products,
     };
 
     if (debug) {
@@ -752,22 +893,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         debug: {
           seenCount: seen.length,
           returnedFeed: ordered.length,
-          returnedProducts: products.length,
           fresh: {
             posts: freshPosts.length,
             reels: freshReels.length,
             songs: freshSongs.length,
             podcasts: freshPodcasts.length,
-            productsFeed: freshProductsFeed.length,
-            products: freshProducts.length,
+            events: freshEvents.length,
+            groupPosts: freshGroupPosts.length,
           },
           explore: {
             posts: explorePosts.length,
             reels: exploreReels.length,
             songs: exploreSongs.length,
             podcasts: explorePodcasts.length,
-            productsFeed: exploreProductsFeed.length,
-            products: exploreProducts.length,
+            events: exploreEvents.length,
+            groupPosts: exploreGroupPosts.length,
           },
         },
       });
