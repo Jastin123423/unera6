@@ -1,13 +1,17 @@
-// contexts/MarketplaceContext.ts
 import React from "react";
 
-export type MarketplaceContextValue = {
-  openProductById?: (productId: number) => void;
-  getProductById?: (productId: number) => any | null;
-  activeProductId?: number | null;
-
-  // allow future extensions safely
-  [key: string]: any;
+export type ProductMeta = {
+  price: number;
+  location: string;
+  currency?: string;
 };
 
-export const MarketplaceContext = React.createContext<MarketplaceContextValue>({});
+export type MarketplaceContextValue = {
+  onViewProduct: (productId: number) => void;
+  getProductData: (productId: number) => ProductMeta | null;
+};
+
+export const MarketplaceContext = React.createContext<MarketplaceContextValue>({
+  onViewProduct: () => {},
+  getProductData: () => null,
+});
