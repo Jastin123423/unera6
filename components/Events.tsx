@@ -465,7 +465,7 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
     </div>
   );
 };
-export { CreateEventModal, EventCard };
+
 
 // ✅ Remove default export - use named export only
 // export default CreateEventModal; - COMMENTED OUT/DELETED
