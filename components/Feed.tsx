@@ -832,7 +832,7 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
 
 /**
  * =========================
- * ✅ FIXED: MediaGrid Component - Full Width
+ * ✅ FIXED: MediaGrid Component - Full Width with Gallery Support
  * =========================
  */
 const MediaGrid: React.FC<{
@@ -1583,29 +1583,58 @@ export const Post: React.FC<{
   const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
   const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
 
-  // ✅ FIXED: MARKETPLACE TOP LINE WITH ENHANCED PRICE AND LOCATION ICON
+  // ✅ Gallery state for multi-image swiping
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+
+  const openGallery = (urls: string[], index: number) => {
+    setGalleryUrls(urls);
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  };
+
+  // ✅ FIXED: MARKETPLACE TOP LINE - ONLY MARKETPLACE BADGE AND LOCATION
   const marketplaceTop = isMarketplace ? (
-    <div className="px-4 pb-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2 text-[#E4E6EB]">
-        <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
-          Marketplace
-        </span>
-        {loc && (
-          <div className="flex items-center gap-1 text-[#B0B3B8]">
-            <i className="fas fa-map-marker-alt text-[12px] text-[#F02849]"></i>
-            <span className="text-sm">{loc}</span>
-          </div>
-        )}
-        {price && (
-          <div className="flex items-center gap-1 bg-[#3A3B3C] px-3 py-1 rounded-full">
-            <span className="text-[#E4E6EB] font-bold text-base">{currency}</span>
-            <span className="text-[#E4E6EB] font-black text-lg">{price}</span>
-          </div>
-        )}
+    <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
+      <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
+        Marketplace
+      </span>
+      {loc && (
+        <div className="flex items-center gap-1 text-[#B0B3B8]">
+          <i className="fas fa-map-marker-alt text-[12px] text-[#F02849]"></i>
+          <span className="text-sm">{loc}</span>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  // ✅ FIXED: MARKETPLACE MEDIA GRID - NOW FULL WIDTH WITH GALLERY SUPPORT
+  const marketplaceMedia = isMarketplace ? (
+    mpImages.length > 0 ? (
+      <div className="w-full">
+        <div className="w-full bg-black">
+          <MediaGrid
+            media={mpImages.map(url => ({ url }))}
+            onOpen={(url, index) => {
+              openGallery(mpImages, index);
+            }}
+          />
+        </div>
+      </div>
+    ) : null
+  ) : null;
+
+  // ✅ NEW: MARKETPLACE PRICE AND BUTTON SECTION - POSITIONED BELOW IMAGES
+  const marketplaceFooter = isMarketplace && price ? (
+    <div className="px-4 py-3 flex items-center justify-between border-t border-[#3E4042] mt-1">
+      <div className="flex items-center gap-2">
+        <span className="text-[#E4E6EB] text-2xl font-black">{currency}</span>
+        <span className="text-[#E4E6EB] text-3xl font-black">{price}</span>
       </div>
 
       <button
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-5 py-2 rounded-full font-bold text-sm transition-colors flex-shrink-0 shadow-md"
+        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-6 py-2.5 rounded-full font-bold text-base transition-colors shadow-md"
         onClick={(e) => {
           e.stopPropagation();
           if (productId) onViewProduct?.(productId);
@@ -1614,25 +1643,6 @@ export const Post: React.FC<{
         View product
       </button>
     </div>
-  ) : null;
-
-  // ✅ FIXED: MARKETPLACE MEDIA GRID - NOW FULL WIDTH
-  const marketplaceMedia = isMarketplace ? (
-    mpImages.length > 0 ? (
-      <div className="w-full">
-        <div className="w-full bg-black">
-          <MediaGrid
-            media={mpImages.map(url => ({ url }))}
-            onOpen={(url, index) => {
-              const urls = mpImages;
-              if (onViewImage) {
-                onViewImage(url);
-              }
-            }}
-          />
-        </div>
-      </div>
-    ) : null
   ) : null;
 
   // ✅ NEW: Music/Podcast detection
@@ -1673,17 +1683,6 @@ export const Post: React.FC<{
   });
 
   const [showShareSheet, setShowShareSheet] = useState(false);
-
-  // ✅ Gallery state for multi-image swiping
-  const [galleryOpen, setGalleryOpen] = useState(false);
-  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
-  const [galleryIndex, setGalleryIndex] = useState(0);
-
-  const openGallery = (urls: string[], index: number) => {
-    setGalleryUrls(urls);
-    setGalleryIndex(index);
-    setGalleryOpen(true);
-  };
 
   const createdAtLabel = formatRelativeTime(p.created_at);
   const postId = safePostId(p);
@@ -1852,7 +1851,7 @@ export const Post: React.FC<{
               )}
           </div>
 
-          {/* ===== MARKETPLACE TOP LINE (injected after header) ===== */}
+          {/* ===== MARKETPLACE TOP LINE (only badge and location) ===== */}
           {marketplaceTop}
 
           {/* ===== POST CONTENT ===== */}
@@ -2115,6 +2114,9 @@ export const Post: React.FC<{
               )}
             </>
           )}
+
+          {/* ===== MARKETPLACE PRICE AND BUTTON FOOTER (below images) ===== */}
+          {marketplaceFooter}
 
           {/* ===== REACTION SUMMARY ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
