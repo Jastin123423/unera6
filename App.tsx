@@ -91,6 +91,48 @@ const STORIES_CACHE_TTL_MS = 60_000;
 const STORY_VIEWERS_CACHE_KEY = "unera_story_viewers_";
 const VIEWERS_TTL = 2 * 60_000;
 
+/** ---------- Video/Reel ID resolver for Facebook-like video playback ---------- */
+const resolveVideoId = (item: any): number | null => {
+  if (!item) return null;
+  
+  // Check all possible ID fields in order of preference
+  const possibleIds = [
+    item?.post_id,
+    item?.postId,
+    item?.reel_id,
+    item?.reelId,
+    item?.video_id,
+    item?.videoId,
+    item?.id,
+  ];
+  
+  for (const id of possibleIds) {
+    if (id === undefined || id === null) continue;
+    const num = Number(id);
+    if (Number.isFinite(num) && num > 0) return num;
+  }
+  
+  return null;
+};
+
+/** ---------- Stable key generator for list items ---------- */
+const getStableItemKey = (item: any, prefix = 'item'): string => {
+  const id = resolveVideoId(item);
+  if (id) return `${prefix}-${id}`;
+  
+  // Fallback to a combination of fields if no ID
+  const fallbackParts = [
+    item?.user_id,
+    item?.userId,
+    item?.created_at,
+    item?.createdAt,
+    item?.media_url,
+    item?.content?.substring(0, 20)
+  ].filter(Boolean);
+  
+  return `${prefix}-${fallbackParts.join('-') || Math.random()}`;
+};
+
 const readStorySeen = (): number[] => {
   try {
     const raw = localStorage.getItem(STORY_SEEN_KEY);
@@ -1404,6 +1446,11 @@ export default function App() {
 
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [activeReelId, setActiveReelId] = useState<number | null>(null);
+  /** ---------- Track when ReelsFeed has consumed the activeReelId ---------- */
+  const handleActiveReelConsumed = useCallback(() => {
+    setActiveReelId(null);
+  }, []);
+  
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -4342,6 +4389,18 @@ export default function App() {
     };
   }, [products]);
 
+  /** ---------- Facebook-like video click handler ---------- */
+  const handleVideoClick = useCallback((item: any) => {
+    const videoId = resolveVideoId(item);
+    if (!videoId) {
+      console.warn('Could not resolve video ID for item:', item);
+      return;
+    }
+    
+    setActiveReelId(videoId);
+    setView('reels');
+  }, []);
+
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
       <Header
@@ -4455,7 +4514,7 @@ export default function App() {
                       
                       return (
                         <Post
-                          key={post.id || `${post.user_id}-${post.created_at}-${idx}`}
+                          key={getStableItemKey(post, 'post')}
                           post={post}
                           author={getPostAuthor(post)}
                           currentUser={currentUser}
@@ -4465,10 +4524,7 @@ export default function App() {
                           onShare={() => handleOpenShareSheet(post)}
                           onViewImage={setFullScreenImage}
                           onOpenComments={(postId: number) => onOpenComments(postId)}
-                          onVideoClick={(p: any) => {
-                            setActiveReelId(p.id);
-                            setView('reels');
-                          }}
+                          onVideoClick={handleVideoClick}
                           onPlayAudioTrack={onPlayTrack}
                           groups={groups}
                           brands={brands}
@@ -4506,6 +4562,8 @@ export default function App() {
 
           {view === 'reels' && (
             <ReelsFeed
+              activeReelId={activeReelId}
+              onActiveReelConsumed={handleActiveReelConsumed}
               reels={reels}
               users={users}
               currentUser={currentUser}
@@ -4576,12 +4634,7 @@ export default function App() {
                 checkIsFollowing={checkIsFollowing}
                 onHashtagClick={handleHashtagClick}
                 onViewImage={setFullScreenImage}
-                onVideoClick={(post) => {
-                  if (post.media_url) {
-                    setActiveReelId(post.id);
-                    setView('reels');
-                  }
-                }}
+                onVideoClick={handleVideoClick}
                 initialGroupId={null}
               />
             </ErrorBoundary>
@@ -4687,10 +4740,7 @@ export default function App() {
               onShare={(post: any) => handleOpenShareSheet(post)}
               onViewImage={setFullScreenImage}
               onOpenComments={(postId: number) => onOpenComments(postId)}
-              onVideoClick={(p: any) => {
-                setActiveReelId(p.id);
-                setView('reels');
-              }}
+              onVideoClick={handleVideoClick}
               onPlayAudioTrack={onPlayTrack}
               onHashtagClick={handleHashtagClick}
               onFollow={followUser}
@@ -4735,10 +4785,7 @@ export default function App() {
               getCommentAuthor={(id) => users.find((u) => u.id === id)}
               onViewImage={setFullScreenImage}
               onOpenComments={(postId) => onOpenComments(postId)}
-              onVideoClick={(p) => {
-                setActiveReelId((p as any).id);
-                setView('reels');
-              }}
+              onVideoClick={handleVideoClick}
               onPlayAudioTrack={onPlayTrack}
               onCreateStoryClick={handleCreateStoryFromProfile}
               onVerifyUser={(id) => verifyUser(id)}
