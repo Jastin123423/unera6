@@ -14,7 +14,7 @@ import {
 } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
-import { MarketplaceContext } from '../App';
+import { MarketplaceContext } from '../contexts/MarketplaceContext';
 import { CreateEventModal } from './Events';
 
 /**
