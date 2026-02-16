@@ -1,4 +1,6 @@
 // Feed.tsx
+import { CreateEventModal } from './Events';
+import { EventCard } from './EventCard'; // Import from the correct file
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -14,7 +16,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
-import { CreateEventModal, EventCard } from './Events';
+
 
 /**
  * =========================
