@@ -222,7 +222,7 @@ export const formatRelativeTime = (dateInput: any): string => {
 const reactionEmoji = (t: string) => {
   switch (t) {
     case 'like': return '👍';
-    case 'love': return '😍';
+    case 'love': return '❤️';
     case 'haha': return '😂';
     case 'wow': return '😮';
     case 'sad': return '😢';
@@ -265,10 +265,10 @@ const topReactionEmojis = (reactionsArr: any[], max = 2) => {
 
 /**
  * =========================
- * LINK PREVIEW
+ * ✅ ENHANCED LINK PREVIEW - FACEBOOK STYLE
  * =========================
  */
-const getLinkPreview = (text: string): LinkPreview | null => {
+const getLinkPreview = async (text: string): Promise<LinkPreview | null> => {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const match = text.match(urlRegex);
   if (!match?.[0]) return null;
@@ -276,11 +276,30 @@ const getLinkPreview = (text: string): LinkPreview | null => {
   const url = match[0];
   let domain = '';
   try {
-    domain = new URL(url).hostname;
+    domain = new URL(url).hostname.replace('www.', '');
   } catch {
     return null;
   }
 
+  try {
+    // Fetch real metadata from the URL
+    const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
+    const data = await response.json();
+    
+    if (data.success && data.data) {
+      return {
+        url,
+        title: data.data.title || domain,
+        description: data.data.description || `Visit ${domain} for more information.`,
+        image: data.data.image || 'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
+        domain: domain,
+      };
+    }
+  } catch (error) {
+    console.debug('Link preview fetch failed, using fallback');
+  }
+
+  // Fallback previews for common domains
   if (domain.includes('youtube')) {
     return {
       url,
@@ -305,8 +324,8 @@ const getLinkPreview = (text: string): LinkPreview | null => {
 
   return {
     url,
-    title: 'Website Link',
-    description: `Link from ${domain}.`,
+    title: domain,
+    description: `Visit ${domain} for more information.`,
     image:
       'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
     domain,
@@ -813,7 +832,7 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
 
 /**
  * =========================
- * ✅ MediaGrid Component for Multiple Images
+ * ✅ FIXED: MediaGrid Component - Full Width
  * =========================
  */
 const MediaGrid: React.FC<{
@@ -1490,7 +1509,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH MARKETPLACE RENDERING - SHARED FOOTER
+ * ✅ FIXED: POST CARD WITH FULL-WIDTH MARKETPLACE AND ENHANCED PRICE/LOCATION
  * =========================
  */
 export const Post: React.FC<{
@@ -1564,17 +1583,29 @@ export const Post: React.FC<{
   const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
   const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
 
-  // ✅ MARKETPLACE TOP LINE + BUTTON (injected under header)
+  // ✅ FIXED: MARKETPLACE TOP LINE WITH ENHANCED PRICE AND LOCATION ICON
   const marketplaceTop = isMarketplace ? (
-    <div className="px-3 pb-2 flex items-center justify-between gap-3">
-      <div className="text-[#B0B3B8] text-xs truncate">
-        <span className="font-semibold">Marketplace</span>
-        {loc ? ` • ${loc}` : ""}
-        {price ? ` • ${currency} ${price}` : ""}
+    <div className="px-4 pb-3 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2 text-[#E4E6EB]">
+        <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
+          Marketplace
+        </span>
+        {loc && (
+          <div className="flex items-center gap-1 text-[#B0B3B8]">
+            <i className="fas fa-map-marker-alt text-[12px] text-[#F02849]"></i>
+            <span className="text-sm">{loc}</span>
+          </div>
+        )}
+        {price && (
+          <div className="flex items-center gap-1 bg-[#3A3B3C] px-3 py-1 rounded-full">
+            <span className="text-[#E4E6EB] font-bold text-base">{currency}</span>
+            <span className="text-[#E4E6EB] font-black text-lg">{price}</span>
+          </div>
+        )}
       </div>
 
       <button
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold text-sm transition-colors flex-shrink-0"
+        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-5 py-2 rounded-full font-bold text-sm transition-colors flex-shrink-0 shadow-md"
         onClick={(e) => {
           e.stopPropagation();
           if (productId) onViewProduct?.(productId);
@@ -1585,11 +1616,11 @@ export const Post: React.FC<{
     </div>
   ) : null;
 
-  // ✅ MARKETPLACE MEDIA GRID (replaces normal media)
+  // ✅ FIXED: MARKETPLACE MEDIA GRID - NOW FULL WIDTH
   const marketplaceMedia = isMarketplace ? (
     mpImages.length > 0 ? (
-      <div className="px-3 pb-3">
-        <div className="rounded-xl overflow-hidden bg-black">
+      <div className="w-full">
+        <div className="w-full bg-black">
           <MediaGrid
             media={mpImages.map(url => ({ url }))}
             onOpen={(url, index) => {
@@ -1870,25 +1901,32 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== LINK PREVIEW ===== */}
+          {/* ===== LINK PREVIEW - ENHANCED ===== */}
           {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
             <div
-              className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
-              onClick={() => window.open(p.link_preview.url, '_blank')}
+              className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
+              onClick={() => window.open(p.link_preview.url, '_blank', 'noopener noreferrer')}
             >
-              <img
-                src={p.link_preview.image}
-                alt=""
-                className="w-full h-48 object-cover"
-              />
-              <div className="p-3 bg-[#3A3B3C]">
+              {p.link_preview.image && (
+                <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
+                  <img
+                    src={p.link_preview.image}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
+              <div className="p-4 bg-[#3A3B3C]">
                 <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
                   {p.link_preview.domain}
                 </div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-2">
                   {p.link_preview.title}
                 </div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">
+                <div className="text-[#B0B3B8] text-[14px] line-clamp-3">
                   {p.link_preview.description}
                 </div>
               </div>
@@ -2242,7 +2280,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: CREATE POST MODAL
+ * ✅ UPDATED: CREATE POST MODAL WITH ENHANCED LINK PREVIEW
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -2274,6 +2312,7 @@ export const CreatePostModal: React.FC<{
   const [visibility] = useState<'Public' | 'Friends'>('Public');
   const [activeBackground, setActiveBackground] = useState('');
   const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
+  const [isFetchingPreview, setIsFetchingPreview] = useState(false);
 
   const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
   const [feeling, setFeeling] = useState('');
@@ -2283,13 +2322,40 @@ export const CreatePostModal: React.FC<{
   const [locResults, setLocResults] = useState<any[]>([]);
   const [locLoading, setLocLoading] = useState(false);
   const searchTimeout = useRef<any>(null);
+  const previewTimeout = useRef<any>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setLinkPreview(getLinkPreview(text));
-  }, [text]);
+    if (previewTimeout.current) {
+      clearTimeout(previewTimeout.current);
+    }
+
+    if (files.length > 0 || activeBackground) {
+      setLinkPreview(null);
+      return;
+    }
+
+    previewTimeout.current = setTimeout(async () => {
+      setIsFetchingPreview(true);
+      try {
+        const preview = await getLinkPreview(text);
+        setLinkPreview(preview);
+      } catch (error) {
+        console.debug('Failed to fetch link preview');
+        setLinkPreview(null);
+      } finally {
+        setIsFetchingPreview(false);
+      }
+    }, 800);
+
+    return () => {
+      if (previewTimeout.current) {
+        clearTimeout(previewTimeout.current);
+      }
+    };
+  }, [text, files, activeBackground]);
 
   useEffect(() => {
     return () => {
@@ -2316,6 +2382,7 @@ export const CreatePostModal: React.FC<{
     }
 
     setActiveBackground('');
+    setLinkPreview(null);
     setView('main');
 
     if (e.target) {
@@ -2632,12 +2699,21 @@ export const CreatePostModal: React.FC<{
             />
           </div>
 
+          {isFetchingPreview && (
+            <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-lg flex items-center justify-center">
+              <i className="fas fa-spinner fa-spin text-[#1877F2] mr-2"></i>
+              <span className="text-[#B0B3B8]">Loading link preview...</span>
+            </div>
+          )}
+
           {linkPreview && files.length === 0 && !activeBackground && (
             <div
               className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
-              onClick={() => window.open(linkPreview.url, '_blank')}
+              onClick={() => window.open(linkPreview.url, '_blank', 'noopener noreferrer')}
             >
-              <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
+              {linkPreview.image && (
+                <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
+              )}
               <div className="p-3 bg-[#3A3B3C]">
                 <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{linkPreview.domain}</div>
                 <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{linkPreview.title}</div>
