@@ -1,4 +1,4 @@
-//Feed.tsx
+// Feed.tsx
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -14,7 +14,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
-import { CreateEventModal } from './Events';
+import { CreateEventModal, EventCard } from './Events';
 
 /**
  * =========================
@@ -45,6 +45,54 @@ const avatarFrom = (u: any) => {
     'User';
 
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=1877F2&color=fff&bold=true`;
+};
+
+/**
+ * =========================
+ * ✅ TEXT PREVIEW HELPER FOR PLAIN TEXT POSTS
+ * =========================
+ */
+const getPostTextPreview = (p: any, max = 140) => {
+  const t = String(p?.content ?? p?.text ?? '').trim();
+  if (!t) return '';
+  return t.length > max ? t.slice(0, max).trim() + '…' : t;
+};
+
+/**
+ * =========================
+ * ✅ EVENT DETECTION AND NORMALIZATION HELPERS
+ * =========================
+ */
+const isEventPost = (p: any): boolean => {
+  const meta = p?.meta || {};
+  return (
+    p?.type === 'event' ||
+    p?.post_type === 'event' ||
+    meta?.type === 'event' ||
+    meta?.kind === 'event' ||
+    !!p?.event_id ||
+    !!meta?.event ||
+    !!p?.event
+  );
+};
+
+const normalizeEventFromPost = (p: any): Event => {
+  const meta = p?.meta || {};
+  const e = meta?.event || p?.event || {};
+
+  return {
+    id: Number(e?.id ?? p?.event_id ?? meta?.event_id ?? 0),
+    title: String(e?.title ?? p?.title ?? meta?.title ?? 'Event'),
+    description: String(e?.description ?? p?.description ?? meta?.description ?? ''),
+    cover_image: e?.cover_image ?? p?.cover_image ?? meta?.cover_image ?? '',
+    location: e?.location ?? p?.location ?? meta?.location ?? '',
+    start_time: e?.start_time ?? e?.date ?? p?.start_time ?? p?.date ?? meta?.start_time ?? meta?.date ?? '',
+    attendees: Array.isArray(e?.attendees) ? e.attendees : [],
+    created_at: e?.created_at ?? p?.created_at ?? '',
+    user_rsvp_status: e?.user_rsvp_status ?? '',
+    creator_id: Number(e?.creator_id ?? p?.user_id ?? p?.author_id ?? 0),
+    group_id: Number(e?.group_id ?? p?.group_id ?? 0),
+  } as Event;
 };
 
 /**
@@ -1053,7 +1101,7 @@ const GalleryViewer: React.FC<{
 
 /**
  * =========================
- * ✅ SHARE BOTTOM SHEET
+ * ✅ SHARE BOTTOM SHEET - UPDATED WITH TEXT PREVIEW
  * =========================
  */
 export const ShareBottomSheet: React.FC<{
@@ -1161,6 +1209,10 @@ export const ShareBottomSheet: React.FC<{
       post?.media_url ||
       ''
     );
+  }, [post]);
+
+  const textPreview = useMemo(() => {
+    return getPostTextPreview(post, 100);
   }, [post]);
 
   if (!isOpen) return null;
@@ -1346,7 +1398,7 @@ export const ShareBottomSheet: React.FC<{
 
           {post && (
             <div className="flex items-start gap-3 mb-4 p-3 bg-[#3A3B3C] rounded-xl">
-              {previewUrl && (
+              {previewUrl ? (
                 <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
                   <img 
                     src={previewUrl} 
@@ -1354,7 +1406,12 @@ export const ShareBottomSheet: React.FC<{
                     className="w-full h-full object-cover"
                   />
                 </div>
-              )}
+              ) : textPreview ? (
+                <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-[#1877F2] flex items-center justify-center">
+                  <i className="fas fa-file-alt text-white text-2xl"></i>
+                </div>
+              ) : null}
+              
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-[#E4E6EB] font-semibold text-sm">
@@ -1366,8 +1423,8 @@ export const ShareBottomSheet: React.FC<{
                   </span>
                 </div>
                 <p className="text-[#B0B3B8] text-sm line-clamp-2">
-                  {post.content?.substring(0, 100) || 'Shared post'}
-                  {post.content?.length > 100 ? '...' : ''}
+                  {textPreview || post.content?.substring(0, 100) || 'Shared post'}
+                  {!textPreview && post.content?.length > 100 ? '...' : ''}
                 </p>
               </div>
             </div>
@@ -1561,6 +1618,7 @@ export const Post: React.FC<{
   onViewProductFromPost?: (productId: number) => void;
   onOpenGroup?: (groupId: number) => void;
   onOpenAudio?: (item: any) => void;
+  onRSVP?: (eventId: number, status: string) => Promise<any>;
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
@@ -1584,6 +1642,7 @@ export const Post: React.FC<{
   onViewProductFromPost,
   onOpenGroup,
   onOpenAudio,
+  onRSVP,
   groups = [],
   brands = [],
   chats = [],
@@ -1595,6 +1654,50 @@ export const Post: React.FC<{
   
   const p: any = post as any;
   const a: any = author as any;
+
+  // ========== EVENT DETECTION ==========
+  const isEvent = isEventPost(p);
+  
+  // If this is an event post, render EventCard instead
+  if (isEvent) {
+    const eventData = normalizeEventFromPost(p);
+    
+    // Find creator and group from users/groups arrays
+    const creatorUser = users.find(u => Number(u.id) === Number(eventData.creator_id)) || a;
+    const eventGroup = groups?.find(g => Number(g.id) === Number(eventData.group_id));
+
+    return (
+      <div className="w-full">
+        <EventCard
+          event={eventData}
+          group={eventGroup}
+          creator={creatorUser}
+          currentUser={currentUser}
+          onRSVP={async (eventId, status) => {
+            if (onRSVP) {
+              return onRSVP(eventId, status);
+            }
+            // Default RSVP handler if not provided
+            return apiFetch(`/api/events/${eventId}/rsvp`, {
+              method: 'POST',
+              body: JSON.stringify({ user_id: safeUserId(currentUser), status }),
+            });
+          }}
+          onClick={() => {
+            // You can implement event detail navigation here
+            // e.g., router.push(`/events/${eventData.id}`)
+            console.log('Open event:', eventData.id);
+          }}
+          onProfileClick={onProfileClick}
+          onShare={() => {
+            // Optional share handler for events
+            console.log('Share event:', eventData.id);
+          }}
+        />
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      </div>
+    );
+  }
 
   // ========== MARKETPLACE DETECTION ==========
   const meta: any = p?.meta || {};
@@ -2898,6 +3001,11 @@ export const CommentsSheet: React.FC<{
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
   
+  // ✅ Get text preview for plain text posts
+  const textPreview = useMemo(() => {
+    return getPostTextPreview(p);
+  }, [p]);
+
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
 
@@ -3237,7 +3345,8 @@ export const CommentsSheet: React.FC<{
             </div>
           </div>
 
-          {p.content && (
+          {/* ===== TEXT CONTENT WITH PREVIEW SUPPORT ===== */}
+          {p.content && !p.background && (
             <div className="mb-4">
               <ExpandableRichText
                 text={String(p.content)}
@@ -3247,6 +3356,16 @@ export const CommentsSheet: React.FC<{
                 fontSizePx={21}
                 forceExpanded={true}
               />
+            </div>
+          )}
+
+          {/* ===== BACKGROUND POST IN COMMENTS SHEET ===== */}
+          {p.background && textPreview && (
+            <div
+              className="mb-4 -mx-4 h-[200px] flex items-center justify-center p-8 text-center text-white font-bold text-xl"
+              style={{ background: p.background, backgroundSize: 'cover' }}
+            >
+              {textPreview}
             </div>
           )}
 
@@ -3345,16 +3464,6 @@ export const CommentsSheet: React.FC<{
                   {p.link_preview.description}
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* ===== BACKGROUND POST IN COMMENTS SHEET ===== */}
-          {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
-            <div
-              className="h-[200px] mb-4 flex items-center justify-center p-8 text-center text-white font-bold text-xl"
-              style={{ background: p.background, backgroundSize: 'cover' }}
-            >
-              {p.content}
             </div>
           )}
 
@@ -3656,4 +3765,4 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { getMediaTypeInfo, avatarFrom };
+export { getMediaTypeInfo, avatarFrom, getPostTextPreview, isEventPost, normalizeEventFromPost };
