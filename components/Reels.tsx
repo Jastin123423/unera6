@@ -39,6 +39,99 @@ interface SoundUsage {
   };
 }
 
+// Simple Comments Sheet component (since it was missing)
+const ReelCommentsSheet: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  comments: any[];
+  users: User[];
+  currentUser: User | null;
+  onAddComment: (text: string) => void;
+}> = ({ isOpen, onClose, comments, users, currentUser, onAddComment }) => {
+  const [text, setText] = useState('');
+  
+  if (!isOpen) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 z-[400] flex items-end justify-center bg-black/70 font-sans backdrop-blur-sm" 
+      onClick={onClose}
+    >
+      <div 
+        className="w-full max-w-[450px] h-[70vh] bg-[#121212] rounded-t-[40px] flex flex-col animate-slide-up border-t border-white/10 shadow-2xl" 
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="p-5 border-b border-white/5 flex justify-between items-center bg-[#181818] rounded-t-[40px]">
+          <span className="text-white font-black text-[13px] ml-4 uppercase tracking-[3px]">
+            {comments.length} Comments
+          </span>
+          <button 
+            onClick={onClose} 
+            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white active:scale-90 transition-all"
+          >
+            <i className="fas fa-times text-xs"></i>
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {comments.map((c: any) => {
+            const author = users.find((u: any) => u.id === c.userId || u.id === c.user_id);
+            return (
+              <div key={c.id} className="flex gap-4">
+                <img 
+                  src={author?.profile_image_url || author?.profileImage} 
+                  className="w-10 h-10 rounded-full object-cover border-2 border-white/5" 
+                  alt="" 
+                />
+                <div className="flex-1">
+                  <p className="text-[#1877F2] font-black text-[11px] uppercase tracking-tighter mb-0.5">
+                    {author?.name || 'User'}
+                  </p>
+                  <p className="text-[#E4E6EB] text-[15px] leading-snug font-medium">
+                    {c.text}
+                  </p>
+                </div>
+                <i className="far fa-heart text-[#B0B3B8] text-sm mt-1"></i>
+              </div>
+            );
+          })}
+        </div>
+        
+        <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
+          <div className="flex gap-3">
+            <input 
+              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all" 
+              placeholder="Add a professional comment..." 
+              value={text} 
+              onChange={e => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
+                  e.preventDefault();
+                  onAddComment(text.trim());
+                  setText('');
+                }
+              }}
+            />
+            <button 
+              onClick={() => { 
+                const trimmedText = text.trim();
+                if (trimmedText) { 
+                  onAddComment(trimmedText); 
+                  setText(''); 
+                }
+              }} 
+              className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
+              disabled={!text.trim()}
+            >
+              <i className="fas fa-paper-plane text-xs"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ==================== AUDIO TRIMMING UTILITIES ====================
 async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
@@ -1461,17 +1554,58 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [activeReelId, setActiveReelId] = useState<number | null>(
     initialReelId || (reels[0]?.id || null)
   );
-  const [playingReelId, setPlayingReelId] = useState<number | null>(null); 
+  const [playingReelId, setPlayingReelId] = useState<number | null>(
+    initialReelId || (reels[0]?.id || null)
+  ); 
   const [showComments, setShowComments] = useState(false);
   const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
   const [soundDetailLoading, setSoundDetailLoading] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState<{[key: number]: boolean}>({});
   
+  // Add refs for video and audio elements
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
   const observerRef = useRef<IntersectionObserver | null>(null);
+  
+  // Add ref to track playingReelId to avoid stale closures
+  const playingReelIdRef = useRef<number | null>(null);
 
-  // Facebook-style intersection observer for auto-play
+  // Update playingReelIdRef whenever playingReelId changes
+  useEffect(() => {
+    playingReelIdRef.current = playingReelId;
+  }, [playingReelId]);
+
+  // FIX 1: Scroll to and play initial reel when initialReelId changes
+  useEffect(() => {
+    if (!initialReelId) return;
+
+    // Set state first
+    setActiveReelId(initialReelId);
+    setPlayingReelId(initialReelId);
+    setIsVideoPlaying(prev => ({ ...prev, [initialReelId]: true }));
+
+    // Then scroll to the element
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'instant', block: 'start' });
+        
+        // Also ensure video plays immediately
+        const video = videoRefs.current[initialReelId];
+        if (video) {
+          video.play().catch(() => {});
+          video.muted = false;
+        }
+        
+        const audio = audioRefs.current[initialReelId];
+        if (audio) {
+          audio.play().catch(() => {});
+        }
+      }
+    });
+  }, [initialReelId]);
+
+  // Facebook-style intersection observer for auto-play - FIXED with playingReelIdRef
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
       (entries) => {
@@ -1481,7 +1615,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             setPlayingReelId(reelId);
             setIsVideoPlaying(prev => ({ ...prev, [reelId]: true }));
           } else {
-            if (playingReelId === reelId) {
+            // Use the ref to check current playingReelId
+            if (playingReelIdRef.current === reelId) {
               setPlayingReelId(null);
             }
             setIsVideoPlaying(prev => ({ ...prev, [reelId]: false }));
@@ -1491,14 +1626,20 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       { threshold: 0.7 }
     );
 
+    // Observe all reel containers
     document.querySelectorAll('[data-reel-id]').forEach((el) => {
       observerRef.current?.observe(el);
     });
 
     return () => observerRef.current?.disconnect();
-  }, [reels]);
+  }, [reels]); // Only reels as dependency, not playingReelId
 
+  // Handle video/audio playback based on playingReelId
   useEffect(() => {
+    // Stop all audio first
+    stopAllAudio();
+    
+    // Play the active reel
     Object.keys(videoRefs.current).forEach((key) => {
       const id = Number(key);
       const video = videoRefs.current[id];
@@ -1542,7 +1683,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         }
       }
     });
-  }, [playingReelId, reels]);
+  }, [playingReelId, reels, stopAllAudio]);
 
   const extractSoundFromReel = useCallback((reel: Reel): Sound => {
     const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
@@ -1926,99 +2067,6 @@ const ReelThumbnail: React.FC<{
       <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <div className="w-8 h-8 bg-black/60 rounded-full flex items-center justify-center">
           <i className="fas fa-play text-white text-xs"></i>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ==================== COMMENTS SHEET ====================
-const ReelCommentsSheet: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  comments: any[];
-  users: User[];
-  currentUser: User | null;
-  onAddComment: (text: string) => void;
-}> = ({ isOpen, onClose, comments, users, currentUser, onAddComment }) => {
-  const [text, setText] = useState('');
-  
-  if (!isOpen) return null;
-
-  return (
-    <div 
-      className="fixed inset-0 z-[400] flex items-end justify-center bg-black/70 font-sans backdrop-blur-sm" 
-      onClick={onClose}
-    >
-      <div 
-        className="w-full max-w-[450px] h-[70vh] bg-[#121212] rounded-t-[40px] flex flex-col animate-slide-up border-t border-white/10 shadow-2xl" 
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="p-5 border-b border-white/5 flex justify-between items-center bg-[#181818] rounded-t-[40px]">
-          <span className="text-white font-black text-[13px] ml-4 uppercase tracking-[3px]">
-            {comments.length} Comments
-          </span>
-          <button 
-            onClick={onClose} 
-            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white active:scale-90 transition-all"
-          >
-            <i className="fas fa-times text-xs"></i>
-          </button>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {comments.map((c: any) => {
-            const author = users.find((u: any) => u.id === c.userId || u.id === c.user_id);
-            return (
-              <div key={c.id} className="flex gap-4">
-                <img 
-                  src={author?.profile_image_url || author?.profileImage} 
-                  className="w-10 h-10 rounded-full object-cover border-2 border-white/5" 
-                  alt="" 
-                />
-                <div className="flex-1">
-                  <p className="text-[#1877F2] font-black text-[11px] uppercase tracking-tighter mb-0.5">
-                    {author?.name || 'User'}
-                  </p>
-                  <p className="text-[#E4E6EB] text-[15px] leading-snug font-medium">
-                    {c.text}
-                  </p>
-                </div>
-                <i className="far fa-heart text-[#B0B3B8] text-sm mt-1"></i>
-              </div>
-            );
-          })}
-        </div>
-        
-        <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
-          <div className="flex gap-3">
-            <input 
-              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all" 
-              placeholder="Add a professional comment..." 
-              value={text} 
-              onChange={e => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
-                  e.preventDefault();
-                  onAddComment(text.trim());
-                  setText('');
-                }
-              }}
-            />
-            <button 
-              onClick={() => { 
-                const trimmedText = text.trim();
-                if (trimmedText) { 
-                  onAddComment(trimmedText); 
-                  setText(''); 
-                }
-              }} 
-              className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
-              disabled={!text.trim()}
-            >
-              <i className="fas fa-paper-plane text-xs"></i>
-            </button>
-          </div>
         </div>
       </div>
     </div>
