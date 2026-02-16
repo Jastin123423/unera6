@@ -958,14 +958,17 @@ interface GroupsPageProps {
 }
 
 /**
- * Normalize group data for UI safety - FIXED: Keep undefined for missing members
+ * Normalize group data for UI safety - UPDATED to keep undefined for missing members
  */
 function normalizeGroup(raw: any): Group {
-  // IMPORTANT: Keep undefined if members not provided, don't default to empty array
+  // Keep undefined if members missing, otherwise ensure it's an array of numbers
   const members =
     raw?.members === undefined || raw?.members === null
       ? undefined
       : (Array.isArray(raw.members) ? raw.members.map(Number).filter(Number.isFinite) : []);
+
+  const posts = Array.isArray(raw?.posts) ? raw.posts : [];
+  const events = Array.isArray(raw?.events) ? raw.events : [];
 
   return {
     ...raw,
@@ -978,15 +981,10 @@ function normalizeGroup(raw: any): Group {
     profile_image: String(raw?.profile_image ?? raw?.profileImage ?? ''),
     created_at: raw?.created_at ?? new Date().toISOString(),
     member_posting_allowed: raw?.member_posting_allowed ?? true,
-
-    // ✅ Keep undefined if missing from API
-    members,
-
-    // ✅ Calculate count properly
+    members: members, // undefined if missing from API
+    posts,
+    events,
     members_count: Number(raw?.members_count ?? (members ? members.length : 0)),
-
-    posts: Array.isArray(raw?.posts) ? raw.posts : [],
-    events: Array.isArray(raw?.events) ? raw.events : [],
   } as Group;
 }
 
@@ -1084,16 +1082,12 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
 
-  // LOCAL OVERRIDE for member data when API doesn't provide it
-  const [localMembers, setLocalMembers] = useState<number[] | undefined>(undefined);
-  const [localIsMember, setLocalIsMember] = useState<boolean | undefined>(undefined);
-
   // Full Post View state
   const [showPostView, setShowPostView] = useState(false);
   const [selectedPost, setSelectedPost] = useState<PostType | null>(null);
   const [selectedPostAuthor, setSelectedPostAuthor] = useState<User | null>(null);
 
-  // Events state
+  // Events state - using ref to prevent unnecessary reloads
   const [groupEvents, setGroupEvents] = useState<Event[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const eventsLoadedRef = useRef<boolean>(false);
@@ -1127,7 +1121,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [postContent, setPostContent] = useState('');
   const [postFile, setPostFile] = useState<File | null>(null);
 
-  // normalize ALL groups
+  // normalize ALL groups so missing arrays never crash UI
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
 
   useEffect(() => {
@@ -1148,98 +1142,19 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     [safeGroups, activeGroupId]
   );
 
-  // ✅ FIXED: Proper membership check that considers:
-  // 1. Admin status
-  // 2. Local override (after join/leave)
-  // 3. Server-provided members array (if available)
-  // 4. Server-provided is_member boolean (if available)
-  const isMember = useMemo(() => {
-    if (!currentUser || !activeGroup) return false;
-
-    // If we have local override, use it
-    if (localIsMember !== undefined) return localIsMember;
-
-    // Check if user is admin
-    if (activeGroup.admin_id === currentUser.id) return true;
-
-    // Check server-provided is_member flag (best)
-    if ((activeGroup as any).is_member === true) return true;
-
-    // Check members array if available
-    if (Array.isArray(activeGroup.members)) {
-      return activeGroup.members.includes(currentUser.id);
-    }
-
-    // If we have local members override
-    if (Array.isArray(localMembers)) {
-      return localMembers.includes(currentUser.id);
-    }
-
-    // Unknown - default to false but don't cache aggressively
-    return false;
-  }, [currentUser, activeGroup, localMembers, localIsMember]);
-
-  const isGroupAdmin = currentUser && activeGroup?.admin_id === currentUser.id;
-  const canManage = Boolean(isGroupAdmin || isAdmin);
-  const canPost = canManage || (activeGroup?.member_posting_allowed ?? true);
-
-  const isAdmin = currentUser?.role === 'admin';
-
   // Update ref when active group changes
   useEffect(() => {
     activeGroupIdRef.current = activeGroupId;
   }, [activeGroupId]);
 
-  // ✅ Fetch detailed group info when entering detail view
-  useEffect(() => {
-    if (!activeGroup || !fetchGroupDetails) return;
-
-    const loadGroupDetails = async () => {
-      try {
-        const details = await fetchGroupDetails(activeGroup.id);
-        
-        // Extract member IDs from the response
-        const memberIds = Array.isArray(details?.members)
-          ? details.members
-              .map((m: any) => Number(m.user_id ?? m.id ?? m))
-              .filter(Number.isFinite)
-          : [];
-
-        // Update local override with actual member data
-        setLocalMembers(memberIds);
-        
-        // Also set is_member flag if current user is in members
-        if (currentUser) {
-          const isCurrentUserMember = memberIds.includes(currentUser.id) || 
-                                      activeGroup.admin_id === currentUser.id ||
-                                      (details?.group as any)?.is_member === true;
-          setLocalIsMember(isCurrentUserMember);
-        }
-      } catch (error) {
-        console.error('Failed to load group details:', error);
-      }
-    };
-
-    loadGroupDetails();
-  }, [activeGroup?.id, fetchGroupDetails, currentUser]);
-
-  // Reset local state when active group changes
-  useEffect(() => {
-    setLocalMembers(undefined);
-    setLocalIsMember(undefined);
-    postsLoadedRef.current = false;
-    eventsLoadedRef.current = false;
-    setGroupPosts([]);
-    setGroupEvents([]);
-  }, [activeGroupId]);
-
-  // Load group posts
+  // Load group posts with ref to prevent unnecessary reloads
   const loadGroupPosts = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupPosts) {
       setGroupPosts([]);
       return;
     }
     
+    // Skip if already loaded and not forced
     if (postsLoadedRef.current && !force) {
       return;
     }
@@ -1258,19 +1173,21 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, fetchGroupPosts]);
 
+  // Load posts when entering Discussion tab or when group changes
   useEffect(() => {
     if (activeGroup && groupTab === 'Discussion') {
       loadGroupPosts();
     }
   }, [activeGroup, groupTab, loadGroupPosts]);
 
-  // Load group events
+  // Load group events with ref to prevent unnecessary reloads
   const loadGroupEvents = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupEvents) {
       setGroupEvents([]);
       return;
     }
     
+    // Skip if already loaded for this group and not forced
     if (eventsLoadedRef.current && activeGroupIdRef.current === activeGroup.id && !force) {
       return;
     }
@@ -1289,11 +1206,20 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, fetchGroupEvents]);
 
+  // Load events only when explicitly switching to Events tab
   useEffect(() => {
     if (activeGroup && groupTab === 'Events') {
       loadGroupEvents();
     }
   }, [activeGroup, groupTab, loadGroupEvents]);
+
+  // Reset loaded flags when active group changes
+  useEffect(() => {
+    postsLoadedRef.current = false;
+    eventsLoadedRef.current = false;
+    setGroupPosts([]);
+    setGroupEvents([]);
+  }, [activeGroupId]);
 
   useEffect(() => {
     if (!showGroupPostModal) {
@@ -1302,7 +1228,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [showGroupPostModal]);
 
-  // Load pinned groups from localStorage
+  // Load pinned groups from localStorage on mount
   useEffect(() => {
     try {
       if (typeof window === 'undefined') return;
@@ -1318,7 +1244,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, []);
 
-  // Save pinned groups to localStorage
+  // Save pinned groups to localStorage when they change
   useEffect(() => {
     try {
       if (typeof window === 'undefined') return;
@@ -1367,6 +1293,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       setPostContent('');
       setPostFile(null);
       
+      // Reload posts with force flag
       postsLoadedRef.current = false;
       loadGroupPosts(true);
     } catch (error) {
@@ -1396,6 +1323,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       
       setShowEventModal(false);
       
+      // Reload events with force flag
       if (groupTab === 'Events' && fetchGroupEvents) {
         eventsLoadedRef.current = false;
         loadGroupEvents(true);
@@ -1429,7 +1357,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  // ✅ FIXED: handleJoinGroup with optimistic update
+  // ✅ FIXED: handleJoinGroup with loading state and better error handling
   const handleJoinGroup = async () => {
     if (!activeGroup) return;
     if (!currentUser) {
@@ -1439,11 +1367,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     if (joining) return;
 
     setJoining(true);
-    
-    // Optimistic update
-    setLocalIsMember(true);
-    setLocalMembers(prev => [...(prev || []), currentUser.id]);
-
     try {
       await onJoinGroup(activeGroup.id);
 
@@ -1453,18 +1376,17 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       await loadGroupPosts(true);
       if (groupTab === 'Events') await loadGroupEvents(true);
       
-      // Fetch fresh details to sync with server
+      // If fetchGroupDetails is available, refresh group details to get updated members
       if (fetchGroupDetails) {
         const details = await fetchGroupDetails(activeGroup.id);
-        const memberIds = Array.isArray(details?.members)
-          ? details.members.map((m: any) => Number(m.user_id ?? m.id ?? m)).filter(Number.isFinite)
-          : [];
-        setLocalMembers(memberIds);
+        if (details?.group) {
+          // The groups prop will be updated by App.tsx, but we can also update local state
+          // to make UI update immediately
+          const updatedGroup = normalizeGroup(details.group);
+          setActiveGroupId(prev => prev); // Trigger re-render
+        }
       }
     } catch (error) {
-      // Rollback on error
-      setLocalIsMember(false);
-      setLocalMembers(prev => prev?.filter(id => id !== currentUser.id));
       console.error('Failed to join group:', error);
       alert('Failed to join group. Please try again.');
     } finally {
@@ -1472,7 +1394,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  // ✅ FIXED: handleLeaveGroup with optimistic update
+  // ✅ FIXED: handleLeaveGroup with loading state and better error handling
   const handleLeaveGroup = async () => {
     if (!activeGroup) return;
     if (!currentUser) {
@@ -1484,32 +1406,26 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     if (!confirm('Are you sure you want to leave this group?')) return;
 
     setLeaving(true);
-    
-    // Optimistic update
-    setLocalIsMember(false);
-    setLocalMembers(prev => prev?.filter(id => id !== currentUser.id));
-
     try {
       await onLeaveGroup(activeGroup.id);
 
-      // Clear group content
+      // Clear group content immediately
       setGroupPosts([]);
       setGroupEvents([]);
       postsLoadedRef.current = false;
       eventsLoadedRef.current = false;
       
-      // Fetch fresh details
+      // If fetchGroupDetails is available, refresh group details to get updated members
       if (fetchGroupDetails) {
         const details = await fetchGroupDetails(activeGroup.id);
-        const memberIds = Array.isArray(details?.members)
-          ? details.members.map((m: any) => Number(m.user_id ?? m.id ?? m)).filter(Number.isFinite)
-          : [];
-        setLocalMembers(memberIds);
+        if (details?.group) {
+          // The groups prop will be updated by App.tsx, but we can also update local state
+          // to make UI update immediately
+          const updatedGroup = normalizeGroup(details.group);
+          setActiveGroupId(prev => prev); // Trigger re-render
+        }
       }
     } catch (error) {
-      // Rollback on error
-      setLocalIsMember(true);
-      setLocalMembers(prev => [...(prev || []), currentUser.id]);
       console.error('Failed to leave group:', error);
       alert('Failed to leave group. Please try again.');
     } finally {
@@ -1627,6 +1543,8 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
+  const isAdmin = currentUser?.role === 'admin';
+
   const togglePinGroup = (groupId: number, e: React.MouseEvent) => {
     e.stopPropagation();
     setPinnedGroups(prev => {
@@ -1677,12 +1595,12 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     return [...safeGroups].sort((a, b) => computeVisits(b) - computeVisits(a));
   }, [safeGroups, sortMode]);
 
-  // FEED VIEW
+  // FEED VIEW (Facebook-style with dark theme)
   if (view === 'feed' || !activeGroup) {
     return (
       <>
         <div className="w-full bg-[#121212] min-h-screen font-sans pb-24">
-          {/* Top header */}
+          {/* Top header with dark theme */}
           <div className="sticky top-0 z-[50] bg-[#1e1e1e] border-b border-[#333]">
             <div className="max-w-[900px] mx-auto px-4">
               <div className="h-14 flex items-center justify-between">
@@ -1725,7 +1643,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 </div>
               </div>
 
-              {/* Tabs row */}
+              {/* Tabs row with dark theme */}
               <div className="flex gap-2 overflow-x-auto pb-3 pt-1 scrollbar-hide">
                 {(['Your groups', 'Posts', 'Discover', 'Invites'] as const).map(tab => {
                   const active = fbTab === tab;
@@ -1745,7 +1663,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 })}
               </div>
 
-              {/* Search input */}
+              {/* Search input with dark theme */}
               <div className="pb-3">
                 <div className="relative">
                   <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#b0b3b8] text-sm"></i>
@@ -1764,17 +1682,15 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           {/* Content */}
           <div className="max-w-[900px] mx-auto">
             {(() => {
-              // Data filtering - handle potentially undefined members
+              // Data filtering - handle undefined members gracefully
               const myGroups = currentUser
                 ? safeGroups.filter(g => {
                     // Check admin first
                     if (g.admin_id === currentUser.id) return true;
-                    // Check members array if available
+                    // Check members if it exists and is an array
                     if (Array.isArray(g.members)) {
                       return g.members.includes(currentUser.id);
                     }
-                    // Check is_member flag
-                    if ((g as any).is_member === true) return true;
                     return false;
                   })
                 : [];
@@ -1795,10 +1711,10 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
               if (fbTab === 'Discover') {
                 list = currentUser
                   ? safeGroups.filter(g => {
-                      // Not a member
+                      // Not a member - check admin first
                       if (g.admin_id === currentUser.id) return false;
+                      // Check members if it exists
                       if (Array.isArray(g.members) && g.members.includes(currentUser.id)) return false;
-                      if ((g as any).is_member === true) return false;
                       return true;
                     })
                   : safeGroups;
@@ -1982,7 +1898,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             })()}
           </div>
 
-          {/* Sort Bottom Sheet */}
+          {/* Sort Bottom Sheet with dark theme */}
           {sortOpen && (
             <div className="fixed inset-0 z-[200] bg-black/60 flex items-end animate-fade-in" onClick={() => setSortOpen(false)}>
               <div
@@ -2014,7 +1930,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             </div>
           )}
 
-          {/* Create Group modal */}
+          {/* Create Group modal with dark theme */}
           {showCreateModal && (
             <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
               <div className="bg-[#1e1e1e] w-full max-w-[500px] rounded-xl border border-[#333] shadow-2xl overflow-hidden animate-slide-up">
@@ -2100,6 +2016,14 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   }
 
   // DETAIL VIEW
+  const isMember = currentUser
+    ? (Array.isArray(activeGroup.members) && activeGroup.members.includes(currentUser.id)) || activeGroup.admin_id === currentUser.id
+    : false;
+
+  const isGroupAdmin = currentUser && activeGroup.admin_id === currentUser.id;
+  const canManage = Boolean(isGroupAdmin || isAdmin);
+  const canPost = canManage || (activeGroup.member_posting_allowed ?? true);
+
   const createdDate =
     activeGroup.created_at && !Number.isNaN(new Date(activeGroup.created_at as any).getTime())
       ? new Date(activeGroup.created_at as any)
@@ -2158,12 +2082,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     <i className={`fas ${activeGroup.type === 'public' ? 'fa-globe-americas' : 'fa-lock'} text-xs`}></i>
                     <span className="capitalize">{activeGroup.type} group</span>
                     <span>•</span>
-                    <span>{
-                      // Show count from server or from local members or fallback
-                      activeGroup.members_count || 
-                      (Array.isArray(localMembers) ? localMembers.length : 
-                       Array.isArray(activeGroup.members) ? activeGroup.members.length : 0)
-                    } members</span>
+                    <span>{(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)} members</span>
                   </div>
                 </div>
 
@@ -2336,7 +2255,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             </div>
           )}
 
-          {/* Events Tab */}
+          {/* Events Tab - Now only loads when clicked */}
           {groupTab === 'Events' && (
             <div className="animate-fade-in">
               {isMember && (
@@ -2440,19 +2359,11 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           {groupTab === 'Members' && (
             <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-4 md:mx-0 overflow-hidden shadow-sm animate-fade-in">
               <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
-                <h3 className="text-[#e4e6eb] font-bold text-lg">Members · {
-                  // Show count from local members or from group
-                  Array.isArray(localMembers) ? localMembers.length :
-                  Array.isArray(activeGroup.members) ? activeGroup.members.length :
-                  activeGroup.members_count || 0
-                }</h3>
+                <h3 className="text-[#e4e6eb] font-bold text-lg">Members · {(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)}</h3>
               </div>
 
               <div className="p-2 space-y-1">
-                {/* Use localMembers if available, otherwise fallback to group.members */}
-                {(Array.isArray(localMembers) ? localMembers : 
-                  Array.isArray(activeGroup.members) ? activeGroup.members : []
-                ).map(memberId => {
+                {(Array.isArray(activeGroup.members) ? activeGroup.members : []).map(memberId => {
                   const member = users.find(u => u.id === memberId);
                   if (!member) return null;
 
