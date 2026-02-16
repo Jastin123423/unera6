@@ -1,4 +1,4 @@
-If you check App.tsx how do you think products are wired to Feeds or Feed.tsx 
+
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
