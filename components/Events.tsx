@@ -464,3 +464,4 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
       </div>
     </div>
   );
+}
