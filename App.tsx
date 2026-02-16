@@ -741,13 +741,22 @@ const normalizeProduct = (p: any) => {
   } as any;
 };
 
-/** Normalize groups to prevent crashes */
+// ============================================================================
+// 🔧 FIXED: Normalize groups with optional members and is_member support
+// ============================================================================
+/** Normalize groups to prevent crashes and handle membership correctly */
 const normalizeGroup = (g: any): Group => {
   const id = safeNumber(g?.id ?? g?.group_id ?? g?.groupId);
   const name = safeString(g?.name, "Untitled Group");
   const description = safeString(g?.description, "");
   const type = String(g?.type || "public").toLowerCase() === "private" ? "private" : "public";
-  const members = safeArray(g?.members).map(Number).filter(Number.isFinite);
+  
+  // 🔧 FIXED: Handle members properly - preserve undefined if not provided
+  // This prevents empty arrays from being treated as "no members"
+  const members =
+    g?.members === undefined || g?.members === null
+      ? undefined
+      : safeArray(g.members).map(Number).filter(Number.isFinite);
 
   return {
     ...g,
@@ -759,11 +768,15 @@ const normalizeGroup = (g: any): Group => {
     cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
     profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
     created_at: g?.created_at ?? new Date().toISOString(),
-    members,
+    members, // 👈 Now properly preserves undefined
     posts: safeArray(g?.posts),
     events: safeArray(g?.events),
     member_posting_allowed: Boolean(g?.member_posting_allowed ?? true),
-    members_count: safeNumber(g?.members_count ?? members.length),
+    members_count: safeNumber(g?.members_count ?? members?.length ?? 0),
+    // 🔧 ADDED: Support is_member flag from backend
+    is_member: g?.is_member === true ? true : 
+               g?.is_member === false ? false : 
+               undefined,
   } as any;
 };
 
@@ -2795,7 +2808,7 @@ export default function App() {
     try {
       const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
       const members = safeArray(res?.members)
-        .map((m: any) => Number(m.user_id))
+        .map((m: any) => Number(m.user_id ?? m))
         .filter(Number.isFinite);
       
       setGroups(prev => prev.map(g => {
@@ -2811,6 +2824,9 @@ export default function App() {
     }
   }, []);
 
+  // ============================================================================
+  // 🔧 FIXED: fetchOtherData with proper group merging
+  // ============================================================================
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
     otherDataInFlightRef.current = true;
@@ -2823,6 +2839,7 @@ export default function App() {
         apiFetch('/api/chats').catch(() => []),
       ]);
 
+      // Handle products
       const prRaw = pr;
       const prList =
         Array.isArray(prRaw) ? prRaw :
@@ -2834,6 +2851,7 @@ export default function App() {
 
       setProducts(prList.map(normalizeProduct));
       
+      // 🔧 FIXED: Handle groups response properly - preserve undefined members
       const gRaw = g;
       const gList = Array.isArray(gRaw)
         ? gRaw
@@ -2841,18 +2859,25 @@ export default function App() {
         : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
         : [];
       
-      // ✅ Merge new groups with existing ones to preserve members if backend doesn't send them
+      // ✅ FIXED: Merge new groups with existing ones, preserving members when backend doesn't send them
       setGroups(prev => {
         const byId = new Map(prev.map(g => [Number(g.id), g]));
         return gList.map((ng: any) => {
           const old = byId.get(Number(ng.id));
-          // If backend didn't send members, keep old members
-          const hasMembers = Array.isArray(ng.members);
+          
+          // 🔧 CRITICAL FIX: Check if backend actually sent members
+          const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
+          
+          // If backend didn't send members, preserve old members (including undefined)
+          // If backend did send members, use them
+          // This prevents empty arrays from overwriting real membership data
           return normalizeGroup({
             ...old,
             ...ng,
-            members: hasMembers ? ng.members : (old?.members ?? []),
-            members_count: hasMembers ? ng.members.length : (old?.members_count ?? old?.members?.length ?? 0),
+            members: hasMembers ? ng.members : old?.members,
+            members_count: hasMembers 
+              ? ng.members.length 
+              : safeNumber(ng.members_count ?? old?.members_count ?? old?.members?.length ?? 0),
           });
         });
       });
@@ -2869,6 +2894,25 @@ export default function App() {
       otherDataInFlightRef.current = false;
     }
   }, [fetchEvents]);
+
+  // ============================================================================
+  // 🔧 Helper function to check group membership
+  // ============================================================================
+  const isGroupMember = useCallback((group: Group): boolean => {
+    if (!currentUser) return false;
+    
+    const meId = Number(currentUser.id);
+    
+    // Check if user is admin
+    if (group.admin_id === meId) return true;
+    
+    // Check is_member flag from backend (most reliable)
+    if (group.is_member === true) return true;
+    if (group.is_member === false) return false;
+    
+    // Fallback to checking members array (if available)
+    return Array.isArray(group.members) && group.members.includes(meId);
+  }, [currentUser]);
 
   /** ---------- ✅ FIXED: fetchGroupPosts always returns array ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
@@ -2942,18 +2986,19 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ FIXED: joinGroup with optimistic update ---------- */
+  /** ---------- ✅ FIXED: joinGroup with optimistic update and is_member support ---------- */
   const joinGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Joining groups")) return;
     if (!currentUser) return;
 
     const meId = Number(currentUser.id);
 
-    // ✅ OPTIMISTIC UPDATE: Update UI immediately
+    // ✅ OPTIMISTIC UPDATE: Update UI immediately using is_member flag
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
         
+        // Update both members array and is_member flag
         const currentMembers = Array.isArray(g.members) ? g.members : [];
         // Don't add if already a member
         if (currentMembers.includes(meId)) return g;
@@ -2964,6 +3009,7 @@ export default function App() {
           ...g,
           members: nextMembers,
           members_count: nextMembers.length,
+          is_member: true, // 🔧 Set is_member flag
         };
       })
     );
@@ -2992,6 +3038,7 @@ export default function App() {
             ...g,
             members: nextMembers,
             members_count: nextMembers.length,
+            is_member: false, // 🔧 Revert is_member flag
           };
         })
       );
@@ -3000,14 +3047,14 @@ export default function App() {
     }
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
-  /** ---------- ✅ FIXED: leaveGroup with optimistic update ---------- */
+  /** ---------- ✅ FIXED: leaveGroup with optimistic update and is_member support ---------- */
   const leaveGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Leaving groups")) return;
     if (!currentUser) return;
 
     const meId = Number(currentUser.id);
 
-    // ✅ OPTIMISTIC UPDATE: Update UI immediately
+    // ✅ OPTIMISTIC UPDATE: Update UI immediately using is_member flag
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
@@ -3019,6 +3066,7 @@ export default function App() {
           ...g,
           members: nextMembers,
           members_count: nextMembers.length,
+          is_member: false, // 🔧 Set is_member flag
         };
       })
     );
@@ -3050,6 +3098,7 @@ export default function App() {
             ...g,
             members: nextMembers,
             members_count: nextMembers.length,
+            is_member: true, // 🔧 Revert is_member flag
           };
         })
       );
@@ -3149,7 +3198,7 @@ export default function App() {
     try {
       const res = await apiFetch(`/api/groups?id=${Number(groupId)}`);
       return {
-        group: normalizeGroup((res as any)?.group),
+        group: normalizeGroup((res as any)?.group ?? res),
         members: safeArray((res as any)?.members),
       };
     } catch (error) {
