@@ -1,5 +1,4 @@
-
-//Feed.tsx 
+//Feed.tsx
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -16,6 +15,37 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
 import { CreateEventModal } from './Events';
+
+/**
+ * =========================
+ * ✅ HELPER: UNIFIED AVATAR GENERATION WITH PROPER INITIALS
+ * =========================
+ */
+const avatarFrom = (u: any) => {
+  // Try all possible image field variations
+  const img = String(
+    u?.profile_image_url ??
+    u?.profileImage ??
+    u?.avatar ??
+    u?.author_image ??
+    u?.authorImage ??
+    u?.image ??
+    u?.picture ??
+    ''
+  ).trim();
+
+  if (img && img !== 'null' && img !== 'undefined') return img;
+
+  // Generate initials from name/username
+  const label =
+    String(u?.name ?? '').trim() ||
+    String(u?.username ?? '').trim() ||
+    String(u?.author_name ?? '').trim() ||
+    String(u?.author_username ?? '').trim() ||
+    'User';
+
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=1877F2&color=fff&bold=true`;
+};
 
 /**
  * =========================
@@ -218,7 +248,7 @@ export const formatRelativeTime = (dateInput: any): string => {
 
 /**
  * =========================
- * ✅ NEW: REACTION EMOJI HELPERS FOR FACEBOOK-STYLE DISPLAY
+ * ✅ REACTION EMOJI HELPERS FOR FACEBOOK-STYLE DISPLAY
  * =========================
  */
 const reactionEmoji = (t: string) => {
@@ -1156,7 +1186,7 @@ export const ShareBottomSheet: React.FC<{
         <div className="flex-1 p-4">
           <div className="flex items-center gap-3 mb-4">
             <img
-              src={currentUser.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+              src={avatarFrom(currentUser)}
               alt=""
               className="w-12 h-12 rounded-full object-cover"
             />
@@ -1215,7 +1245,7 @@ export const ShareBottomSheet: React.FC<{
               <div key={group.id} className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2">
                 <div className="flex items-center gap-3">
                   <img
-                    src={group.image || 'https://ui-avatars.com/api/?name=Group'}
+                    src={group.image || avatarFrom(group)}
                     alt=""
                     className="w-10 h-10 rounded-full"
                   />
@@ -1271,7 +1301,7 @@ export const ShareBottomSheet: React.FC<{
               <div key={user.id} className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2">
                 <div className="flex items-center gap-3">
                   <img
-                    src={user.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+                    src={avatarFrom(user)}
                     alt=""
                     className="w-10 h-10 rounded-full"
                   />
@@ -1481,7 +1511,7 @@ export const ShareBottomSheet: React.FC<{
                     >
                       <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#1877F2] p-0.5">
                         <img
-                          src={user.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+                          src={avatarFrom(user)}
                           alt={user.name}
                           className="w-full h-full rounded-full object-cover"
                         />
@@ -1511,7 +1541,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ FIXED: POST CARD WITH REDUCED MARKETPLACE PRICE AND BUTTON
+ * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
  * =========================
  */
 export const Post: React.FC<{
@@ -1596,7 +1626,7 @@ export const Post: React.FC<{
     setGalleryOpen(true);
   };
 
-  // ✅ FIXED: MARKETPLACE TOP LINE - ONLY MARKETPLACE BADGE AND LOCATION
+  // ✅ MARKETPLACE TOP LINE - ONLY MARKETPLACE BADGE AND LOCATION
   const marketplaceTop = isMarketplace ? (
     <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
       <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
@@ -1611,7 +1641,7 @@ export const Post: React.FC<{
     </div>
   ) : null;
 
-  // ✅ FIXED: MARKETPLACE MEDIA GRID - NOW FULL WIDTH WITH GALLERY SUPPORT
+  // ✅ MARKETPLACE MEDIA GRID - FULL WIDTH WITH GALLERY SUPPORT
   const marketplaceMedia = isMarketplace ? (
     mpImages.length > 0 ? (
       <div className="w-full">
@@ -1627,7 +1657,7 @@ export const Post: React.FC<{
     ) : null
   ) : null;
 
-  // ✅ FIXED: MARKETPLACE PRICE AND BUTTON SECTION - REDUCED SIZE
+  // ✅ MARKETPLACE PRICE AND BUTTON SECTION
   const marketplaceFooter = isMarketplace && price ? (
     <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
       <div className="flex items-center gap-1">
@@ -1647,13 +1677,13 @@ export const Post: React.FC<{
     </div>
   ) : null;
 
-  // ✅ NEW: Music/Podcast detection
+  // ✅ Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
   const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
   const song = meta?.song;
   const podcast = meta?.podcast;
 
-  // ✅ NEW: Group detection
+  // ✅ Group detection
   const groupId = Number(p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0);
   const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
 
@@ -1692,8 +1722,7 @@ export const Post: React.FC<{
   const mediaInfo = getMediaTypeInfo(p);
 
   const mediaList = useMemo(() => {
-    const list = getPostMediaList(p);
-    return list.filter((x) => x.kind === 'image');
+    return getPostMediaList(p);
   }, [p]);
 
   const formatCount = (count: number): string => {
@@ -1749,9 +1778,13 @@ export const Post: React.FC<{
     }
   };
 
+  // Split media by type for rendering
+  const imageMedia = mediaList.filter(m => m.kind === 'image');
+  const videoMedia = mediaList.filter(m => m.kind === 'video');
+
   return (
     <>
-      {/* ✅ Unified post wrapper - same for all post types */}
+      {/* ✅ Unified post wrapper */}
       <div className="w-full">
         <div className="bg-[#242526] w-full overflow-hidden">
           {/* ===== POST HEADER ===== */}
@@ -1761,12 +1794,7 @@ export const Post: React.FC<{
               onClick={() => onProfileClick(safeUserId(a))}
             >
               <img
-                src={
-                  a.profile_image_url ||
-                  a.profileImage ||
-                  a.avatar ||
-                  'https://ui-avatars.com/api/?name=User'
-                }
+                src={avatarFrom(a)}
                 alt=""
                 className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
               />
@@ -1853,7 +1881,7 @@ export const Post: React.FC<{
               )}
           </div>
 
-          {/* ===== MARKETPLACE TOP LINE (only badge and location) ===== */}
+          {/* ===== MARKETPLACE TOP LINE ===== */}
           {marketplaceTop}
 
           {/* ===== POST CONTENT ===== */}
@@ -1902,7 +1930,7 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== LINK PREVIEW - ENHANCED ===== */}
+          {/* ===== LINK PREVIEW ===== */}
           {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
             <div
               className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
@@ -1944,61 +1972,36 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== MEDIA RENDERING - Conditional: marketplace or normal ===== */}
+          {/* ===== MEDIA RENDERING ===== */}
           {isMarketplace ? (
             marketplaceMedia
           ) : (
             <>
-              {/* Normal post media rendering */}
-              {!p.background && mediaList.length > 1 && (
+              {/* Images Grid */}
+              {!p.background && imageMedia.length > 0 && (
                 <MediaGrid
-                  media={mediaList.map((m) => ({ url: m.url }))}
+                  media={imageMedia.map((m) => ({ url: m.url }))}
                   onOpen={(url, index) => {
-                    const urls = mediaList.map((m) => m.url);
+                    const urls = imageMedia.map((m) => m.url);
                     openGallery(urls, index);
                   }}
                 />
               )}
 
-              {/* Single image */}
-              {!p.background && mediaList.length <= 1 && mediaInfo.mediaUrl && mediaInfo.isImage && (
-                <div
-                  className="cursor-pointer bg-black"
-                  onClick={() => {
-                    if (mediaList.length > 0) {
-                      openGallery(mediaList.map(m => m.url), 0);
-                    } else {
-                      onViewImage(mediaInfo.mediaUrl);
-                    }
-                  }}
-                >
-                  <img
-                    src={mediaInfo.mediaUrl}
-                    alt=""
-                    className="w-full h-auto max-h-[600px] object-contain"
-                    loading="lazy"
-                    onError={(e) => {
-                      console.error('Failed to load image:', mediaInfo.mediaUrl);
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                </div>
-              )}
-
               {/* Video */}
-              {mediaInfo.mediaUrl && mediaInfo.isVideo && (
+              {!p.background && videoMedia.length > 0 && (
                 <div
                   className="cursor-pointer relative h-[500px] bg-black"
                   onClick={() => onVideoClick(post)}
                 >
                   <video
-                    src={mediaInfo.mediaUrl}
+                    src={videoMedia[0].url}
                     className="w-full h-full object-cover"
                     preload="metadata"
                     playsInline
                     muted
                     onError={(e) => {
-                      console.error('Failed to load video:', mediaInfo.mediaUrl);
+                      console.error('Failed to load video:', videoMedia[0].url);
                       e.currentTarget.style.display = 'none';
                     }}
                   />
@@ -2009,12 +2012,12 @@ export const Post: React.FC<{
               )}
               
               {/* Audio */}
-              {mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+              {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
                 <div className="my-3">
                   {(() => {
                     const cover =
                       (p as any).song_cover_image_url ||
-                      (mediaList?.[0]?.url) ||
+                      (imageMedia?.[0]?.url) ||
                       a.profile_image_url;
 
                     const titleText = p.content || 'Audio';
@@ -2117,7 +2120,7 @@ export const Post: React.FC<{
             </>
           )}
 
-          {/* ===== MARKETPLACE PRICE AND BUTTON FOOTER (below images) - REDUCED SIZE ===== */}
+          {/* ===== MARKETPLACE PRICE AND BUTTON FOOTER ===== */}
           {marketplaceFooter}
 
           {/* ===== REACTION SUMMARY ===== */}
@@ -2158,7 +2161,7 @@ export const Post: React.FC<{
             </div>
           </div>
 
-          {/* ===== ACTION BUTTONS - SAME FOR ALL POST TYPES ===== */}
+          {/* ===== ACTION BUTTONS ===== */}
           <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
             <ReactionButton
               currentUserReactions={finalMyReaction}
@@ -2231,12 +2234,7 @@ export const CreatePost: React.FC<{
     <div className="bg-[#242526] w-full p-3 md:p-4">
       <div className="flex gap-2 mb-3">
         <img
-          src={
-            (currentUser as any).profile_image_url ||
-            (currentUser as any).profileImage ||
-            (currentUser as any).avatar ||
-            'https://ui-avatars.com/api/?name=User'
-          }
+          src={avatarFrom(currentUser)}
           alt=""
           className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
           onClick={() => onProfileClick(safeUserId(currentUser))}
@@ -2489,12 +2487,7 @@ export const CreatePostModal: React.FC<{
               >
                 <div className="flex items-center gap-3">
                   <img
-                    src={
-                      u.profile_image_url ||
-                      u.profileImage ||
-                      u.avatar ||
-                      'https://ui-avatars.com/api/?name=User'
-                    }
+                    src={avatarFrom(u)}
                     className="w-10 h-10 rounded-full object-cover"
                     alt=""
                   />
@@ -2654,12 +2647,7 @@ export const CreatePostModal: React.FC<{
         <div className="p-4">
           <div className="flex items-center gap-3 mb-4">
             <img
-              src={
-                (currentUser as any).profile_image_url ||
-                (currentUser as any).profileImage ||
-                (currentUser as any).avatar ||
-                'https://ui-avatars.com/api/?name=User'
-              }
+              src={avatarFrom(currentUser)}
               alt=""
               className="w-12 h-12 rounded-full object-cover"
             />
@@ -2835,7 +2823,7 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ UPDATED: FULL POST VIEW WITH FULL-WIDTH MEDIA
+ * ✅ UPDATED: FULL POST VIEW WITH FULL-WIDTH MEDIA AND UNIFIED AVATAR
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -2850,6 +2838,8 @@ export const CommentsSheet: React.FC<{
   onHashtagClick?: (tag: string) => void;
   onFollow?: (id: number) => void;
   checkIsFollowing?: (id: number) => boolean;
+  onViewProductFromPost?: (productId: number) => void;
+  onOpenAudio?: (item: any) => void;
 }> = ({ 
   post, 
   currentUser, 
@@ -2861,8 +2851,12 @@ export const CommentsSheet: React.FC<{
   onProfileClick, 
   onHashtagClick,
   onFollow,
-  checkIsFollowing 
+  checkIsFollowing,
+  onViewProductFromPost,
+  onOpenAudio
 }) => {
+  const { onViewProduct, getProductData } = useContext(MarketplaceContext);
+  
   const p: any = post as any;
   const postId = safePostId(p);
   
@@ -2873,6 +2867,36 @@ export const CommentsSheet: React.FC<{
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // ========== MARKETPLACE DETECTION ==========
+  const meta: any = p?.meta || {};
+  
+  const isMarketplace =
+    p?.type === "marketplace" ||
+    p?.post_type === "product" ||
+    p?.type === 'product' ||
+    p?.kind === 'product' ||
+    meta?.type === 'product' ||
+    meta?.kind === 'product' ||
+    !!p?.product_id ||
+    !!p?.meta?.marketplace?.id;
+
+  const productId = isMarketplace ? getMarketplaceProductId(p) : null;
+  const productData = productId ? getProductData?.(productId) : null;
+
+  const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
+  const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
+
+  // ✅ Music/Podcast detection
+  const isMusic = meta?.kind === 'music' || meta?.type === 'music';
+  const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
+  const song = meta?.song;
+  const podcast = meta?.podcast;
+
+  const mediaInfo = getMediaTypeInfo(p);
+  const mediaList = useMemo(() => getPostMediaList(p), [p]);
+  const imageMedia = mediaList.filter(m => m.kind === 'image');
+  const videoMedia = mediaList.filter(m => m.kind === 'video');
   
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
@@ -2888,12 +2912,11 @@ export const CommentsSheet: React.FC<{
       String(u?.username ?? '').trim() ||
       'User';
 
-    const image =
-      String(c?.author_image ?? c?.authorImage ?? '').trim() ||
-      String(u?.profile_image_url ?? '').trim() ||
-      String(u?.profileImage ?? '').trim() ||
-      String(u?.avatar ?? '').trim() ||
-      'https://ui-avatars.com/api/?name=User';
+    const image = avatarFrom({
+      profile_image_url: c?.author_image ?? c?.authorImage ?? u?.profile_image_url,
+      name,
+      username: u?.username ?? c?.author_username ?? c?.username,
+    });
 
     return { uid, name, image };
   };
@@ -3136,12 +3159,12 @@ export const CommentsSheet: React.FC<{
     return () => window.removeEventListener('focus', handleFocus);
   }, [postId]);
 
-  const mediaInfo = getMediaTypeInfo(p);
-
-  const mediaList = useMemo(() => {
-    const list = getPostMediaList(p);
-    return list.filter((x) => x.kind === 'image');
-  }, [p]);
+  const postAuthor = p.author || {
+    name: p.name,
+    username: p.username,
+    profile_image_url: p.profile_image_url,
+    id: p.user_id || p.author_id
+  };
 
   return (
     <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
@@ -3179,20 +3202,17 @@ export const CommentsSheet: React.FC<{
         <div className="p-4 border-b border-[#3E4042]">
           <div className="flex items-center gap-3 mb-4">
             <img
-              src={
-                (p.author?.profile_image_url || p.profile_image_url) ||
-                'https://ui-avatars.com/api/?name=User'
-              }
+              src={avatarFrom(postAuthor)}
               className="w-12 h-12 rounded-full object-cover border border-[#3E4042] cursor-pointer"
               alt=""
-              onClick={() => p.author?.id && onProfileClick(p.author.id)}
+              onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}
             />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
-                    onClick={() => p.author?.id && onProfileClick(p.author.id)}>
-                    {p.author?.name || p.name || p.username || 'User'}
+                    onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}>
+                    {postAuthor?.name || postAuthor?.username || 'User'}
                   </div>
                   <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
                     <span>{formatRelativeTime(p.created_at)}</span>
@@ -3201,16 +3221,16 @@ export const CommentsSheet: React.FC<{
                   </div>
                 </div>
                 
-                {onFollow && currentUser && p.author?.id && safeUserId(p.author) !== safeUserId(currentUser) && (
+                {onFollow && currentUser && postAuthor?.id && safeUserId(postAuthor) !== safeUserId(currentUser) && (
                   <button
-                    onClick={(e) => handleFollowClick(e, safeUserId(p.author))}
+                    onClick={(e) => handleFollowClick(e, safeUserId(postAuthor))}
                     className={`px-3 py-1 text-sm font-semibold rounded-lg transition-all duration-200 ${
-                      checkIsFollowing && checkIsFollowing(safeUserId(p.author))
+                      checkIsFollowing && checkIsFollowing(safeUserId(postAuthor))
                         ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                         : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
                     }`}
                   >
-                    {checkIsFollowing && checkIsFollowing(safeUserId(p.author)) ? 'Following' : 'Follow'}
+                    {checkIsFollowing && checkIsFollowing(safeUserId(postAuthor)) ? 'Following' : 'Follow'}
                   </button>
                 )}
               </div>
@@ -3230,20 +3250,128 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {mediaList.length > 0 && (
+          {/* ===== MARKETPLACE MEDIA IN COMMENTS SHEET ===== */}
+          {isMarketplace && mpImages.length > 0 && (
             <div className="mb-4 -mx-4">
-              {mediaList.length > 1 ? (
+              <div className="w-full bg-black">
                 <MediaGrid
-                  media={mediaList.map((m) => ({ url: m.url }))}
+                  media={mpImages.map(url => ({ url }))}
                   onOpen={(url, index) => {
-                    // Could open gallery here too if desired
+                    console.log('Open marketplace image:', url, index);
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {isMarketplace && price && (
+            <div className="mb-4 px-4 py-2 flex items-center justify-between bg-[#242526] border border-[#3E4042] rounded-lg">
+              <div className="flex items-center gap-1">
+                <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
+                <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
+              </div>
+
+              <button
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (productId && onViewProductFromPost) onViewProductFromPost(productId);
+                  else if (productId) onViewProduct?.(productId);
+                }}
+              >
+                View product
+              </button>
+            </div>
+          )}
+
+          {/* ===== MUSIC/PODCAST IN COMMENTS SHEET ===== */}
+          {(isMusic || isPodcast) && (
+            <div className="mb-4 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
+              <div className="flex items-center gap-3 p-3">
+                <img
+                  src={(isMusic ? song?.cover_image_url : podcast?.cover_image_url) || ''}
+                  className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
+                  alt=""
+                />
+                <div className="flex-1 overflow-hidden">
+                  <div className="text-white font-bold truncate">
+                    {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
+                  </div>
+                  <div className="text-[#B0B3B8] text-xs truncate">
+                    {isMusic ? song?.artist_name : podcast?.description}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenAudio?.(isMusic ? song : podcast);
+                  }}
+                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl"
+                >
+                  Play
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ===== LINK PREVIEW IN COMMENTS SHEET ===== */}
+          {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
+            <div
+              className="mb-4 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
+              onClick={() => window.open(p.link_preview.url, '_blank', 'noopener noreferrer')}
+            >
+              {p.link_preview.image && (
+                <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
+                  <img
+                    src={p.link_preview.image}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
+              <div className="p-4 bg-[#3A3B3C]">
+                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+                  {p.link_preview.domain}
+                </div>
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-2">
+                  {p.link_preview.title}
+                </div>
+                <div className="text-[#B0B3B8] text-[14px] line-clamp-3">
+                  {p.link_preview.description}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== BACKGROUND POST IN COMMENTS SHEET ===== */}
+          {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
+            <div
+              className="h-[200px] mb-4 flex items-center justify-center p-8 text-center text-white font-bold text-xl"
+              style={{ background: p.background, backgroundSize: 'cover' }}
+            >
+              {p.content}
+            </div>
+          )}
+
+          {/* ===== IMAGES IN COMMENTS SHEET ===== */}
+          {!isMarketplace && imageMedia.length > 0 && (
+            <div className="mb-4 -mx-4">
+              {imageMedia.length > 1 ? (
+                <MediaGrid
+                  media={imageMedia.map(m => ({ url: m.url }))}
+                  onOpen={(url, index) => {
                     console.log('Open image:', url, index);
                   }}
                 />
               ) : (
                 <div className="w-full bg-black">
                   <img
-                    src={mediaList[0].url}
+                    src={imageMedia[0].url}
                     alt=""
                     className="w-full h-auto max-h-[70vh] object-contain"
                     loading="lazy"
@@ -3253,27 +3381,25 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {mediaList.length === 0 && p.media_url && (
-            <div className="mb-4 -mx-4">
-              {String(p.media_type || '').startsWith('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(String(p.media_url)) ? (
-                <div className="w-full bg-black">
-                  <img
-                    src={String(p.media_url)}
-                    alt=""
-                    className="w-full h-auto max-h-[70vh] object-contain"
-                    loading="lazy"
-                  />
-                </div>
-              ) : (
-                <div className="w-full bg-black">
-                  <video
-                    src={String(p.media_url)}
-                    controls
-                    playsInline
-                    className="w-full h-auto max-h-[70vh] object-contain bg-black"
-                  />
-                </div>
-              )}
+          {/* ===== VIDEO IN COMMENTS SHEET ===== */}
+          {!isMarketplace && videoMedia.length > 0 && (
+            <div className="mb-4 -mx-4 w-full bg-black">
+              <video
+                src={videoMedia[0].url}
+                controls
+                playsInline
+                className="w-full h-auto max-h-[70vh] object-contain bg-black"
+              />
+            </div>
+          )}
+
+          {/* ===== AUDIO IN COMMENTS SHEET ===== */}
+          {!isMarketplace && mediaInfo.mediaUrl && mediaInfo.isAudio && (
+            <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-xl">
+              <div className="text-[#E4E6EB] font-bold mb-3">Audio Track</div>
+              <audio controls className="w-full">
+                <source src={mediaInfo.mediaUrl} />
+              </audio>
             </div>
           )}
 
@@ -3530,4 +3656,4 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { getMediaTypeInfo };
+export { getMediaTypeInfo, avatarFrom };
