@@ -61,7 +61,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const url = new URL(request.url);
 
     // ✅ allow opening /api/feeds directly in browser
-    // App can still pass ?userId=...
     const userId = toInt(url.searchParams.get('userId'), 0);
     const reactionUserId = userId || 0;
 
@@ -100,8 +99,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       SELECT
         'post' AS source,
         'post' AS item_type,
+
         p.id AS id,
+        ('post:' || CAST(p.id AS TEXT)) AS feed_key,
+
         p.created_at AS created_at,
+
+        -- canonical identifiers for the frontend (prevents ID collisions)
+        p.id AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
 
         p.user_id AS user_id,
         COALESCE(u.username, 'user') AS username,
@@ -152,7 +163,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS audio_start,
         0 AS audio_end,
         NULL AS location,
-        NULL AS song_id,
         NULL AS sound_key,
         NULL AS sound_id,
 
@@ -169,7 +179,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count
+        NULL AS podcast_plays_count,
+
+        -- keep existing fields used by your UI
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
     `;
@@ -200,8 +216,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       SELECT
         'reel' AS source,
         'reel' AS item_type,
+
         r.id AS id,
+        ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
+
         r.created_at AS created_at,
+
+        NULL AS post_id,
+        r.id AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
 
         r.user_id AS user_id,
         COALESCE(u.username, 'user') AS username,
@@ -234,7 +261,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(r.audio_start, 0) AS audio_start,
         COALESCE(r.audio_end, 0) AS audio_end,
         r.location AS location,
-        r.song_id AS song_id,
         r.sound_key AS sound_key,
         r.sound_id AS sound_id,
 
@@ -251,7 +277,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
     `;
@@ -278,8 +309,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       SELECT
         'song' AS source,
         'song' AS item_type,
+
         s.id AS id,
+        ('song:' || CAST(s.id AS TEXT)) AS feed_key,
+
         s.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        s.id AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
 
         s.uploader_id AS user_id,
         COALESCE(u.username, 'user') AS username,
@@ -329,7 +371,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS audio_start,
         0 AS audio_end,
         NULL AS location,
-        NULL AS song_id,
         NULL AS sound_key,
         NULL AS sound_id,
 
@@ -351,7 +392,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM songs s
       LEFT JOIN users u ON u.id = s.uploader_id
     `;
@@ -378,8 +424,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       SELECT
         'podcast' AS source,
         'podcast' AS item_type,
+
         pc.id AS id,
+        ('podcast:' || CAST(pc.id AS TEXT)) AS feed_key,
+
         pc.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        pc.id AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
 
         pc.creator_id AS user_id,
         COALESCE(u.username, 'user') AS username,
@@ -423,7 +480,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS audio_start,
         0 AS audio_end,
         NULL AS location,
-        NULL AS song_id,
         NULL AS sound_key,
         NULL AS sound_id,
 
@@ -440,13 +496,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         pc.description AS podcast_description,
         pc.audio_url AS podcast_audio_url,
         pc.cover_url AS podcast_cover_url,
-        COALESCE(pc.plays_count, 0) AS podcast_plays_count
+        COALESCE(pc.plays_count, 0) AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM podcasts pc
       LEFT JOIN users u ON u.id = pc.creator_id
     `;
 
     // ============================================================
-    // 5) EVENTS (ADDED)
+    // 5) EVENTS
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -469,8 +530,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       SELECT
         'event' AS source,
         'event' AS item_type,
+
         e.id AS id,
+        ('event:' || CAST(e.id AS TEXT)) AS feed_key,
+
         e.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        e.id AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
 
         e.creator_id AS user_id,
         COALESCE(u.username, 'user') AS username,
@@ -521,7 +593,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS audio_start,
         0 AS audio_end,
         e.location AS location,
-        NULL AS song_id,
         NULL AS sound_key,
         NULL AS sound_id,
 
@@ -538,13 +609,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
     `;
 
     // ============================================================
-    // 6) GROUP POSTS (ADDED)
+    // 6) GROUP POSTS  ✅ item_type is now 'group_post' (NOT 'post')
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -566,9 +642,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const baseSelectGroupPosts = `
       SELECT
         'group_post' AS source,
-        'post' AS item_type,
+        'group_post' AS item_type,
+
         gp.id AS id,
+        ('group_post:' || CAST(gp.id AS TEXT)) AS feed_key,
+
         gp.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        gp.id AS group_post_id,
+        NULL AS product_id2,
 
         gp.user_id AS user_id,
         COALESCE(u.username, 'user') AS username,
@@ -633,7 +720,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS audio_start,
         0 AS audio_end,
         NULL AS location,
-        NULL AS song_id,
         NULL AS sound_key,
         NULL AS sound_id,
 
@@ -650,13 +736,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM group_posts gp
       LEFT JOIN users u ON u.id = gp.user_id
     `;
 
     // ============================================================
-    // 7) PRODUCTS (A) feed-injection as marketplace posts ✅ (RESTORED)
+    // 7) PRODUCTS (A) feed-injection as marketplace posts ✅
+    // ✅ item_type is now 'product' (NOT 'post')
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -676,9 +768,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const baseSelectProductsFeed = `
       SELECT
         'product' AS source,
-        'post' AS item_type,
+        'product' AS item_type,
+
         pr.id AS id,
+        ('product:' || CAST(pr.id AS TEXT)) AS feed_key,
+
         pr.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        pr.id AS product_id2,
 
         pr.seller_id AS user_id,
         COALESCE(u.username, 'user') AS username,
@@ -712,7 +815,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS audio_start,
         0 AS audio_end,
         NULL AS location,
-        NULL AS song_id,
         NULL AS sound_key,
         NULL AS sound_id,
 
@@ -747,7 +849,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) PRODUCTS (B) separate list (RESTORED)
+    // 8) PRODUCTS (B) separate list (unchanged)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -899,7 +1001,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // ============================================================
-    // Merge + dedup FEED (includes events + group posts + injected products ✅)
+    // Merge + dedup FEED
+    // ✅ Use feed_key for dedup (prevents ID collisions across sources)
     // ============================================================
     const map = new Map<string, any>();
     const allFeedRows = [
@@ -920,6 +1023,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ];
 
     for (const row of allFeedRows) {
+      const fk = String((row as any)?.feed_key || '');
+      if (fk) {
+        if (!map.has(fk)) map.set(fk, row);
+        continue;
+      }
+      // fallback if feed_key missing for any reason
       const src = String((row as any)?.source || '');
       const id = Number((row as any)?.id);
       if (!src || !Number.isFinite(id)) continue;
