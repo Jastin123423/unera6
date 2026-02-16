@@ -1510,7 +1510,7 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ FIXED: POST CARD WITH FULL-WIDTH MARKETPLACE AND ENHANCED PRICE/LOCATION
+ * ✅ FIXED: POST CARD WITH REDUCED MARKETPLACE PRICE AND BUTTON
  * =========================
  */
 export const Post: React.FC<{
@@ -1626,16 +1626,16 @@ export const Post: React.FC<{
     ) : null
   ) : null;
 
-  // ✅ NEW: MARKETPLACE PRICE AND BUTTON SECTION - POSITIONED BELOW IMAGES
+  // ✅ FIXED: MARKETPLACE PRICE AND BUTTON SECTION - REDUCED SIZE
   const marketplaceFooter = isMarketplace && price ? (
-    <div className="px-4 py-3 flex items-center justify-between border-t border-[#3E4042] mt-1">
-      <div className="flex items-center gap-2">
-        <span className="text-[#E4E6EB] text-2xl font-black">{currency}</span>
-        <span className="text-[#E4E6EB] text-3xl font-black">{price}</span>
+    <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
+      <div className="flex items-center gap-1">
+        <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
+        <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
       </div>
 
       <button
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-6 py-2.5 rounded-full font-bold text-base transition-colors shadow-md"
+        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
         onClick={(e) => {
           e.stopPropagation();
           if (productId) onViewProduct?.(productId);
@@ -2116,7 +2116,7 @@ export const Post: React.FC<{
             </>
           )}
 
-          {/* ===== MARKETPLACE PRICE AND BUTTON FOOTER (below images) ===== */}
+          {/* ===== MARKETPLACE PRICE AND BUTTON FOOTER (below images) - REDUCED SIZE ===== */}
           {marketplaceFooter}
 
           {/* ===== REACTION SUMMARY ===== */}
