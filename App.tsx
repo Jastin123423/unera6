@@ -6,7 +6,6 @@ import {
   Post,
   CommentsSheet,
   CreatePostModal,
-  SuggestedProductsWidget,
   ShareBottomSheet,
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
@@ -2140,7 +2139,8 @@ export default function App() {
 
       const newPost = normalizePost(created?.post ?? created);
       
-      setPosts(prev => [newPost, ...safeArray(prev)]);
+      // NOTE: We're NOT adding this post to the feed state
+      // It will still be in the database but won't appear in the UI feed
       
       if (Number(currentUser.id) === Number(selectedUserId)) {
         setProfilePosts(prev => [newPost, ...safeArray(prev)]);
@@ -2183,7 +2183,7 @@ export default function App() {
         return [createdProduct, ...filtered];
       });
 
-      // ✅ Create marketplace post with the fixed payload
+      // ✅ Create marketplace post but it won't appear in feed
       await createMarketplacePost(createdProduct);
       
       return createdProduct;
@@ -2497,6 +2497,20 @@ export default function App() {
     setShowCreateReelModal(true);
   }, []);
 
+  /** ✅ FILTER FUNCTION: Removes marketplace posts from feed */
+  const filterMarketplacePosts = useCallback((posts: any[]): any[] => {
+    return posts.filter((post: any) => {
+      // Check if this is a marketplace post
+      const isMarketplace = 
+        post.type === 'marketplace' || 
+        post.post_type === 'product' ||
+        post.meta?.kind === 'product' ||
+        post.product_id != null;
+      
+      return !isMarketplace; // Only keep non-marketplace posts
+    });
+  }, []);
+
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
       if (postsInFlightRef.current) return;
@@ -2538,9 +2552,12 @@ export default function App() {
           });
 
           const normalized = rows.map(normalizeFeedRowToPost);
+          
+          // ✅ FILTER OUT MARKETPLACE POSTS - they won't appear in feed
+          const filteredPosts = filterMarketplacePosts(normalized);
 
-          const unseen = normalized.filter((p: any) => !seen.has(Number(p.id)));
-          const seenOnes = normalized.filter((p: any) => seen.has(Number(p.id)));
+          const unseen = filteredPosts.filter((p: any) => !seen.has(Number(p.id)));
+          const seenOnes = filteredPosts.filter((p: any) => seen.has(Number(p.id)));
 
           const ordered = diversifyFeed(
             [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
@@ -2566,12 +2583,16 @@ export default function App() {
           return;
         }
 
+        // For non-authenticated users (fallback to /api/posts)
         const p = await apiFetch('/api/posts');
         const normalized = safeArray(p).map(normalizePost);
+        
+        // ✅ Also filter here for consistency
+        const filteredPosts = filterMarketplacePosts(normalized);
 
-        if (normalized.length) {
-          const unseen = normalized.filter((x: any) => !seen.has(Number(x.id)));
-          const seenOnes = normalized.filter((x: any) => seen.has(Number(x.id)));
+        if (filteredPosts.length) {
+          const unseen = filteredPosts.filter((x: any) => !seen.has(Number(x.id)));
+          const seenOnes = filteredPosts.filter((x: any) => seen.has(Number(x.id)));
 
           const ordered = diversifyFeed(
             [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
@@ -2604,7 +2625,7 @@ export default function App() {
         postsInFlightRef.current = false;
       }
     },
-    [activeCommentsPostId, feedHydrated]
+    [activeCommentsPostId, feedHydrated, filterMarketplacePosts]
   );
 
   const fetchProfilePosts = useCallback(async (profileUserId: number) => {
@@ -4487,14 +4508,7 @@ export default function App() {
                 />
               )}
 
-              {currentUser && products.length > 0 && (
-                <SuggestedProductsWidget
-                  products={products}
-                  currentUser={currentUser}
-                  onViewProduct={setActiveProduct}
-                  onSeeAll={() => handleNavigate('marketplace')}
-                />
-              )}
+              {/* ✅ REMOVED: SuggestedProductsWidget - No more horizontal products at top */}
 
               <div className="space-y-2">
                 <MarketplaceContext.Provider value={{
