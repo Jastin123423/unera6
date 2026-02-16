@@ -91,6 +91,63 @@ const STORIES_CACHE_TTL_MS = 60_000;
 const STORY_VIEWERS_CACHE_KEY = "unera_story_viewers_";
 const VIEWERS_TTL = 2 * 60_000;
 
+/** ---------- Feed key resolver (must be unique across sources) ---------- */
+const getFeedKey = (item: any): string => {
+  if (!item) return '';
+  
+  // If the API already provides a feed_key, use it (most reliable)
+  if (typeof item.feed_key === 'string' && item.feed_key.trim()) {
+    return item.feed_key.trim();
+  }
+
+  // Determine the source/type of the item
+  const source = (() => {
+    if (item.source) return String(item.source);
+    if (item.item_type) return String(item.item_type);
+    if (item.type) return String(item.type);
+    if (item.__typename) return String(item.__typename).toLowerCase();
+    
+    // Infer from structure
+    if (item.video_url || item.videoUrl) return 'reel';
+    if (item.media_url && item.media_type?.startsWith('video/')) return 'video';
+    if (item.media_url && item.media_type?.startsWith('image/')) return 'image';
+    if (item.song_name || item.audio_url) return 'music';
+    if (item.event_date || item.start_time) return 'event';
+    if (item.price || item.discount_price) return 'product';
+    if (item.group_id) return 'group_post';
+    
+    return 'post';
+  })();
+
+  // Try to get a valid ID
+  const possibleIds = [
+    item.post_id,
+    item.postId,
+    item.reel_id,
+    item.reelId,
+    item.video_id,
+    item.videoId,
+    item.song_id,
+    item.songId,
+    item.event_id,
+    item.eventId,
+    item.product_id,
+    item.productId,
+    item.id
+  ];
+
+  for (const id of possibleIds) {
+    if (id === undefined || id === null) continue;
+    const num = Number(id);
+    if (Number.isFinite(num) && num > 0) {
+      return `${source}:${num}`;
+    }
+  }
+
+  // Final fallback (should be rare)
+  return `${source}:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+};
+
 /** ---------- Video/Reel ID resolver for Facebook-like video playback ---------- */
 const resolveVideoId = (item: any): number | null => {
   if (!item) return null;
@@ -117,6 +174,9 @@ const resolveVideoId = (item: any): number | null => {
 
 /** ---------- Stable key generator for list items ---------- */
 const getStableItemKey = (item: any, prefix = 'item'): string => {
+  // Prefer feed_key if available
+  if (item?.feed_key) return String(item.feed_key);
+
   const id = resolveVideoId(item);
   if (id) return `${prefix}-${id}`;
   
@@ -131,6 +191,48 @@ const getStableItemKey = (item: any, prefix = 'item'): string => {
   ].filter(Boolean);
   
   return `${prefix}-${fallbackParts.join('-') || Math.random()}`;
+};
+
+/** ---------- Feed seen cache with string keys ---------- */
+const FEED_SEEN_KEY = 'unera_feed_seen_v2'; // Changed to v2 for new format
+const FEED_SEEN_LIMIT = 1500;
+
+const readFeedSeenKeys = (): string[] => {
+  try {
+    const raw = localStorage.getItem(FEED_SEEN_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeFeedSeenKeys = (keys: string[]) => {
+  try {
+    const dedup = Array.from(new Set(keys.map(String).filter(Boolean))).slice(0, FEED_SEEN_LIMIT);
+    localStorage.setItem(FEED_SEEN_KEY, JSON.stringify(dedup));
+  } catch {}
+};
+
+const markFeedItemSeen = (item: any) => {
+  const key = getFeedKey(item);
+  if (!key) return;
+  
+  const current = readFeedSeenKeys();
+  if (!current.includes(key)) {
+    writeFeedSeenKeys([key, ...current]);
+  }
+};
+
+const markFeedItemsSeen = (items: any[]) => {
+  const keys = items.map(getFeedKey).filter(Boolean);
+  if (!keys.length) return;
+  
+  const current = readFeedSeenKeys();
+  const newKeys = keys.filter(k => !current.includes(k));
+  if (newKeys.length) {
+    writeFeedSeenKeys([...newKeys, ...current]);
+  }
 };
 
 const readStorySeen = (): number[] => {
@@ -233,9 +335,7 @@ class ErrorBoundary extends React.Component<{ children: any }, { error: any }> {
 /** ---------- Facebook-like feed session + seen cache ---------- */
 const FEED_SESSION_KEY = 'unera_feed_session_seed';
 const FEED_LAST_ACTIVE_KEY = 'unera_feed_last_active';
-const FEED_SEEN_KEY = 'unera_feed_seen_ids';
 const FEED_RETURN_THRESHOLD_MS = 3 * 60 * 1000;
-const FEED_SEEN_LIMIT = 1500;
 
 const nowMs = () => Date.now();
 
@@ -295,18 +395,6 @@ const seededShuffle = <T,>(arr: T[], seed: number) => {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
-};
-
-const getSeenSet = () => {
-  const ids = readJson<number[]>(FEED_SEEN_KEY, []);
-  return new Set(ids.map(Number).filter(Number.isFinite));
-};
-
-const pushSeenIds = (ids: number[]) => {
-  const existing = readJson<number[]>(FEED_SEEN_KEY, []);
-  const merged = [...ids, ...existing].map(Number).filter(Number.isFinite);
-  const dedup = Array.from(new Set(merged)).slice(0, FEED_SEEN_LIMIT);
-  writeJson(FEED_SEEN_KEY, dedup);
 };
 
 const diversifyFeed = (posts: PostType[], seed: number) => {
@@ -487,7 +575,8 @@ const normalizePost = (p: any): PostType => {
 
   const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
 
-  return {
+  // Add feed_key to normalized post
+  const normalized = {
     ...p,
     id: resolvedId,
     user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
@@ -525,6 +614,11 @@ const normalizePost = (p: any): PostType => {
 
     meta: parseJSON(p?.meta) || null,
   } as any;
+
+  // Add feed_key for seen tracking
+  normalized.feed_key = getFeedKey(normalized);
+  
+  return normalized;
 };
 
 /** Event normalization helpers from App.tsx 1 */
@@ -572,7 +666,7 @@ const normalizeEvent = (e: any): Event => {
   const cover =
     safeString(e?.image ?? e?.cover_url ?? e?.cover_image ?? e?.coverImage ?? e?.cover, '') || DEFAULT_EVENT_COVER;
 
-  return {
+  const normalized = {
     ...e,
     id,
 
@@ -605,6 +699,11 @@ const normalizeEvent = (e: any): Event => {
     group_id: e?.group_id ? safeNumber(e.group_id) : null,
     user_rsvp_status: e?.user_rsvp_status ?? null,
   } as any;
+
+  // Add feed_key for tracking
+  normalized.feed_key = getFeedKey(normalized);
+  
+  return normalized;
 };
 
 /** Normalize story data with backend field matching */
@@ -617,7 +716,7 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
     storyUser = mergeUserSafe(existingUser, storyUser);
   }
   
-  return {
+  const normalized = {
     id: resolvedId,
     user_id: userId,
     type: (s?.type ?? 'image') as 'text' | 'image' | 'video',
@@ -640,6 +739,11 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
     my_reaction: s?.my_reaction ?? s?.myReaction ?? null,
     reaction_breakdown: s?.reaction_breakdown ?? {},
   } as any;
+
+  // Add feed_key for tracking
+  normalized.feed_key = getFeedKey(normalized);
+  
+  return normalized;
 };
 
 /**
@@ -683,7 +787,7 @@ const normalizeUser = (u: any): User => {
     ? String(u?.cover_image_url ?? u?.coverImage).trim()
     : undefined;
 
-  return {
+  const normalized = {
     ...u,
     id: resolvedId,
     name: userName,
@@ -696,6 +800,8 @@ const normalizeUser = (u: any): User => {
     role: u?.role ?? 'user',
     created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
   } as any;
+
+  return normalized;
 };
 
 /** Normalize reel data with trimmed audio support */
@@ -711,7 +817,7 @@ const normalizeReel = (r: any): Reel => {
   const audioUrl = r?.audio_url ?? r?.audioUrl ?? '';
   const legacyIsTrimmed = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
 
-  return {
+  const normalized = {
     ...r,
     id: resolvedId,
     userId: userId,
@@ -734,11 +840,16 @@ const normalizeReel = (r: any): Reel => {
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
     isTrimmedAudio: isTrimmedAudio || legacyIsTrimmed,
   } as any;
+
+  // Add feed_key for tracking
+  normalized.feed_key = getFeedKey(normalized);
+  
+  return normalized;
 };
 
 /** Normalize song data for UNERA Music with audio_fetch_url support */
 const normalizeSong = (s: any): Song => {
-  return {
+  const normalized = {
     ...s,
     id: s?.id ?? s?.song_id ?? 0,
     title: s?.title ?? s?.name ?? 'Unknown',
@@ -751,6 +862,11 @@ const normalizeSong = (s: any): Song => {
     artistId: s?.artistId ?? s?.artist_id ?? 0,
     type: s?.type ?? 'music',
   } as any;
+
+  // Add feed_key for tracking
+  normalized.feed_key = getFeedKey(normalized);
+  
+  return normalized;
 };
 
 /**
@@ -763,7 +879,7 @@ const normalizeProduct = (p: any) => {
     imgs = Array.isArray(parsed) ? parsed : [];
   } catch { imgs = []; }
 
-  return {
+  const normalized = {
     ...p,
     id: safeNumber(p?.id),
     seller_id: safeNumber(p?.seller_id),
@@ -781,6 +897,11 @@ const normalizeProduct = (p: any) => {
     phone_number: safeString(p?.phone_number ?? ""),
     created_at: p?.created_at ?? new Date().toISOString(),
   } as any;
+
+  // Add feed_key for tracking
+  normalized.feed_key = getFeedKey(normalized);
+  
+  return normalized;
 };
 
 // ============================================================================
@@ -800,7 +921,7 @@ const normalizeGroup = (g: any): Group => {
       ? undefined
       : safeArray(g.members).map(Number).filter(Number.isFinite);
 
-  return {
+  const normalized = {
     ...g,
     id,
     admin_id: safeNumber(g?.admin_id ?? g?.adminId ?? 0),
@@ -820,6 +941,11 @@ const normalizeGroup = (g: any): Group => {
                g?.is_member === false ? false : 
                undefined,
   } as any;
+
+  // Add feed_key for tracking
+  normalized.feed_key = getFeedKey(normalized);
+  
+  return normalized;
 };
 
 /** ---------- ✅ ADDED: Marketplace Context for Post.tsx ---------- */
@@ -1120,7 +1246,7 @@ type View =
   | 'register';
 
 const normalizeFeedRowToPost = (row: any): PostType => {
-  return normalizePost({
+  const normalized = normalizePost({
     ...row,
     user_id: safeNumber(row?.user_id),
     content: row?.content ?? '',
@@ -1132,6 +1258,13 @@ const normalizeFeedRowToPost = (row: any): PostType => {
     pool: row?.pool,
     follower_count: row?.follower_count,
   });
+
+  // Add feed_key from the row if available
+  if (row.feed_key) {
+    normalized.feed_key = row.feed_key;
+  }
+
+  return normalized;
 };
 
 const authorFromFeedRow = (row: any): User => {
@@ -1152,13 +1285,19 @@ const authorFromFeedRow = (row: any): User => {
 };
 
 const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
-  const map = new Map<number, PostType>();
-  prev.forEach((p: any) => map.set(Number(p.id), p));
+  const map = new Map<string, PostType>();
+  prev.forEach((p: any) => {
+    const key = p.feed_key || getFeedKey(p);
+    if (key) map.set(key, p);
+  });
 
   incoming.forEach((p: any) => {
-    const existing = map.get(Number(p.id));
+    const key = p.feed_key || getFeedKey(p);
+    if (!key) return;
+    
+    const existing = map.get(key);
     if (existing) {
-      map.set(Number(p.id), {
+      map.set(key, {
         ...existing,
         ...p,
         reactions: (existing as any).reactions,
@@ -1166,14 +1305,20 @@ const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
         comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
       } as any);
     } else {
-      map.set(Number(p.id), p);
+      map.set(key, p);
     }
   });
 
-  const prevIds = new Set(prev.map((p: any) => Number(p.id)));
-  const newOnes = incoming.filter((p: any) => !prevIds.has(Number(p.id)));
+  const prevKeys = new Set(prev.map((p: any) => p.feed_key || getFeedKey(p)).filter(Boolean));
+  const newOnes = incoming.filter((p: any) => {
+    const key = p.feed_key || getFeedKey(p);
+    return key && !prevKeys.has(key);
+  });
 
-  return [...newOnes, ...prev.map((p: any) => map.get(Number(p.id))!).filter(Boolean)];
+  return [...newOnes, ...prev.map((p: any) => {
+    const key = p.feed_key || getFeedKey(p);
+    return key ? map.get(key) : p;
+  }).filter(Boolean)];
 };
 
 const createFallbackUser = (): User => {
@@ -2506,10 +2651,14 @@ export default function App() {
 
       try {
         const seed = getOrCreateSessionSeed(viewer?.id ?? null);
-        const seen = getSeenSet();
+        const seenKeys = readFeedSeenKeys();
 
         if (viewer?.id) {
-          const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
+          // Send seen keys to backend
+          const seenParam = encodeURIComponent(seenKeys.join(','));
+          const url = `/api/feeds?userId=${viewer.id}&limit=50&seed=${seed}&seen=${seenParam}`;
+          
+          const data = await apiFetch(url);
           const rows = safeArray<any>(data?.feed);
 
           if (!rows.length) {
@@ -2539,15 +2688,17 @@ export default function App() {
 
           const normalized = rows.map(normalizeFeedRowToPost);
 
-          const unseen = normalized.filter((p: any) => !seen.has(Number(p.id)));
-          const seenOnes = normalized.filter((p: any) => seen.has(Number(p.id)));
+          // Mark new items as seen
+          const newKeys = normalized.map(getFeedKey).filter(Boolean);
+          markFeedItemsSeen(normalized);
+
+          const unseen = normalized.filter(p => !seenKeys.includes(getFeedKey(p)));
+          const seenOnes = normalized.filter(p => seenKeys.includes(getFeedKey(p)));
 
           const ordered = diversifyFeed(
             [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
             seed
           );
-
-          pushSeenIds(ordered.slice(0, 40).map((p: any) => Number(p.id)));
 
           setPosts((prev) => {
             const next = mergeFeed(prev, ordered);
@@ -2570,15 +2721,16 @@ export default function App() {
         const normalized = safeArray(p).map(normalizePost);
 
         if (normalized.length) {
-          const unseen = normalized.filter((x: any) => !seen.has(Number(x.id)));
-          const seenOnes = normalized.filter((x: any) => seen.has(Number(x.id)));
+          const newKeys = normalized.map(getFeedKey).filter(Boolean);
+          markFeedItemsSeen(normalized);
+
+          const unseen = normalized.filter(p => !seenKeys.includes(getFeedKey(p)));
+          const seenOnes = normalized.filter(p => seenKeys.includes(getFeedKey(p)));
 
           const ordered = diversifyFeed(
             [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
             seed
           );
-
-          pushSeenIds(ordered.slice(0, 40).map((x: any) => Number(x.id)));
 
           setPosts((prev) => {
             const next = mergeFeed(prev, ordered);
@@ -2619,11 +2771,15 @@ export default function App() {
 
       setProfilePosts(prev => {
         const localTruth = [...safeArray(posts), ...safeArray(prev)];
-        const map = new Map<number, any>();
-        localTruth.forEach((p: any) => map.set(Number(p.id), p));
+        const map = new Map<string, any>();
+        localTruth.forEach((p: any) => {
+          const key = p.feed_key || getFeedKey(p);
+          if (key) map.set(key, p);
+        });
 
         return normalized.map((p: any) => {
-          const local = map.get(Number(p.id));
+          const key = p.feed_key || getFeedKey(p);
+          const local = key ? map.get(key) : null;
           if (!local) return p;
 
           return {
@@ -3937,6 +4093,7 @@ export default function App() {
     localStorage.removeItem(LS_USER_KEY);
     localStorage.removeItem(STORY_SEEN_KEY);
     localStorage.removeItem(STORIES_CACHE_KEY);
+    localStorage.removeItem(FEED_SEEN_KEY); // Clear feed seen keys
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
         localStorage.removeItem(key);
@@ -4083,7 +4240,8 @@ export default function App() {
         return next;
       });
 
-      pushSeenIds([Number((normalized as any).id)]);
+      // Mark as seen
+      markFeedItemSeen(normalized);
 
       setShowCreatePostModal(false);
       scheduleSilentRefresh();
@@ -4508,35 +4666,30 @@ export default function App() {
                   getProductData
                 }}>
                   {rankedPosts.length > 0 ? (
-                    rankedPosts.map((post, idx) => {
-                      const postAuthorId = Number((post as any).user_id);
-                      const isFollowing = checkIsFollowing(postAuthorId);
-                      
-                      return (
-                        <Post
-                          key={getStableItemKey(post, 'post')}
-                          post={post}
-                          author={getPostAuthor(post)}
-                          currentUser={currentUser}
-                          users={users}
-                          onProfileClick={(id) => openProfile(id)}
-                          onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                          onShare={() => handleOpenShareSheet(post)}
-                          onViewImage={setFullScreenImage}
-                          onOpenComments={(postId: number) => onOpenComments(postId)}
-                          onVideoClick={handleVideoClick}
-                          onPlayAudioTrack={onPlayTrack}
-                          groups={groups}
-                          brands={brands}
-                          chats={chats}
-                          onHashtagClick={handleHashtagClick}
-                          isFollowing={isFollowing}
-                          onFollow={() => followUser(postAuthorId)}
-                          followLoading={followLoading[postAuthorId] || false}
-                          onViewProductFromPost={openProductFromPost}
-                        />
-                      );
-                    })
+                    rankedPosts.map((post) => (
+                      <Post
+                        key={getFeedKey(post)} // Use feed_key for React key
+                        post={post}
+                        author={getPostAuthor(post)}
+                        currentUser={currentUser}
+                        users={users}
+                        onProfileClick={(id) => openProfile(id)}
+                        onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                        onShare={() => handleOpenShareSheet(post)}
+                        onViewImage={setFullScreenImage}
+                        onOpenComments={(postId: number) => onOpenComments(postId)}
+                        onVideoClick={handleVideoClick}
+                        onPlayAudioTrack={onPlayTrack}
+                        groups={groups}
+                        brands={brands}
+                        chats={chats}
+                        onHashtagClick={handleHashtagClick}
+                        isFollowing={checkIsFollowing(Number((post as any).user_id))}
+                        onFollow={() => followUser(Number((post as any).user_id))}
+                        followLoading={followLoading[Number((post as any).user_id)] || false}
+                        onViewProductFromPost={openProductFromPost}
+                      />
+                    ))
                   ) : !feedHydrated ? (
                     <div className="text-center py-20 text-[#B0B3B8]"></div>
                   ) : activeHashtag ? (
