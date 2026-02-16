@@ -958,12 +958,21 @@ interface GroupsPageProps {
 }
 
 /**
- * Normalize group data for UI safety
+ * Normalize group data for UI safety - IMPROVED to preserve undefined for missing data
  */
 function normalizeGroup(raw: any): Group {
-  const members = Array.isArray(raw?.members) ? raw.members : [];
-  const posts = Array.isArray(raw?.posts) ? raw.posts : [];
-  const events = Array.isArray(raw?.events) ? raw.events : [];
+  // Preserve undefined if members is missing/null, otherwise ensure it's an array
+  const members = raw?.members === undefined || raw?.members === null 
+    ? undefined 
+    : (Array.isArray(raw.members) ? raw.members : []);
+  
+  const posts = raw?.posts === undefined || raw?.posts === null
+    ? undefined
+    : (Array.isArray(raw.posts) ? raw.posts : []);
+  
+  const events = raw?.events === undefined || raw?.events === null
+    ? undefined
+    : (Array.isArray(raw.events) ? raw.events : []);
 
   return {
     ...raw,
@@ -976,19 +985,28 @@ function normalizeGroup(raw: any): Group {
     profile_image: String(raw?.profile_image ?? raw?.profileImage ?? ''),
     created_at: raw?.created_at ?? new Date().toISOString(),
     member_posting_allowed: raw?.member_posting_allowed ?? true,
-    members,
-    posts,
-    events,
-    members_count: Number(raw?.members_count ?? members.length),
+    members: members ?? [], // Fallback to empty array only at the very end
+    posts: posts ?? [],
+    events: events ?? [],
+    members_count: Number(raw?.members_count ?? (members ? members.length : 0)),
   } as Group;
 }
 
 /**
- * Normalize post data for UI safety
+ * Normalize post data for UI safety - IMPROVED to preserve undefined for missing data
  */
 function normalizePost(post: any): PostType {
   const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
   const mediaType = post?.media_type ?? post?.mediaType ?? null;
+  
+  // Preserve undefined for arrays if missing
+  const reactions = post?.reactions === undefined || post?.reactions === null
+    ? undefined
+    : (Array.isArray(post.reactions) ? post.reactions : []);
+  
+  const comments = post?.comments === undefined || post?.comments === null
+    ? undefined
+    : (Array.isArray(post.comments) ? post.comments : []);
 
   return {
     ...post,
@@ -998,8 +1016,8 @@ function normalizePost(post: any): PostType {
     media_url: mediaUrl,
     media_type: mediaType,
     type: post?.type ?? (mediaUrl ? (mediaType?.startsWith('image/') ? 'image' : 'video') : 'text'),
-    reactions: Array.isArray(post?.reactions) ? post.reactions : [],
-    comments: Array.isArray(post?.comments) ? post.comments : [],
+    reactions: reactions ?? [], // Fallback at the end
+    comments: comments ?? [],
     shares: Number(post?.shares ?? 0),
     views: Number(post?.views ?? 0),
     created_at: post?.created_at ?? new Date().toISOString(),
@@ -1011,10 +1029,15 @@ function normalizePost(post: any): PostType {
 }
 
 /**
- * Normalize event data for UI safety - FIXED to use creator_id and cover_url
+ * Normalize event data for UI safety - IMPROVED to preserve undefined for missing data
  */
 function normalizeEvent(event: any): Event {
   const groupId = event?.group_id ?? event?.groupId ?? null;
+  
+  // Preserve undefined for attendees if missing
+  const attendees = event?.attendees === undefined || event?.attendees === null
+    ? undefined
+    : (Array.isArray(event.attendees) ? event.attendees : []);
 
   return {
     ...event,
@@ -1023,9 +1046,9 @@ function normalizeEvent(event: any): Event {
     description: String(event?.description ?? ''),
     start_time: event?.event_date ?? event?.start_time ?? event?.date ?? new Date().toISOString(),
     location: event?.location ?? null,
-    cover_image: event?.cover_url ?? event?.cover_image ?? null, // Accept cover_url from backend
-    attendees: Array.isArray(event?.attendees) ? event.attendees : [],
-    created_by: Number(event?.creator_id ?? event?.created_by ?? 0), // Accept creator_id from backend
+    cover_image: event?.cover_url ?? event?.cover_image ?? null,
+    attendees: attendees ?? [], // Fallback at the end
+    created_by: Number(event?.creator_id ?? event?.created_by ?? 0),
     group_id: groupId == null ? null : Number(groupId),
     created_at: event?.created_at ?? new Date().toISOString(),
     user_rsvp_status: event?.user_rsvp_status ?? null,
@@ -1677,7 +1700,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           {/* Content */}
           <div className="max-w-[900px] mx-auto">
             {(() => {
-              // Data filtering
+              // Data filtering - now using optional chaining to handle potentially undefined members
               const myGroups = currentUser
                 ? safeGroups.filter(g => (g.members ?? []).includes(currentUser.id) || g.admin_id === currentUser.id)
                 : [];
