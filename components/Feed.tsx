@@ -1,4 +1,5 @@
-//Feed.tsx 
+// Feed.tsx - Updated to handle multi-type feed items (posts, reels, group_posts, events, etc.)
+
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -82,6 +83,57 @@ const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallb
 
 const safeUserId = (u: any) => safeNumber(u?.id ?? u?.user_id ?? u?.userId, 0);
 const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
+
+/**
+ * =========================
+ * ✅ NEW: FEED TYPE HELPERS FOR MULTI-TYPE SUPPORT
+ * =========================
+ */
+type FeedSource = 
+  | 'post' 
+  | 'reel' 
+  | 'group_post' 
+  | 'event' 
+  | 'song' 
+  | 'podcast' 
+  | 'product'
+  | 'marketplace';
+
+const getFeedKey = (item: any) => {
+  // Use backend-provided feed_key if available (most reliable)
+  const k = String(item?.feed_key || '').trim();
+  if (k) return k;
+
+  // Fallback: construct from source + id
+  const source = String(item?.source || item?.item_type || item?.type || 'post');
+  const id = Number(item?.id);
+  return `${source}:${Number.isFinite(id) ? id : '0'}`;
+};
+
+const getSource = (item: any): FeedSource => {
+  return (item?.source || item?.item_type || item?.type || 'post') as FeedSource;
+};
+
+const apiBaseFor = (source: FeedSource) => {
+  switch (source) {
+    case 'reel':
+      return '/api/reels';
+    case 'group_post':
+      return '/api/group-posts';
+    case 'event':
+      return '/api/events';
+    case 'song':
+      return '/api/songs';
+    case 'podcast':
+      return '/api/podcasts';
+    case 'product':
+    case 'marketplace':
+      return '/api/products';
+    case 'post':
+    default:
+      return '/api/posts';
+  }
+};
 
 /**
  * =========================
@@ -217,7 +269,7 @@ export const formatRelativeTime = (dateInput: any): string => {
 
 /**
  * =========================
- * ✅ NEW: REACTION EMOJI HELPERS FOR FACEBOOK-STYLE DISPLAY
+ * ✅ REACTION EMOJI HELPERS FOR FACEBOOK-STYLE DISPLAY
  * =========================
  */
 const reactionEmoji = (t: string) => {
@@ -1022,24 +1074,29 @@ const GalleryViewer: React.FC<{
 
 /**
  * =========================
- * ✅ SHARE BOTTOM SHEET
+ * ✅ UPDATED: SHARE BOTTOM SHEET - NOW SUPPORTS MULTI-TYPE ITEMS
  * =========================
  */
 export const ShareBottomSheet: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-  post: any;
+  item: any; // Can be post, reel, group_post, etc.
   currentUser: User | null;
   users?: User[];
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
   onShareComplete?: (destination: string, data?: any) => void;
-}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete }) => {
+}> = ({ isOpen, onClose, item, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete }) => {
   const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>('sheet');
   const [isAnimating, setIsAnimating] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+
+  // Get source and feed_key for this item
+  const source = getSource(item);
+  const feedKey = getFeedKey(item);
+  const itemId = safeNumber(item.id, 0);
 
   useEffect(() => {
     const handleBackdropClick = (e: MouseEvent) => {
@@ -1086,22 +1143,33 @@ export const ShareBottomSheet: React.FC<{
     }
 
     try {
+      // ✅ Use source + item_id for multi-type sharing
       const payload = {
-        post_id: post.id,
+        source: source,                // Tell backend what type this is
+        item_id: itemId,               // Generic ID field
+        feed_key: feedKey,              // Optional but useful
         user_id: currentUser.id,
         destination,
         shared_at: new Date().toISOString(),
       };
 
-      const response = await apiFetch('/api/posts/share', {
+      // Option 1: Use a unified share endpoint that routes by source
+      const response = await apiFetch('/api/share', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
 
+      // Option 2: If you have per-type share endpoints, use this:
+      // const base = apiBaseFor(source);
+      // const response = await apiFetch(`${base}/share`, {
+      //   method: 'POST',
+      //   body: JSON.stringify(payload),
+      // });
+
       if (onShareComplete) {
         const nextShares = safeNumber(
-          response?.shares ?? response?.share_count, 
-          safeNumber(post.shares || 0, 0) + 1
+          response?.shares ?? response?.share_count,
+          safeNumber(item.shares || 0, 0) + 1
         );
         
         onShareComplete(destination, { 
@@ -1125,12 +1193,13 @@ export const ShareBottomSheet: React.FC<{
 
   const previewUrl = useMemo(() => {
     return (
-      (Array.isArray(post?.media_urls) && post.media_urls[0]) ||
-      (Array.isArray(post?.images) && post.images[0]) ||
-      post?.media_url ||
+      (Array.isArray(item?.media_urls) && item.media_urls[0]) ||
+      (Array.isArray(item?.images) && item.images[0]) ||
+      item?.media_url ||
+      item?.author?.profile_image_url ||
       ''
     );
-  }, [post]);
+  }, [item]);
 
   if (!isOpen) return null;
 
@@ -1313,13 +1382,13 @@ export const ShareBottomSheet: React.FC<{
             <div className="w-10 h-1 bg-[#3E4042] rounded-full"></div>
           </div>
 
-          {post && (
+          {item && (
             <div className="flex items-start gap-3 mb-4 p-3 bg-[#3A3B3C] rounded-xl">
               {previewUrl && (
                 <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
                   <img 
                     src={previewUrl} 
-                    alt="Post" 
+                    alt="Item" 
                     className="w-full h-full object-cover"
                   />
                 </div>
@@ -1327,16 +1396,16 @@ export const ShareBottomSheet: React.FC<{
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-[#E4E6EB] font-semibold text-sm">
-                    {post.author?.name || 'Original Author'}
+                    {item.author?.name || item.name || 'Original Author'}
                   </span>
                   <span className="text-[#B0B3B8] text-xs">•</span>
                   <span className="text-[#B0B3B8] text-xs">
-                    {formatRelativeTime(post.created_at)}
+                    {formatRelativeTime(item.created_at)}
                   </span>
                 </div>
                 <p className="text-[#B0B3B8] text-sm line-clamp-2">
-                  {post.content?.substring(0, 100) || 'Shared post'}
-                  {post.content?.length > 100 ? '...' : ''}
+                  {item.content?.substring(0, 100) || `Shared ${source}`}
+                  {item.content?.length > 100 ? '...' : ''}
                 </p>
               </div>
             </div>
@@ -1419,7 +1488,7 @@ export const ShareBottomSheet: React.FC<{
 
             <button
               onClick={() => {
-                const text = `Check out this post on UNERA: ${window.location.origin}/post/${post.id}`;
+                const text = `Check out this ${source} on UNERA: ${window.location.origin}/${source}/${item.id}`;
                 window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
                 closeSheet();
               }}
@@ -1440,7 +1509,7 @@ export const ShareBottomSheet: React.FC<{
 
             <button
               onClick={() => {
-                const url = `${window.location.origin}/post/${post.id}`;
+                const url = `${window.location.origin}/${source}/${item.id}`;
                 navigator.clipboard.writeText(url);
                 alert('Link copied to clipboard!');
                 closeSheet();
@@ -1452,7 +1521,7 @@ export const ShareBottomSheet: React.FC<{
               </div>
               <div className="flex-1 text-left">
                 <div className="text-[#E4E6EB] font-medium text-[15px]">
-                  Copy Post Link
+                  Copy Link
                 </div>
                 <div className="text-[#B0B3B8] text-xs mt-0.5">
                   Copy link to clipboard
@@ -1510,21 +1579,23 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ FIXED: POST CARD WITH REDUCED MARKETPLACE PRICE AND BUTTON
+ * ✅ UPDATED: POST CARD WITH MULTI-TYPE SUPPORT
  * =========================
  */
 export const Post: React.FC<{
-  post: PostType;
+  item: any; // Can be post, reel, group_post, event, etc.
   author: User | any;
   currentUser: User | null;
   users?: User[];
   onProfileClick: (id: number) => void;
-  onReact: (id: number, type: ReactionType) => void;
-  onShare: (id: number, newShareCount: number) => void;
+  // ✅ UPDATED: Now pass the whole item instead of just id
+  onReact: (item: any, type: ReactionType) => void;
+  onShare: (item: any, newShareCount: number) => void;
   onDelete?: (id: number) => void;
   onViewImage: (url: string) => void;
-  onOpenComments: (id: number) => void;
-  onVideoClick: (p: PostType) => void;
+  // ✅ UPDATED: Now pass the whole item instead of just id
+  onOpenComments: (item: any) => void;
+  onVideoClick: (item: any) => void;
   onPlayAudioTrack?: (t: AudioTrack) => void;
   onHashtagClick?: (tag: string) => void;
   onViewProductFromPost?: (productId: number) => void;
@@ -1537,7 +1608,7 @@ export const Post: React.FC<{
   onFollow?: (id: number) => void;
   followLoading?: boolean;
 }> = ({
-  post,
+  item,
   author,
   currentUser,
   users = [],
@@ -1562,13 +1633,19 @@ export const Post: React.FC<{
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
-  const p: any = post as any;
+  // Get source and feed_key for this item
+  const source = getSource(item);
+  const feedKey = getFeedKey(item);
+  
+  const p: any = item as any;
   const a: any = author as any;
 
   // ========== MARKETPLACE DETECTION ==========
   const meta: any = p?.meta || {};
   
   const isMarketplace =
+    source === 'product' ||
+    source === 'marketplace' ||
     p?.type === "marketplace" ||
     p?.post_type === "product" ||
     p?.type === 'product' ||
@@ -1595,7 +1672,7 @@ export const Post: React.FC<{
     setGalleryOpen(true);
   };
 
-  // ✅ FIXED: MARKETPLACE TOP LINE - ONLY MARKETPLACE BADGE AND LOCATION
+  // ✅ MARKETPLACE TOP LINE - ONLY MARKETPLACE BADGE AND LOCATION
   const marketplaceTop = isMarketplace ? (
     <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
       <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
@@ -1610,7 +1687,7 @@ export const Post: React.FC<{
     </div>
   ) : null;
 
-  // ✅ FIXED: MARKETPLACE MEDIA GRID - NOW FULL WIDTH WITH GALLERY SUPPORT
+  // ✅ MARKETPLACE MEDIA GRID - FULL WIDTH WITH GALLERY SUPPORT
   const marketplaceMedia = isMarketplace ? (
     mpImages.length > 0 ? (
       <div className="w-full">
@@ -1626,7 +1703,7 @@ export const Post: React.FC<{
     ) : null
   ) : null;
 
-  // ✅ FIXED: MARKETPLACE PRICE AND BUTTON SECTION - REDUCED SIZE
+  // ✅ MARKETPLACE PRICE AND BUTTON SECTION - REDUCED SIZE
   const marketplaceFooter = isMarketplace && price ? (
     <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
       <div className="flex items-center gap-1">
@@ -1646,13 +1723,13 @@ export const Post: React.FC<{
     </div>
   ) : null;
 
-  // ✅ NEW: Music/Podcast detection
-  const isMusic = meta?.kind === 'music' || meta?.type === 'music';
-  const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
+  // ✅ Music/Podcast detection
+  const isMusic = source === 'song' || meta?.kind === 'music' || meta?.type === 'music';
+  const isPodcast = source === 'podcast' || meta?.kind === 'podcast' || meta?.type === 'podcast';
   const song = meta?.song;
   const podcast = meta?.podcast;
 
-  // ✅ NEW: Group detection
+  // ✅ Group detection
   const groupId = Number(p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0);
   const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
 
@@ -1686,7 +1763,7 @@ export const Post: React.FC<{
   const [showShareSheet, setShowShareSheet] = useState(false);
 
   const createdAtLabel = formatRelativeTime(p.created_at);
-  const postId = safePostId(p);
+  const itemId = safeNumber(p.id, 0);
 
   const mediaInfo = getMediaTypeInfo(p);
 
@@ -1735,7 +1812,8 @@ export const Post: React.FC<{
     
     if (data?.success && Number.isFinite(nextShares)) {
       setShareCount(nextShares);
-      onShare(postId, nextShares);
+      // ✅ Pass the whole item to parent
+      onShare(item, nextShares);
     }
     setShowShareSheet(false);
   };
@@ -1748,12 +1826,15 @@ export const Post: React.FC<{
     }
   };
 
+  // Determine if this is a group post to show group header
+  const showGroupHeader = source === 'group_post' && groupId > 0 && groupName;
+
   return (
     <>
-      {/* ✅ Unified post wrapper - same for all post types */}
+      {/* ✅ Unified post wrapper - same for all item types */}
       <div className="w-full">
         <div className="bg-[#242526] w-full overflow-hidden">
-          {/* ===== POST HEADER ===== */}
+          {/* ===== ITEM HEADER ===== */}
           <div className="p-3 md:p-4 flex items-center justify-between">
             <div
               className="flex items-center gap-2 flex-1 min-w-0"
@@ -1771,7 +1852,7 @@ export const Post: React.FC<{
               />
               <div className="min-w-0">
                 {/* Group name header for group posts */}
-                {groupId > 0 && groupName && (
+                {showGroupHeader && (
                   <div className="mb-1">
                     <button
                       type="button"
@@ -1792,6 +1873,9 @@ export const Post: React.FC<{
                   </h4>
                   {a.is_verified && (
                     <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                  )}
+                  {source !== 'post' && (
+                    <span className="text-[#B0B3B8] text-xs ml-1">• {source.replace('_', ' ')}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
@@ -1843,7 +1927,7 @@ export const Post: React.FC<{
                   className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onDelete(postId);
+                    onDelete(itemId);
                   }}
                   title="Delete"
                 >
@@ -1855,7 +1939,7 @@ export const Post: React.FC<{
           {/* ===== MARKETPLACE TOP LINE (only badge and location) ===== */}
           {marketplaceTop}
 
-          {/* ===== POST CONTENT ===== */}
+          {/* ===== ITEM CONTENT ===== */}
           {p.content && !isMarketplace && (
             <div className="px-3 md:px-4 pb-2">
               <ExpandableRichText
@@ -1988,7 +2072,7 @@ export const Post: React.FC<{
               {mediaInfo.mediaUrl && mediaInfo.isVideo && (
                 <div
                   className="cursor-pointer relative h-[500px] bg-black"
-                  onClick={() => onVideoClick(post)}
+                  onClick={() => onVideoClick(item)}
                 >
                   <video
                     src={mediaInfo.mediaUrl}
@@ -2064,7 +2148,7 @@ export const Post: React.FC<{
                                   <button
                                     onClick={() =>
                                       onPlayAudioTrack!({
-                                        id: postId,
+                                        id: itemId,
                                         title: titleText,
                                         artist: artistText,
                                         url: mediaInfo.mediaUrl,
@@ -2093,7 +2177,7 @@ export const Post: React.FC<{
                               <button
                                 onClick={() =>
                                   onPlayAudioTrack!({
-                                    id: postId,
+                                    id: itemId,
                                     title: titleText,
                                     artist: artistText,
                                     url: mediaInfo.mediaUrl,
@@ -2145,7 +2229,8 @@ export const Post: React.FC<{
             <div className="flex gap-4">
               <span
                 className="hover:underline cursor-pointer"
-                onClick={() => onOpenComments(Number(postId))}
+                // ✅ Pass the whole item to onOpenComments
+                onClick={() => onOpenComments(item)}
               >
                 {formatCount(commentCount)} Comments
               </span>
@@ -2157,17 +2242,19 @@ export const Post: React.FC<{
             </div>
           </div>
 
-          {/* ===== ACTION BUTTONS - SAME FOR ALL POST TYPES ===== */}
+          {/* ===== ACTION BUTTONS - SAME FOR ALL ITEM TYPES ===== */}
           <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
             <ReactionButton
               currentUserReactions={finalMyReaction}
               reactionCount={finalReactionCount}
-              onReact={(type) => onReact(postId, type)}
+              // ✅ Pass the whole item to onReact
+              onReact={(type) => onReact(item, type)}
               isGuest={!currentUser}
             />
             <button
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
+              // ✅ Pass the whole item to onOpenComments
+              onClick={() => (currentUser ? onOpenComments(item) : alert('Login first'))}
             >
               <i className="far fa-comment-alt text-[20px]"></i>
               <span className="text-[17px] font-medium">Comment</span>
@@ -2176,7 +2263,7 @@ export const Post: React.FC<{
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
               onClick={() => {
                 if (!currentUser) {
-                  alert('Please login to share posts.');
+                  alert('Please login to share.');
                   return;
                 }
                 setShowShareSheet(true);
@@ -2192,10 +2279,11 @@ export const Post: React.FC<{
         <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
       </div>
 
+      {/* ✅ Pass the whole item to ShareBottomSheet */}
       <ShareBottomSheet
         isOpen={showShareSheet}
         onClose={() => setShowShareSheet(false)}
-        post={p}
+        item={item}
         currentUser={currentUser}
         users={users}
         groups={groups}
@@ -2826,23 +2914,23 @@ export const CreatePostModal: React.FC<{
 };
 
 // Global comments cache
-const commentsCache = new Map<number, { 
+const commentsCache = new Map<string, { 
   data: any[], 
   timestamp: number,
-  postId: number 
+  feedKey: string 
 }>();
 
 /**
  * =========================
- * ✅ UPDATED: FULL POST VIEW WITH FULL-WIDTH MEDIA
+ * ✅ UPDATED: FULL POST VIEW WITH FULL-WIDTH MEDIA (NOW SUPPORTS MULTI-TYPE)
  * =========================
  */
 export const CommentsSheet: React.FC<{
-  post: PostType;
+  item: any; // Can be post, reel, group_post, etc.
   currentUser: User;
   users: User[];
   onClose: () => void;
-  onComment?: (postId: number, text: string) => void;
+  onComment?: (feedKey: string, text: string) => void;
   onLikeComment?: (commentId: number) => void;
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
@@ -2850,7 +2938,7 @@ export const CommentsSheet: React.FC<{
   onFollow?: (id: number) => void;
   checkIsFollowing?: (id: number) => boolean;
 }> = ({ 
-  post, 
+  item, 
   currentUser, 
   users, 
   onClose, 
@@ -2862,8 +2950,12 @@ export const CommentsSheet: React.FC<{
   onFollow,
   checkIsFollowing 
 }) => {
-  const p: any = post as any;
-  const postId = safePostId(p);
+  const p: any = item as any;
+  
+  // Get source and feed_key for this item
+  const source = getSource(item);
+  const feedKey = getFeedKey(item);
+  const itemId = safeNumber(p.id, 0);
   
   const [text, setText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
@@ -2980,16 +3072,18 @@ export const CommentsSheet: React.FC<{
     
     try {
       const viewerId = safeUserId(currentUser);
-      const data = await apiFetch(`/api/posts/${postId}/comments?viewerId=${viewerId}`);
+      // Use source-specific endpoint
+      const base = apiBaseFor(source);
+      const data = await apiFetch(`${base}/${itemId}/comments?viewerId=${viewerId}`);
       const arr = Array.isArray(data) ? data : data?.comments || [];
       const sorted = sortComments(arr);
       
       if (arr.length > 0) {
         setComments(sorted);
-        commentsCache.set(postId, { 
+        commentsCache.set(feedKey, { 
           data: arr, 
           timestamp: Date.now(),
-          postId 
+          feedKey 
         });
       }
     } catch (error: any) {
@@ -3002,7 +3096,7 @@ export const CommentsSheet: React.FC<{
 
   useEffect(() => {
     const initializeComments = async () => {
-      const cached = commentsCache.get(postId);
+      const cached = commentsCache.get(feedKey);
       if (cached) {
         const sorted = sortComments(cached.data);
         setComments(sorted);
@@ -3012,10 +3106,10 @@ export const CommentsSheet: React.FC<{
       if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
         const sorted = sortComments(postComments);
         setComments(sorted);
-        commentsCache.set(postId, { 
+        commentsCache.set(feedKey, { 
           data: postComments, 
           timestamp: Date.now(),
-          postId 
+          feedKey 
         });
       }
       
@@ -3029,7 +3123,7 @@ export const CommentsSheet: React.FC<{
         abortControllerRef.current.abort();
       }
     };
-  }, [postId, p.comments]);
+  }, [feedKey, p.comments]);
 
   const idKey = (v: any) => String(v ?? '').trim();
 
@@ -3072,7 +3166,7 @@ export const CommentsSheet: React.FC<{
 
     const optimisticComment = {
       id: `tmp-${Date.now()}`,
-      post_id: postId,
+      post_id: itemId,
       user_id: safeUserId(currentUser),
       text: finalText,
       parent_comment_id: replyTo?.id || null,
@@ -3088,21 +3182,24 @@ export const CommentsSheet: React.FC<{
 
     setComments(prev => {
       const next = [...prev, optimisticComment];
-      const allComments = commentsCache.get(postId)?.data || [];
-      commentsCache.set(postId, { 
+      const allComments = commentsCache.get(feedKey)?.data || [];
+      commentsCache.set(feedKey, { 
         data: [...allComments, optimisticComment], 
         timestamp: Date.now(),
-        postId 
+        feedKey 
       });
       return sortComments(next);
     });
 
     if (onComment) {
-      onComment(postId, finalText);
+      // Pass feedKey instead of just postId
+      onComment(feedKey, finalText);
     }
 
     try {
-      await apiFetch(`/api/posts/${postId}/comment`, {
+      // Use source-specific endpoint
+      const base = apiBaseFor(source);
+      await apiFetch(`${base}/${itemId}/comment`, {
         method: 'POST',
         body: JSON.stringify({
           text: finalText,
@@ -3125,7 +3222,7 @@ export const CommentsSheet: React.FC<{
 
   useEffect(() => {
     const handleFocus = () => {
-      const cached = commentsCache.get(postId);
+      const cached = commentsCache.get(feedKey);
       if (cached && (Date.now() - cached.timestamp > 30000)) {
         fetchCommentsSilently();
       }
@@ -3133,7 +3230,7 @@ export const CommentsSheet: React.FC<{
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [postId]);
+  }, [feedKey]);
 
   const mediaInfo = getMediaTypeInfo(p);
 
@@ -3154,7 +3251,9 @@ export const CommentsSheet: React.FC<{
           >
             <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
           </button>
-          <div className="text-[#E4E6EB] font-bold text-[20px]">Post</div>
+          <div className="text-[#E4E6EB] font-bold text-[20px]">
+            {source === 'post' ? 'Post' : source.replace('_', ' ')}
+          </div>
         </div>
 
         <div className="flex items-center gap-4">
@@ -3529,4 +3628,4 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { getMediaTypeInfo };
+export { getMediaTypeInfo, getFeedKey, getSource, apiBaseFor };
