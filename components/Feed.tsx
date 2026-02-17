@@ -1952,7 +1952,7 @@ export const EventPost: React.FC<{
 
 /**
  * =========================
- * ✅ NEW: EVENT FEED CARD COMPONENT
+ * ✅ UPDATED: EVENT FEED CARD COMPONENT WITH BETTER API HANDLING
  * =========================
  */
 type FeedEventItem = {
@@ -1985,6 +1985,7 @@ export const EventFeedCard: React.FC<{
   onUpdateItem: (patch: Partial<FeedEventItem>) => void;
 }> = ({ item, currentUser, onProfileClick, onUpdateItem }) => {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const whenText = useMemo(() => {
     const d = item.event_date ? new Date(item.event_date) : null;
@@ -2003,11 +2004,23 @@ export const EventFeedCard: React.FC<{
       alert("Please login to RSVP");
       return;
     }
+    
     setLoading(true);
+    setError(null);
+    
     try {
-      const res = await fetch("/api/events/rsvp", {
+      console.log('Sending RSVP request:', {
+        event_id: item.event_id || item.id,
+        user_id: currentUser.id,
+        status,
+      });
+
+      const response = await fetch("/api/events/rsvp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
         body: JSON.stringify({
           event_id: item.event_id || item.id,
           user_id: currentUser.id,
@@ -2015,18 +2028,30 @@ export const EventFeedCard: React.FC<{
         }),
       });
 
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.success) {
-        alert(data?.error || "Failed to RSVP");
-        return;
+      const data = await response.json();
+      console.log('RSVP response:', data);
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || `HTTP ${response.status}`);
       }
 
-      // Update this feed item instantly
+      if (!data?.success) {
+        throw new Error(data?.error || "Failed to RSVP");
+      }
+
+      // Update this feed item instantly with the response data
       onUpdateItem({
-        my_rsvp_status: data.my_status || "",
-        attending_count: data.attending ?? item.attending_count ?? 0,
-        interested_count: data.interested ?? item.interested_count ?? 0,
+        my_rsvp_status: data.my_status || status,
+        attending_count: data.attending_count ?? data.attending ?? item.attending_count ?? 0,
+        interested_count: data.interested_count ?? data.interested ?? item.interested_count ?? 0,
       });
+
+    } catch (err: any) {
+      console.error('RSVP failed:', err);
+      setError(err.message || "Failed to RSVP. Please try again.");
+      
+      // Show error to user
+      alert(err.message || "Failed to RSVP. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -2112,6 +2137,13 @@ export const EventFeedCard: React.FC<{
             </div>
           </div>
 
+          {/* Error message if any */}
+          {error && (
+            <div className="mt-2 text-sm text-red-500 bg-red-500/10 p-2 rounded-lg">
+              {error}
+            </div>
+          )}
+
           {/* RSVP Buttons */}
           <div className="mt-4 flex gap-2">
             <button
@@ -2120,13 +2152,17 @@ export const EventFeedCard: React.FC<{
                 e.stopPropagation();
                 rsvp(my === "going" ? "not_going" : "going");
               }}
-              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 ${
+              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
                 my === "going"
-                  ? "bg-[#45BD62] text-white"
+                  ? "bg-[#45BD62] text-white hover:bg-[#3da855]"
                   : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
               }`}
             >
-              {my === "going" ? "Going" : "Going"}
+              {loading ? (
+                <i className="fas fa-spinner fa-spin"></i>
+              ) : (
+                my === "going" ? "Going" : "Going"
+              )}
             </button>
 
             <button
@@ -2135,18 +2171,23 @@ export const EventFeedCard: React.FC<{
                 e.stopPropagation();
                 rsvp(my === "interested" ? "not_going" : "interested");
               }}
-              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 ${
+              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
                 my === "interested"
-                  ? "bg-[#F7B928] text-black"
+                  ? "bg-[#F7B928] text-black hover:bg-[#e5aa24]"
                   : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
               }`}
             >
-              Interested
+              {loading ? (
+                <i className="fas fa-spinner fa-spin"></i>
+              ) : (
+                "Interested"
+              )}
             </button>
           </div>
         </div>
       </div>
       
+      {/* Facebook-style separator */}
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
