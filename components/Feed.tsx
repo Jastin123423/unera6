@@ -1952,7 +1952,7 @@ export const EventPost: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: EVENT FEED CARD COMPONENT WITH BETTER API HANDLING
+ * ✅ UPDATED: EVENT FEED CARD COMPONENT WITH FIXED RSVP USING /api/attend AND /api/interested
  * =========================
  */
 type FeedEventItem = {
@@ -1999,6 +1999,10 @@ export const EventFeedCard: React.FC<{
     });
   }, [item.event_date]);
 
+  /**
+   * ✅ FIXED: RSVP function now uses /api/attend and /api/interested endpoints
+   * instead of the broken /api/events/rsvp
+   */
   const rsvp = async (status: "going" | "interested" | "not_going") => {
     if (!currentUser) {
       alert("Please login to RSVP");
@@ -2009,49 +2013,51 @@ export const EventFeedCard: React.FC<{
     setError(null);
     
     try {
-      console.log('Sending RSVP request:', {
-        event_id: item.event_id || item.id,
-        user_id: currentUser.id,
-        status,
-      });
+      const payload = { 
+        event_id: item.event_id || item.id, 
+        user_id: currentUser.id 
+      };
 
-      const response = await fetch("/api/events/rsvp", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: JSON.stringify({
-          event_id: item.event_id || item.id,
-          user_id: currentUser.id,
-          status,
-        }),
-      });
+      const postJSON = async (url: string, body: any) => {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.success === false) {
+          throw new Error(data?.error || `Request failed: ${url}`);
+        }
+        return data;
+      };
 
-      const data = await response.json();
-      console.log('RSVP response:', data);
+      let responseData;
 
-      if (!response.ok) {
-        throw new Error(data.error || data.message || `HTTP ${response.status}`);
+      if (status === "going") {
+        responseData = await postJSON("/api/attend", { ...payload, action: "add" });
+        onUpdateItem({ my_rsvp_status: "going" });
+      } else if (status === "interested") {
+        responseData = await postJSON("/api/interested", { ...payload, action: "add" });
+        onUpdateItem({ my_rsvp_status: "interested" });
+      } else {
+        // not_going = remove from both
+        await postJSON("/api/attend", { ...payload, action: "remove" });
+        await postJSON("/api/interested", { ...payload, action: "remove" });
+        onUpdateItem({ my_rsvp_status: "" });
       }
 
-      if (!data?.success) {
-        throw new Error(data?.error || "Failed to RSVP");
+      // If endpoints return updated counts, apply them
+      if (responseData) {
+        onUpdateItem({ 
+          attending_count: responseData.attending ?? responseData.attending_count ?? item.attending_count,
+          interested_count: responseData.interested ?? responseData.interested_count ?? item.interested_count
+        });
       }
-
-      // Update this feed item instantly with the response data
-      onUpdateItem({
-        my_rsvp_status: data.my_status || status,
-        attending_count: data.attending_count ?? data.attending ?? item.attending_count ?? 0,
-        interested_count: data.interested_count ?? data.interested ?? item.interested_count ?? 0,
-      });
 
     } catch (err: any) {
       console.error('RSVP failed:', err);
       setError(err.message || "Failed to RSVP. Please try again.");
-      
-      // Show error to user
-      alert(err.message || "Failed to RSVP. Please try again.");
+      alert(err?.message || "Failed to RSVP");
     } finally {
       setLoading(false);
     }
@@ -2285,19 +2291,28 @@ export const Post: React.FC<{
     }
 
     try {
-      const response = await fetch("/api/events/rsvp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          event_id: eventId, 
-          user_id: currentUser.id, 
-          status 
-        }),
-      });
+      const payload = { event_id: eventId, user_id: currentUser.id };
 
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || "Failed to RSVP");
+      const postJSON = async (url: string, body: any) => {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.success === false) {
+          throw new Error(data?.error || `Request failed: ${url}`);
+        }
+        return data;
+      };
+
+      if (status === "going") {
+        await postJSON("/api/attend", { ...payload, action: "add" });
+      } else if (status === "interested") {
+        await postJSON("/api/interested", { ...payload, action: "add" });
+      } else {
+        await postJSON("/api/attend", { ...payload, action: "remove" });
+        await postJSON("/api/interested", { ...payload, action: "remove" });
       }
     } catch (error: any) {
       console.error('Fallback RSVP failed:', error);
