@@ -1,56 +1,953 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Login, Register } from './components/Auth';
+import { Header, Sidebar, RightSidebar } from './components/Layout';
+import {
+  CreatePost,
+  Post,
+  CommentsSheet,
+  CreatePostModal,
+  ShareBottomSheet,
+} from './components/Feed';
+import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
+import { UserProfile } from './components/UserProfile';
+import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
+import { ReelsFeed, CreateReelModal } from './components/Reels';
+import { EventsPage } from './components/EventsPage';
+import { ImageViewer, ProfessionalLoader } from './components/Common';
+import {
+  BirthdaysPage,
+  MemoriesPage,
+  SettingsPage,
+  SuggestedProfilesPage,
+} from './components/MenuPages';
+import { HelpSupportPage } from './components/HelpSupport';
+import { CreateEventModal } from './components/Events';
+import { BrandsPage } from './components/Brands';
+import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
+import { GroupsPage } from './components/Groups';
+import { ToolsPage } from './components/Tools';
+import { PrivacyPolicyPage } from './components/PrivacyPolicy';
+import { TermsOfServicePage } from './components/TermsOfService';
+import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
   Post as PostType,
-  ReactionType,
+  Story,
+  Reel,
+  Notification,
+  Event,
   Product,
-  LinkPreview,
   AudioTrack,
+  ReactionType,
   Group,
   Brand,
-  Event,
-} from '../types';
-import { useLanguage } from '../contexts/LanguageContext';
-import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
-import { MarketplaceContext } from '../App';
-import { CreateEventModal } from './Events';
+  Song,
+} from './types';
 
-/**
- * =========================
- * ✅ HELPER: UNIFIED AVATAR GENERATION WITH PROPER INITIALS
- * =========================
- */
-const avatarFrom = (u: any) => {
-  // Try all possible image field variations
-  const img = String(
-    u?.profile_image_url ??
-    u?.profileImage ??
-    u?.avatar ??
-    u?.author_image ??
-    u?.authorImage ??
-    u?.image ??
-    u?.picture ??
-    ''
-  ).trim();
+/** ---------- Safety helpers ---------- */
+const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+const safeNumber = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : String(v || ''));
 
-  if (img && img !== 'null' && img !== 'undefined') return img;
+/** ✅ JSON parsing helper for meta fields */
+const parseJSON = (v: any) => {
+  if (!v) return null;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch { return null; }
+  }
+  return v;
+};
 
-  // Generate initials from name/username
-  const label =
-    String(u?.name ?? '').trim() ||
-    String(u?.username ?? '').trim() ||
-    String(u?.author_name ?? '').trim() ||
-    String(u?.author_username ?? '').trim() ||
-    'User';
+/** ✅ safeImages helper for marketplace product posts */
+const safeImages = (imgs: any): string[] => {
+  if (Array.isArray(imgs)) return imgs.filter(Boolean);
+  if (typeof imgs === 'string') {
+    try {
+      const p = JSON.parse(imgs);
+      return Array.isArray(p) ? p.filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
 
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=1877F2&color=fff&bold=true`;
+/** ---------- Constants ---------- */
+const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
+const DEFAULT_EVENT_COVER = 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
+const LS_USER_KEY = 'user';
+
+/** ===== FB-LIKE STORY SEEN SYSTEM ===== */
+const STORY_SEEN_KEY = 'unera_story_seen_v1';
+const STORY_SEEN_LIMIT = 2500;
+
+/** ===== CACHE CONSTANTS ===== */
+const STORIES_CACHE_KEY = "unera_stories_cache_v1";
+const STORIES_CACHE_TTL_MS = 60_000;
+const STORY_VIEWERS_CACHE_KEY = "unera_story_viewers_";
+const VIEWERS_TTL = 2 * 60_000;
+
+/** ---------- Video/Reel ID resolver for Facebook-like video playback ---------- */
+const resolveVideoId = (item: any): number | null => {
+  if (!item) return null;
+  
+  // Check all possible ID fields in order of preference
+  const possibleIds = [
+    item?.post_id,
+    item?.postId,
+    item?.reel_id,
+    item?.reelId,
+    item?.video_id,
+    item?.videoId,
+    item?.id,
+  ];
+  
+  for (const id of possibleIds) {
+    if (id === undefined || id === null) continue;
+    const num = Number(id);
+    if (Number.isFinite(num) && num > 0) return num;
+  }
+  
+  return null;
+};
+
+/** ---------- Stable key generator for list items ---------- */
+const getStableItemKey = (item: any, prefix = 'item'): string => {
+  const id = resolveVideoId(item);
+  if (id) return `${prefix}-${id}`;
+  
+  // Fallback to a combination of fields if no ID
+  const fallbackParts = [
+    item?.user_id,
+    item?.userId,
+    item?.created_at,
+    item?.createdAt,
+    item?.media_url,
+    item?.content?.substring(0, 20)
+  ].filter(Boolean);
+  
+  return `${prefix}-${fallbackParts.join('-') || Math.random()}`;
+};
+
+const readStorySeen = (): number[] => {
+  try {
+    const raw = localStorage.getItem(STORY_SEEN_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.map(Number).filter(Number.isFinite) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStorySeen = (ids: number[]) => {
+  try {
+    const dedup = Array.from(new Set(ids.map(Number).filter(Number.isFinite))).slice(0, STORY_SEEN_LIMIT);
+    localStorage.setItem(STORY_SEEN_KEY, JSON.stringify(dedup));
+  } catch {}
+};
+
+/** Stories cache functions */
+const readStoriesCache = () => {
+  try {
+    const raw = localStorage.getItem(STORIES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.ts || !Array.isArray(parsed?.stories)) return null;
+    
+    if (Date.now() - parsed.ts > STORIES_CACHE_TTL_MS) {
+      localStorage.removeItem(STORIES_CACHE_KEY);
+      return null;
+    }
+    
+    return parsed as { ts: number; stories: any[] };
+  } catch {
+    return null;
+  }
+};
+
+const writeStoriesCache = (stories: any[]) => {
+  try {
+    localStorage.setItem(STORIES_CACHE_KEY, JSON.stringify({ 
+      ts: Date.now(), 
+      stories: stories.map(s => normalizeStory(s)) 
+    }));
+  } catch {}
+};
+
+/** Viewers cache functions */
+const readViewersCache = (storyId: number) => {
+  try {
+    const raw = localStorage.getItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.ts > VIEWERS_TTL) {
+      localStorage.removeItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
+      return null;
+    }
+    return parsed.viewers as any[];
+  } catch {
+    return null;
+  }
+};
+
+const writeViewersCache = (storyId: number, viewers: any[]) => {
+  try {
+    localStorage.setItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`, 
+      JSON.stringify({ ts: Date.now(), viewers }));
+  } catch {}
+};
+
+/** ---------- Error Boundary for Crash Protection ---------- */
+class ErrorBoundary extends React.Component<{ children: any }, { error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { error };
+  }
+  componentDidCatch(error: any, info: any) {
+    console.error("UI crashed:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-4 text-white">
+          <div className="bg-[#242526] border border-[#3E4042] rounded-xl p-4">
+            <p className="font-bold text-red-400">Groups UI crashed</p>
+            <p className="text-[#B0B3B8] text-sm mt-2">
+              Open DevTools Console to see the exact error.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/** ---------- Facebook-like feed session + seen cache ---------- */
+const FEED_SESSION_KEY = 'unera_feed_session_seed';
+const FEED_LAST_ACTIVE_KEY = 'unera_feed_last_active';
+const FEED_SEEN_KEY = 'unera_feed_seen_ids';
+const FEED_RETURN_THRESHOLD_MS = 3 * 60 * 1000;
+const FEED_SEEN_LIMIT = 1500;
+
+const nowMs = () => Date.now();
+
+const readJson = <T,>(key: string, fallback: T): T => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeJson = (key: string, value: any) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+};
+
+const mulberry32 = (seed: number) => {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const hashToSeed = (s: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+};
+
+const getOrCreateSessionSeed = (userId?: number | null) => {
+  try {
+    const existing = sessionStorage.getItem(FEED_SESSION_KEY);
+    if (existing) return Number(existing) || 1;
+
+    const seedStr = `${userId ?? 'guest'}:${nowMs()}:${Math.random()}`;
+    const seed = hashToSeed(seedStr);
+    sessionStorage.setItem(FEED_SESSION_KEY, String(seed));
+    return seed;
+  } catch {
+    return hashToSeed(`${userId ?? 'guest'}:${nowMs()}`);
+  }
+};
+
+const seededShuffle = <T,>(arr: T[], seed: number) => {
+  const a = arr.slice();
+  const rnd = mulberry32(seed);
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
+const getSeenSet = () => {
+  const ids = readJson<number[]>(FEED_SEEN_KEY, []);
+  return new Set(ids.map(Number).filter(Number.isFinite));
+};
+
+const pushSeenIds = (ids: number[]) => {
+  const existing = readJson<number[]>(FEED_SEEN_KEY, []);
+  const merged = [...ids, ...existing].map(Number).filter(Number.isFinite);
+  const dedup = Array.from(new Set(merged)).slice(0, FEED_SEEN_LIMIT);
+  writeJson(FEED_SEEN_KEY, dedup);
+};
+
+const diversifyFeed = (posts: PostType[], seed: number) => {
+  if (!Array.isArray(posts) || posts.length <= 2) return posts;
+
+  const rnd = mulberry32(seed ^ 0x9e3779b9);
+  const buckets = new Map<string, PostType[]>();
+
+  const keyOf = (p: any) => {
+    const uid = Number(p?.user_id ?? 0);
+    const type = String(p?.type ?? 'post');
+    return `u:${uid}|t:${type}`;
+  };
+
+  for (const p of posts) {
+    const k = keyOf(p);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(p);
+  }
+
+  const keys = seededShuffle(Array.from(buckets.keys()), Math.floor(rnd() * 1e9));
+  const out: PostType[] = [];
+  let lastAuthor = -1;
+  let repeats = 0;
+
+  while (out.length < posts.length) {
+    let progressed = false;
+
+    for (const k of keys) {
+      const b = buckets.get(k);
+      if (!b || b.length === 0) continue;
+
+      const candidate = b[0];
+      const author = Number((candidate as any).user_id ?? -1);
+
+      if (author === lastAuthor && repeats >= 1) continue;
+
+      out.push(b.shift()!);
+      progressed = true;
+
+      if (author === lastAuthor) repeats++;
+      else {
+        lastAuthor = author;
+        repeats = 0;
+      }
+
+      if (out.length >= posts.length) break;
+    }
+
+    if (!progressed) {
+      for (const k of keys) {
+        const b = buckets.get(k);
+        if (b && b.length) {
+          out.push(b.shift()!);
+          if (out.length >= posts.length) break;
+        }
+      }
+    }
+  }
+
+  return out;
+};
+
+/** Name validation helper */
+const isBadName = (v: any): boolean => {
+  const s = String(v ?? '').trim();
+  return !s || s.toLowerCase() === 'user' || s.toLowerCase() === 'un';
+};
+
+/** Safe User Merge Helper with name protection */
+const isHttpUrl = (v: any) =>
+  typeof v === 'string' && (v.startsWith('https://') || v.startsWith('http://'));
+
+const mergeUserSafe = (oldU: any, newU: any) => {
+  const next = { ...oldU, ...newU };
+
+  if (!isHttpUrl(newU?.profile_image_url) && isHttpUrl(oldU?.profile_image_url)) {
+    next.profile_image_url = oldU.profile_image_url;
+  }
+  if (!isHttpUrl(newU?.cover_image_url) && isHttpUrl(oldU?.cover_image_url)) {
+    next.cover_image_url = oldU.cover_image_url;
+  }
+
+  if (!Array.isArray(newU?.followers) && Array.isArray(oldU?.followers)) {
+    next.followers = oldU.followers;
+  }
+  if (!Array.isArray(newU?.following) && Array.isArray(oldU?.following)) {
+    next.following = oldU.following;
+  }
+
+  if (isBadName(newU?.name) && !isBadName(oldU?.name)) {
+    next.name = oldU.name;
+  }
+  if (isBadName(newU?.username) && !isBadName(oldU?.username)) {
+    next.username = oldU.username;
+  }
+
+  return next;
+};
+
+/** ---------- UNERA Professional Profile Picture Generator ---------- */
+const COLORS = [
+  '#1877F2',
+  '#45BD62',
+  '#F3425F',
+  '#F7B928',
+  '#9360F7',
+  '#FF6B35',
+  '#00B5AD',
+  '#E41E3F',
+  '#7B68EE',
+  '#20B2AA',
+  '#FF6347',
+  '#9B59B6',
+  '#1ABC9C',
+  '#3498DB',
+  '#E74C3C',
+  '#2ECC71',
+  '#F39C12',
+  '#D35400',
+];
+
+const getUserColor = (identifier: string | number): string => {
+  if (!identifier && identifier !== 0) return '#1877F2';
+  const str = String(identifier);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % COLORS.length;
+  return COLORS[index];
+};
+
+const generateInitials = (name: string): string => {
+  if (!name || typeof name !== 'string' || name.trim().length === 0) return 'UN';
+  const words = name.trim().split(/\s+/).filter((w) => w.length > 0);
+  if (words.length === 0) return 'UN';
+  if (words.length === 1) {
+    const w = words[0];
+    if (w.length >= 2) return w.substring(0, 2).toUpperCase();
+    return (w.charAt(0) + w.charAt(0)).toUpperCase();
+  }
+  return words[0].charAt(0).toUpperCase() + words[1].charAt(0).toUpperCase();
+};
+
+const generateProfilePictureUrl = (name: string, identifier: string | number): string => {
+  const initials = generateInitials(name);
+  const backgroundColor = getUserColor(identifier).replace('#', '');
+  const size = 128;
+  const fontSize = 0.5;
+  const textColor = 'FFFFFF';
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    initials
+  )}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
 };
 
 /**
- * =========================
- * API HELPERS
- * =========================
+ * Normalize raw D1 rows to UI-safe PostType shape with multi-media support
+ * Parse meta field if it's a JSON string (critical for marketplace posts)
  */
+const normalizePost = (p: any): PostType => {
+  const mediaUrls =
+    Array.isArray(p?.media_urls) ? p.media_urls :
+    typeof p?.media_urls === "string" ? (() => { try { return JSON.parse(p.media_urls); } catch { return []; } })() :
+    Array.isArray(p?.mediaUrls) ? p.mediaUrls :
+    typeof p?.mediaUrls === "string" ? (() => { try { return JSON.parse(p.mediaUrls); } catch { return []; } })() :
+    [];
+
+  const mediaTypes =
+    Array.isArray(p?.media_types) ? p.media_types :
+    typeof p?.media_types === "string" ? (() => { try { return JSON.parse(p.media_types); } catch { return []; } })() :
+    Array.isArray(p?.mediaTypes) ? p.mediaTypes :
+    typeof p?.mediaTypes === "string" ? (() => { try { return JSON.parse(p.mediaTypes); } catch { return []; } })() :
+    [];
+
+  const mediaType = p?.media_type ?? p?.mediaType ?? (mediaTypes[0] ?? null);
+  const mediaUrl = p?.media_url ?? p?.mediaUrl ?? (mediaUrls[0] ?? null);
+
+  const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
+
+  return {
+    ...p,
+    id: resolvedId,
+    user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
+    content: safeString(p?.content),
+
+    media_url: mediaUrl,
+    media_type: mediaType,
+
+    media_urls: mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : []),
+    media_types: mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : []),
+
+    reactions: safeArray(p?.reactions),
+    comments: safeArray(p?.comments),
+    shares: safeNumber(p?.shares),
+    views: safeNumber(p?.views),
+    visibility: p?.visibility ?? 'public',
+    type:
+      p?.type ??
+      (() => {
+        const t = mediaType || mediaTypes[0] || null;
+        if (!t) return 'post';
+        if (t.startsWith('image/')) return 'image';
+        if (t.startsWith('video/')) return 'video';
+        if (t.startsWith('audio/')) return 'audio';
+        return 'post';
+      })(),
+    
+    created_at: p?.created_at ?? p?.createdAt ?? new Date().toISOString(),
+    
+    my_reaction: p?.my_reaction ?? p?.myReaction ?? null,
+    myReaction: p?.myReaction ?? p?.my_reaction ?? null,
+    reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
+    reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
+    likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
+
+    meta: parseJSON(p?.meta) || null,
+  } as any;
+};
+
+/** Event normalization helpers from App.tsx 1 */
+const toISO = (d: any) => {
+  const dt = new Date(d);
+  return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
+};
+
+const toDateOnly = (d: any) => toISO(d).split('T')[0] || new Date().toISOString().slice(0, 10);
+
+const toTimeHM = (d: any) => {
+  const s = String(d ?? '').trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (m) return `${m[1].padStart(2, '0')}:${m[2]}`;
+
+  const dt = new Date(d);
+  if (!Number.isFinite(dt.getTime())) return '12:00';
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mm = String(dt.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+};
+
+/** Normalize event data */
+const normalizeEvent = (e: any): Event => {
+  const id = safeNumber(e?.id ?? e?.event_id ?? 0);
+
+  const rawEventDate = e?.event_date ?? e?.date ?? e?.eventDate ?? new Date().toISOString();
+
+  const date = toDateOnly(rawEventDate) || new Date().toISOString().slice(0, 10);
+  const rawTime = e?.event_time ?? e?.time ?? e?.eventTime ?? '';
+  const time = (rawTime ? toTimeHM(rawTime) : toTimeHM(rawEventDate)) || '12:00';
+
+  const attendeesRaw =
+    Array.isArray(e?.attendees) ? e.attendees :
+    Array.isArray(e?.attendee_ids) ? e.attendee_ids :
+    Array.isArray(e?.attendees_ids) ? e.attendees_ids :
+    [];
+
+  const interestedRaw =
+    Array.isArray(e?.interestedIds) ? e.interestedIds :
+    Array.isArray(e?.interested_ids) ? e.interested_ids :
+    Array.isArray(e?.interested) ? e.interested :
+    [];
+
+  const cover =
+    safeString(e?.image ?? e?.cover_url ?? e?.cover_image ?? e?.coverImage ?? e?.cover, '') || DEFAULT_EVENT_COVER;
+
+  return {
+    ...e,
+    id,
+
+    title: safeString(e?.title, 'Untitled Event'),
+    description: safeString(e?.description, ''),
+    location: safeString(e?.location, ''),
+
+    date,
+    time,
+
+    image: cover,
+    cover_url: cover,
+    cover_image: cover,
+
+    visibility: safeString(e?.visibility, 'worldwide') as any,
+
+    organizerId: safeNumber(e?.organizerId ?? e?.creator_id ?? e?.user_id ?? 0),
+    organizer_name: safeString(e?.organizer_name ?? e?.creator_name ?? ''),
+    organizer_avatar: safeString(e?.organizer_avatar ?? e?.creator_avatar ?? ''),
+
+    attendees: safeArray(attendeesRaw).map(Number).filter(Number.isFinite),
+    interestedIds: safeArray(interestedRaw).map(Number).filter(Number.isFinite),
+
+    event_date: toISO(rawEventDate),
+    event_time: time,
+
+    created_at: safeString(e?.created_at ?? e?.createdAt ?? '', new Date().toISOString()),
+    
+    // Group event specific fields
+    group_id: e?.group_id ? safeNumber(e.group_id) : null,
+    user_rsvp_status: e?.user_rsvp_status ?? null,
+  } as any;
+};
+
+/** Normalize story data with backend field matching */
+const normalizeStory = (s: any, existingUser?: User): Story => {
+  const resolvedId = safeNumber(s?.id ?? s?.story_id ?? 0);
+  const userId = safeNumber(s?.user_id ?? s?.userId ?? 0);
+  
+  let storyUser = s?.user;
+  if (existingUser && storyUser) {
+    storyUser = mergeUserSafe(existingUser, storyUser);
+  }
+  
+  return {
+    id: resolvedId,
+    user_id: userId,
+    type: (s?.type ?? 'image') as 'text' | 'image' | 'video',
+    text_content: s?.text_content ?? s?.text ?? '',
+    media_url: s?.media_url ?? s?.mediaUrl ?? '',
+    background_style: s?.background_style ?? s?.backgroundStyle ?? '',
+    music_url: s?.music_url ?? s?.musicUrl ?? '',
+    music_title: s?.music_title ?? s?.musicTitle ?? '',
+    created_at: s?.created_at ?? s?.createdAt ?? new Date().toISOString(),
+    author_name: s?.author_name ?? s?.authorName ?? '',
+    author_username: s?.author_username ?? s?.authorUsername ?? '',
+    author_image: s?.author_image ?? s?.authorImage ?? '',
+    username: s?.username ?? '',
+    liked_by_me: Boolean(s?.liked_by_me ?? s?.likedByMe ?? false),
+    user: storyUser,
+    views: safeArray(s?.views),
+    
+    views_count: safeNumber(s?.views_count ?? s?.viewsCount, 0),
+    reactions_count: safeNumber(s?.reactions_count ?? s?.reactionsCount, 0),
+    my_reaction: s?.my_reaction ?? s?.myReaction ?? null,
+    reaction_breakdown: s?.reaction_breakdown ?? {},
+  } as any;
+};
+
+/**
+ * Normalize user data with UNERA-style profile pictures
+ */
+const normalizeUser = (u: any): User => {
+  const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
+  
+  const incomingName = safeString(u?.name, '');
+  const incomingUsername = safeString(u?.username, '');
+  
+  const hasValidIncomingName = !isBadName(incomingName);
+  const hasValidIncomingUsername = !isBadName(incomingUsername);
+  
+  const userName = hasValidIncomingName ? incomingName : 
+                   hasValidIncomingUsername ? incomingUsername : 
+                   'User';
+
+  const userUsername = hasValidIncomingUsername ? incomingUsername :
+                       hasValidIncomingName ? userName.toLowerCase().replace(/\s+/g, '') :
+                       'user';
+
+  const colorIdentifier = resolvedId > 0 ? resolvedId : userName;
+
+  const existingProfileImage = u?.profile_image_url ?? u?.avatar_url ?? u?.profileImage ?? '';
+  let profileImageUrl = existingProfileImage;
+
+  const shouldGenerateNewPicture =
+    !profileImageUrl ||
+    profileImageUrl.trim() === '' ||
+    profileImageUrl.includes('ui-avatars.com/api/?name=User') ||
+    profileImageUrl.includes('ui-avatars.com/api/?name=UNERA') ||
+    profileImageUrl.includes('ui-avatars.com/api/?background=1877F2&color=fff') ||
+    (profileImageUrl.includes('ui-avatars.com/api/?name=') && !profileImageUrl.includes('font-size=0.5'));
+
+  if (shouldGenerateNewPicture) {
+    profileImageUrl = generateProfilePictureUrl(userName, colorIdentifier);
+  }
+
+  const cover = typeof (u?.cover_image_url ?? u?.coverImage) === 'string'
+    ? String(u?.cover_image_url ?? u?.coverImage).trim()
+    : undefined;
+
+  return {
+    ...u,
+    id: resolvedId,
+    name: userName,
+    username: userUsername,
+    followers: safeArray<number>(u?.followers),
+    following: safeArray<number>(u?.following),
+    profile_image_url: profileImageUrl,
+    cover_image_url: cover,
+    is_verified: Boolean(u?.is_verified ?? u?.isVerified),
+    role: u?.role ?? 'user',
+    created_at: u?.created_at ?? u?.joined_date ?? u?.joinedDate ?? null,
+  } as any;
+};
+
+/** Normalize reel data with trimmed audio support */
+const normalizeReel = (r: any): Reel => {
+  const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
+  const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
+  
+  const soundKey = String(r?.sound_key ?? r?.soundKey ?? '');
+  const isTrimmedAudio = soundKey.startsWith('trimmed:');
+  
+  const audioStart = safeNumber(r?.audio_start ?? r?.audioStart ?? 0);
+  const audioEnd = safeNumber(r?.audio_end ?? r?.audioEnd ?? 0);
+  const audioUrl = r?.audio_url ?? r?.audioUrl ?? '';
+  const legacyIsTrimmed = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
+
+  return {
+    ...r,
+    id: resolvedId,
+    userId: userId,
+    videoUrl: r?.video_url ?? r?.videoUrl ?? '',
+    caption: r?.caption ?? '',
+    songName: r?.song_name ?? r?.songName ?? '',
+    audioUrl: audioUrl,
+    audioStart: isTrimmedAudio ? 0 : audioStart,
+    audioEnd: isTrimmedAudio ? 0 : audioEnd,
+    audioStartTime: isTrimmedAudio ? 0 : audioStart,
+    audioEndTime: isTrimmedAudio ? 0 : audioEnd,
+    visibility: r?.visibility ?? 'public',
+    location: r?.location ?? '',
+    views: safeNumber(r?.views ?? 0),
+    shares: safeNumber(r?.shares ?? 0),
+    songId: r?.song_id ?? r?.songId ?? null,
+    soundKey: soundKey,
+    reactions: safeArray(r?.reactions),
+    comments: safeArray(r?.comments),
+    created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
+    isTrimmedAudio: isTrimmedAudio || legacyIsTrimmed,
+  } as any;
+};
+
+/** Normalize song data for UNERA Music with audio_fetch_url support */
+const normalizeSong = (s: any): Song => {
+  return {
+    ...s,
+    id: s?.id ?? s?.song_id ?? 0,
+    title: s?.title ?? s?.name ?? 'Unknown',
+    artist: s?.artist ?? s?.artist_name ?? '',
+    audio_url: s?.audio_url ?? s?.url ?? s?.file_url ?? '',
+    audio_fetch_url: s?.audio_fetch_url ?? '',
+    cover_url: s?.cover_url ?? s?.cover ?? DEFAULT_MUSIC_COVER,
+    duration: s?.duration ?? 0,
+    playCount: s?.playCount ?? s?.plays ?? 0,
+    artistId: s?.artistId ?? s?.artist_id ?? 0,
+    type: s?.type ?? 'music',
+  } as any;
+};
+
+/**
+ * Normalize product data for consistency
+ */
+const normalizeProduct = (p: any) => {
+  let imgs: string[] = [];
+  try {
+    const parsed = typeof p?.images === "string" ? JSON.parse(p.images) : p.images;
+    imgs = Array.isArray(parsed) ? parsed : [];
+  } catch { imgs = []; }
+
+  return {
+    ...p,
+    id: safeNumber(p?.id),
+    seller_id: safeNumber(p?.seller_id),
+    seller_name: safeString(p?.seller_name ?? p?.sellerName ?? "Seller"),
+    seller_avatar: safeString(p?.seller_avatar ?? p?.sellerAvatar ?? ""),
+    images: imgs.length ? imgs : [],
+    main_price: safeNumber(p?.main_price),
+    discount_price: p?.discount_price == null ? null : safeNumber(p?.discount_price),
+    quantity: safeNumber(p?.quantity, 1),
+    address: safeString(p?.address),
+    title: safeString(p?.title),
+    description: safeString(p?.description),
+    category: safeString(p?.category),
+    country: safeString(p?.country),
+    phone_number: safeString(p?.phone_number ?? ""),
+    created_at: p?.created_at ?? new Date().toISOString(),
+  } as any;
+};
+
+// ============================================================================
+// 🔧 FIXED: Normalize groups with optional members and is_member support
+// ============================================================================
+/** Normalize groups to prevent crashes and handle membership correctly */
+const normalizeGroup = (g: any): Group => {
+  const id = safeNumber(g?.id ?? g?.group_id ?? g?.groupId);
+  const name = safeString(g?.name, "Untitled Group");
+  const description = safeString(g?.description, "");
+  const type = String(g?.type || "public").toLowerCase() === "private" ? "private" : "public";
+  
+  // 🔧 FIXED: Handle members properly - preserve undefined if not provided
+  // This prevents empty arrays from being treated as "no members"
+  const members =
+    g?.members === undefined || g?.members === null
+      ? undefined
+      : safeArray(g.members).map(Number).filter(Number.isFinite);
+
+  return {
+    ...g,
+    id,
+    admin_id: safeNumber(g?.admin_id ?? g?.adminId ?? 0),
+    name,
+    description,
+    type,
+    cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
+    profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
+    created_at: g?.created_at ?? new Date().toISOString(),
+    members, // 👈 Now properly preserves undefined
+    posts: safeArray(g?.posts),
+    events: safeArray(g?.events),
+    member_posting_allowed: Boolean(g?.member_posting_allowed ?? true),
+    members_count: safeNumber(g?.members_count ?? members?.length ?? 0),
+    // 🔧 ADDED: Support is_member flag from backend
+    is_member: g?.is_member === true ? true : 
+               g?.is_member === false ? false : 
+               undefined,
+  } as any;
+};
+
+/** ---------- ✅ ADDED: Marketplace Context for Post.tsx ---------- */
+export const MarketplaceContext = React.createContext<{
+  onViewProduct: (productId: number) => void;
+  getProductData: (productId: number) => { 
+    price: number; 
+    location: string;
+    currency?: string;
+  } | null;
+}>({
+  onViewProduct: () => {},
+  getProductData: () => null,
+});
+
+/** ---------- Optimistic reaction helper ---------- */
+const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meId: number) => {
+  if (Number(p?.id) !== Number(postId)) return p;
+
+  const prevMy = p?.my_reaction ?? p?.myReaction ?? null;
+  const nextMy = prevMy === type ? null : type;
+
+  const prevArr = safeArray<any>(p?.reactions);
+  const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== Number(meId));
+  const nextArr = nextMy ? [...withoutMe, { user_id: meId, type: nextMy }] : withoutMe;
+
+  const prevCount =
+    safeNumber(p?.reactions_count, safeNumber(p?.reactionsCount, safeNumber(p?.likesCount, prevArr.length)));
+
+  const nextCount =
+    prevMy
+      ? (nextMy ? prevCount : Math.max(0, prevCount - 1))
+      : (nextMy ? prevCount + 1 : prevCount);
+
+  return {
+    ...p,
+    reactions: nextArr,
+    my_reaction: nextMy,
+    myReaction: nextMy,
+    reactions_count: nextCount,
+    reactionsCount: nextCount,
+    likesCount: nextCount,
+  };
+};
+
+/** Optimistic reel reaction helper */
+const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType, meId: number) => {
+  if (Number(r?.id) !== Number(reelId)) return r;
+
+  const reactions = safeArray<any>(r?.reactions);
+  const hasLiked = reactions.some((reaction: any) => 
+    Number(reaction?.userId ?? reaction?.user_id) === Number(meId) && reaction?.type === type
+  );
+
+  let newReactions = [...reactions];
+  
+  if (hasLiked) {
+    newReactions = newReactions.filter((reaction: any) => 
+      !(Number(reaction?.userId ?? reaction?.user_id) === Number(meId) && reaction?.type === type)
+    );
+  } else {
+    newReactions.push({ userId: meId, user_id: meId, type });
+  }
+  return {
+    ...r,
+    reactions: newReactions,
+    likesCount: newReactions.length,
+    reactions_count: newReactions.length,
+  };
+};
+
+const isHttpUrl2 = (u: string) => u.startsWith('http://') || u.startsWith('https://');
+const isBlobUrl = (u: string) => u.startsWith('blob:');
+const isHttpsUrl = (u: string) => u.startsWith('https://');
+const isAbsoluteUrl = (u: string) => isHttpsUrl(u) || isHttpUrl2(u) || isBlobUrl(u);
+
+const ensureAbsoluteUrl = (u?: string | null): string => {
+  if (!u) return '';
+  if (isAbsoluteUrl(u)) return u;
+  return `${window.location.origin}${u.startsWith('/') ? '' : '/'}${u}`;
+};
+
+const toFetchableAudioUrl = (u?: string | null): string => {
+  const url = ensureAbsoluteUrl(u);
+  if (!url) return '';
+
+  if (isBlobUrl(url)) return url;
+
+  if (isHttpUrl2(url) && window.location.protocol === 'https:') {
+    return url.replace('http://', 'https://');
+  }
+
+  const USE_AUDIO_PROXY = true;
+
+  if (USE_AUDIO_PROXY) {
+    const isSameOrigin = (() => {
+      try {
+        return new URL(url).origin === window.location.origin;
+      } catch {
+        return false;
+      }
+    })();
+
+    if (!isSameOrigin) {
+      try {
+        const host = new URL(url).hostname;
+        if (host === 'media.unera.social') {
+          return `/api/proxy-audio?url=${encodeURIComponent(url)}`;
+        }
+      } catch {}
+    }
+  }
+
+  return url;
+};
+
+const toBlobUrl = async (remoteUrl: string): Promise<string> => {
+  try {
+    const fetchableUrl = toFetchableAudioUrl(remoteUrl);
+    const res = await fetch(fetchableUrl);
+    if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  } catch (error) {
+    console.error('Failed to create blob URL:', error);
+    throw new Error(`Could not load audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const headers: HeadersInit = {
     Accept: 'application/json',
@@ -64,11 +961,7 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   const timeoutId = setTimeout(() => controller.abort(), 20000);
 
   try {
-    const res = await fetch(url, { 
-      ...options, 
-      headers,
-      signal: controller.signal 
-    });
+    const res = await fetch(url, { ...options, headers, signal: controller.signal });
 
     const contentType = res.headers.get('content-type') || '';
     let data: any = null;
@@ -98,4320 +991,3954 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-/**
- * =========================
- * ✅ NEW: authHeaders helper and safeJson function
- * =========================
- */
+const fetchUserFollowData = async (userId: number): Promise<{ followers: number[], following: number[] }> => {
+  try {
+    const data = await apiFetch(`/api/user-follows/list?userId=${userId}`);
+    return {
+      followers: safeArray<number>(data?.followers),
+      following: safeArray<number>(data?.following)
+    };
+  } catch (error) {
+    console.error('Failed to fetch follow data:', error);
+    return { followers: [], following: [] };
+  }
+};
+
+const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('filename', file.name);
+    formData.append('type', file.type);
+    formData.append('folder', folder);
+    formData.append('timestamp', Date.now().toString());
+
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Upload failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.url) throw new Error('No URL returned from upload');
+
+    return { url: result.url, type: file.type, filename: file.name };
+  } catch (error) {
+    console.error('Upload failed:', error);
+    throw error;
+  }
+};
+
+const ensureR2Url = async (input: any, folder: string, fallbackName: string) => {
+  if (!input) return '';
+
+  if (typeof input === 'string' && isAbsoluteUrl(input)) {
+    return input;
+  }
+
+  if (typeof input === 'string' && isBlobUrl(input)) {
+    try {
+      const res = await fetch(input);
+      if (!res.ok) throw new Error(`Failed to fetch blob: ${res.status}`);
+      
+      const blob = await res.blob();
+      
+      const fileType = folder.includes('audio') ? blob.type || 'audio/wav' : 'application/octet-stream';
+      const fileName = folder.includes('audio') ? 
+        `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
+        fallbackName;
+      
+      const file = new File([blob], fileName, { type: fileType });
+      const up = await uploadToCloudflareR2(file, folder);
+      return up.url;
+    } catch (error) {
+      console.error('Failed to process blob URL:', error);
+      throw new Error('Failed to process audio file');
+    }
+  }
+
+  if (typeof File !== 'undefined' && input instanceof File) {
+    if (folder.includes('audio') && !input.type) {
+      const fileType = 'audio/wav';
+      const fileName = `audio-${Date.now()}.wav`;
+      const newFile = new File([input], fileName, { type: fileType });
+      const up = await uploadToCloudflareR2(newFile, folder);
+      return up.url;
+    }
+    const up = await uploadToCloudflareR2(input, folder);
+    return up.url;
+  }
+
+  if (typeof Blob !== 'undefined' && input instanceof Blob) {
+    const fileType = folder.includes('audio') ? input.type || 'audio/wav' : 'application/octet-stream';
+    const fileName = folder.includes('audio') ? 
+      `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
+      fallbackName;
+    
+    const file = new File([input], fileName, { type: fileType });
+    const up = await uploadToCloudflareR2(file, folder);
+    return up.url;
+  }
+
+  return '';
+};
+
+type ReelSound = {
+  songName: string;
+  audioUrl: string;
+  audioStart?: number;
+  audioEnd?: number;
+  songId?: string | number;
+  soundKey?: string;
+  isTrimmedAudio?: boolean;
+  originalUrl?: string;
+};
+
+type View =
+  | 'home'
+  | 'reels'
+  | 'marketplace'
+  | 'groups'
+  | 'brands'
+  | 'music'
+  | 'tools'
+  | 'profiles'
+  | 'events'
+  | 'birthdays'
+  | 'memories'
+  | 'settings'
+  | 'privacy'
+  | 'terms'
+  | 'help'
+  | 'profile'
+  | 'login'
+  | 'register';
+
+const normalizeFeedRowToPost = (row: any): PostType => {
+  return normalizePost({
+    ...row,
+    user_id: safeNumber(row?.user_id),
+    content: row?.content ?? '',
+    created_at: row?.created_at,
+    media_url: row?.media_url ?? null,
+    media_type: row?.media_type ?? null,
+    shares: row?.shares ?? 0,
+    views: row?.views ?? 0,
+    pool: row?.pool,
+    follower_count: row?.follower_count,
+  });
+};
+
+const authorFromFeedRow = (row: any): User => {
+  const username = row?.username ?? 'user';
+  const name = row?.username ?? 'User';
+
+  return normalizeUser({
+    id: row?.user_id,
+    username,
+    name,
+    profile_image_url: row?.profile_image_url ?? '',
+    is_verified: row?.is_verified ?? 0,
+    role: row?.role ?? 'user',
+    followers: [],
+    following: [],
+    created_at: row?.joined_date ?? row?.created_at ?? null,
+  });
+};
+
+const mergeFeed = (prev: PostType[], incoming: PostType[]): PostType[] => {
+  const map = new Map<number, PostType>();
+  prev.forEach((p: any) => map.set(Number(p.id), p));
+
+  incoming.forEach((p: any) => {
+    const existing = map.get(Number(p.id));
+    if (existing) {
+      map.set(Number(p.id), {
+        ...existing,
+        ...p,
+        reactions: (existing as any).reactions,
+        shares: Math.max((existing as any).shares || 0, (p as any).shares || 0),
+        comments_count: Math.max((existing as any).comments_count || 0, (p as any).comments_count || 0),
+      } as any);
+    } else {
+      map.set(Number(p.id), p);
+    }
+  });
+
+  const prevIds = new Set(prev.map((p: any) => Number(p.id)));
+  const newOnes = incoming.filter((p: any) => !prevIds.has(Number(p.id)));
+
+  return [...newOnes, ...prev.map((p: any) => map.get(Number(p.id))!).filter(Boolean)];
+};
+
+const createFallbackUser = (): User => {
+  const fallbackName = 'User';
+  const fallbackId = 0;
+  return {
+    id: fallbackId,
+    username: 'user',
+    name: fallbackName,
+    email: '',
+    profile_image_url: generateProfilePictureUrl(fallbackName, fallbackId),
+    cover_image_url: '',
+    followers: [],
+    following: [],
+    is_verified: false,
+    role: 'user',
+    is_online: false,
+    location: '',
+    bio: '',
+    created_at: null,
+  };
+};
+
 const authHeaders = () => {
-  const token = localStorage.getItem("unera_token");
+  const token = localStorage.getItem('unera_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 async function safeJson(res: Response) {
-  const ct = res.headers.get("content-type") || "";
-  if (ct.includes("application/json")) return res.json();
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) return res.json();
   const txt = await res.text();
   try { return JSON.parse(txt); } catch { return { raw: txt }; }
 }
 
-const postJSON = async (url: string, body: any) => {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(body ?? {}),
+async function apiPost(endpoint: string, body?: any) {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: body ? JSON.stringify(body) : '{}',
   });
-
   const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.error || data?.message || `API ${res.status}`);
+  return data?.data ?? data;
+}
 
-  // your APIs sometimes return {success:false,...}
-  if (!res.ok || (data && data.success === false)) {
-    throw new Error(data?.error || data?.message || `Request failed: ${url}`);
+async function recordPlay(track: AudioTrack, userId: any) {
+  const id = String(track.id);
+
+  if (track.type === 'music') {
+    try {
+      return await apiPost(`/api/songs/${encodeURIComponent(id)}/play`, { user_id: userId ?? null });
+    } catch {
+      return await apiPost(`/api/song-plays`, { song_id: id, user_id: userId ?? null });
+    }
   }
 
-  return data;
-};
-
-/**
- * =========================
- * ✅ NORMALIZE FEED RESPONSE - SUPPORTS BOTH data.feed AND data.posts
- * =========================
- */
-const normalizeFeedResponse = (data: any): any[] => {
-  // Handle various response shapes:
-  // - { feed: [...] }
-  // - { posts: [...] }
-  // - { data: { feed: [...] } }
-  // - { data: { posts: [...] } }
-  // - Direct array
-  
-  if (!data) return [];
-  
-  // Direct array
-  if (Array.isArray(data)) return data;
-  
-  // { feed: [...] }
-  if (Array.isArray(data.feed)) return data.feed;
-  
-  // { posts: [...] }
-  if (Array.isArray(data.posts)) return data.posts;
-  
-  // { data: { feed: [...] } }
-  if (data.data && Array.isArray(data.data.feed)) return data.data.feed;
-  
-  // { data: { posts: [...] } }
-  if (data.data && Array.isArray(data.data.posts)) return data.data.posts;
-  
-  // { data: [...] }
-  if (Array.isArray(data.data)) return data.data;
-  
-  return [];
-};
-
-/**
- * =========================
- * ✅ UNWRAP FEED ITEM - HANDLES WRAPPED ITEMS
- * =========================
- */
-const unwrapFeedItem = (item: any): any => {
-  if (!item) return null;
-  
-  // If item has a type wrapper, extract the actual content
-  if (item.type === 'post' && item.post) return item.post;
-  if (item.type === 'event' && item.event) return item.event;
-  if (item.type === 'product' && item.product) return item.product;
-  if (item.type === 'marketplace' && item.marketplace) return item.marketplace;
-  if (item.type === 'music' && item.music) return item.music;
-  if (item.type === 'podcast' && item.podcast) return item.podcast;
-  
-  // If item has a data wrapper
-  if (item.data) return item.data;
-  
-  // Otherwise return the item itself
-  return item;
-};
-
-/**
- * =========================
- * SMALL HELPERS
- * =========================
- */
-const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
-const safeNumber = (v: any, fallback = 0) => {
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
-const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
-
-const safeUserId = (u: any) => safeNumber(u?.id ?? u?.user_id ?? u?.userId, 0);
-const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
-
-/**
- * =========================
- * ✅ HELPER: GET POST TEXT PREVIEW
- * =========================
- */
-const getPostTextPreview = (p: any, max = 140) => {
-  const t = String(p?.content ?? p?.text ?? '').trim();
-  if (!t) return '';
-  return t.length > max ? t.slice(0, max).trim() + '…' : t;
-};
-
-/**
- * =========================
- * MARKETPLACE HELPERS
- * =========================
- */
-const safeJsonArray = (v: any): string[] => {
-  if (Array.isArray(v)) return v.filter(Boolean).map(String);
-  if (typeof v === "string") {
-    const s = v.trim();
-    if (!s) return [];
-    if (s.startsWith("[")) {
-      try {
-        const parsed = JSON.parse(s);
-        return Array.isArray(parsed) ? parsed.filter(Boolean).map(String) : [];
-      } catch {
-        return [];
-      }
+  if (track.type === 'podcast') {
+    try {
+      return await apiPost(`/api/podcasts/${encodeURIComponent(id)}/play`, { user_id: userId ?? null });
+    } catch {
+      return await apiPost(`/api/podcast-episode-plays`, { episode_id: id, user_id: userId ?? null });
     }
-    return [s];
-  }
-  return [];
-};
-
-const getMarketplaceProductId = (p: any) => {
-  const meta = p?.meta;
-  const v =
-    p?.product_id ??
-    p?.productId ??
-    meta?.product_id ??
-    meta?.productId ??
-    meta?.marketplace?.id ??
-    meta?.product?.id;
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : null;
-};
-
-const getMarketplaceImages = (p: any, productData?: any): string[] => {
-  const pdImgs = safeJsonArray(productData?.images);
-  if (pdImgs.length) return pdImgs;
-
-  const mediaUrls = safeJsonArray(p?.media_urls);
-  if (mediaUrls.length) return mediaUrls;
-
-  const imgs = safeJsonArray(p?.images);
-  if (imgs.length) return imgs;
-
-  const single = typeof p?.media_url === "string" && p.media_url ? [p.media_url] : [];
-  return single;
-};
-
-const getMarketplacePriceLine = (productData?: any) => {
-  const priceRaw = productData?.price ?? productData?.main_price ?? null;
-  const currency = productData?.currency || "TZS";
-  const loc =
-    (typeof productData?.location === "string" && productData.location.split(",")[0]) ||
-    (typeof productData?.address === "string" && productData.address.split(",")[0]) ||
-    "Marketplace";
-
-  const priceNum = priceRaw != null ? Number(priceRaw) : NaN;
-  const price = Number.isFinite(priceNum) ? priceNum.toFixed(0) : null;
-
-  return { price, currency, loc };
-};
-
-/**
- * =========================
- * ✅ FIXED: TIMEZONE-SAFE RELATIVE TIME FORMATTER
- * =========================
- */
-const toDateSafe = (input: any): Date | null => {
-  if (!input) return null;
-
-  if (input instanceof Date && Number.isFinite(input.getTime())) return input;
-
-  if (typeof input === 'number') {
-    const ms = input < 1e12 ? input * 1000 : input;
-    const d = new Date(ms);
-    return Number.isFinite(d.getTime()) ? d : null;
-  }
-
-  if (typeof input === 'string') {
-    const s = input.trim();
-
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
-      const iso = s.replace(' ', 'T') + 'Z';
-      const d = new Date(iso);
-      return Number.isFinite(d.getTime()) ? d : null;
-    }
-
-    if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
-      const d = new Date(s + 'Z');
-      return Number.isFinite(d.getTime()) ? d : null;
-    }
-
-    const d = new Date(s);
-    return Number.isFinite(d.getTime()) ? d : null;
   }
 
   return null;
+}
+
+/** ✅ Helper for making JSON POST requests */
+const postJSON = async (url: string, body: any) => {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    throw new Error(data?.error || `Request failed: ${url}`);
+  }
+  return data;
 };
 
-export const formatRelativeTime = (dateInput: any): string => {
-  const d = toDateSafe(dateInput);
-  if (!d) return 'Just now';
+export default function App() {
+  useLanguage();
 
-  const now = Date.now();
-  let diffMs = now - d.getTime();
+  /** ---------- State ---------- */
+  const [users, setUsers] = useState<User[]>([]);
+  const [posts, setPosts] = useState<PostType[]>([]);
+  const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
+  const [stories, setStories] = useState<Story[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [chats, setChats] = useState<any[]>([]);
 
-  if (diffMs < 0) diffMs = 0;
-
-  const sec = Math.floor(diffMs / 1000);
-  if (sec < 60) return 'Just now';
-
-  const min = Math.floor(sec / 60);
-  if (min < 60) return min === 1 ? '1 min' : `${min} mins`;
-
-  const hrs = Math.floor(min / 60);
-  if (hrs < 24) return hrs === 1 ? '1 hr' : `${hrs} hrs`;
-
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return days === 1 ? '1 day' : `${days} days`;
-
-  const weeks = Math.floor(days / 7);
-  if (weeks < 4) return weeks === 1 ? '1 week' : `${weeks} weeks`;
-
-  const months = Math.floor(days / 30);
-  if (months < 12) return months === 1 ? '1 month' : `${months} months`;
-
-  const years = Math.floor(days / 365);
-  return years === 1 ? '1 year' : `${years} years`;
-};
-
-/**
- * =========================
- * ✅ REACTION EMOJI HELPERS FOR FACEBOOK-STYLE DISPLAY
- * =========================
- */
-const reactionEmoji = (t: string) => {
-  switch (t) {
-    case 'like': return '👍';
-    case 'love': return '❤️';
-    case 'haha': return '😂';
-    case 'wow': return '😮';
-    case 'sad': return '😢';
-    case 'angry': return '😡';
-    case 'fire': return '🔥';
-    case 'party': return '🎉';
-    case 'clap': return '👏';
-    case 'star': return '⭐';
-    case 'thinking': return '🤔';
-    case 'crying': return '😭';
-    case 'heart_eyes': return '🥰';
-    case 'kiss': return '😘';
-    case 'sunglasses': return '😎';
-    case 'rocket': return '🚀';
-    case 'trophy': return '🏆';
-    case 'crown': return '👑';
-    case 'unicorn': return '🦄';
-    case 'rainbow': return '🌈';
-    case 'money': return '💰';
-    case 'muscle': return '💪';
-    case 'brain': return '🧠';
-    case 'lightning': return '⚡';
-    case 'gem': return '💎';
-    default: return '👍';
-  }
-};
-
-const topReactionEmojis = (reactionsArr: any[], max = 2) => {
-  const counts = new Map<string, number>();
-  for (const r of reactionsArr || []) {
-    const type = String(r?.type || '').trim();
-    if (!type) continue;
-    counts.set(type, (counts.get(type) || 0) + 1);
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, max)
-    .map(([type]) => reactionEmoji(type));
-};
-
-/**
- * =========================
- * ✅ ENHANCED LINK PREVIEW - FACEBOOK STYLE
- * =========================
- */
-const getLinkPreview = async (text: string): Promise<LinkPreview | null> => {
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const match = text.match(urlRegex);
-  if (!match?.[0]) return null;
-
-  const url = match[0];
-  let domain = '';
-  try {
-    domain = new URL(url).hostname.replace('www.', '');
-  } catch {
-    return null;
-  }
-
-  try {
-    // Fetch real metadata from the URL
-    const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
-    const data = await response.json();
-    
-    if (data.success && data.data) {
-      return {
-        url,
-        title: data.data.title || domain,
-        description: data.data.description || `Visit ${domain} for more information.`,
-        image: data.data.image || 'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
-        domain: domain,
-      };
-    }
-  } catch (error) {
-    console.debug('Link preview fetch failed, using fallback');
-  }
-
-  // Fallback previews for common domains
-  if (domain.includes('youtube')) {
-    return {
-      url,
-      title: 'YouTube Video',
-      description: 'Watch this video on YouTube.',
-      image:
-        'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&w=800&q=80',
-      domain: 'youtube.com',
-    };
-  }
-
-  if (domain.includes('github')) {
-    return {
-      url,
-      title: 'GitHub Repository',
-      description: 'Open source project on GitHub.',
-      image:
-        'https://images.unsplash.com/photo-1618401471353-b98afee0b2eb?auto=format&fit=crop&w=800&q=80',
-      domain: 'github.com',
-    };
-  }
-
-  return {
-    url,
-    title: domain,
-    description: `Visit ${domain} for more information.`,
-    image:
-      'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
-    domain,
-  };
-};
-
-const BACKGROUNDS = [
-  { id: 'none', value: '' },
-  { id: 'red', value: 'linear-gradient(45deg, #FF0057, #E64C4C)' },
-  { id: 'blue', value: 'linear-gradient(45deg, #00C6FF, #0072FF)' },
-  { id: 'green', value: 'linear-gradient(45deg, #a8ff78, #78ffd6)' },
-  { id: 'purple', value: 'linear-gradient(45deg, #e65c00, #F9D423)' },
-  {
-    id: 'heart',
-    value:
-      'url("https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=500&q=60")',
-  },
-  { id: 'dark', value: 'linear-gradient(to right, #434343 0%, black 100%)' },
-  { id: 'fire', value: 'linear-gradient(120deg, #f6d365 0%, #fda085 100%)' },
-];
-
-const FEELINGS = [
-  'Happy',
-  'Blessed',
-  'Loved',
-  'Sad',
-  'Excited',
-  'Thankful',
-  'Crazy',
-  'Tired',
-  'Cool',
-  'Relaxed',
-];
-
-const QUICK_EMOJIS = [
-  '😀', '😂', '😍', '🥰', '😘', '😊', '😉', '😇', '🥳', '😎',
-  '🤩', '😋', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔',
-  '😐', '😑', '😶', '🙄', '😏', '😒', '😞', '😔', '😟', '😕',
-  '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤',
-  '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰',
-  '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑',
-  '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤',
-  '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕',
-  '🤑', '🤠', '😈', '👿', '👹', '👺', '🤡', '💩', '👻', '💀',
-  '☠️', '👽', '👾', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼',
-  '😽', '🙀', '😿', '😾', '👋', '🤚', '🖐️', '✋', '🖖', '👌',
-  '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕',
-  '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌',
-  '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🦾', '🦵',
-  '🦿', '🦶', '👣', '👂', '🦻', '👃', '🧠', '🦷', '🦴', '👀',
-  '👁️', '👅', '👄', '💋', '🩸', '💘', '💝', '💖', '💗', '💓',
-  '💞', '💕', '💟', '❣️', '💔', '❤️', '🧡', '💛', '💚', '💙',
-  '💜', '🖤', '🤍', '🤎', '💯', '💢', '💥', '💫', '💦', '💨',
-  '🕳️', '💣', '💬', '👁️‍🗨️', '🗨️', '🗯️', '💭', '💤'
-];
-
-/**
- * =========================
- * ✅ ENHANCED FACEBOOK-STYLE REACTION DOCK WITH 25+ EMOJIS
- * =========================
- */
-const reactionStyles = `
-  @keyframes popFloat {
-    0% { transform: translateY(6px) scale(0.9); opacity: 0; }
-    60% { transform: translateY(-6px) scale(1.15); opacity: 1; }
-    100% { transform: translateY(0px) scale(1); }
-  }
+  const [songs, setSongs] = useState<Song[]>([]);
   
-  @keyframes wiggle {
-    0%, 100% { transform: rotate(0deg); }
-    25% { transform: rotate(-2deg); }
-    75% { transform: rotate(2deg); }
-  }
+  const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
+
+  const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
+  const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
+
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
+  const [view, setView] = useState<View>('home');
+
+  const [feedHydrated, setFeedHydrated] = useState(false);
+  const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
   
-  @keyframes bounce {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-3px); }
-  }
-  
-  .react-pop { animation: popFloat 220ms ease-out; }
-  .react-hover { transition: transform 120ms ease; }
-  .react-hover:hover { 
-    transform: translateY(-10px) scale(1.25); 
-    animation: wiggle 300ms ease-in-out; 
-  }
-  
-  .reaction-preview {
-    animation: bounce 0.5s infinite alternate;
-  }
-`;
+  const [authHydrated, setAuthHydrated] = useState(false);
 
-/**
- * =========================
- * ✅ GLOBAL STYLES FIX - Mount once only
- * =========================
- */
-let reactionStyleMounted = false;
+  const lastGoodPostsRef = useRef<PostType[]>([]);
+  const stableFeedRef = useRef<PostType[]>([]);
+  const scheduleSilentRefreshRef = useRef<any>(null);
 
-const ensureReactionStyles = () => {
-  if (reactionStyleMounted) return;
-  reactionStyleMounted = true;
-  const styleTag = document.createElement('style');
-  styleTag.textContent = reactionStyles;
-  styleTag.setAttribute('data-reaction-styles', '1');
-  document.head.appendChild(styleTag);
-};
+  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
 
-/**
- * =========================
- * ✅ UPDATED: ExpandableRichText Component for Show More/Show Less
- * =========================
- */
-const ExpandableRichText: React.FC<{
-  text: string;
-  users?: User[];
-  onProfileClick: (id: number) => void;
-  onHashtagClick?: (tag: string) => void;
-  maxWords?: number;
-  fontSizePx?: number;
-  forceExpanded?: boolean;
-}> = ({
-  text,
-  users,
-  onProfileClick,
-  onHashtagClick,
-  maxWords = 25,
-  fontSizePx = 21,
-  forceExpanded = false,
-}) => {
-  const [expanded, setExpanded] = useState(false);
+  const [loginError, setLoginError] = useState('');
 
-  const words = (text || '').trim().split(/\s+/).filter(Boolean);
-  const isLong = words.length > maxWords;
-
-  const showAll = forceExpanded || expanded || !isLong;
-  const shownText = showAll ? text : words.slice(0, maxWords).join(' ') + '…';
-
-  return (
-    <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed">
-      <RichText
-        text={shownText}
-        users={users}
-        onProfileClick={onProfileClick}
-        onHashtagClick={onHashtagClick}
-      />
-
-      {isLong && !forceExpanded && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }}
-          className="ml-2 font-bold text-[#1877F2] hover:underline"
-        >
-          {expanded ? 'See less' : 'See more'}
-        </button>
-      )}
-    </div>
+  const requireAuth = useCallback(
+    (actionName = 'This action') => {
+      if (currentUser) return true;
+      setLoginError(`${actionName} requires login.`);
+      setView('login');
+      return false;
+    },
+    [currentUser]
   );
-};
 
-/**
- * =========================
- * RICH TEXT (hashtags + mentions)
- * =========================
- */
-export const RichText = ({
-  text,
-  users,
-  onProfileClick,
-  onHashtagClick,
-}: {
-  text: string;
-  users?: User[];
-  onProfileClick: (id: number) => void;
-  onHashtagClick?: (tag: string) => void;
-}) => {
-  if (!text) return null;
-  const parts = text.split(/(#[a-zA-Z0-9_]+|@\w+(?:\s\w+)?)/g);
+  const usersRef = useRef<User[]>([]);
+  const storiesInFlightRef = useRef(false);
+  const reelsInFlightRef = useRef(false);
+  const postsInFlightRef = useRef(false);
+  const usersInFlightRef = useRef(false);
+  const otherDataInFlightRef = useRef(false);
 
-  return (
-    <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words">
-      {parts.map((part, index) => {
-        if (part.startsWith('@')) {
-          const name = part.substring(1).trim().toLowerCase();
-          const user = users?.find((u: any) => {
-            const un = String(u?.username ?? '').toLowerCase();
-            const nm = String(u?.name ?? '').toLowerCase();
-            return un === name || nm === name;
-          });
+  const [seenStoryIds, setSeenStoryIds] = useState<Set<number>>(() => new Set(readStorySeen()));
+  const [storyMuted, setStoryMuted] = useState(true);
 
-          if (user) {
-            return (
-              <span
-                key={index}
-                className="text-[#1877F2] font-semibold cursor-pointer hover:underline"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onProfileClick(safeUserId(user));
-                }}
-              >
-                {part}
-              </span>
-            );
-          }
+  const markStorySeen = useCallback((storyId: number) => {
+    const id = Number(storyId);
+    if (!id) return;
 
-          return (
-            <span key={index} className="text-[#1877F2] font-semibold">
-              {part}
-            </span>
-          );
-        }
-
-        if (part.startsWith('#')) {
-          return (
-            <span
-              key={index}
-              className="text-[#1877F2] cursor-pointer hover:underline"
-              onClick={(e) => {
-                e.stopPropagation();
-                onHashtagClick && onHashtagClick(part);
-              }}
-            >
-              {part}
-            </span>
-          );
-        }
-
-        return <span key={index}>{part}</span>;
-      })}
-    </span>
-  );
-};
-
-/**
- * =========================
- * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON
- * =========================
- */
-export const ReactionButton: React.FC<{
-  currentUserReactions: ReactionType | undefined;
-  reactionCount: number;
-  onReact: (type: ReactionType) => void;
-  isGuest?: boolean;
-}> = ({ currentUserReactions, reactionCount, onReact, isGuest }) => {
-  const [showDock, setShowDock] = useState(false);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
-  const timerRef = useRef<any>(null);
-  const longPressTimerRef = useRef<any>(null);
-  const dockRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    ensureReactionStyles();
+    setSeenStoryIds(prev => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      writeStorySeen(Array.from(next));
+      return next;
+    });
   }, []);
 
-  const reactionConfig = [
-    { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
-    { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
-    { type: 'haha', icon: '😂', color: '#F7B928', label: 'Haha' },
-    { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
-    { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
-    { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
-    { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
-    { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
-    { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
-    { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
-    { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
-    { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
-    { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
-    { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
-    { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
-    { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
-    { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
-    { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
-    { type: 'unicorn', icon: '🦄', color: '#E040FB', label: 'Unicorn' },
-    { type: 'rainbow', icon: '🌈', color: '#00E676', label: 'Rainbow' },
-    { type: 'money', icon: '💰', color: '#4CAF50', label: 'Money' },
-    { type: 'muscle', icon: '💪', color: '#FF5722', label: 'Muscle' },
-    { type: 'brain', icon: '🧠', color: '#9C27B0', label: 'Brain' },
-    { type: 'lightning', icon: '⚡', color: '#FFEB3B', label: 'Lightning' },
-    { type: 'gem', icon: '💎', color: '#00BCD4', label: 'Gem' },
-  ] as const;
+  const orderedStories = useMemo(() => {
+    const list = safeArray(stories);
 
-  const handleMouseEnter = () => {
-    if (isGuest) return;
-    timerRef.current = setTimeout(() => setShowDock(true), 500);
-  };
-
-  const handleMouseLeave = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setTimeout(() => setShowDock(false), 250);
-    setShowPreview(false);
-  };
-
-  const handleTouchStart = () => {
-    if (isGuest) return;
-    longPressTimerRef.current = setTimeout(() => {
-      setShowDock(true);
-      setShowPreview(true);
-      setPreviewEmoji('👍');
-    }, 600);
-  };
-
-  const handleTouchEnd = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-    }
-    setTimeout(() => setShowPreview(false), 300);
-  };
-
-  const handleClick = () => {
-    if (isGuest) return alert('Please login to react.');
-    if (currentUserReactions) {
-      setIsAnimating(true);
-      onReact(currentUserReactions);
-      setTimeout(() => setIsAnimating(false), 300);
-    } else {
-      setShowDock(!showDock);
-    }
-  };
-
-  const handleDockReact = (type: ReactionType) => {
-    setIsAnimating(true);
-    onReact(type);
-    setShowDock(false);
-    setShowPreview(false);
-    setTimeout(() => setIsAnimating(false), 300);
-  };
-
-  const handleEmojiHover = (emoji: string) => {
-    if (showPreview) {
-      setPreviewEmoji(emoji);
-    }
-  };
-
-  const activeReaction = currentUserReactions
-    ? reactionConfig.find((r) => r.type === currentUserReactions)
-    : null;
-
-  return (
-    <div
-      className="flex-1 relative group"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
-    >
-      {showPreview && (
-        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
-          <div className="text-3xl">
-            {previewEmoji}
-          </div>
-        </div>
-      )}
-
-      {showDock && (
-        <div 
-          ref={dockRef}
-          className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
-        >
-          <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
-            {reactionConfig.map((r) => (
-              <div
-                key={r.type}
-                className="text-2xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDockReact(r.type as ReactionType);
-                }}
-                onMouseEnter={() => handleEmojiHover(r.icon)}
-                title={r.label}
-              >
-                {r.icon}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <button
-        onClick={handleClick}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
-          isAnimating ? 'scale-110' : ''
-        }`}
-      >
-        {activeReaction ? (
-          <>
-            <span className="text-[20px] transition-transform duration-300">
-              {activeReaction.icon}
-            </span>
-            <span
-              className="text-[17px] font-medium capitalize transition-colors duration-300"
-              style={{ color: activeReaction.color }}
-            >
-              {activeReaction.label}
-            </span>
-          </>
-        ) : (
-          <>
-            <i className="far fa-thumbs-up text-[20px] text-[#B0B3B8]"></i>
-            <span className="text-[17px] font-medium text-[#B0B3B8]">Like</span>
-          </>
-        )}
-      </button>
-    </div>
-  );
-};
-
-/**
- * =========================
- * ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
- * =========================
- */
-const getMediaTypeInfo = (post: any) => {
-  const mediaUrl = String(post?.media_url || '');
-  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
-  const typeRaw = String(post?.type || '').toLowerCase();
-
-  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
-  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
-
-  const isImage =
-    typeRaw === 'image' ||
-    mediaTypeRaw === 'image' ||
-    mediaTypeRaw.startsWith('image/') ||
-    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
-
-  const isVideo =
-    typeRaw === 'video' ||
-    mediaTypeRaw === 'video' ||
-    mediaTypeRaw.startsWith('video/') ||
-    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
-
-  const isAudio =
-    typeRaw === 'audio' ||
-    mediaTypeRaw.startsWith('audio/') ||
-    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
-
-  return {
-    mediaUrl,
-    isImage,
-    isVideo,
-    isAudio,
-    extension: ext,
-    mimeType: mediaTypeRaw,
-  };
-};
-
-/**
- * =========================
- * ✅ getPostMediaList Helper for Multiple Images Support
- * =========================
- */
-type NormalizedMedia = { url: string; kind: 'image' | 'video' };
-
-const getPostMediaList = (post: any): NormalizedMedia[] => {
-  const out: NormalizedMedia[] = [];
-
-  const arrUrls: any[] = Array.isArray(post?.media_urls)
-    ? post.media_urls
-    : Array.isArray(post?.images)
-      ? post.images
-      : [];
-
-  for (const u of arrUrls) {
-    const url = String(u || '').trim();
-    if (!url) continue;
-    out.push({ url, kind: 'image' });
-  }
-
-  const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
-  for (const m of arrMedia) {
-    const url = String(m?.url || m?.media_url || '').trim();
-    if (!url) continue;
-
-    const type = String(m?.type || m?.media_type || '').toLowerCase();
-    const clean = url.split('?')[0].split('#')[0];
-    const ext = clean.split('.').pop()?.toLowerCase() || '';
-
-    const isVideo =
-      type.startsWith('video') ||
-      ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
-
-    out.push({ url, kind: isVideo ? 'video' : 'image' });
-  }
-
-  if (out.length === 0) {
-    const single = String(post?.media_url || '').trim();
-    if (single) {
-      const info = getMediaTypeInfo(post);
-      if (info.isVideo) out.push({ url: single, kind: 'video' });
-      else if (info.isImage) out.push({ url: single, kind: 'image' });
-    }
-  }
-
-  return out.filter((x) => x.url);
-};
-
-/**
- * =========================
- * ✅ FIXED: MediaGrid Component - Full Width with Gallery Support
- * =========================
- */
-const MediaGrid: React.FC<{
-  media: { url: string }[];
-  onOpen: (url: string, index: number) => void;
-}> = ({ media, onOpen }) => {
-  const total = media.length;
-  const show = total <= 4 ? media : media.slice(0, 4);
-  const extra = total - 4;
-
-  const Tile = ({
-    url,
-    index,
-    className,
-    showOverlay,
-  }: {
-    url: string;
-    index: number;
-    className: string;
-    showOverlay?: boolean;
-  }) => (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(url, index);
-      }}
-      className={`relative overflow-hidden ${className}`}
-      style={{ borderRadius: 0 }}
-    >
-      <img
-        src={url}
-        alt=""
-        loading="lazy"
-        className="w-full h-full object-cover"
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = 'none';
-        }}
-      />
-
-      {showOverlay && extra > 0 && (
-        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-          <span className="text-white font-black text-3xl">+{extra}</span>
-        </div>
-      )}
-    </button>
-  );
-
-  if (total === 1) {
-    return (
-      <div className="w-full bg-black">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(show[0].url, 0);
-          }}
-          className="w-full block"
-        >
-          <img
-            src={show[0].url}
-            alt=""
-            loading="lazy"
-            className="w-full h-auto max-h-[650px] object-contain"
-          />
-        </button>
-      </div>
-    );
-  }
-
-  if (total === 2) {
-    return (
-      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[320px] w-full" />
-        <Tile url={show[1].url} index={1} className="h-[320px] w-full" />
-      </div>
-    );
-  }
-
-  if (total === 3) {
-    return (
-      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[420px] w-full" />
-        <div className="grid grid-rows-2 gap-[2px] h-[420px]">
-          <Tile url={show[1].url} index={1} className="w-full h-full" />
-          <Tile url={show[2].url} index={2} className="w-full h-full" />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-      <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
-      <Tile url={show[1].url} index={1} className="h-[260px] w-full" />
-      <Tile url={show[2].url} index={2} className="h-[260px] w-full" />
-      <Tile
-        url={show[3].url}
-        index={3}
-        className="h-[260px] w-full"
-        showOverlay={extra > 0}
-      />
-    </div>
-  );
-};
-
-/**
- * =========================
- * ✅ GALLERY VIEWER COMPONENT
- * =========================
- */
-const GalleryViewer: React.FC<{
-  isOpen: boolean;
-  urls: string[];
-  startIndex: number;
-  onClose: () => void;
-}> = ({ isOpen, urls, startIndex, onClose }) => {
-  const scrollerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    document.body.style.overflow = 'hidden';
-
-    requestAnimationFrame(() => {
-      const el = scrollerRef.current;
-      if (!el) return;
-      const w = el.clientWidth || window.innerWidth;
-      el.scrollTo({ left: startIndex * w, behavior: 'instant' as any });
-    });
-
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen, startIndex]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-[9999] bg-black"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-      }}
-    >
-      <div
-        className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3 bg-black/40"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="text-white text-sm font-semibold">
-          {startIndex + 1}/{urls.length}
-        </div>
-        <button
-          className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center"
-          onClick={onClose}
-          aria-label="Close"
-        >
-          <i className="fas fa-times text-white text-lg"></i>
-        </button>
-      </div>
-
-      <div
-        ref={scrollerRef}
-        className="h-full w-full overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scroll-smooth"
-        style={{ WebkitOverflowScrolling: 'touch' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {urls.map((url, i) => (
-          <div
-            key={url + i}
-            className="min-w-full h-full snap-center flex items-center justify-center bg-black"
-          >
-            <img
-              src={url}
-              alt=""
-              className="max-w-full max-h-full object-contain"
-              draggable={false}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-/**
- * =========================
- * ✅ SHARE BOTTOM SHEET
- * =========================
- */
-export const ShareBottomSheet: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  post: any;
-  currentUser: User | null;
-  users?: User[];
-  groups?: Group[];
-  brands?: Brand[];
-  chats?: any[];
-  onShareComplete?: (destination: string, data?: any) => void;
-}> = ({ isOpen, onClose, post, currentUser, users = [], groups = [], brands = [], chats = [], onShareComplete }) => {
-  const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>('sheet');
-  const [isAnimating, setIsAnimating] = useState(false);
-  const sheetRef = useRef<HTMLDivElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleBackdropClick = (e: MouseEvent) => {
-      if (backdropRef.current && e.target === backdropRef.current) {
-        closeSheet();
-      }
+    const scoreStory = (s: any) => {
+      const isMine = currentUser && Number(s.user_id) === Number(currentUser.id);
+      const unseen = !seenStoryIds.has(Number(s.id));
+      
+      const mineBoost = isMine ? 100 : 0;
+      const unseenBoost = unseen ? 50 : 0;
+      
+      const t = new Date(s.created_at || 0).getTime() || 0;
+      const recencyFactor = t / 1e13;
+      
+      const isFollowing = currentUser && safeArray<number>(currentUser.following).includes(Number(s.user_id));
+      const followBoost = isFollowing ? 30 : 0;
+      
+      return mineBoost + unseenBoost + followBoost + recencyFactor;
     };
 
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        closeSheet();
-      }
-    };
+    return [...list].sort((a, b) => scoreStory(b) - scoreStory(a));
+  }, [stories, seenStoryIds, currentUser]);
 
-    if (isOpen) {
-      setActiveFlow('sheet');
-      setIsAnimating(true);
-      setTimeout(() => setIsAnimating(false), 300);
-      document.body.style.overflow = 'hidden';
-      document.addEventListener('click', handleBackdropClick);
-      document.addEventListener('keydown', handleEscape);
-    }
+  const preloadStoryMedia = useCallback((s: Story) => {
+    const url = String(s?.media_url || '');
+    if (!url) return;
 
-    return () => {
-      document.body.style.overflow = '';
-      document.removeEventListener('click', handleBackdropClick);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [isOpen]);
-
-  const closeSheet = () => {
-    setIsAnimating(true);
-    setTimeout(() => {
-      onClose();
-      setActiveFlow('sheet');
-      setIsAnimating(false);
-    }, 200);
-  };
-
-  const handleShareAction = async (destination: string) => {
-    if (!currentUser) {
-      alert('Please login to share.');
+    if (s.type === 'image') {
+      const img = new Image();
+      img.src = url;
       return;
     }
 
+    if (s.type === 'video') {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.src = url;
+      return;
+    }
+  }, []);
+
+  const activeStory = useMemo(() => {
+    if (!activeStoryId) return null;
+    return orderedStories.find(s => Number(s.id) === Number(activeStoryId)) || null;
+  }, [activeStoryId, orderedStories]);
+
+  const closeStoryViewer = useCallback(() => {
+    setActiveStoryId(null);
+  }, []);
+
+  const getNextStory = useCallback((current: Story | null) => {
+    if (!current) return null;
+    const list = orderedStories;
+    const idx = list.findIndex(s => Number(s.id) === Number(current.id));
+    if (idx < 0) return null;
+    return list[idx + 1] || null;
+  }, [orderedStories]);
+
+  const goNextStory = useCallback(() => {
+    setActiveStoryId(prevId => {
+      if (!prevId) return null;
+      const currentStory = orderedStories.find(s => Number(s.id) === Number(prevId));
+      if (!currentStory) return null;
+      
+      const next = getNextStory(currentStory);
+      if (next) {
+        markStorySeen(Number(next.id));
+        return Number(next.id);
+      }
+      return null;
+    });
+  }, [getNextStory, markStorySeen, orderedStories]);
+
+  const goPrevStory = useCallback(() => {
+    setActiveStoryId(prevId => {
+      if (!prevId) return null;
+      const list = orderedStories;
+      const idx = list.findIndex(s => Number(s.id) === Number(prevId));
+      if (idx <= 0) return null;
+      
+      const prev = list[idx - 1];
+      if (prev) {
+        markStorySeen(Number(prev.id));
+        return Number(prev.id);
+      }
+      return null;
+    });
+  }, [orderedStories, markStorySeen]);
+
+  const handleStoryNext = useCallback(() => {
+    if (!activeStoryId) return;
+    
+    const list = orderedStories;
+    const idx = list.findIndex(s => Number(s.id) === Number(activeStoryId));
+    
+    if (idx >= list.length - 1) {
+      closeStoryViewer();
+      return;
+    }
+    
+    const next = list[idx + 1];
+    if (next) {
+      setActiveStoryId(next.id);
+      markStorySeen(next.id);
+      preloadStoryMedia(next);
+    }
+  }, [activeStoryId, orderedStories, closeStoryViewer, markStorySeen, preloadStoryMedia]);
+
+  const handleStoryPrev = useCallback(() => {
+    if (!activeStoryId) return;
+    
+    const list = orderedStories;
+    const idx = list.findIndex(s => Number(s.id) === Number(activeStoryId));
+    
+    if (idx <= 0) {
+      closeStoryViewer();
+      return;
+    }
+    
+    const prev = list[idx - 1];
+    if (prev) {
+      setActiveStoryId(prev.id);
+      markStorySeen(prev.id);
+      preloadStoryMedia(prev);
+    }
+  }, [activeStoryId, orderedStories, closeStoryViewer, markStorySeen, preloadStoryMedia]);
+
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [activeReelId, setActiveReelId] = useState<number | null>(null);
+  /** ---------- Track when ReelsFeed has consumed the activeReelId ---------- */
+  const handleActiveReelConsumed = useCallback(() => {
+    setActiveReelId(null);
+  }, []);
+  
+  const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
+  const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [activeProduct, setActiveProduct] = useState<Product | null>(null);
+
+  const [showCreatePostModal, setShowCreatePostModal] = useState(false);
+  const [showCreateReelModal, setShowCreateReelModal] = useState(false);
+  const [showCreateEventModal, setShowCreateEventModal] = useState(false);
+
+  const [activeSharePost, setActiveSharePost] = useState<any>(null);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [shareInProgress, setShareInProgress] = useState(false);
+
+  const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
+
+  const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
+
+  const [currentAudioTrack, setCurrentAudioTrack] = useState<AudioTrack | null>(null);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [playHistory, setPlayHistory] = useState<AudioTrack[]>([]);
+  const [likedTracks, setLikedTracks] = useState<string[]>(() => {
     try {
+      return JSON.parse(localStorage.getItem('unera_liked_tracks') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [trackPlays, setTrackPlays] = useState<Record<string, number>>({});
+  const [myTotalPlays, setMyTotalPlays] = useState<number>(() => {
+    try {
+      const rawUser = localStorage.getItem(LS_USER_KEY);
+      let uid = 0;
+      try { 
+        const user = JSON.parse(rawUser || '{}');
+        uid = Number(user?.id || 0); 
+      } catch {}
+      
+      const key = uid ? `unera_my_total_plays_${uid}` : 'unera_my_total_plays';
+      const v = Number(localStorage.getItem(key) || 0);
+      return Number.isFinite(v) ? v : 0;
+    } catch {
+      return 0;
+    }
+  });
+  
+  const [playsLoading, setPlaysLoading] = useState(false);
+
+  const lastPlayedKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    localStorage.setItem('unera_liked_tracks', JSON.stringify(likedTracks));
+  }, [likedTracks]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    
+    const key = `unera_my_total_plays_${Number(currentUser.id)}`;
+    localStorage.setItem(key, String(myTotalPlays));
+    
+    localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
+  }, [myTotalPlays, currentUser?.id]);
+
+  const resolveTrackOwner = useCallback((track: any): User | null => {
+    if (!track) return null;
+
+    const ownerId =
+      safeNumber(track.user_id ?? track.owner_user_id ?? track.artist_user_id ?? track.creator_id ?? 0, 0);
+
+    if (ownerId) {
+      const found = users.find((u) => Number(u.id) === Number(ownerId));
+      if (found) return found;
+    }
+
+    if (track?.owner && (track.owner.id || track.owner.user_id)) {
+      return normalizeUser(track.owner);
+    }
+
+    return null;
+  }, [users]);
+
+  const fetchMyTotalPlays = useCallback(async (userId: number) => {
+    if (!userId) return myTotalPlays;
+
+    const cacheKey = `unera_my_total_plays_${userId}`;
+
+    const cached = (() => {
+      try {
+        const v = Number(localStorage.getItem(cacheKey) || localStorage.getItem('unera_my_total_plays') || 0);
+        return Number.isFinite(v) ? v : 0;
+      } catch {
+        return 0;
+      }
+    })();
+
+    setPlaysLoading(true);
+    try {
+      const totalRes = await apiFetch(`/api/user-plays/total?userId=${userId}`);
+      const total = safeNumber(totalRes?.total, NaN);
+
+      if (Number.isFinite(total) && total > 0) {
+        setMyTotalPlays(total);
+        localStorage.setItem(cacheKey, String(total));
+        return total;
+      }
+
+      throw new Error('Invalid total from API');
+    } catch {
+      try {
+        const [s, p] = await Promise.all([
+          apiFetch(`/api/song-plays/total?userId=${userId}`).catch(() => ({ total: NaN })),
+          apiFetch(`/api/podcast-episode-plays/total?userId=${userId}`).catch(() => ({ total: NaN })),
+        ]);
+        
+        const sTotal = safeNumber(s?.total, NaN);
+        const pTotal = safeNumber(p?.total, NaN);
+
+        if (Number.isFinite(sTotal) || Number.isFinite(pTotal)) {
+          const total = (Number.isFinite(sTotal) ? sTotal : 0) + (Number.isFinite(pTotal) ? pTotal : 0);
+          setMyTotalPlays(total);
+          localStorage.setItem(cacheKey, String(total));
+          return total;
+        }
+
+        setMyTotalPlays(cached);
+        return cached;
+      } catch {
+        setMyTotalPlays(cached);
+        return cached;
+      }
+    } finally {
+      setPlaysLoading(false);
+    }
+  }, [myTotalPlays]);
+
+  const fetchSongs = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/songs');
+      const list = Array.isArray(data) ? data : (data?.songs ?? data?.data ?? []);
+      
+      const normalized = list
+        .map((song) => {
+          const s = normalizeSong(song);
+          const raw = ensureAbsoluteUrl(s.audio_url);
+          const fetchable = toFetchableAudioUrl(raw);
+
+          return {
+            ...s,
+            audio_url: raw,
+            audio_fetch_url: fetchable,
+          } as any;
+        })
+        .filter((x: any) => x.audio_url);
+      
+      setSongs(normalized);
+    } catch (e) {
+      console.error('Failed to fetch songs:', e);
+    }
+  }, []);
+
+  const fetchStories = useCallback(async () => {
+    if (storiesInFlightRef.current) return;
+    storiesInFlightRef.current = true;
+    
+    try {
+      const cached = readStoriesCache();
+      if (cached?.stories?.length) {
+        const cachedList = cached.stories;
+        setStories(prev => (prev.length ? prev : cachedList.map(s => normalizeStory(s))));
+      }
+
+      const viewerId = currentUser?.id || 0;
+      const data = await apiFetch(`/api/stories?viewerId=${viewerId}`);
+      const storiesList = safeArray(data?.stories ?? data);
+      
+      writeStoriesCache(storiesList);
+      
+      const prevUsers = usersRef.current;
+
+      const map = new Map<number, User>();
+      prevUsers.forEach(u => map.set(Number(u.id), u));
+
+      const normalizedStories = storiesList.map((story: any) => {
+        const uid = Number(story.user_id);
+        const existing = map.get(uid);
+        const st = normalizeStory(story, existing);
+
+        if (st.user) {
+          const incoming = normalizeUser(st.user);
+          const cur = map.get(uid);
+          map.set(uid, cur ? normalizeUser(mergeUserSafe(cur, incoming)) : incoming);
+        }
+        return st;
+      });
+
+      setStories(prev => {
+        const map = new Map<number, Story>();
+        safeArray(prev).forEach(st => map.set(Number(st.id), st));
+
+        return normalizedStories.map(ns => {
+          const old = map.get(Number(ns.id));
+          if (!old) return ns;
+
+          return {
+            ...old,
+            ...ns,
+            liked_by_me: ns.liked_by_me ?? old.liked_by_me,
+            my_reaction: ns.my_reaction ?? old.my_reaction,
+            views_count: ns.views_count ?? old.views_count,
+            reactions_count: ns.reactions_count ?? old.reactions_count,
+          };
+        });
+      });
+      
+      setUsers(Array.from(map.values()));
+      
+    } catch (error) {
+      console.error('Failed to fetch stories:', error);
+    } finally {
+      storiesInFlightRef.current = false;
+    }
+  }, [currentUser]);
+
+  const fetchStoryViewers = useCallback(async (storyId: number) => {
+    const cached = readViewersCache(storyId);
+    if (cached) return cached;
+
+    try {
+      const data = await apiFetch(`/api/stories/${storyId}/viewers?limit=200`)
+      const viewers = safeArray(data?.viewers ?? data);
+      
+      const formattedViewers = viewers.map((v: any) => ({
+        id: v.id,
+        story_id: v.story_id,
+        user_id: v.user_id,
+        viewed_at: v.viewed_at,
+        reaction: v.reaction ?? null,
+        user: normalizeUser({
+          id: v.user_id,
+          username: v.username,
+          name: v.name,
+          profile_image_url: v.profile_image_url,
+          is_verified: v.is_verified,
+          role: v.role,
+        }),
+      }));
+
+      writeViewersCache(storyId, formattedViewers);
+      return formattedViewers;
+    } catch (error) {
+      console.error('Failed to fetch story viewers:', error);
+      return [];
+    }
+  }, []);
+
+  const fetchStoryAnalytics = useCallback(async (storyId: number) => {
+    try {
+      const data = await apiFetch(`/api/stories/${storyId}/analytics`);
+      return {
+        total_views: safeNumber(data?.total_views, 0),
+        unique_viewers: safeNumber(data?.unique_viewers, 0),
+        views_with_reactions: safeNumber(data?.views_with_reactions, 0),
+        reaction_breakdown: data?.reaction_breakdown || {},
+        completion_rate: safeNumber(data?.completion_rate, 0),
+        average_view_time: safeNumber(data?.average_view_time, 0),
+      };
+    } catch (error) {
+      console.error('Failed to fetch story analytics:', error);
+      return {
+        total_views: 0,
+        unique_viewers: 0,
+        views_with_reactions: 0,
+        reaction_breakdown: {},
+        completion_rate: 0,
+        average_view_time: 0,
+      };
+    }
+  }, []);
+
+  const viewStory = useCallback(async (storyId: number) => {
+    if (!requireAuth('Viewing stories')) return;
+    if (!currentUser) return;
+
+    setStories(prev =>
+      prev.map(story => {
+        if (Number(story.id) !== Number(storyId)) return story;
+        
+        return {
+          ...story,
+          views_count: (story.views_count || 0) + 1,
+        };
+      })
+    );
+
+    try {
+      const res = await apiFetch(`/api/stories/${storyId}/view`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+      if (res?.views_count !== undefined) {
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            return {
+              ...story,
+              views_count: Number(res.views_count ?? story.views_count),
+            };
+          })
+        );
+      }
+    } catch (error) {
+      console.error('Failed to record story view:', error);
+    }
+  }, [currentUser, requireAuth]);
+
+  const openStoryViewer = useCallback((story: Story) => {
+    const id = Number(story?.id);
+    if (!id) return;
+
+    setActiveStoryId(id);
+
+    if (currentUser) {
+      viewStory(id);
+    }
+
+    markStorySeen(id);
+
+    preloadStoryMedia(story);
+    const next = (() => {
+      const idx = orderedStories.findIndex(x => Number(x.id) === id);
+      return idx >= 0 ? orderedStories[idx + 1] : null;
+    })();
+    if (next) preloadStoryMedia(next);
+  }, [currentUser, viewStory, markStorySeen, preloadStoryMedia, orderedStories]);
+
+  const likeStory = useCallback(async (storyId: number) => {
+    if (!requireAuth('Liking stories')) return;
+    if (!currentUser) return;
+
+    setStories(prev =>
+      prev.map(story => {
+        if (Number(story.id) !== Number(storyId)) return story;
+        
+        const currentlyLiked = story.liked_by_me;
+        
+        return {
+          ...story,
+          liked_by_me: !currentlyLiked,
+          my_reaction: !currentlyLiked ? 'like' : null,
+          reactions_count: currentlyLiked 
+            ? Math.max(0, (story.reactions_count || 0) - 1)
+            : (story.reactions_count || 0) + 1,
+        };
+      })
+    );
+
+    try {
+      const response = await apiFetch(`/api/stories/${storyId}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          user_id: currentUser.id, 
+          reaction: 'like' 
+        }),
+      });
+
+      if (response?.story) {
+        const updatedStory = normalizeStory(response.story, currentUser);
+        
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            return {
+              ...story,
+              liked_by_me: updatedStory.my_reaction === 'like',
+              my_reaction: updatedStory.my_reaction,
+              reactions_count: updatedStory.reactions_count,
+            };
+          })
+        );
+      }
+
+    } catch (error) {
+      console.error('Failed to like story:', error);
+    }
+  }, [currentUser, requireAuth]);
+
+  const reactToStory = useCallback(async (storyId: number, reaction: string) => {
+    if (!requireAuth('Reacting to stories')) return;
+    if (!currentUser) return;
+
+    setStories(prev =>
+      prev.map(story => {
+        if (Number(story.id) !== Number(storyId)) return story;
+        
+        const currentReaction = story.my_reaction;
+        const isSameReaction = currentReaction === reaction;
+        
+        return {
+          ...story,
+          my_reaction: isSameReaction ? null : reaction,
+          reactions_count: isSameReaction 
+            ? Math.max(0, (story.reactions_count || 0) - 1)
+            : (story.reactions_count || 0) + 1,
+          liked_by_me: isSameReaction ? false : true,
+        };
+      })
+    );
+
+    try {
+      const response = await apiFetch(`/api/stories/${storyId}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          user_id: currentUser.id, 
+          reaction: reaction 
+        }),
+      });
+
+      if (response?.story) {
+        const updatedStory = normalizeStory(response.story, currentUser);
+        
+        setStories(prev =>
+          prev.map(story => {
+            if (Number(story.id) !== Number(storyId)) return story;
+            
+            return {
+              ...story,
+              my_reaction: updatedStory.my_reaction,
+              reactions_count: updatedStory.reactions_count,
+              reaction_breakdown: updatedStory.reaction_breakdown || {},
+              liked_by_me: Boolean(updatedStory.my_reaction),
+            };
+          })
+        );
+      }
+
+    } catch (error) {
+      console.error('Failed to react to story:', error);
+    }
+  }, [currentUser, requireAuth]);
+
+  const replyToStory = useCallback(async (storyId: number, text: string) => {
+    if (!requireAuth('Replying to stories')) return;
+    if (!currentUser) return;
+
+    try {
+      await apiFetch(`/api/stories/${storyId}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          user_id: currentUser.id, 
+          text: text 
+        }),
+      });
+
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.innerText = 'Reply sent!';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+
+    } catch (error) {
+      console.error('Failed to reply to story:', error);
+      setLoginError('Failed to send reply');
+    }
+  }, [currentUser, requireAuth]);
+
+  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
+    if (!requireAuth('Creating stories')) return;
+    if (!currentUser) return;
+
+    try {
+      let mediaUrl = storyData.media_url;
+      let musicUrl = storyData.music_url;
+
+      if (storyData.media_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
+        mediaUrl = uploadResult.url;
+      }
+
+      if (storyData.audio_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'story-audio');
+        musicUrl = uploadResult.url;
+      }
+
       const payload = {
-        post_id: post.id,
         user_id: currentUser.id,
-        destination,
-        shared_at: new Date().toISOString(),
+        type: storyData.type || 'text',
+        text_content: storyData.text_content || null,
+        media_url: mediaUrl || null,
+        background_style: storyData.background_style || null,
+        music_url: musicUrl || null,
+        music_title: storyData.music_title || null,
+        created_at: new Date().toISOString(),
       };
 
-      const response = await apiFetch('/api/posts/share', {
+      const data = await apiFetch('/api/stories', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
 
-      if (onShareComplete) {
-        const nextShares = safeNumber(
-          response?.shares ?? response?.share_count, 
-          safeNumber(post.shares || 0, 0) + 1
-        );
-        
-        onShareComplete(destination, { 
-          success: true, 
-          data: response,
-          shares: nextShares
-        });
-      }
+      const newStory = normalizeStory(data?.story ?? data, currentUser);
+      newStory.user = currentUser;
 
-      closeSheet();
+      setStories(prev => [newStory, ...prev]);
+
+      writeStoriesCache([newStory, ...stories]);
+
+      setLoginError('Story created successfully!');
+      
     } catch (error: any) {
-      console.error('Share failed:', error);
-      if (onShareComplete) {
-        onShareComplete(destination, { 
-          success: false, 
-          error: error.message 
-        });
-      }
+      console.error('Failed to create story:', error);
+      setLoginError(error?.message || 'Failed to create story');
     }
-  };
+  }, [currentUser, requireAuth, stories]);
 
-  const textPreview = getPostTextPreview(post, 100);
-  const previewUrl = useMemo(() => {
-    return (
-      (Array.isArray(post?.media_urls) && post.media_urls[0]) ||
-      (Array.isArray(post?.images) && post.images[0]) ||
-      post?.media_url ||
-      ''
-    );
-  }, [post]);
+  useEffect(() => {
+    if (!authHydrated) return;
 
-  if (!isOpen) return null;
-
-  if (activeFlow === 'feed' && currentUser) {
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-          <div className="flex items-center gap-4">
-            <i
-              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-              onClick={() => setActiveFlow('sheet')}
-            ></i>
-            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
-          </div>
-          <button
-            onClick={() => handleShareAction('feed')}
-            className="text-[#1877F2] font-bold text-[17px]"
-          >
-            POST
-          </button>
-        </div>
-        <div className="flex-1 p-4">
-          <div className="flex items-center gap-3 mb-4">
-            <img
-              src={avatarFrom(currentUser)}
-              alt=""
-              className="w-12 h-12 rounded-full object-cover"
-            />
-            <div>
-              <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
-              <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
-                <option>🌍 Public</option>
-                <option>👥 Friends</option>
-                <option>🔒 Only me</option>
-              </select>
-            </div>
-          </div>
-          <textarea
-            className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
-            placeholder="Write something..."
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (activeFlow === 'groups' && currentUser) {
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-          <div className="flex items-center gap-4">
-            <i
-              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-              onClick={() => setActiveFlow('sheet')}
-            ></i>
-            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to Groups & Brands</h3>
-          </div>
-          <button
-            onClick={() => handleShareAction('group')}
-            className="text-[#1877F2] font-bold text-[17px]"
-          >
-            SHARE
-          </button>
-        </div>
-        <div className="p-4 border-b border-[#3E4042]">
-          <div className="text-[#B0B3B8] text-sm mb-2">Share with up to 10 groups you're in</div>
-          <input
-            type="text"
-            placeholder="Search groups..."
-            className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg"
-          />
-        </div>
-        <div className="flex-1 p-4 overflow-y-auto">
-          {groups.length === 0 ? (
-            <div className="text-center py-10">
-              <i className="fas fa-users text-4xl text-[#3A3B3C] mb-3"></i>
-              <div className="text-[#E4E6EB]">No groups available</div>
-            </div>
-          ) : (
-            groups.slice(0, 5).map((group) => (
-              <div key={group.id} className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={group.image || avatarFrom(group)}
-                    alt=""
-                    className="w-10 h-10 rounded-full"
-                  />
-                  <div>
-                    <div className="text-[#E4E6EB] font-medium">{group.name}</div>
-                    <div className="text-[#B0B3B8] text-xs">{group.members_count} members</div>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => handleShareAction('group')}
-                  className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
-                >
-                  Share
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (activeFlow === 'messages' && currentUser) {
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
-        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-          <div className="flex items-center gap-4">
-            <i
-              className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-              onClick={() => setActiveFlow('sheet')}
-            ></i>
-            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to Messages</h3>
-          </div>
-        </div>
-        <div className="p-4 border-b border-[#3E4042]">
-          <textarea
-            className="w-full bg-[#3A3B3C] text-[#E4E6EB] rounded-xl p-3 min-h-[80px]"
-            placeholder="Write a message..."
-          />
-        </div>
-        <div className="p-4 border-b border-[#3E4042]">
-          <input
-            type="text"
-            placeholder="Search friends..."
-            className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg"
-          />
-        </div>
-        <div className="flex-1 p-4 overflow-y-auto">
-          {users
-            .filter(u => u.id !== currentUser.id)
-            .slice(0, 10)
-            .map((user) => (
-              <div key={user.id} className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={avatarFrom(user)}
-                    alt=""
-                    className="w-10 h-10 rounded-full"
-                  />
-                  <div>
-                    <div className="text-[#E4E6EB] font-medium">{user.name}</div>
-                    <div className="text-[#B0B3B8] text-xs">@{user.username}</div>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => handleShareAction('message')}
-                  className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
-                >
-                  Send
-                </button>
-              </div>
-            ))}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <div
-        ref={backdropRef}
-        className={`fixed inset-0 bg-black/60 z-[300] transition-opacity duration-300 ${
-          isAnimating ? 'opacity-0' : 'opacity-100'
-        }`}
-      />
-
-      <div
-        ref={sheetRef}
-        className={`fixed bottom-0 left-0 right-0 z-[301] bg-[#242526] rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col transition-transform duration-300 ease-out ${
-          isAnimating ? 'translate-y-full' : 'translate-y-0'
-        }`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-4 pb-2">
-          <div className="flex justify-center mb-3">
-            <div className="w-10 h-1 bg-[#3E4042] rounded-full"></div>
-          </div>
-
-          {post && (
-            <div className="flex items-start gap-3 mb-4 p-3 bg-[#3A3B3C] rounded-xl">
-              {previewUrl ? (
-                <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
-                  <img 
-                    src={previewUrl} 
-                    alt="Post" 
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              ) : textPreview ? (
-                <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-[#1877F2]/10 flex items-center justify-center">
-                  <i className="fas fa-file-alt text-[#1877F2] text-xl"></i>
-                </div>
-              ) : null}
-              
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[#E4E6EB] font-semibold text-sm">
-                    {post.author?.name || 'Original Author'}
-                  </span>
-                  <span className="text-[#B0B3B8] text-xs">•</span>
-                  <span className="text-[#B0B3B8] text-xs">
-                    {formatRelativeTime(post.created_at)}
-                  </span>
-                </div>
-                <p className="text-[#B0B3B8] text-sm line-clamp-2">
-                  {textPreview || 'Shared post'}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 pb-4">
-          <div className="space-y-1">
-            <button
-              onClick={() => {
-                if (!currentUser) {
-                  alert('Please login to share to feed');
-                  return;
-                }
-                setActiveFlow('feed');
-              }}
-              className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
-            >
-              <div className="w-10 h-10 rounded-full bg-[#1877F215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
-                <i className="fas fa-newspaper text-[#1877F2] text-lg"></i>
-              </div>
-              <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
-                  Share to UNERA Feed
-                </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
-                  Share to your profile feed
-                </div>
-              </div>
-              <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
-            </button>
-
-            <button
-              onClick={() => {
-                if (!currentUser) {
-                  alert('Please login to share to groups/brands');
-                  return;
-                }
-                setActiveFlow('groups');
-              }}
-              className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
-            >
-              <div className="w-10 h-10 rounded-full bg-[#45BD6215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
-                <i className="fas fa-users text-[#45BD62] text-lg"></i>
-              </div>
-              <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
-                  Share to Groups & Brands
-                </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
-                  Share with up to 10 groups/brands
-                </div>
-              </div>
-              <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
-            </button>
-
-            <button
-              onClick={() => {
-                if (!currentUser) {
-                  alert('Please login to send messages');
-                  return;
-                }
-                setActiveFlow('messages');
-              }}
-              className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
-            >
-              <div className="w-10 h-10 rounded-full bg-[#1877F215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
-                <i className="fas fa-comment-alt text-[#1877F2] text-lg"></i>
-              </div>
-              <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
-                  Send as a Message
-                </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
-                  Share via direct message
-                </div>
-              </div>
-              <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
-            </button>
-
-            <button
-              onClick={() => {
-                const text = `Check out this post on UNERA: ${window.location.origin}/post/${post.id}`;
-                window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-                closeSheet();
-              }}
-              className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
-            >
-              <div className="w-10 h-10 rounded-full bg-[#25D36615] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
-                <i className="fab fa-whatsapp text-[#25D366] text-lg"></i>
-              </div>
-              <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
-                  Send via WhatsApp
-                </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
-                  Share to WhatsApp
-                </div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                const url = `${window.location.origin}/post/${post.id}`;
-                navigator.clipboard.writeText(url);
-                alert('Link copied to clipboard!');
-                closeSheet();
-              }}
-              className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
-            >
-              <div className="w-10 h-10 rounded-full bg-[#1877F215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
-                <i className="fas fa-link text-[#1877F2] text-lg"></i>
-              </div>
-              <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
-                  Copy Post Link
-                </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
-                  Copy link to clipboard
-                </div>
-              </div>
-            </button>
-          </div>
-
-          {currentUser && users.length > 0 && (
-            <div className="mt-6">
-              <div className="text-[#B0B3B8] text-xs font-semibold uppercase tracking-wider mb-3 px-1">
-                Share with recent contacts
-              </div>
-              <div className="flex gap-3">
-                {users
-                  .filter(u => u.id !== currentUser.id)
-                  .slice(0, 3)
-                  .map((user) => (
-                    <button
-                      key={user.id}
-                      onClick={() => {
-                        setActiveFlow('messages');
-                      }}
-                      className="flex flex-col items-center gap-2"
-                    >
-                      <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#1877F2] p-0.5">
-                        <img
-                          src={avatarFrom(user)}
-                          alt={user.name}
-                          className="w-full h-full rounded-full object-cover"
-                        />
-                      </div>
-                      <span className="text-[#E4E6EB] text-xs font-medium max-w-[60px] truncate">
-                        {user.name.split(' ')[0]}
-                      </span>
-                    </button>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 pt-3 border-t border-[#3E4042]">
-          <button
-            onClick={closeSheet}
-            className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold rounded-xl transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </>
-  );
-};
-
-/**
- * =========================
- * ✅ EVENT DETECTION AND NORMALIZATION WITH COVER IMAGE FIX
- * =========================
- */
-const safeParseJsonArray = (v: any): string[] => {
-  if (!v) return [];
-  if (Array.isArray(v)) return v.filter(Boolean).map(String);
-  if (typeof v === 'string') {
-    try {
-      const arr = JSON.parse(v);
-      if (Array.isArray(arr)) return arr.filter(Boolean).map(String);
-    } catch {}
-  }
-  return [];
-};
-
-const getEventCover = (item: any, meta?: any) => {
-  // Check media_urls first (JSON array)
-  const urls = safeParseJsonArray(item?.media_urls);
-  if (urls.length > 0) return urls[0];
-  
-  // Check single media_url
-  if (item?.media_url) return item.media_url;
-  
-  // Check meta for cover_url
-  if (meta?.cover_url) return meta.cover_url;
-  
-  // Check meta for image/cover in various formats
-  if (meta?.image) return meta.image;
-  if (meta?.cover) return meta.cover;
-  
-  return '';
-};
-
-const normalizeEventFromFeed = (item: any) => {
-  const meta = item?.meta || {};
-  
-  // Parse meta if it's a string
-  let parsedMeta = meta;
-  if (typeof meta === 'string') {
-    try {
-      parsedMeta = JSON.parse(meta);
-    } catch {
-      parsedMeta = {};
+    if (currentUser?.id) {
+      fetchMyTotalPlays(Number(currentUser.id)).catch(() => {});
+    } else {
+      setMyTotalPlays(0);
     }
-  }
-  
-  // Get cover image using our helper
-  const cover = getEventCover(item, parsedMeta);
+  }, [authHydrated, currentUser?.id, fetchMyTotalPlays]);
 
-  return {
-    id: Number(item?.event_id ?? item?.id ?? parsedMeta?.event_id ?? 0),
-    title: String(item?.title ?? parsedMeta?.title ?? 'Event'),
-    description: String(item?.description ?? parsedMeta?.description ?? ''),
-    cover_image: cover,
-    location: String(item?.location ?? parsedMeta?.location ?? ''),
-    start_time: String(
-      item?.start_time ??
-        item?.date ??
-        parsedMeta?.start_time ??
-        parsedMeta?.date ??
-        ''
-    ),
-    end_time: String(item?.end_time ?? parsedMeta?.end_time ?? ''),
-    created_at: String(item?.created_at ?? parsedMeta?.created_at ?? ''),
-    attendees: Array.isArray(item?.attendees) ? item.attendees : 
-               Array.isArray(parsedMeta?.attendees) ? parsedMeta.attendees : [],
-    attendees_count: Number(item?.attendees_count ?? parsedMeta?.attendees_count ?? 0),
-    user_rsvp_status: String(item?.user_rsvp_status ?? parsedMeta?.my_rsvp_status ?? ''),
-    creator_id: Number(item?.user_id ?? item?.author_id ?? parsedMeta?.creator_id ?? 0),
-  };
-};
+  const onPlayTrack = useCallback((track: AudioTrack) => {
+    const trackWithCover = {
+      ...track,
+      cover: track.cover && 
+             track.cover.trim() !== '' && 
+             track.cover.startsWith('http')
+             ? track.cover
+             : DEFAULT_MUSIC_COVER
+    };
 
-/**
- * =========================
- * ✅ EVENT POST COMPONENT - FIXED IMAGE AND RSVP BUTTONS
- * =========================
- */
-export const EventPost: React.FC<{
-  event: any;
-  author?: any;
-  currentUser: User | null;
-  users?: User[];
-  onProfileClick: (id: number) => void;
-  onRSVP: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
-  onFollow?: (id: number) => void;
-  isFollowing?: boolean;
-  followLoading?: boolean;
-}> = ({ 
-  event, 
-  author, 
-  currentUser, 
-  users = [], 
-  onProfileClick, 
-  onRSVP,
-  onFollow,
-  isFollowing = false,
-  followLoading = false,
-}) => {
-  const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
-  const [busy, setBusy] = useState(false);
-  
-  const creator = author || users?.find(u => Number(u.id) === Number(event.creator_id)) || null;
-  
-  const dateObj = event.start_time ? new Date(event.start_time) : null;
-  const day = dateObj && Number.isFinite(dateObj.getTime()) ? dateObj.getDate() : '';
-  const month = dateObj && Number.isFinite(dateObj.getTime())
-    ? dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
-    : '';
-  const year = dateObj && Number.isFinite(dateObj.getTime())
-    ? dateObj.getFullYear()
-    : '';
-  const timeLabel = dateObj && Number.isFinite(dateObj.getTime())
-    ? dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    : '';
+    setCurrentAudioTrack(trackWithCover);
+    setIsAudioPlaying(true);
 
-  const handleRSVPClick = async (status: 'going' | 'interested') => {
-    if (!currentUser) {
-      alert('Please login to RSVP');
-      return;
-    }
-    if (!event.id) return;
-
-    setBusy(true);
-    
-    // Optimistic update
-    const previousStatus = rsvpStatus;
-    setRsvpStatus(status);
-
-    try {
-      await onRSVP(event.id, status);
-    } catch (error) {
-      // Rollback on failure
-      setRsvpStatus(previousStatus);
-      console.error('RSVP failed:', error);
-      alert('Failed to RSVP. Please try again.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleFollowClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (onFollow && creator?.id) {
-      onFollow(safeUserId(creator));
-    }
-  };
-
-  return (
-    <div className="w-full">
-      <div className="bg-[#242526] w-full overflow-hidden">
-        {/* Header */}
-        <div className="p-3 md:p-4 flex items-center justify-between">
-          <div
-            className="flex items-center gap-2 flex-1 min-w-0"
-            onClick={() => creator?.id && onProfileClick(Number(creator.id))}
-          >
-            <img
-              src={avatarFrom(creator)}
-              alt=""
-              className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-            />
-            <div className="min-w-0">
-              <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] truncate">
-                  {creator?.name || creator?.username || 'User'}
-                </h4>
-              </div>
-              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                <span>{formatRelativeTime(event.created_at)}</span>
-                <span>•</span>
-                <i className="fas fa-globe-americas text-[12px]"></i>
-                <span>• created an event</span>
-              </div>
-            </div>
-          </div>
-
-          {onFollow && currentUser && creator?.id && safeUserId(creator) !== safeUserId(currentUser) && (
-            <button
-              onClick={handleFollowClick}
-              disabled={followLoading}
-              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                isFollowing 
-                  ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                  : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-              } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-            >
-              {followLoading ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : isFollowing ? (
-                'Following'
-              ) : (
-                'Follow'
-              )}
-            </button>
-          )}
-        </div>
-
-        {/* EVENT BODY - FIXED: Image now shows on top */}
-        <div className="px-3 md:px-4 pb-4">
-          <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
-            {/* Cover Image - FIXED: Now properly displays the event cover */}
-            {event.cover_image ? (
-              <div className="h-48 bg-[#18191A] overflow-hidden relative">
-                <img
-                  src={event.cover_image}
-                  alt={event.title}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    // Fallback if image fails to load
-                    (e.currentTarget as HTMLImageElement).style.display = 'none';
-                    const parent = e.currentTarget.parentElement;
-                    if (parent) {
-                      const fallback = document.createElement('div');
-                      fallback.className = 'h-32 bg-[#1f2a37] flex items-center justify-center';
-                      fallback.innerHTML = '<i class="fas fa-calendar text-white/30 text-5xl"></i>';
-                      parent.appendChild(fallback);
-                    }
-                  }}
-                />
-                {/* Date Badge */}
-                {month && day && (
-                  <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                    <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
-                    <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
-                    {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="h-32 bg-[#1f2a37] flex items-center justify-center relative">
-                <i className="fas fa-calendar text-white/30 text-5xl"></i>
-                {month && day && (
-                  <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                    <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
-                    <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
-                    {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Details */}
-            <div className="p-4">
-              <div className="text-[#E4E6EB] font-black text-[20px] line-clamp-2">
-                {event.title}
-              </div>
-
-              {event.description && (
-                <div className="text-[#B0B3B8] text-[14px] mt-1 line-clamp-2">
-                  {event.description}
-                </div>
-              )}
-
-              <div className="mt-3 space-y-2">
-                {event.start_time && (
-                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                    <i className="fas fa-clock text-[#1877F2] w-4"></i>
-                    <span>
-                      {dateObj?.toLocaleDateString()} at {timeLabel}
-                    </span>
-                  </div>
-                )}
-                {event.location && (
-                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                    <i className="fas fa-map-marker-alt text-[#F02849] w-4"></i>
-                    <span className="line-clamp-1">{event.location}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                  <i className="fas fa-users text-[#45BD62] w-4"></i>
-                  <span>{event.attendees_count || 0} attending</span>
-                </div>
-              </div>
-
-              {/* RSVP Buttons - FIXED: Now actually work */}
-              <div className="mt-4 flex gap-2">
-                <button
-                  disabled={busy}
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    handleRSVPClick('going'); 
-                  }}
-                  className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
-                    rsvpStatus === 'going'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                  } disabled:opacity-60`}
-                >
-                  Going
-                </button>
-
-                <button
-                  disabled={busy}
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    handleRSVPClick('interested'); 
-                  }}
-                  className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
-                    rsvpStatus === 'interested'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                  } disabled:opacity-60`}
-                >
-                  Interested
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Action row */}
-        <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-          <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
-            <i className="far fa-thumbs-up text-[20px]"></i>
-            <span className="text-[17px] font-medium">Like</span>
-          </div>
-          <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
-          </div>
-          <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
-            <i className="fas fa-share text-[20px]"></i>
-            <span className="text-[17px] font-medium">Share</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-    </div>
-  );
-};
-
-/**
- * =========================
- * ✅ UPDATED: EVENT FEED CARD COMPONENT WITH FIXED RSVP USING /api/attend AND /api/interested
- * =========================
- */
-type FeedEventItem = {
-  id: number;
-  feed_key: string;
-  item_type: "event";
-  event_id: number;
-
-  user_id: number;
-  name: string;
-  username: string;
-  profile_image_url: string | null;
-  created_at: string;
-
-  content: string; // title
-  event_date?: string; // from api/feeds
-  event_description?: string;
-  location?: string;
-
-  media_url?: string | null; // cover
-  attending_count?: number;
-  interested_count?: number;
-  my_rsvp_status?: "" | "going" | "interested";
-};
-
-export const EventFeedCard: React.FC<{
-  item: FeedEventItem;
-  currentUser: { id: number } | null;
-  onProfileClick: (id: number) => void;
-  onUpdateItem: (patch: Partial<FeedEventItem>) => void;
-}> = ({ item, currentUser, onProfileClick, onUpdateItem }) => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const whenText = useMemo(() => {
-    const d = item.event_date ? new Date(item.event_date) : null;
-    if (!d || isNaN(d.getTime())) return "";
-    return d.toLocaleString(undefined, { 
-      weekday: "short", 
-      month: "short", 
-      day: "numeric", 
-      hour: "2-digit", 
-      minute: "2-digit" 
+    setPlayHistory(prev => {
+      const last = prev[0];
+      if (last && last.type === track.type && String(last.id) === String(track.id)) return prev;
+      return [trackWithCover, ...prev].slice(0, 50);
     });
-  }, [item.event_date]);
+  }, []);
 
-  /**
-   * ✅ FIXED: RSVP function now uses /api/attend and /api/interested endpoints
-   * instead of the broken /api/events/rsvp
-   */
-  const rsvp = async (status: "going" | "interested" | "not_going") => {
-    if (!currentUser) {
-      alert("Please login to RSVP");
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-    
+  const onTogglePlay = useCallback(() => {
+    setIsAudioPlaying(p => !p);
+  }, []);
+
+  const onClosePlayer = useCallback(() => {
+    setIsAudioPlaying(false);
+    setCurrentAudioTrack(null);
+  }, []);
+
+  const onNext = useCallback(() => {
+    setPlayHistory(prev => {
+      if (prev.length < 2) return prev;
+      const next = prev[1];
+      const nextWithCover = {
+        ...next,
+        cover: next.cover && 
+               next.cover.trim() !== '' && 
+               next.cover.startsWith('http')
+               ? next.cover
+               : DEFAULT_MUSIC_COVER
+      };
+      setCurrentAudioTrack(nextWithCover);
+      setIsAudioPlaying(true);
+      return [nextWithCover, ...prev.filter((_, i) => i !== 1)].slice(0, 50);
+    });
+  }, []);
+
+  const onPrevious = useCallback(() => {
+    setPlayHistory(prev => {
+      if (prev.length < 2) return prev;
+      const prevTrack = prev[1];
+      const prevTrackWithCover = {
+        ...prevTrack,
+        cover: prevTrack.cover && 
+               prevTrack.cover.trim() !== '' && 
+               prevTrack.cover.startsWith('http')
+               ? prevTrack.cover
+               : DEFAULT_MUSIC_COVER
+      };
+      setCurrentAudioTrack(prevTrackWithCover);
+      setIsAudioPlaying(true);
+      return [prevTrackWithCover, ...prev.filter((_, i) => i !== 1)].slice(0, 50);
+    });
+  }, []);
+
+  const onStarted = useCallback(async (track: AudioTrack) => {
     try {
-      const eventId = item.event_id || item.id;
-      const userId = currentUser.id;
+      setPlaysLoading(true);
 
-      // helper to refresh counts/status from server response (safe)
-      const applyCounts = (resp: any) => {
-        // support different response shapes without breaking
-        const attending =
-          resp?.attending_count ?? resp?.attending ?? resp?.attendees_count ?? item.attending_count ?? 0;
-        const interested =
-          resp?.interested_count ?? resp?.interested ?? item.interested_count ?? 0;
-        onUpdateItem({
-          attending_count: Number(attending) || 0,
-          interested_count: Number(interested) || 0,
-          my_rsvp_status:
-            status === "not_going" ? "" : (status as any),
-        });
+      const userId = (currentUser as any)?.id ?? null;
+
+      if (userId) {
+        setMyTotalPlays(p => p + 1);
+        
+        const key = `unera_my_total_plays_${Number(userId)}`;
+        const current = Number(localStorage.getItem(key) || '0');
+        localStorage.setItem(key, String(current + 1));
+      }
+
+      const res = await recordPlay(track, userId);
+
+      const newPlays = Number(res?.plays_count ?? res?.plays ?? res?.count ?? 0);
+
+      const key = `${track.type}:${String(track.id)}`;
+      if (Number.isFinite(newPlays) && newPlays > 0) {
+        setTrackPlays(prev => ({ ...prev, [key]: newPlays }));
+      } else {
+        setTrackPlays(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
+      }
+    } catch (e) {
+      const key = `${track.type}:${String(track.id)}`;
+      setTrackPlays(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
+    } finally {
+      setPlaysLoading(false);
+    }
+  }, [currentUser]);
+
+  const handleMusicSystemLikeSync = useCallback((key: string, liked: boolean) => {
+    setLikedTracks(prev => {
+      const has = prev.includes(key);
+      if (liked && !has) return [...prev, key];
+      if (!liked && has) return prev.filter(x => x !== key);
+      return prev;
+    });
+  }, []);
+
+  const isPlayerLiked = useMemo(() => {
+    if (!currentAudioTrack) return false;
+    return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
+  }, [currentAudioTrack, likedTracks]);
+
+  /** ---------- ✅ FIXED: Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
+  const createMarketplacePost = useCallback(
+    async (product: any) => {
+      if (!currentUser) return;
+
+      const images: string[] = safeImages(product.images);
+      const media_url = images[0] || '';
+      const media_type = media_url ? 'image' : null;
+
+      // ✅ CRITICAL: Payload structure that Feed.tsx expects for marketplace posts
+      const payload = {
+        user_id: currentUser.id,
+        
+        // Basic post fields
+        content: product.title || '',
+        visibility: 'public',
+        
+        // ✅ Feed.tsx checks these exact fields
+        type: "marketplace",        // Main type indicator
+        post_type: "product",       // Feed.tsx checks this
+        product_id: product.id,     // Feed.tsx checks this directly
+        
+        // Media fields
+        media_url,
+        media_type,
+        media_urls: images,
+        media_types: images.map(() => 'image'),
+        
+        // ✅ Meta object with ALL the fields Feed.tsx looks for
+        meta: {
+          kind: "product",                    // Feed.tsx checks meta.kind === 'product'
+          product_id: product.id,            // Feed.tsx checks meta.product_id
+          marketplace: {
+            id: product.id,                 // ✅ Feed.tsx prefers mp.id (NOT mp.product_id!)
+            product_id: product.id,         // extra safe
+            price: product.discount_price ?? product.main_price ?? null,
+            currency: product.currency_symbol || 'TZS',
+            location: product.address || '',
+            title: product.title,
+            images: images,
+          }
+        }
       };
 
-      if (status === "going") {
-        // remove interested if previously interested
-        if (item.my_rsvp_status === "interested") {
-          await postJSON("/api/interested", { event_id: eventId, user_id: userId, action: "remove" });
-        }
-        const resp = await postJSON("/api/attend", { event_id: eventId, user_id: userId, action: "add" });
-        applyCounts(resp);
-        return;
-      }
-
-      if (status === "interested") {
-        // remove going if previously going
-        if (item.my_rsvp_status === "going") {
-          await postJSON("/api/attend", { event_id: eventId, user_id: userId, action: "remove" });
-        }
-        const resp = await postJSON("/api/interested", { event_id: eventId, user_id: userId, action: "add" });
-        applyCounts(resp);
-        return;
-      }
-
-      // not_going: remove both
-      await postJSON("/api/attend", { event_id: eventId, user_id: userId, action: "remove" });
-      await postJSON("/api/interested", { event_id: eventId, user_id: userId, action: "remove" });
-
-      onUpdateItem({
-        my_rsvp_status: "",
-        // keep counts if you want, or set to 0 only if backend returns counts
+      const created = await apiFetch('/api/posts', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       });
-    } catch (e: any) {
-      setError(e?.message || "Failed to RSVP. Please try again.");
-      alert(e?.message || "Failed to RSVP");
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const my = item.my_rsvp_status || "";
-  const attending = Number(item.attending_count ?? 0);
-
-  return (
-    <div className="w-full">
-      <div className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042]">
-        {/* Header */}
-        <div className="flex items-center gap-3 p-3">
-          <img
-            src={item.profile_image_url || "https://via.placeholder.com/40"}
-            className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-            alt=""
-            onClick={() => onProfileClick(item.user_id)}
-          />
-          <div className="min-w-0">
-            <div className="text-[#E4E6EB] font-bold truncate">{item.name}</div>
-            <div className="text-[#B0B3B8] text-xs">
-              {new Date(item.created_at).toLocaleString()} • created an event
-            </div>
-          </div>
-        </div>
-
-        {/* Cover image (TOP) - NOT full screen */}
-        {item.media_url ? (
-          <div className="w-full h-56 bg-black overflow-hidden">
-            <img 
-              src={item.media_url} 
-              className="w-full h-full object-cover" 
-              alt="" 
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = 'none';
-                const parent = e.currentTarget.parentElement;
-                if (parent) {
-                  const fallback = document.createElement('div');
-                  fallback.className = 'w-full h-56 bg-[#1B1C1D] flex items-center justify-center';
-                  fallback.innerHTML = '<i class="fas fa-calendar text-[#1877F2] text-4xl opacity-60"></i>';
-                  parent.appendChild(fallback);
-                }
-              }}
-            />
-          </div>
-        ) : (
-          <div className="w-full h-40 bg-[#1B1C1D] flex items-center justify-center">
-            <i className="fas fa-calendar text-[#1877F2] text-4xl opacity-60"></i>
-          </div>
-        )}
-
-        {/* Content */}
-        <div className="p-4">
-          <div className="text-[#E4E6EB] font-black text-xl leading-tight">
-            {item.content}
-          </div>
-
-          {item.event_description ? (
-            <div className="text-[#B0B3B8] text-sm mt-2 line-clamp-2">
-              {item.event_description}
-            </div>
-          ) : null}
-
-          <div className="mt-3 space-y-2 text-[#B0B3B8] text-sm">
-            {whenText ? (
-              <div className="flex items-center gap-2">
-                <i className="fas fa-clock text-[#1877F2] w-5"></i>
-                <span>{whenText}</span>
-              </div>
-            ) : null}
-
-            {item.location ? (
-              <div className="flex items-center gap-2">
-                <i className="fas fa-map-marker-alt text-[#F02849] w-5"></i>
-                <span className="line-clamp-1">{item.location}</span>
-              </div>
-            ) : null}
-
-            <div className="flex items-center gap-2">
-              <i className="fas fa-users text-[#45BD62] w-5"></i>
-              <span>{attending} attending</span>
-            </div>
-          </div>
-
-          {/* Error message if any */}
-          {error && (
-            <div className="mt-2 text-sm text-red-500 bg-red-500/10 p-2 rounded-lg">
-              {error}
-            </div>
-          )}
-
-          {/* RSVP Buttons */}
-          <div className="mt-4 flex gap-2">
-            <button
-              disabled={loading}
-              onClick={(e) => {
-                e.stopPropagation();
-                rsvp(my === "going" ? "not_going" : "going");
-              }}
-              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
-                my === "going"
-                  ? "bg-[#45BD62] text-white hover:bg-[#3da855]"
-                  : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
-              }`}
-            >
-              {loading ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : (
-                my === "going" ? "Going" : "Going"
-              )}
-            </button>
-
-            <button
-              disabled={loading}
-              onClick={(e) => {
-                e.stopPropagation();
-                rsvp(my === "interested" ? "not_going" : "interested");
-              }}
-              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
-                my === "interested"
-                  ? "bg-[#F7B928] text-black hover:bg-[#e5aa24]"
-                  : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
-              }`}
-            >
-              {loading ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : (
-                "Interested"
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
+      const newPost = normalizePost(created?.post ?? created);
       
-      {/* Facebook-style separator */}
-      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-    </div>
+      setPosts(prev => [newPost, ...safeArray(prev)]);
+      
+      if (Number(currentUser.id) === Number(selectedUserId)) {
+        setProfilePosts(prev => [newPost, ...safeArray(prev)]);
+      }
+
+      scheduleSilentRefresh();
+      
+      return newPost;
+    },
+    [currentUser, selectedUserId]
   );
-};
 
-/**
- * =========================
- * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
- * =========================
- */
-export const Post: React.FC<{
-  post: PostType;
-  author: User | any;
-  currentUser: User | null;
-  users?: User[];
-  onProfileClick: (id: number) => void;
-  onReact: (id: number, type: ReactionType) => void;
-  onShare: (id: number, newShareCount: number) => void;
-  onDelete?: (id: number) => void;
-  onViewImage: (url: string) => void;
-  onOpenComments: (id: number) => void;
-  onVideoClick: (p: PostType) => void;
-  onPlayAudioTrack?: (t: AudioTrack) => void;
-  onHashtagClick?: (tag: string) => void;
-  onViewProductFromPost?: (productId: number) => void;
-  onOpenGroup?: (groupId: number) => void;
-  onOpenAudio?: (item: any) => void;
-  onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
-  groups?: Group[];
-  brands?: Brand[];
-  chats?: any[];
-  isFollowing?: boolean;
-  onFollow?: (id: number) => void;
-  followLoading?: boolean;
-}> = ({
-  post,
-  author,
-  currentUser,
-  users = [],
-  onProfileClick,
-  onReact,
-  onShare,
-  onDelete,
-  onViewImage,
-  onOpenComments,
-  onVideoClick,
-  onPlayAudioTrack,
-  onHashtagClick,
-  onViewProductFromPost,
-  onOpenGroup,
-  onOpenAudio,
-  onRSVP,
-  groups = [],
-  brands = [],
-  chats = [],
-  isFollowing = false,
-  onFollow,
-  followLoading = false,
-}) => {
-  const { onViewProduct, getProductData } = useContext(MarketplaceContext);
-  
-  const p: any = post as any;
-  const a: any = author as any;
+  const createProduct = useCallback(async (productData: any) => {
+    if (!requireAuth("Creating products")) return;
+    if (!currentUser) return;
 
-  // ========== MARKETPLACE DETECTION ==========
-  const meta: any = p?.meta || {};
-  
-  const isMarketplace =
-    p?.type === "marketplace" ||
-    p?.post_type === "product" ||
-    p?.type === 'product' ||
-    p?.kind === 'product' ||
-    meta?.type === 'product' ||
-    meta?.kind === 'product' ||
-    !!p?.product_id ||
-    !!p?.meta?.marketplace?.id;
+    const payload = { ...productData, seller_id: currentUser.id };
 
-  // ========== EVENT DETECTION - FIXED: Now detects feed events properly ==========
-  const isEventPost =
-    p?.item_type === "event" ||                    // From your API feed response
-    String(p?.feed_key || "").startsWith("event:") || // Feed key pattern
-    p?.source === "event" ||
-    p?.type === 'event' ||
-    p?.post_type === 'event' ||
-    meta?.type === 'event' ||
-    meta?.kind === 'event' ||
-    !!p?.event_id ||
-    !!meta?.event;
+    const tempId = Date.now();
+    const optimistic = normalizeProduct({
+      ...payload,
+      id: tempId,
+      seller_name: currentUser.name,
+      seller_avatar: currentUser.profile_image_url,
+      seller_id: currentUser.id,
+    });
 
-  // ========== FALLBACK RSVP FUNCTION - Ensures events always work ==========
-  const fallbackRSVP = async (eventId: number, status: "going" | "interested" | "not_going") => {
-    if (!currentUser) { 
-      alert("Please login to RSVP"); 
-      return; 
+    setProducts(prev => [optimistic, ...safeArray(prev)]);
+
+    try {
+      const res = await apiFetch("/api/products", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      const createdProduct = normalizeProduct(res?.product ?? res);
+      
+      setProducts(prev => {
+        const filtered = safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId));
+        return [createdProduct, ...filtered];
+      });
+
+      // ✅ Create marketplace post with the fixed payload
+      await createMarketplacePost(createdProduct);
+      
+      return createdProduct;
+    } catch (e: any) {
+      setProducts(prev => safeArray(prev).filter((x: any) => Number(x.id) !== Number(tempId)));
+      setLoginError(e?.message || "Failed to create product");
+      throw e;
     }
+  }, [currentUser, requireAuth, createMarketplacePost]);
+
+  const roleOf = (u: any) => String(u?.role || '').trim().toLowerCase();
+  const isAdmin = (u: any) => roleOf(u) === 'admin';
+  const isModerator = (u: any) => roleOf(u) === 'moderator';
+
+  const requireAdmin = useCallback((action = 'This action') => {
+    if (!requireAuth(action)) return false;
+    if (!isAdmin(currentUser)) {
+      setLoginError(`${action} requires admin.`);
+      return false;
+    }
+    return true;
+  }, [requireAuth, currentUser]);
+
+  const requireModOrAdmin = useCallback((action = 'This action') => {
+    if (!requireAuth(action)) return false;
+    if (!(isAdmin(currentUser) || isModerator(currentUser))) {
+      setLoginError(`${action} requires moderator or admin.`);
+      return false;
+    }
+    return true;
+  }, [requireAuth, currentUser]);
+
+  const openProfile = useCallback((id: number) => {
+    setSelectedUserId(Number(id));
+    setView('profile');
+    window.scrollTo(0, 0);
+  }, []);
+
+  const fetchUsersList = useCallback(async () => {
+    if (usersInFlightRef.current) return;
+    usersInFlightRef.current = true;
+    
+    try {
+      const u = await apiFetch('/api/users').catch(() => []);
+      const newUsers = safeArray(u).map(normalizeUser);
+      
+      setUsers(prev => {
+        const map = new Map<number, User>();
+        safeArray(prev).forEach(user => map.set(Number(user.id), user));
+        
+        newUsers.forEach(newUser => {
+          const id = Number(newUser.id);
+          if (!id) return;
+          
+          const existing = map.get(id);
+          if (existing) {
+            map.set(id, normalizeUser(mergeUserSafe(existing, newUser)));
+          } else {
+            map.set(id, normalizeUser(newUser));
+          }
+        });
+        
+        return Array.from(map.values());
+      });
+    } catch {
+    } finally {
+      usersInFlightRef.current = false;
+    }
+  }, []);
+
+  const fetchReels = useCallback(async () => {
+    if (reelsInFlightRef.current) return;
+    reelsInFlightRef.current = true;
+    
+    try {
+      const data = await apiFetch('/api/reels');
+      const reelsList = safeArray(data?.reels ?? data);
+      
+      const normalizedReels = reelsList.map(reel => {
+        const normalized = normalizeReel(reel);
+        return {
+          ...normalized,
+          audioUrl: toFetchableAudioUrl(normalized.audioUrl),
+        };
+      });
+      
+      setReels(normalizedReels);
+    } catch (error) {
+      console.error('Failed to fetch reels:', error);
+    } finally {
+      reelsInFlightRef.current = false;
+    }
+  }, []);
+
+  const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
+    if (reelData.soundKey) return reelData.soundKey;
+    
+    if (selectedReelSound?.songId) {
+      return `song:${selectedReelSound.songId}`;
+    }
+    
+    if (reelData.audioFile) {
+      return `trimmed:${currentUser?.id || 'unknown'}:${Date.now()}`;
+    }
+    
+    if (selectedReelSound?.audioUrl) {
+      return `original:${currentUser?.id || 'unknown'}:${Date.now()}`;
+    }
+    
+    return 'original:none';
+  }, [currentUser]);
+
+  const createReel = useCallback(async (reelData: Partial<Reel> & { 
+    videoFile?: File | Blob; 
+    audioFile?: File | Blob;
+    originalSoundId?: string | number;
+  }) => {
+    if (!requireAuth('Creating reels')) return;
+    if (!currentUser) return;
+
+    console.log("createReel input:", reelData);
+    
+    setIsFeedRefreshing(true);
+    
+    try {
+      const videoFile = reelData.videoFile;
+      const audioFile = reelData.audioFile;
+      
+      if (!videoFile) {
+        throw new Error('Video was not uploaded. Please select a video [video file missing]');
+      }
+
+      const videoUrl = await ensureR2Url(
+        videoFile,
+        'reels',
+        `reel-${Date.now()}.mp4`
+      );
+
+      let audioUrl = null;
+      if (audioFile) {
+        audioUrl = await ensureR2Url(
+          audioFile,
+          'reel-audio',
+          `audio-${Date.now()}.wav`
+        );
+      } else if (reelData.audioUrl) {
+        audioUrl = reelData.audioUrl;
+      }
+
+      if (!videoUrl || !videoUrl.startsWith('http')) {
+        throw new Error('Reel video upload failed (no valid R2 URL).');
+      }
+
+      const soundKey = generateSoundKey(reelData, selectedReelSound);
+      const isTrimmedAudio = soundKey.startsWith('trimmed:');
+      
+      const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
+      const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
+      
+      const soundPayload = selectedReelSound || {
+        songName: reelData.songName || 'Original Sound',
+        audioUrl: audioUrl || '',
+        audioStart,
+        audioEnd,
+        songId: reelData.originalSoundId,
+      };
+
+      const payload = {
+        user_id: currentUser.id,
+        caption: reelData.caption || '',
+        video_url: videoUrl,
+        song_name: soundPayload.songName,
+        audio_url: audioUrl,
+        audio_start: audioStart,
+        audio_end: audioEnd,
+        song_id: soundPayload.songId || null,
+        sound_key: soundKey,
+        visibility: reelData.visibility || 'public',
+        location: reelData.location || '',
+        views: 0,
+        shares: 0,
+      };
+      
+      console.log("Sending to API:", payload);
+      
+      const data = await apiFetch('/api/reels', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      
+      const newReel = normalizeReel(data.reel || data);
+      
+      setReels(prev => [newReel, ...safeArray(prev)]);
+      
+      fetchReels().catch(() => {});
+      
+      setLoginError('Reel posted successfully!');
+      
+      setSelectedReelSound(null);
+      
+    } catch (error: any) {
+      console.error('Failed to create reel:', error);
+      setLoginError(error?.message || 'Failed to create reel');
+    } finally {
+      setIsFeedRefreshing(false);
+      setShowCreateReelModal(false);
+    }
+  }, [currentUser, requireAuth, fetchReels, selectedReelSound, generateSoundKey]);
+
+  const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
+    if (!requireAuth('Reacting to reels')) return;
+    if (!currentUser) return;
+
+    const reactionType = type || 'love';
+    
+    setReels(prev => 
+      safeArray(prev).map(reel => 
+        reel.id === reelId 
+          ? applyOptimisticReelReaction(reel, reelId, reactionType, currentUser.id)
+          : reel
+      )
+    );
+
+    try {
+      await apiFetch(`/api/reels/${reelId}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ type: reactionType, user_id: currentUser.id }),
+      });
+      
+      fetchReels().catch(() => {});
+      
+    } catch (error) {
+      console.error('Failed to react to reel:', error);
+      fetchReels().catch(() => {});
+    }
+  }, [currentUser, requireAuth, fetchReels]);
+
+  const commentOnReel = useCallback(async (reelId: number, text: string) => {
+    if (!requireAuth('Commenting on reels')) return;
+    if (!currentUser) return;
+
+    try {
+      await apiFetch(`/api/reels/${reelId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ text, user_id: currentUser.id }),
+      });
+      
+      fetchReels().catch(() => {});
+      
+    } catch (error) {
+      console.error('Failed to comment on reel:', error);
+      setLoginError('Failed to post comment');
+    }
+  }, [currentUser, requireAuth, fetchReels]);
+
+  const shareReel = useCallback(async (reelId: number, type: 'feed' | 'copy') => {
+    if (!requireAuth('Sharing reels')) return;
+    if (!currentUser) return;
+
+    try {
+      await apiFetch(`/api/reels/${reelId}/share`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id, destination: type }),
+      });
+      
+      setReels(prev => 
+        safeArray(prev).map(reel => 
+          reel.id === reelId 
+            ? { ...reel, shares: (reel.shares || 0) + 1 }
+            : reel
+        )
+      );
+      
+      if (type === 'copy') {
+        const reelLink = `${window.location.origin}/reels/${reelId}`;
+        navigator.clipboard.writeText(reelLink).then(() => {
+          setLoginError('Link copied to clipboard!');
+        });
+      }
+      
+    } catch (error) {
+      console.error('Failed to share reel:', error);
+      setLoginError('Failed to share');
+    }
+  }, [currentUser, requireAuth]);
+
+  const useSoundFromReel = useCallback((soundFromReel: any) => {
+    const audioUrlRaw = soundFromReel?.audio_url ?? soundFromReel?.audioUrl ?? '';
+    
+    if (!audioUrlRaw) return;
+
+    const songName = soundFromReel?.song_name ?? soundFromReel?.songName ?? 'Original Sound';
+    const audioStart = safeNumber(soundFromReel?.audio_start ?? soundFromReel?.audioStart ?? 0);
+    const audioEnd = safeNumber(soundFromReel?.audio_end ?? soundFromReel?.audioEnd ?? 0);
+    const songId = soundFromReel?.song_id ?? soundFromReel?.songId ?? null;
+    const soundKey = String(soundFromReel?.sound_key ?? soundFromReel?.soundKey ?? '');
+
+    const isTrimmedAudio = soundKey.startsWith('trimmed:');
+
+    setSelectedReelSound({
+      songName,
+      audioUrl: soundFromReel?.audio_fetch_url || toFetchableAudioUrl(audioUrlRaw),
+      originalUrl: audioUrlRaw,
+      audioStart,
+      audioEnd,
+      songId,
+      soundKey,
+      isTrimmedAudio,
+    });
+
+    setShowCreateReelModal(true);
+  }, []);
+
+  const fetchPostsForHome = useCallback(
+    async (viewer: User | null) => {
+      if (postsInFlightRef.current) return;
+      postsInFlightRef.current = true;
+      
+      setIsFeedRefreshing(true);
+
+      try {
+        const seed = getOrCreateSessionSeed(viewer?.id ?? null);
+        const seen = getSeenSet();
+
+        if (viewer?.id) {
+          const data = await apiFetch(`/api/feeds?userId=${viewer.id}&limit=50`);
+          const rows = safeArray<any>(data?.feed);
+
+          if (!rows.length) {
+            if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
+            if (!feedHydrated) setFeedHydrated(true);
+            return;
+          }
+
+          setUsers((prev) => {
+            const map = new Map<number, User>();
+            safeArray(prev).forEach((u) => map.set(Number(u.id), normalizeUser(u)));
+
+            rows.forEach((r) => {
+              const author = authorFromFeedRow(r);
+              if (!author?.id) return;
+              
+              const existing = map.get(author.id);
+              if (existing) {
+                map.set(author.id, normalizeUser(mergeUserSafe(existing, author)));
+              } else {
+                map.set(author.id, author);
+              }
+            });
+
+            return Array.from(map.values());
+          });
+
+          const normalized = rows.map(normalizeFeedRowToPost);
+
+          const unseen = normalized.filter((p: any) => !seen.has(Number(p.id)));
+          const seenOnes = normalized.filter((p: any) => seen.has(Number(p.id)));
+
+          const ordered = diversifyFeed(
+            [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
+            seed
+          );
+
+          pushSeenIds(ordered.slice(0, 40).map((p: any) => Number(p.id)));
+
+          setPosts((prev) => {
+            const next = mergeFeed(prev, ordered);
+            stableFeedRef.current = next;
+            lastGoodPostsRef.current = next;
+            return next;
+          });
+
+          if (!feedHydrated) setFeedHydrated(true);
+
+          if (activeCommentsPostId != null) {
+            const found = ordered.find((p: any) => Number(p.id) === Number(activeCommentsPostId));
+            if (found) setCommentPostSnapshot(found);
+          }
+
+          return;
+        }
+
+        const p = await apiFetch('/api/posts');
+        const normalized = safeArray(p).map(normalizePost);
+
+        if (normalized.length) {
+          const unseen = normalized.filter((x: any) => !seen.has(Number(x.id)));
+          const seenOnes = normalized.filter((x: any) => seen.has(Number(x.id)));
+
+          const ordered = diversifyFeed(
+            [...seededShuffle(unseen, seed), ...seededShuffle(seenOnes, seed ^ 0xabcddcba)],
+            seed
+          );
+
+          pushSeenIds(ordered.slice(0, 40).map((x: any) => Number(x.id)));
+
+          setPosts((prev) => {
+            const next = mergeFeed(prev, ordered);
+            stableFeedRef.current = next;
+            lastGoodPostsRef.current = next;
+            return next;
+          });
+        } else if (lastGoodPostsRef.current.length) {
+          setPosts(lastGoodPostsRef.current);
+        }
+
+        if (!feedHydrated) setFeedHydrated(true);
+
+        if (activeCommentsPostId != null) {
+          const found = normalized.find((x: any) => Number(x.id) === Number(activeCommentsPostId));
+          if (found) setCommentPostSnapshot(found);
+        }
+      } catch {
+        if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
+        if (!feedHydrated) setFeedHydrated(true);
+      } finally {
+        setIsFeedRefreshing(false);
+        postsInFlightRef.current = false;
+      }
+    },
+    [activeCommentsPostId, feedHydrated]
+  );
+
+  const fetchProfilePosts = useCallback(async (profileUserId: number) => {
+    try {
+      const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+      const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`);
+      
+      const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
+      const normalized = list.map(normalizePost);
+
+      normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+
+      setProfilePosts(prev => {
+        const localTruth = [...safeArray(posts), ...safeArray(prev)];
+        const map = new Map<number, any>();
+        localTruth.forEach((p: any) => map.set(Number(p.id), p));
+
+        return normalized.map((p: any) => {
+          const local = map.get(Number(p.id));
+          if (!local) return p;
+
+          return {
+            ...p,
+            my_reaction: p.my_reaction ?? local.my_reaction ?? local.myReaction ?? null,
+            myReaction: p.myReaction ?? p.my_reaction ?? local.my_reaction ?? local.myReaction ?? null,
+            reactions: Array.isArray(p.reactions) && p.reactions.length ? p.reactions : safeArray(local.reactions),
+            reactions_count: safeNumber(p.reactions_count, safeNumber(local.reactions_count, safeNumber(local.likesCount, 0))),
+            reactionsCount: safeNumber(p.reactionsCount, safeNumber(local.reactionsCount, safeNumber(local.likesCount, 0))),
+            likesCount: safeNumber(p.likesCount, safeNumber(local.likesCount, safeNumber(local.reactions_count, 0))),
+          };
+        });
+      });
+    } catch {
+    }
+  }, [currentUser, posts]);
+
+  const fetchUserFollowDataForUI = useCallback(async (userId: number) => {
+    try {
+      const followData = await fetchUserFollowData(userId);
+      
+      setUsers(prev => {
+        return prev.map(user => {
+          if (Number(user.id) === Number(userId)) {
+            return normalizeUser({
+              ...user,
+              followers: followData.followers,
+              following: followData.following
+            });
+          }
+          return user;
+        });
+      });
+
+      if (currentUser && Number(currentUser.id) === Number(userId)) {
+        const updatedCurrentUser = normalizeUser({
+          ...currentUser,
+          followers: followData.followers,
+          following: followData.following
+        });
+        setCurrentUser(updatedCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(updatedCurrentUser));
+      }
+
+      return followData;
+    } catch (error) {
+      console.error('Failed to fetch follow data for UI:', error);
+      return { followers: [], following: [] };
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (view !== 'profile' || !selectedUserId) return;
+    
+    fetchUserFollowDataForUI(Number(selectedUserId)).catch(() => {});
+  }, [view, selectedUserId, fetchUserFollowDataForUI]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    
+    fetchUserFollowDataForUI(Number(currentUser.id)).catch(() => {});
+  }, [currentUser?.id, fetchUserFollowDataForUI]);
+
+  const scheduleSilentRefresh = useCallback(() => {
+    if (scheduleSilentRefreshRef.current) clearTimeout(scheduleSilentRefreshRef.current);
+    scheduleSilentRefreshRef.current = setTimeout(() => {
+      fetchPostsForHome(currentUser).catch(() => {});
+      fetchReels().catch(() => {});
+    }, 8000);
+  }, [currentUser, fetchPostsForHome, fetchReels]);
+
+  /** ---------- Event Functions from App.tsx 1 ---------- */
+  const fetchEvents = useCallback(async (): Promise<Event[]> => {
+    try {
+      const data = await apiFetch('/api/events');
+      const list = safeArray(data?.events ?? data);
+      return list.map(normalizeEvent);
+    } catch (err) {
+      console.error('❌ fetchEvents failed:', err);
+      return [];
+    }
+  }, []);
+
+  const updateEventState = useCallback((
+    eventId: number,
+    action: 'join' | 'leave' | 'interested' | 'uninterested',
+    userId: number
+  ) => {
+    setEvents(prev =>
+      safeArray(prev).map(ev => {
+        const e = normalizeEvent(ev);
+        if (Number(e.id) !== Number(eventId)) return e;
+
+        const attendees = new Set(e.attendees);
+        const interested = new Set(e.interestedIds);
+
+        if (action === 'join') { attendees.add(userId); interested.delete(userId); }
+        if (action === 'leave') { attendees.delete(userId); }
+        if (action === 'interested') { interested.add(userId); attendees.delete(userId); }
+        if (action === 'uninterested') { interested.delete(userId); }
+
+        return {
+          ...e,
+          attendees: Array.from(attendees),
+          interestedIds: Array.from(interested),
+        };
+      })
+    );
+  }, []);
+
+  /**
+   * ✅ FIXED: Unified RSVP handler using /api/attend and /api/interested endpoints
+   * This updates both event_attendees and event_interested tables
+   */
+  const onRSVPEvent = useCallback(async (eventId: number, status: "going" | "interested" | "not_going") => {
+    if (!requireAuth('RSVP to events')) return;
+    if (!currentUser) return;
+
+    const meId = Number(currentUser.id);
+
+    // Optimistic update
+    setEvents(prev => 
+      safeArray(prev).map(event => {
+        if (Number(event.id) !== Number(eventId)) return event;
+        
+        const attendees = new Set(event.attendees || []);
+        const interested = new Set(event.interestedIds || []);
+        
+        if (status === 'going') {
+          attendees.add(meId);
+          interested.delete(meId);
+        } else if (status === 'interested') {
+          interested.add(meId);
+          attendees.delete(meId);
+        } else if (status === 'not_going') {
+          attendees.delete(meId);
+          interested.delete(meId);
+        }
+        
+        return {
+          ...event,
+          attendees: Array.from(attendees),
+          interestedIds: Array.from(interested),
+          user_rsvp_status: status === 'not_going' ? null : status,
+        } as Event;
+      })
+    );
 
     try {
       const payload = { event_id: eventId, user_id: currentUser.id };
 
+      // ✅ Use the working /api/attend and /api/interested endpoints
       if (status === "going") {
         await postJSON("/api/attend", { ...payload, action: "add" });
       } else if (status === "interested") {
         await postJSON("/api/interested", { ...payload, action: "add" });
       } else {
+        // not_going = remove from both
         await postJSON("/api/attend", { ...payload, action: "remove" });
         await postJSON("/api/interested", { ...payload, action: "remove" });
       }
-    } catch (error: any) {
-      console.error('Fallback RSVP failed:', error);
-      alert(error.message || "Failed to RSVP. Please try again.");
-      throw error;
+
+      // ✅ Refresh events from real events table to ensure consistency
+      const freshEvents = await fetchEvents();
+      setEvents(freshEvents);
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('❌ onRSVPEvent failed:', err);
+      
+      // Revert optimistic update on error by fetching fresh data
+      const freshEvents = await fetchEvents();
+      setEvents(freshEvents);
+      
+      setLoginError(err?.message || 'Failed to update RSVP');
+      throw err;
     }
-  };
-
-  // If it's an event post, render the EventPost component (no onRSVP gate!)
-  if (isEventPost) {
-    const event = normalizeEventFromFeed(p);
-    return (
-      <EventPost
-        event={event}
-        author={a}
-        currentUser={currentUser}
-        users={users}
-        onProfileClick={onProfileClick}
-        onRSVP={onRSVP || fallbackRSVP}  // Use provided onRSVP or fallback
-        onFollow={onFollow}
-        isFollowing={isFollowing}
-        followLoading={followLoading}
-      />
-    );
-  }
-
-  const productId = isMarketplace ? getMarketplaceProductId(p) : null;
-  const productData = productId ? getProductData?.(productId) : null;
-
-  const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
-  const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
-
-  // ✅ Gallery state for multi-image swiping
-  const [galleryOpen, setGalleryOpen] = useState(false);
-  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
-  const [galleryIndex, setGalleryIndex] = useState(0);
-
-  const openGallery = (urls: string[], index: number) => {
-    setGalleryUrls(urls);
-    setGalleryIndex(index);
-    setGalleryOpen(true);
-  };
-
-  // ✅ MARKETPLACE TOP LINE - ONLY MARKETPLACE BADGE AND LOCATION
-  const marketplaceTop = isMarketplace ? (
-    <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
-      <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
-        Marketplace
-      </span>
-      {loc && (
-        <div className="flex items-center gap-1 text-[#B0B3B8]">
-          <i className="fas fa-map-marker-alt text-[12px] text-[#F02849]"></i>
-          <span className="text-sm">{loc}</span>
-        </div>
-      )}
-    </div>
-  ) : null;
-
-  // ✅ MARKETPLACE MEDIA GRID - FULL WIDTH WITH GALLERY SUPPORT
-  const marketplaceMedia = isMarketplace ? (
-    mpImages.length > 0 ? (
-      <div className="w-full">
-        <div className="w-full bg-black">
-          <MediaGrid
-            media={mpImages.map(url => ({ url }))}
-            onOpen={(url, index) => {
-              openGallery(mpImages, index);
-            }}
-          />
-        </div>
-      </div>
-    ) : null
-  ) : null;
-
-  // ✅ MARKETPLACE PRICE AND BUTTON SECTION
-  const marketplaceFooter = isMarketplace && price ? (
-    <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
-      <div className="flex items-center gap-1">
-        <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
-        <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
-      </div>
-
-      <button
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (productId) onViewProduct?.(productId);
-        }}
-      >
-        View product
-      </button>
-    </div>
-  ) : null;
-
-  // ✅ Music/Podcast detection
-  const isMusic = meta?.kind === 'music' || meta?.type === 'music';
-  const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
-  const song = meta?.song;
-  const podcast = meta?.podcast;
-
-  // ✅ Group detection
-  const groupId = Number(p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0);
-  const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
-
-  const myReaction = p.myReaction ?? p.my_reaction ?? null;
-  const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
-  const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
-  
-  const finalMyReaction: ReactionType | undefined =
-    myReaction ||
-    (currentUser && reactionsArr
-      ? (reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type as ReactionType)
-      : undefined);
-
-  const finalReactionCount =
-    likesCount > 0
-      ? likesCount
-      : reactionsArr
-        ? reactionsArr.length
-        : 0;
-  
-  const [commentCount, setCommentCount] = useState(() => {
-    if (typeof p.comment_count === 'number') return p.comment_count;
-    if (Array.isArray(p.comments)) return p.comments.length;
-    return 0;
-  });
-
-  const [shareCount, setShareCount] = useState(() => {
-    return safeNumber(p.shares ?? p.shares_count, 0);
-  });
-
-  const [showShareSheet, setShowShareSheet] = useState(false);
-
-  const createdAtLabel = formatRelativeTime(p.created_at);
-  const postId = safePostId(p);
-
-  const mediaInfo = getMediaTypeInfo(p);
-
-  const mediaList = useMemo(() => {
-    return getPostMediaList(p);
-  }, [p]);
-
-  const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return `${(count / 1000000).toFixed(1)}M`;
-    } else if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
-    return count.toString();
-  };
-
-  // ✅ Facebook-style reaction emojis
-  const emojiList = useMemo(() => {
-    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
-      const em = topReactionEmojis(reactionsArr, 2);
-      return em.length ? em : ['👍'];
-    }
-    return finalReactionCount > 0 ? ['👍'] : [];
-  }, [reactionsArr, finalReactionCount]);
-
-  useEffect(() => {
-    const newCommentCount = typeof p.comment_count === 'number' 
-      ? p.comment_count 
-      : Array.isArray(p.comments) 
-        ? p.comments.length 
-        : 0;
-    
-    if (newCommentCount !== commentCount) {
-      setCommentCount(newCommentCount);
-    }
-
-    const newShareCount = safeNumber(p.shares ?? p.shares_count, 0);
-    if (newShareCount !== shareCount) {
-      setShareCount(newShareCount);
-    }
-  }, [p.comment_count, p.comments, p.shares, p.shares_count, commentCount, shareCount]);
-
-  const handleShareComplete = (destination: string, data?: any) => {
-    const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
-    
-    if (data?.success && Number.isFinite(nextShares)) {
-      setShareCount(nextShares);
-      onShare(postId, nextShares);
-    }
-    setShowShareSheet(false);
-  };
-
-  const handleFollowClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (onFollow && a.id) {
-      onFollow(safeUserId(a));
-    }
-  };
-
-  // Split media by type for rendering
-  const imageMedia = mediaList.filter(m => m.kind === 'image');
-  const videoMedia = mediaList.filter(m => m.kind === 'video');
-
-  // ========== REGULAR POST RENDERING ==========
-  return (
-    <>
-      {/* ✅ Unified post wrapper */}
-      <div className="w-full">
-        <div className="bg-[#242526] w-full overflow-hidden">
-          {/* ===== POST HEADER ===== */}
-          <div className="p-3 md:p-4 flex items-center justify-between">
-            <div
-              className="flex items-center gap-2 flex-1 min-w-0"
-              onClick={() => onProfileClick(safeUserId(a))}
-            >
-              <img
-                src={avatarFrom(a)}
-                alt=""
-                className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-              />
-              <div className="min-w-0">
-                {/* Group name header for group posts */}
-                {groupId > 0 && groupName && (
-                  <div className="mb-1">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenGroup?.(groupId);
-                      }}
-                      className="text-[#2D88FF] font-bold text-sm hover:underline"
-                    >
-                      {groupName}
-                    </button>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-1 flex-wrap">
-                  <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
-                    {a.name || a.username || 'User'}
-                  </h4>
-                  {a.is_verified && (
-                    <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                  <span>{createdAtLabel}</span>
-                  <span>•</span>
-                  <i className="fas fa-globe-americas text-[12px]"></i>
-                  {p.location && (
-                    <>
-                      <span>•</span>
-                      <span className="truncate max-w-[160px]">
-                        {String(p.location).split(',')[0]}
-                      </span>
-                    </>
-                  )}
-                  {p.feeling && (
-                    <>
-                      <span>•</span>
-                      <span>feeling {p.feeling}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
-              <button
-                onClick={handleFollowClick}
-                disabled={followLoading}
-                className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                  isFollowing 
-                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-              >
-                {followLoading ? (
-                  <i className="fas fa-spinner fa-spin"></i>
-                ) : isFollowing ? (
-                  'Following'
-                ) : (
-                  'Follow'
-                )}
-              </button>
-            )}
-
-            {onDelete &&
-              currentUser &&
-              safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
-                <button
-                  className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(postId);
-                  }}
-                  title="Delete"
-                >
-                  <i className="fas fa-trash text-[#B0B3B8]"></i>
-                </button>
-              )}
-          </div>
-
-          {/* ===== MARKETPLACE TOP LINE ===== */}
-          {marketplaceTop}
-
-          {/* ===== POST CONTENT ===== */}
-          {p.content && !isMarketplace && (
-            <div className="px-3 md:px-4 pb-2">
-              <ExpandableRichText
-                text={String(p.content)}
-                users={users}
-                onProfileClick={onProfileClick}
-                onHashtagClick={onHashtagClick}
-                maxWords={25}
-                fontSizePx={21}
-              />
-            </div>
-          )}
-
-          {/* ===== MUSIC/PODCAST CARD ===== */}
-          {(isMusic || isPodcast) && (
-            <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
-              <div className="flex items-center gap-3 p-3">
-                <img
-                  src={(isMusic ? song?.cover_image_url : podcast?.cover_image_url) || ''}
-                  className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
-                  alt=""
-                />
-                <div className="flex-1 overflow-hidden">
-                  <div className="text-white font-bold truncate">
-                    {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
-                  </div>
-                  <div className="text-[#B0B3B8] text-xs truncate">
-                    {isMusic ? song?.artist_name : podcast?.description}
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenAudio?.(isMusic ? song : podcast);
-                  }}
-                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl"
-                >
-                  Play
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ===== LINK PREVIEW ===== */}
-          {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
-            <div
-              className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
-              onClick={() => window.open(p.link_preview.url, '_blank', 'noopener noreferrer')}
-            >
-              {p.link_preview.image && (
-                <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
-                  <img
-                    src={p.link_preview.image}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                </div>
-              )}
-              <div className="p-4 bg-[#3A3B3C]">
-                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
-                  {p.link_preview.domain}
-                </div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-2">
-                  {p.link_preview.title}
-                </div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-3">
-                  {p.link_preview.description}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ===== BACKGROUND POST ===== */}
-          {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
-            <div
-              className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
-              style={{ background: p.background, backgroundSize: 'cover' }}
-            >
-              {p.content}
-            </div>
-          )}
-
-          {/* ===== MEDIA RENDERING ===== */}
-          {isMarketplace ? (
-            marketplaceMedia
-          ) : (
-            <>
-              {/* Images Grid */}
-              {!p.background && imageMedia.length > 0 && (
-                <MediaGrid
-                  media={imageMedia.map((m) => ({ url: m.url }))}
-                  onOpen={(url, index) => {
-                    const urls = imageMedia.map((m) => m.url);
-                    openGallery(urls, index);
-                  }}
-                />
-              )}
-
-              {/* Video */}
-              {!p.background && videoMedia.length > 0 && (
-                <div
-                  className="cursor-pointer relative h-[500px] bg-black"
-                  onClick={() => onVideoClick(post)}
-                >
-                  <video
-                    src={videoMedia[0].url}
-                    className="w-full h-full object-cover"
-                    preload="metadata"
-                    playsInline
-                    muted
-                    onError={(e) => {
-                      console.error('Failed to load video:', videoMedia[0].url);
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <i className="fas fa-play text-white text-4xl opacity-50"></i>
-                  </div>
-                </div>
-              )}
-              
-              {/* Audio */}
-              {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-                <div className="my-3">
-                  {(() => {
-                    const cover =
-                      (p as any).song_cover_image_url ||
-                      (imageMedia?.[0]?.url) ||
-                      a.profile_image_url;
-
-                    const titleText = p.content || 'Audio';
-                    const artistText =
-                      (p as any).song_artist_name || a.name || 'Unknown';
-
-                    return (
-                      <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
-                        {cover ? (
-                          <div className="relative">
-                            <img
-                              src={cover}
-                              alt="Cover"
-                              className="w-full h-[260px] md:h-[320px] object-cover"
-                              loading="lazy"
-                              onError={(e) => {
-                                const img = e.currentTarget as HTMLImageElement;
-                                if (a.profile_image_url && img.src !== a.profile_image_url) {
-                                  img.src = a.profile_image_url;
-                                }
-                              }}
-                            />
-
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-
-                            <div className="absolute left-3 right-3 bottom-3">
-                              <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
-                                    <img
-                                      src={cover}
-                                      alt="Mini cover"
-                                      className="w-full h-full object-cover"
-                                      loading="lazy"
-                                    />
-                                  </div>
-
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-                                    <div className="text-[#B0B3B8] text-sm truncate">
-                                      {titleText}
-                                    </div>
-                                    <div className="text-[#B0B3B8] text-xs truncate">
-                                      {artistText}
-                                    </div>
-                                  </div>
-
-                                  <button
-                                    onClick={() =>
-                                      onPlayAudioTrack!({
-                                        id: postId,
-                                        title: titleText,
-                                        artist: artistText,
-                                        url: mediaInfo.mediaUrl,
-                                        duration: 0,
-                                        coverImage: cover || a.profile_image_url,
-                                      })
-                                    }
-                                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors flex-shrink-0"
-                                  >
-                                    <i className="fas fa-play mr-1"></i> Play
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="p-4 bg-[#3A3B3C]">
-                            <div className="flex items-center gap-3">
-                              <i className="fas fa-music text-[#1877F2] text-2xl"></i>
-                              <div className="flex-1">
-                                <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-                                <div className="text-[#B0B3B8] text-sm">
-                                  {p.content || 'Listen to audio'}
-                                </div>
-                              </div>
-                              <button
-                                onClick={() =>
-                                  onPlayAudioTrack!({
-                                    id: postId,
-                                    title: titleText,
-                                    artist: artistText,
-                                    url: mediaInfo.mediaUrl,
-                                    duration: 0,
-                                    coverImage: a.profile_image_url,
-                                  })
-                                }
-                                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
-                              >
-                                <i className="fas fa-play mr-1"></i> Play
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ===== MARKETPLACE PRICE AND BUTTON FOOTER ===== */}
-          {marketplaceFooter}
-
-          {/* ===== REACTION SUMMARY ===== */}
-          <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-            <div className="flex items-center gap-2">
-              {finalReactionCount > 0 && (
-                <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(finalReactionCount)}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-4">
-              <span
-                className="hover:underline cursor-pointer"
-                onClick={() => onOpenComments(Number(postId))}
-              >
-                {formatCount(commentCount)} Comments
-              </span>
-              {shareCount > 0 && (
-                <span className="hover:underline">
-                  {formatCount(shareCount)} Shares
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* ===== ACTION BUTTONS ===== */}
-          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-            <ReactionButton
-              currentUserReactions={finalMyReaction}
-              reactionCount={finalReactionCount}
-              onReact={(type) => onReact(postId, type)}
-              isGuest={!currentUser}
-            />
-            <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
-            >
-              <i className="far fa-comment-alt text-[20px]"></i>
-              <span className="text-[17px] font-medium">Comment</span>
-            </button>
-            <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => {
-                if (!currentUser) {
-                  alert('Please login to share posts.');
-                  return;
-                }
-                setShowShareSheet(true);
-              }}
-            >
-              <i className="fas fa-share text-[20px]"></i>
-              <span className="text-[17px] font-medium">Share</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Facebook-like separator band */}
-        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-      </div>
-
-      <ShareBottomSheet
-        isOpen={showShareSheet}
-        onClose={() => setShowShareSheet(false)}
-        post={p}
-        currentUser={currentUser}
-        users={users}
-        groups={groups}
-        brands={brands}
-        chats={chats}
-        onShareComplete={handleShareComplete}
-      />
-
-      {/* Gallery Viewer for multi-image swiping */}
-      <GalleryViewer
-        isOpen={galleryOpen}
-        urls={galleryUrls}
-        startIndex={galleryIndex}
-        onClose={() => setGalleryOpen(false)}
-      />
-    </>
-  );
-};
-
-/**
- * =========================
- * CREATE POST CARD - WITH CREATE EVENT BUTTON
- * =========================
- */
-export const CreatePost: React.FC<{
-  currentUser: User;
-  onProfileClick: (id: number) => void;
-  onClick: () => void;
-  onCreateEventClick: () => void;
-}> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
-  <div className="w-full">
-    <div className="bg-[#242526] w-full p-3 md:p-4">
-      <div className="flex gap-2 mb-3">
-        <img
-          src={avatarFrom(currentUser)}
-          alt=""
-          className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-          onClick={() => onProfileClick(safeUserId(currentUser))}
-        />
-        <div
-          className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
-          onClick={onClick}
-        >
-          <span className="text-[#B0B3B8] text-[17px] truncate">
-            What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
-          </span>
-        </div>
-      </div>
-
-      <div className="border-t border-[#3E4042] pt-2 flex justify-between">
-        <div
-          className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-          onClick={onClick}
-        >
-          <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
-        </div>
-
-        <div
-          className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-          onClick={onClick}
-        >
-          <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
-        </div>
-
-        <div
-          className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-          onClick={onCreateEventClick}
-        >
-          <i className="fas fa-calendar-alt text-[#F7B928] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Create Event</span>
-        </div>
-      </div>
-    </div>
-    
-    <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-  </div>
-);
-
-/**
- * =========================
- * ✅ UPDATED: CREATE POST MODAL WITH ENHANCED LINK PREVIEW
- * =========================
- */
-export const CreatePostModal: React.FC<{
-  currentUser: User;
-  users: User[];
-  onClose: () => void;
-  onCreatePost: (
-    text: string,
-    files: File[],
-    meta?: {
-      type?: 'text' | 'image' | 'video';
-      visibility?: string;
-      location?: string;
-      feeling?: string;
-      taggedUsers?: number[];
-      background?: string;
-      linkPreview?: LinkPreview | null;
-    }
-  ) => void;
-  onCreateEventClick?: () => void;
-}> = ({ currentUser, users, onClose, onCreatePost, onCreateEventClick }) => {
-  const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
-  const [text, setText] = useState('');
-  
-  const [files, setFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<string[]>([]);
-  const [type, setType] = useState<'text' | 'image' | 'video'>('text');
-
-  const [visibility] = useState<'Public' | 'Friends'>('Public');
-  const [activeBackground, setActiveBackground] = useState('');
-  const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
-  const [isFetchingPreview, setIsFetchingPreview] = useState(false);
-
-  const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
-  const [feeling, setFeeling] = useState('');
-  const [location, setLocation] = useState('');
-
-  const [locQuery, setLocQuery] = useState('');
-  const [locResults, setLocResults] = useState<any[]>([]);
-  const [locLoading, setLocLoading] = useState(false);
-  const searchTimeout = useRef<any>(null);
-  const previewTimeout = useRef<any>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (previewTimeout.current) {
-      clearTimeout(previewTimeout.current);
-    }
-
-    if (files.length > 0 || activeBackground) {
-      setLinkPreview(null);
-      return;
-    }
-
-    previewTimeout.current = setTimeout(async () => {
-      setIsFetchingPreview(true);
-      try {
-        const preview = await getLinkPreview(text);
-        setLinkPreview(preview);
-      } catch (error) {
-        console.debug('Failed to fetch link preview');
-        setLinkPreview(null);
-      } finally {
-        setIsFetchingPreview(false);
-      }
-    }, 800);
-
-    return () => {
-      if (previewTimeout.current) {
-        clearTimeout(previewTimeout.current);
-      }
-    };
-  }, [text, files, activeBackground]);
-
-  useEffect(() => {
-    return () => {
-      previews.forEach((p) => URL.revokeObjectURL(p));
-    };
-  }, [previews]);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = Array.from(e.target.files || []);
-    if (list.length === 0) return;
-
-    const images = list.filter((f) => f.type.startsWith('image/'));
-    const videos = list.filter((f) => f.type.startsWith('video/'));
-
-    if (videos.length > 0) {
-      const v = videos[0];
-      setFiles([v]);
-      setPreviews([URL.createObjectURL(v)]);
-      setType('video');
-    } else {
-      setFiles(images.slice(0, 9));
-      setPreviews(images.slice(0, 9).map((f) => URL.createObjectURL(f)));
-      setType('image');
-    }
-
-    setActiveBackground('');
-    setLinkPreview(null);
-    setView('main');
-
-    if (e.target) {
-      e.target.value = '';
-    }
-  };
-
-  const handleLocationSearch = async (q: string) => {
-    if (q.trim().length < 3) {
-      setLocResults([]);
-      return;
-    }
-    setLocLoading(true);
-    try {
-      const data = await apiFetch(`/api/locations/search?q=${encodeURIComponent(q)}`);
-      setLocResults(Array.isArray(data) ? data : []);
-    } catch {
-      setLocResults([]);
-    } finally {
-      setLocLoading(false);
-    }
-  };
-
-  const onLocQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setLocQuery(val);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
-  };
-
-  const canPost = !!text.trim() || files.length > 0 || !!activeBackground;
-
-  const submit = () => {
-    if (!canPost) return;
-
-    onCreatePost(text, files, {
-      type: files.length ? type : 'text',
-      visibility,
-      location: location || undefined,
-      feeling: feeling || undefined,
-      taggedUsers: taggedUsers.length ? taggedUsers : undefined,
-      background: activeBackground || undefined,
-      linkPreview: linkPreview || null,
-    });
-
-    onClose();
-  };
-
-  const OptionsItem = ({
-    icon,
-    color,
-    label,
-    onClick,
-  }: {
-    icon: string;
-    color: string;
-    label: string;
-    onClick?: () => void;
-  }) => (
-    <div
-      className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors"
-      onClick={onClick}
-    >
-      <i className={`${icon} text-[24px] w-8 text-center`} style={{ color }}></i>
-      <span className="text-[#E4E6EB] text-[17px] font-medium">{label}</span>
-    </div>
-  );
-
-  if (view === 'tag') {
-    return (
-      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
-        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={() => setView('main')}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">Tag People</h3>
-          <button
-            onClick={() => setView('main')}
-            className="ml-auto text-[#1877F2] font-bold"
-          >
-            Done
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4">
-          {users
-            .filter((u: any) => safeUserId(u) !== safeUserId(currentUser))
-            .map((u: any) => (
-              <div
-                key={safeUserId(u)}
-                className="flex items-center justify-between p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
-                onClick={() =>
-                  setTaggedUsers((prev) =>
-                    prev.includes(safeUserId(u))
-                      ? prev.filter((uid) => uid !== safeUserId(u))
-                      : [...prev, safeUserId(u)]
-                  )
-                }
-              >
-                <div className="flex items-center gap-3">
-                  <img
-                    src={avatarFrom(u)}
-                    className="w-10 h-10 rounded-full object-cover"
-                    alt=""
-                  />
-                  <span className="text-[#E4E6EB] font-semibold">{u.name || u.username || 'User'}</span>
-                </div>
-                {taggedUsers.includes(safeUserId(u)) && (
-                  <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>
-                )}
-              </div>
-            ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (view === 'feeling') {
-    return (
-      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
-        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={() => setView('main')}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">How are you feeling?</h3>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-2">
-          {FEELINGS.map((f) => (
-            <div
-              key={f}
-              className="p-3 bg-[#242526] rounded-lg text-center cursor-pointer hover:bg-[#3A3B3C] text-[#E4E6EB]"
-              onClick={() => {
-                setFeeling(f);
-                setView('main');
-              }}
-            >
-              {f}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (view === 'location') {
-    return (
-      <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
-        <div className="flex items-center p-4 border-b border-[#3E4042] gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={() => setView('main')}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">Search Location</h3>
-        </div>
-
-        <div className="p-4 flex-1 flex flex-col overflow-hidden">
-          <div className="relative mb-4">
-            <input
-              type="text"
-              placeholder="Where are you?"
-              className="w-full bg-[#3A3B3C] rounded-xl p-4 pl-12 text-[#E4E6EB] outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
-              autoFocus
-              value={locQuery}
-              onChange={onLocQueryChange}
-            />
-            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
-            {locLoading && (
-              <i className="fas fa-spinner fa-spin absolute right-4 top-1/2 -translate-y-1/2 text-[#1877F2]"></i>
-            )}
-          </div>
-
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            {locResults.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {locResults.map((loc, i) => {
-                  const display =
-                    loc.display_name ||
-                    loc.name ||
-                    loc.label ||
-                    `${loc.city || ''}${loc.country ? `, ${loc.country}` : ''}`.trim();
-
-                  const title = (display || '').split(',')[0] || 'Location';
-
-                  return (
-                    <div
-                      key={i}
-                      className="flex items-center gap-4 p-4 hover:bg-[#3A3B3C] rounded-xl cursor-pointer border border-[#3E4042]/30 transition-colors group"
-                      onClick={() => {
-                        setLocation(display);
-                        setView('main');
-                      }}
-                    >
-                      <div className="w-12 h-12 bg-[#3A3B3C] rounded-xl flex items-center justify-center group-hover:bg-[#1877F2] transition-colors">
-                        <i className="fas fa-location-dot text-[#E4E6EB]"></i>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[#E4E6EB] font-bold block truncate">{title}</span>
-                        <span className="text-[#B0B3B8] text-xs block truncate">{display}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : locQuery.length >= 3 && !locLoading ? (
-              <div className="text-center py-10">
-                <i className="fas fa-map-marked-alt text-4xl text-[#3A3B3C] mb-4"></i>
-                <p className="text-[#B0B3B8]">No matching locations found.</p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
-                  Nearby Suggestions
-                </p>
-                {LOCATIONS_DATA.slice(0, 6).map((loc) => (
-                  <div
-                    key={loc.name}
-                    className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors"
-                    onClick={() => {
-                      setLocation(loc.name);
-                      setView('main');
-                    }}
-                  >
-                    <div className="w-10 h-10 bg-[#3A3B3C] rounded-full flex items-center justify-center text-xl">
-                      {loc.flag}
-                    </div>
-                    <span className="text-[#E4E6EB] font-semibold">{loc.name}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-[200] bg-[#18191A] flex flex-col animate-slide-up font-sans">
-      <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-        <div className="flex items-center gap-4">
-          <i
-            className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
-            onClick={onClose}
-          ></i>
-          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Create Post</h3>
-        </div>
-        <button
-          onClick={submit}
-          disabled={!canPost}
-          className="text-[#E4E6EB] font-bold text-[17px] disabled:text-[#B0B3B8]"
-        >
-          POST
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="p-4">
-          <div className="flex items-center gap-3 mb-4">
-            <img
-              src={avatarFrom(currentUser)}
-              alt=""
-              className="w-12 h-12 rounded-full object-cover"
-            />
-            <div>
-              <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[17px]">
-                  {(currentUser as any).name || (currentUser as any).username || 'User'}
-                </h4>
-                {feeling && <span className="text-[#E4E6EB] text-[15px]"> is feeling {feeling}</span>}
-                {location && <span className="text-[#E4E6EB] text-[15px]"> in {location.split(',')[0]}</span>}
-                {taggedUsers.length > 0 && (
-                  <span className="text-[#E4E6EB] text-[15px]"> with {taggedUsers.length} others</span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 mt-0.5">
-                <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[13px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
-                  <i className="fas fa-globe-americas text-[12px]"></i>
-                  <span>{visibility}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div
-            className={`relative min-h-[150px] mb-4 transition-all ${
-              activeBackground ? 'flex items-center justify-center p-8 rounded-lg text-center min-h-[300px]' : ''
-            }`}
-            style={{ background: activeBackground, backgroundSize: 'cover' }}
-          >
-            <textarea
-              className={`w-full bg-transparent outline-none text-[#E4E6EB] placeholder-[#B0B3B8] resize-none ${
-                activeBackground
-                  ? 'text-center font-bold text-3xl drop-shadow-md placeholder-white/70'
-                  : 'text-[24px]'
-              }`}
-              placeholder="What's on your mind?"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={activeBackground ? 4 : 5}
-            />
-          </div>
-
-          {isFetchingPreview && (
-            <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-lg flex items-center justify-center">
-              <i className="fas fa-spinner fa-spin text-[#1877F2] mr-2"></i>
-              <span className="text-[#B0B3B8]">Loading link preview...</span>
-            </div>
-          )}
-
-          {linkPreview && files.length === 0 && !activeBackground && (
-            <div
-              className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
-              onClick={() => window.open(linkPreview.url, '_blank', 'noopener noreferrer')}
-            >
-              {linkPreview.image && (
-                <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
-              )}
-              <div className="p-3 bg-[#3A3B3C]">
-                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{linkPreview.domain}</div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{linkPreview.title}</div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{linkPreview.description}</div>
-              </div>
-            </div>
-          )}
-
-          {previews.length > 0 && (
-            <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
-              <div
-                onClick={() => {
-                  setFiles([]);
-                  setPreviews([]);
-                  setType('text');
-                }}
-                className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
-              >
-                <i className="fas fa-times text-white"></i>
-              </div>
-
-              {type === 'video' ? (
-                <video src={previews[0]} controls className="w-full h-auto max-h-[400px] bg-black" />
-              ) : (
-                <div className={`grid ${previews.length === 1 ? 'grid-cols-1' : 'grid-cols-3'} gap-1 bg-black`}>
-                  {previews.slice(0, 9).map((src, i) => (
-                    <img 
-                      key={i} 
-                      src={src} 
-                      className={`${previews.length === 1 ? 'w-full h-auto max-h-[400px] object-contain' : 'w-full h-28 object-cover'}`} 
-                      alt="" 
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {previews.length === 0 && (
-            <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-              <div
-                className={`w-8 h-8 rounded-lg cursor-pointer border-2 bg-[#3A3B3C] flex items-center justify-center flex-shrink-0 ${
-                  !activeBackground ? 'border-white' : 'border-[#3E4042]'
-                }`}
-                onClick={() => setActiveBackground('')}
-              >
-                <div className="w-6 h-6 bg-white rounded flex items-center justify-center">
-                  <i className="fas fa-font text-black text-xs"></i>
-                </div>
-              </div>
-
-              {BACKGROUNDS.filter((b) => b.id !== 'none').map((bg) => (
-                <div
-                  key={bg.id}
-                  className={`w-8 h-8 rounded-lg cursor-pointer border-2 flex-shrink-0 ${
-                    activeBackground === bg.value ? 'border-white' : 'border-transparent'
-                  }`}
-                  style={{ background: bg.value, backgroundSize: 'cover' }}
-                  onClick={() => setActiveBackground(bg.value)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="border-t border-[#3E4042]">
-          <OptionsItem icon="fas fa-images" color="#45BD62" label="Photo/video" onClick={() => fileInputRef.current?.click()} />
-          <OptionsItem icon="fas fa-camera" color="#45BD62" label="Camera" onClick={() => cameraInputRef.current?.click()} />
-          <OptionsItem icon="fas fa-user-tag" color="#1877F2" label="Tag people" onClick={() => setView('tag')} />
-          <OptionsItem icon="far fa-smile" color="#F7B928" label="Feeling/activity" onClick={() => setView('feeling')} />
-          <OptionsItem icon="fas fa-map-marker-alt" color="#F02849" label="Check in" onClick={() => setView('location')} />
-          {/* Create Event option in modal footer */}
-          <div
-            className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors border-t border-[#3E4042]/50 mt-2"
-            onClick={() => {
-              onClose();
-              if (onCreateEventClick) onCreateEventClick();
-            }}
-          >
-            <i className="fas fa-calendar-alt text-[24px] w-8 text-center" style={{ color: '#F7B928' }}></i>
-            <span className="text-[#E4E6EB] text-[17px] font-medium">Create Event</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="p-4 border-t border-[#3E4042]">
-        <button
-          onClick={submit}
-          disabled={!canPost}
-          className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors disabled:bg-[#3A3B3C] text-lg shadow-sm"
-        >
-          POST
-        </button>
-      </div>
-
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        className="hidden" 
-        accept="image/*,video/*" 
-        multiple
-        onChange={handleFileChange} 
-      />
-      <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
-    </div>
-  );
-};
-
-// Global comments cache
-const commentsCache = new Map<number, { 
-  data: any[], 
-  timestamp: number,
-  postId: number 
-}>();
-
-/**
- * =========================
- * ✅ UPDATED: FULL POST VIEW WITH FULL-WIDTH MEDIA AND UNIFIED AVATAR
- * =========================
- */
-export const CommentsSheet: React.FC<{
-  post: PostType;
-  currentUser: User;
-  users: User[];
-  onClose: () => void;
-  onComment?: (postId: number, text: string) => void;
-  onLikeComment?: (commentId: number) => void;
-  getCommentAuthor?: (id: number) => User | undefined;
-  onProfileClick: (id: number) => void;
-  onHashtagClick?: (tag: string) => void;
-  onFollow?: (id: number) => void;
-  checkIsFollowing?: (id: number) => boolean;
-  onViewProductFromPost?: (productId: number) => void;
-  onOpenAudio?: (item: any) => void;
-}> = ({ 
-  post, 
-  currentUser, 
-  users, 
-  onClose, 
-  onComment, 
-  onLikeComment, 
-  getCommentAuthor, 
-  onProfileClick, 
-  onHashtagClick,
-  onFollow,
-  checkIsFollowing,
-  onViewProductFromPost,
-  onOpenAudio
-}) => {
-  const { onViewProduct, getProductData } = useContext(MarketplaceContext);
-  
-  const p: any = post as any;
-  const postId = safePostId(p);
-  
-  const [text, setText] = useState('');
-  const [comments, setComments] = useState<any[]>([]);
-  const [replyTo, setReplyTo] = useState<any | null>(null);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  // ========== MARKETPLACE DETECTION ==========
-  const meta: any = p?.meta || {};
-  
-  const isMarketplace =
-    p?.type === "marketplace" ||
-    p?.post_type === "product" ||
-    p?.type === 'product' ||
-    p?.kind === 'product' ||
-    meta?.type === 'product' ||
-    meta?.kind === 'product' ||
-    !!p?.product_id ||
-    !!p?.meta?.marketplace?.id;
-
-  const productId = isMarketplace ? getMarketplaceProductId(p) : null;
-  const productData = productId ? getProductData?.(productId) : null;
-
-  const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
-  const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
-
-  // ✅ Music/Podcast detection
-  const isMusic = meta?.kind === 'music' || meta?.type === 'music';
-  const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
-  const song = meta?.song;
-  const podcast = meta?.podcast;
-
-  const mediaInfo = getMediaTypeInfo(p);
-  const mediaList = useMemo(() => getPostMediaList(p), [p]);
-  const imageMedia = mediaList.filter(m => m.kind === 'image');
-  const videoMedia = mediaList.filter(m => m.kind === 'video');
-
-  const textPreview = getPostTextPreview(p, 140);
-  
-  const resolveAuthor = (c: any) => {
-    const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
-
-    const u =
-      (Number.isFinite(uid) ? users.find((x: any) => Number(x?.id) === uid) : null) ||
-      (getCommentAuthor ? getCommentAuthor(uid) : null) ||
-      null;
-
-    const name =
-      String(c?.author_name ?? c?.authorName ?? '').trim() ||
-      String(u?.name ?? '').trim() ||
-      String(u?.username ?? '').trim() ||
-      'User';
-
-    const image = avatarFrom({
-      profile_image_url: c?.author_image ?? c?.authorImage ?? u?.profile_image_url,
-      name,
-      username: u?.username ?? c?.author_username ?? c?.username,
-    });
-
-    return { uid, name, image };
-  };
-
-  const getReplyLabel = (comment: any) => {
-    const a = resolveAuthor(comment);
-    const uid = a.uid;
-    
-    const user = users.find((x: any) => Number(x?.id) === uid);
-    const username = String(
-      comment?.author_username ?? 
-      user?.username ?? 
-      comment?.username ?? 
-      ''
-    ).trim();
-    
-    const display = username ? `@${username}` : a.name;
-    return { ...a, username, display };
-  };
-
-  const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return `${(count / 1000000).toFixed(1)}M`;
-    } else if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
-    return count.toString();
-  };
-
-  const handleLikeComment = async (comment: any) => {
+  }, [currentUser, requireAuth, fetchEvents]);
+
+  /**
+   * Legacy joinEvent - now uses onRSVPEvent
+   */
+  const joinEvent = useCallback(async (eventId: number) => {
+    return onRSVPEvent(eventId, 'going');
+  }, [onRSVPEvent]);
+
+  /**
+   * Legacy markEventInterested - now uses onRSVPEvent
+   */
+  const markEventInterested = useCallback(async (eventId: number) => {
+    return onRSVPEvent(eventId, 'interested');
+  }, [onRSVPEvent]);
+
+  const createEvent = useCallback(async (eventData: any) => {
+    if (!requireAuth('Creating events')) return;
     if (!currentUser) return;
 
-    const optimisticLiked = !comment.liked_by_me;
-    const optimisticCount = comment.liked_by_me 
-      ? Math.max(0, (comment.likes_count || 0) - 1)
-      : (comment.likes_count || 0) + 1;
+    const uiDate = safeString(eventData?.date ?? '', '');
+    const uiTime = safeString(eventData?.time ?? '', '');
+    const apiISO = safeString(eventData?.event_date ?? '', '');
+    const apiTime = safeString(eventData?.event_time ?? '', '');
 
-    setComments(prev => prev.map(c => 
-      c.id === comment.id 
-        ? { 
-            ...c, 
-            liked_by_me: optimisticLiked,
-            likes_count: optimisticCount 
-          } 
-        : c
-    ));
+    const d = uiDate || toDateOnly(apiISO) || new Date().toISOString().slice(0, 10);
+    const t = apiTime || uiTime || '12:00';
+    const eventDateISO = new Date(`${d}T${t}:00`).toISOString();
 
-    if (onLikeComment) {
-      onLikeComment(comment.id);
-    }
+    const cover =
+      safeString(eventData?.cover_url ?? eventData?.image ?? eventData?.cover ?? eventData?.cover_image, '') || DEFAULT_EVENT_COVER;
 
+    const payload = {
+      title: safeString(eventData?.title).trim(),
+      description: safeString(eventData?.description).trim(),
+      event_date: eventDateISO,
+      event_time: apiTime || uiTime || '12:00',
+      location: safeString(eventData?.location).trim(),
+      visibility: safeString(eventData?.visibility, 'worldwide'),
+      cover_url: cover,
+      image: cover,
+      creator_id: Number(currentUser.id),
+      creator_name: safeString(currentUser.name),
+      creator_avatar: safeString(currentUser.profile_image_url),
+      group_id: eventData?.group_id ? Number(eventData.group_id) : null,
+    };
+
+    const res = await apiFetch('/api/events', { method: 'POST', body: JSON.stringify(payload) });
+
+    const newEvent = normalizeEvent(res?.event ?? res);
+    setEvents((prev: any) => [newEvent, ...safeArray(prev)]);
+    return newEvent;
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ FIXED: Refresh group members helper ---------- */
+  const refreshGroupMembers = useCallback(async (groupId: number) => {
     try {
-      await apiFetch(`/api/comments/${comment.id}/like`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: safeUserId(currentUser) }),
-      });
+      const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
+      const members = safeArray(res?.members)
+        .map((m: any) => Number(m.user_id ?? m))
+        .filter(Number.isFinite);
+      
+      setGroups(prev => prev.map(g => {
+        if (Number(g.id) !== Number(groupId)) return g;
+        return { 
+          ...g, 
+          members, 
+          members_count: members.length 
+        };
+      }));
     } catch (error) {
-      console.error('Failed to like comment:', error);
-      setComments(prev => prev.map(c => 
-        c.id === comment.id 
-          ? { 
-              ...c, 
-              liked_by_me: !optimisticLiked,
-              likes_count: comment.likes_count || 0 
-            } 
-          : c
-      ));
+      console.error('Failed to refresh group members:', error);
     }
-  };
+  }, []);
 
-  const handleFollowClick = (e: React.MouseEvent, userId: number) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (onFollow && userId && userId !== safeUserId(currentUser)) {
-      onFollow(userId);
-    }
-  };
-
-  const fetchCommentsSilently = async () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    abortControllerRef.current = new AbortController();
+  // ============================================================================
+  // 🔧 FIXED: fetchOtherData with proper group merging
+  // ============================================================================
+  const fetchOtherData = useCallback(async () => {
+    if (otherDataInFlightRef.current) return;
+    otherDataInFlightRef.current = true;
     
     try {
-      const viewerId = safeUserId(currentUser);
-      const data = await apiFetch(`/api/posts/${postId}/comments?viewerId=${viewerId}`);
-      const arr = Array.isArray(data) ? data : data?.comments || [];
-      const sorted = sortComments(arr);
+      const [pr, g, b, c] = await Promise.all([
+        apiFetch('/api/products').catch(() => []),
+        apiFetch('/api/groups').catch(() => []),
+        apiFetch('/api/brands').catch(() => []),
+        apiFetch('/api/chats').catch(() => []),
+      ]);
+
+      // Handle products
+      const prRaw = pr;
+      const prList =
+        Array.isArray(prRaw) ? prRaw :
+        Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
+        Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
+        Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
+        Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
+        [];
+
+      setProducts(prList.map(normalizeProduct));
       
-      if (arr.length > 0) {
-        setComments(sorted);
-        commentsCache.set(postId, { 
-          data: arr, 
-          timestamp: Date.now(),
-          postId 
+      // 🔧 FIXED: Handle groups response properly - preserve undefined members
+      const gRaw = g;
+      const gList = Array.isArray(gRaw)
+        ? gRaw
+        : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
+        : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
+        : [];
+      
+      // ✅ FIXED: Merge new groups with existing ones, preserving members when backend doesn't send them
+      setGroups(prev => {
+        const byId = new Map(prev.map(g => [Number(g.id), g]));
+        return gList.map((ng: any) => {
+          const old = byId.get(Number(ng.id));
+          
+          // 🔧 CRITICAL FIX: Check if backend actually sent members
+          const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
+          
+          // If backend didn't send members, preserve old members (including undefined)
+          // If backend did send members, use them
+          // This prevents empty arrays from overwriting real membership data
+          return normalizeGroup({
+            ...old,
+            ...ng,
+            members: hasMembers ? ng.members : old?.members,
+            members_count: hasMembers 
+              ? ng.members.length 
+              : safeNumber(ng.members_count ?? old?.members_count ?? old?.members?.length ?? 0),
+          });
         });
-      }
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        return;
-      }
-      console.debug('Silent comment fetch failed:', error);
-    }
-  };
-
-  useEffect(() => {
-    const initializeComments = async () => {
-      const cached = commentsCache.get(postId);
-      if (cached) {
-        const sorted = sortComments(cached.data);
-        setComments(sorted);
-      }
-      
-      const postComments = Array.isArray(p.comments) ? p.comments : [];
-      if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
-        const sorted = sortComments(postComments);
-        setComments(sorted);
-        commentsCache.set(postId, { 
-          data: postComments, 
-          timestamp: Date.now(),
-          postId 
-        });
-      }
-      
-      fetchCommentsSilently();
-    };
-
-    initializeComments();
-    
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, [postId, p.comments]);
-
-  const idKey = (v: any) => String(v ?? '').trim();
-
-  const sortComments = (list: any[]) => {
-    const root = list.filter((c) => !c.parent_comment_id);
-    
-    const repliesByParent = new Map<string, any[]>();
-    
-    list.forEach((c) => {
-      const pid = idKey(c.parent_comment_id);
-      if (!pid) return;
-      
-      if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
-      repliesByParent.get(pid)!.push(c);
-    });
-    
-    repliesByParent.forEach((arr) => {
-      arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-    });
-    
-    const sorted: any[] = [];
-    root.forEach((comment) => {
-      const cid = idKey(comment.id);
-      sorted.push(comment);
-      const replies = repliesByParent.get(cid) || [];
-      sorted.push(...replies);
-    });
-    
-    return sorted;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const t = text.trim();
-    if (!t) return;
-
-    const replyDisplay = replyTo?._reply_author?.display;
-    const prefix = replyDisplay ? `${replyDisplay}: ` : '';
-    const finalText = replyTo && !t.startsWith(prefix) ? prefix + t : t;
-
-    const optimisticComment = {
-      id: `tmp-${Date.now()}`,
-      post_id: postId,
-      user_id: safeUserId(currentUser),
-      text: finalText,
-      parent_comment_id: replyTo?.id || null,
-      created_at: new Date().toISOString(),
-      replies_count: 0,
-      likes_count: 0,
-      liked_by_me: false,
-    };
-
-    setText('');
-    setReplyTo(null);
-    setShowEmojiPicker(false);
-
-    setComments(prev => {
-      const next = [...prev, optimisticComment];
-      const allComments = commentsCache.get(postId)?.data || [];
-      commentsCache.set(postId, { 
-        data: [...allComments, optimisticComment], 
-        timestamp: Date.now(),
-        postId 
       });
-      return sortComments(next);
-    });
-
-    if (onComment) {
-      onComment(postId, finalText);
+      
+      setBrands(safeArray(b));
+      
+      const eventsData = await fetchEvents().catch(() => []);
+      setEvents(eventsData);
+      
+      setChats(safeArray(c));
+    } catch (error) {
+      console.error('Failed to fetch other data:', error);
+    } finally {
+      otherDataInFlightRef.current = false;
     }
+  }, [fetchEvents]);
+
+  // ============================================================================
+  // 🔧 Helper function to check group membership
+  // ============================================================================
+  const isGroupMember = useCallback((group: Group): boolean => {
+    if (!currentUser) return false;
+    
+    const meId = Number(currentUser.id);
+    
+    // Check if user is admin
+    if (group.admin_id === meId) return true;
+    
+    // Check is_member flag from backend (most reliable)
+    if (group.is_member === true) return true;
+    if (group.is_member === false) return false;
+    
+    // Fallback to checking members array (if available)
+    return Array.isArray(group.members) && group.members.includes(meId);
+  }, [currentUser]);
+
+  /** ---------- ✅ FIXED: fetchGroupPosts always returns array ---------- */
+  const fetchGroupPosts = useCallback(async (groupId: number) => {
+    try {
+      const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+      const res = await apiFetch(`/api/group-posts?group_id=${groupId}&viewerId=${viewerId}`);
+      
+      // ✅ Always return an array
+      const posts = safeArray((res as any)?.posts ?? res);
+      return posts.map(normalizePost);
+    } catch (error) {
+      console.error('Failed to fetch group posts:', error);
+      return []; // Always return array on error
+    }
+  }, [currentUser]);
+
+  const toggleGroupPostLike = useCallback(async (postId: number, type?: ReactionType) => {
+    if (!requireAuth("Liking")) return { liked: false, likes_count: 0 };
+    const meId = Number(currentUser!.id);
+    const reactionType = type || 'like';
 
     try {
-      await apiFetch(`/api/posts/${postId}/comment`, {
-        method: 'POST',
+      const res = await apiFetch("/api/group-post-likes", {
+        method: "POST",
+        body: JSON.stringify({ 
+          user_id: meId, 
+          post_id: Number(postId),
+          type: reactionType 
+        })
+      });
+
+      return {
+        liked: !!(res as any)?.liked,
+        likes_count: Number((res as any)?.likes_count || 0),
+      };
+    } catch (error) {
+      console.error('Failed to toggle group post like:', error);
+      return { liked: false, likes_count: 0 };
+    }
+  }, [currentUser, requireAuth]);
+
+  const fetchGroupPostComments = useCallback(async (postId: number) => {
+    try {
+      const res = await apiFetch(`/api/group-post-comments?post_id=${Number(postId)}`);
+      return safeArray((res as any)?.comments);
+    } catch (error) {
+      console.error('Failed to fetch group comments:', error);
+      return [];
+    }
+  }, []);
+
+  const createGroupPostComment = useCallback(async (postId: number, text: string, parent_comment_id?: number | null) => {
+    if (!requireAuth("Commenting")) return;
+    const meId = Number(currentUser!.id);
+
+    try {
+      const res = await apiFetch("/api/group-post-comments", {
+        method: "POST",
         body: JSON.stringify({
-          text: finalText,
-          user_id: safeUserId(currentUser),
-          parent_comment_id: replyTo?.id || null,
+          user_id: meId,
+          post_id: Number(postId),
+          text: String(text || "").trim(),
+          parent_comment_id: parent_comment_id ?? null,
         }),
       });
 
-      fetchCommentsSilently();
-    } catch (err: any) {
-      console.error('Failed to post comment:', err);
+      return res;
+    } catch (error) {
+      console.error('Failed to create group comment:', error);
+      throw error;
     }
-  };
+  }, [currentUser, requireAuth]);
 
-  const addEmoji = (emoji: string) => {
-    setText(prev => prev + emoji);
-    setShowEmojiPicker(false);
-    inputRef.current?.focus();
-  };
+  /** ---------- ✅ FIXED: joinGroup with optimistic update and is_member support ---------- */
+  const joinGroup = useCallback(async (groupId: number) => {
+    if (!requireAuth("Joining groups")) return;
+    if (!currentUser) return;
+
+    const meId = Number(currentUser.id);
+
+    // ✅ OPTIMISTIC UPDATE: Update UI immediately using is_member flag
+    setGroups(prev =>
+      prev.map(g => {
+        if (Number(g.id) !== Number(groupId)) return g;
+        
+        // Update both members array and is_member flag
+        const currentMembers = Array.isArray(g.members) ? g.members : [];
+        // Don't add if already a member
+        if (currentMembers.includes(meId)) return g;
+        
+        const nextMembers = [...currentMembers, meId];
+        
+        return {
+          ...g,
+          members: nextMembers,
+          members_count: nextMembers.length,
+          is_member: true, // 🔧 Set is_member flag
+        };
+      })
+    );
+
+    try {
+      const result = await apiFetch("/api/group-members", {
+        method: "POST",
+        body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
+      });
+
+      // ✅ Then refresh just this group's members to ensure consistency
+      await refreshGroupMembers(groupId);
+      
+      return result;
+    } catch (error) {
+      // Revert on error
+      console.error('Failed to join group:', error);
+      setGroups(prev =>
+        prev.map(g => {
+          if (Number(g.id) !== Number(groupId)) return g;
+          
+          const currentMembers = Array.isArray(g.members) ? g.members : [];
+          const nextMembers = currentMembers.filter(id => id !== meId);
+          
+          return {
+            ...g,
+            members: nextMembers,
+            members_count: nextMembers.length,
+            is_member: false, // 🔧 Revert is_member flag
+          };
+        })
+      );
+      setLoginError('Failed to join group');
+      throw error;
+    }
+  }, [currentUser, requireAuth, refreshGroupMembers]);
+
+  /** ---------- ✅ FIXED: leaveGroup with optimistic update and is_member support ---------- */
+  const leaveGroup = useCallback(async (groupId: number) => {
+    if (!requireAuth("Leaving groups")) return;
+    if (!currentUser) return;
+
+    const meId = Number(currentUser.id);
+
+    // ✅ OPTIMISTIC UPDATE: Update UI immediately using is_member flag
+    setGroups(prev =>
+      prev.map(g => {
+        if (Number(g.id) !== Number(groupId)) return g;
+        
+        const currentMembers = Array.isArray(g.members) ? g.members : [];
+        const nextMembers = currentMembers.filter(id => id !== meId);
+        
+        return {
+          ...g,
+          members: nextMembers,
+          members_count: nextMembers.length,
+          is_member: false, // 🔧 Set is_member flag
+        };
+      })
+    );
+
+    try {
+      const result = await apiFetch(
+        `/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`,
+        { method: "DELETE" }
+      );
+
+      // ✅ Then refresh just this group's members to ensure consistency
+      await refreshGroupMembers(groupId);
+      
+      return result;
+    } catch (error) {
+      // Revert on error
+      console.error('Failed to leave group:', error);
+      setGroups(prev =>
+        prev.map(g => {
+          if (Number(g.id) !== Number(groupId)) return g;
+          
+          const currentMembers = Array.isArray(g.members) ? g.members : [];
+          // Don't add if already a member
+          if (currentMembers.includes(meId)) return g;
+          
+          const nextMembers = [...currentMembers, meId];
+          
+          return {
+            ...g,
+            members: nextMembers,
+            members_count: nextMembers.length,
+            is_member: true, // 🔧 Revert is_member flag
+          };
+        })
+      );
+      setLoginError('Failed to leave group');
+      throw error;
+    }
+  }, [currentUser, requireAuth, refreshGroupMembers]);
+
+  const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
+    if (!requireAuth("Posting")) return;
+    const meId = Number(currentUser!.id);
+
+    let media_url: string | null = null;
+    if (file) {
+      const up = await uploadToCloudflareR2(file, "group-posts");
+      media_url = up.url;
+    }
+
+    try {
+      const result = await apiFetch("/api/group-posts", {
+        method: "POST",
+        body: JSON.stringify({
+          group_id: Number(groupId),
+          user_id: meId,
+          content: String(text || "").trim() || null,
+          media_url,
+        }),
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to create group post:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  const createGroup = useCallback(async (groupData: Partial<Group>) => {
+    if (!requireAuth("Creating groups")) return;
+    const meId = Number(currentUser!.id);
+
+    try {
+      const res = await apiFetch("/api/groups", {
+        method: "POST",
+        body: JSON.stringify({
+          ...groupData,
+          admin_id: meId,
+          description: String(groupData.description || "").trim(),
+          created_at: new Date().toISOString(),
+        }),
+      });
+
+      fetchOtherData().catch(() => {});
+      return res;
+    } catch (error) {
+      console.error('Failed to create group:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth, fetchOtherData]);
+
+  const deleteGroup = useCallback(async (groupId: number) => {
+    if (!requireAdmin('Deleting groups')) return;
+
+    try {
+      await apiFetch(`/api/groups?id=${Number(groupId)}`, {
+        method: "DELETE",
+      });
+
+      fetchOtherData().catch(() => {});
+      return true;
+    } catch (error) {
+      console.error('Failed to delete group:', error);
+      throw error;
+    }
+  }, [requireAdmin, fetchOtherData]);
+
+  const updateGroupSettings = useCallback(async (groupId: number, settings: Partial<Group>) => {
+    if (!requireAuth("Updating group settings")) return;
+
+    try {
+      const res = await apiFetch(`/api/groups?id=${Number(groupId)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          ...settings,
+          description: settings.description ? String(settings.description).trim() : undefined,
+        }),
+      });
+
+      fetchOtherData().catch(() => {});
+      return res;
+    } catch (error) {
+      console.error('Failed to update group settings:', error);
+      throw error;
+    }
+  }, [requireAuth, fetchOtherData]);
+
+  const fetchGroupDetails = useCallback(async (groupId: number) => {
+    try {
+      const res = await apiFetch(`/api/groups?id=${Number(groupId)}`);
+      return {
+        group: normalizeGroup((res as any)?.group ?? res),
+        members: safeArray((res as any)?.members),
+      };
+    } catch (error) {
+      console.error('Failed to fetch group details:', error);
+      return { group: null, members: [] };
+    }
+  }, []);
+
+  /** ---------- ✅ FIXED: fetchGroupEvents always returns array ---------- */
+  const fetchGroupEvents = useCallback(async (groupId: number): Promise<Event[]> => {
+    try {
+      const data = await apiFetch(`/api/groups/${groupId}/events?viewerId=${currentUser?.id || 0}`);
+      
+      // ✅ Always return an array
+      const events = safeArray(data?.events ?? data);
+      return events.map(normalizeEvent);
+    } catch (error) {
+      console.error('Failed to fetch group events:', error);
+      return []; // Always return array on error
+    }
+  }, [currentUser]);
+
+  /** ---------- ✅ FIXED: Create group event with correct field mapping ---------- */
+  const createGroupEvent = useCallback(async (groupId: number, eventData: Partial<Event>): Promise<Event> => {
+    if (!requireAuth('Creating events')) throw new Error('Authentication required');
+    if (!currentUser) throw new Error('User not authenticated');
+
+    // Map from Groups.tsx format to backend format
+    const title = String(eventData.title || "").trim();
+    const description = String(eventData.description || "").trim();
+    
+    // Handle date - Groups.tsx sends start_time
+    const event_date = eventData.start_time || eventData.event_date || eventData.date || new Date().toISOString();
+    
+    const location = String(eventData.location || "").trim();
+    
+    // Handle cover image - Groups.tsx sends cover_image
+    const cover_url = String(
+      eventData.cover_url || 
+      eventData.cover_image || 
+      eventData.image || 
+      DEFAULT_EVENT_COVER
+    ).trim();
+
+    if (!title) throw new Error('Event title is required');
+    if (!event_date) throw new Error('Event date is required');
+
+    const payload = {
+      group_id: Number(groupId),
+      creator_id: Number(currentUser.id), // ✅ Use creator_id not created_by
+      creator_name: currentUser.name,
+      creator_avatar: currentUser.profile_image_url,
+      title,
+      description,
+      event_date, // ✅ Use event_date not start_time
+      location,
+      cover_url, // ✅ Use cover_url not cover_image
+      visibility: String(eventData.visibility || "worldwide"),
+    };
+
+    try {
+      const data = await apiFetch(`/api/groups/${groupId}/events`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const newEvent = normalizeEvent(data?.event ?? data);
+      
+      // Update events state if needed
+      setEvents(prev => [newEvent, ...safeArray(prev)]);
+      
+      return newEvent;
+    } catch (error) {
+      console.error('Failed to create group event:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ FIXED: Event RSVP function with proper endpoints ---------- */
+  const handleEventRSVP = useCallback(async (eventId: number, status: string): Promise<any> => {
+    if (!requireAuth('RSVP to events')) return;
+    if (!currentUser) return;
+
+    // Map status to the format expected by onRSVPEvent
+    let mappedStatus: "going" | "interested" | "not_going";
+    
+    if (status === 'going') {
+      mappedStatus = 'going';
+    } else if (status === 'interested') {
+      mappedStatus = 'interested';
+    } else {
+      mappedStatus = 'not_going';
+    }
+
+    return onRSVPEvent(eventId, mappedStatus);
+  }, [currentUser, requireAuth, onRSVPEvent]);
+
+  /** ---------- ✅ FIXED: Edit group post function with proper auth and user_id ---------- */
+  const editGroupPost = useCallback(async (postId: number, content: string) => {
+    if (!requireAuth('Editing group posts')) return;
+
+    const meId = Number(currentUser!.id);
+    const clean = String(content || '').trim();
+    if (!clean) throw new Error('Content is empty');
+
+    const res = await apiFetch(`/api/group-posts?post_id=${Number(postId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ 
+        user_id: meId, 
+        content: clean 
+      }),
+    });
+
+    return res;
+  }, [currentUser, requireAuth]);
+
+  /** ---------- ✅ FIXED: Delete group post function with user_id ---------- */
+  const deleteGroupPost = useCallback(async (groupId: number, postId: number) => {
+    if (!requireAuth("Deleting group posts")) return;
+
+    const meId = Number(currentUser!.id);
+
+    try {
+      await apiFetch(`/api/group-posts?post_id=${Number(postId)}&user_id=${meId}`, {
+        method: "DELETE",
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to delete group post:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
+    if (!requireAdmin('Removing group members')) return;
+
+    try {
+      await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${Number(memberId)}`, {
+        method: "DELETE",
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to remove group member:', error);
+      throw error;
+    }
+  }, [requireAdmin]);
+
+  const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
+    if (!requireAuth("Updating group image")) return;
+
+    try {
+      const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
+      const imageUrl = uploadResult.url;
+
+      const field = type === 'cover' ? 'cover_image' : 'profile_image';
+      await updateGroupSettings(groupId, { [field]: imageUrl } as any);
+      return imageUrl;
+    } catch (error) {
+      console.error('Failed to update group image:', error);
+      throw error;
+    }
+  }, [requireAuth, updateGroupSettings]);
+
+  /** ---------- ✅ FIXED: Like comment function (needed for CommentsSheet) ---------- */
+  const handleLikeComment = useCallback(async (commentId: number): Promise<any> => {
+    if (!requireAuth('Liking comments')) return;
+    if (!currentUser) return;
+
+    try {
+      return await apiFetch(`/api/comments/${commentId}/like`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+    } catch (error) {
+      console.error('Failed to like comment:', error);
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  const inviteToGroup = useCallback(async (groupId: number, userIds: number[]) => {
+    if (!requireAuth("Inviting to groups")) return;
+    
+    try {
+      return await apiFetch("/api/group-invites", {
+        method: "POST",
+        body: JSON.stringify({
+          group_id: Number(groupId),
+          inviter_id: Number(currentUser!.id),
+          invitee_ids: userIds,
+        }),
+      });
+    } catch (error) {
+      console.error('Failed to invite to group:', error);
+      return { success: true, message: "Invites sent" };
+    }
+  }, [currentUser, requireAuth]);
+
+  const fetchData = useCallback(
+    async (viewer: User | null) => {
+      await Promise.all([
+        fetchUsersList(), 
+        fetchPostsForHome(viewer), 
+        fetchOtherData(), 
+        fetchReels(),
+        fetchSongs(),
+        fetchStories(),
+      ]);
+    },
+    [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
+  );
 
   useEffect(() => {
-    const handleFocus = () => {
-      const cached = commentsCache.get(postId);
-      if (cached && (Date.now() - cached.timestamp > 30000)) {
-        fetchCommentsSilently();
+    let mounted = true;
+    
+    const init = async () => {
+      let viewer: User | null = null;
+
+      try {
+        const raw = localStorage.getItem(LS_USER_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          const normalized = normalizeUser(saved);
+          if (normalized?.id) {
+            viewer = normalized;
+            setCurrentUser(normalized);
+            setSelectedUserId(Number(normalized.id));
+
+            setUsers((prev) => {
+              const arr = safeArray(prev);
+              const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
+              if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+              return [normalized, ...arr];
+            });
+          }
+        }
+      } catch {
+      }
+
+      if (!mounted) return;
+      
+      await Promise.all([
+        fetchUsersList(),
+        fetchPostsForHome(viewer),
+        fetchOtherData(),
+        fetchReels(),
+        fetchSongs(),
+        fetchStories(),
+      ]);
+      
+      if (!mounted) return;
+      setAuthHydrated(true);
+    };
+
+    init();
+    
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const markActive = () => {
+      try {
+        localStorage.setItem(FEED_LAST_ACTIVE_KEY, String(nowMs()));
+      } catch {}
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        markActive();
+        return;
+      }
+
+      const last = Number(localStorage.getItem(FEED_LAST_ACTIVE_KEY) || '0') || 0;
+      const away = nowMs() - last;
+
+      if (away > FEED_RETURN_THRESHOLD_MS) {
+        try {
+          sessionStorage.removeItem(FEED_SESSION_KEY);
+        } catch {}
+        fetchPostsForHome(currentUser).catch(() => {});
+        fetchReels().catch(() => {});
       }
     };
 
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [postId]);
+    const events = ['click', 'scroll', 'keydown', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, markActive, { passive: true } as any));
+    document.addEventListener('visibilitychange', onVisibility);
 
-  const postAuthor = p.author || {
-    name: p.name,
-    username: p.username,
-    profile_image_url: p.profile_image_url,
-    id: p.user_id || p.author_id
+    markActive();
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, markActive as any));
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [currentUser, fetchPostsForHome, fetchReels]);
+
+  useEffect(() => {
+    if (activeCommentsPostId != null) return;
+    if (document.visibilityState !== 'visible') return;
+
+    let stopped = false;
+
+    const tick = async () => {
+      if (stopped) return;
+      if (document.visibilityState !== 'visible') return;
+      if (activeCommentsPostId != null) return;
+      await fetchPostsForHome(currentUser).catch(() => {});
+      await fetchReels().catch(() => {});
+    };
+
+    const t = setInterval(tick, 30000);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
+  }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsPostId]);
+
+  const verifyUser = useCallback(
+    async (userId: number) => {
+      if (!requireAdmin('Verify user')) return;
+
+      setUsers((prev) =>
+        prev.map((u: any) =>
+          Number(u.id) === Number(userId) ? { ...u, is_verified: u.is_verified ? 0 : 1 } : u
+        )
+      );
+
+      try {
+        await apiFetch('/api/admin/users/verify', {
+          method: 'POST',
+          body: JSON.stringify({ user_id: Number(userId) }),
+        });
+
+        await fetchUsersList();
+      } catch (e: any) {
+        await fetchUsersList();
+        setLoginError(e?.message || 'Verify failed');
+      }
+    },
+    [requireAdmin, fetchUsersList]
+  );
+
+  const suspendUser = useCallback(
+    async (userId: number, duration: '24h' | '5d' | '30d' | 'manual') => {
+      if (!requireModOrAdmin('Suspend user')) return;
+
+      try {
+        await apiFetch('/api/admin/users/suspend', {
+          method: 'POST',
+          body: JSON.stringify({ user_id: Number(userId), duration }),
+        });
+
+        await fetchUsersList();
+      } catch (e: any) {
+        setLoginError(e?.message || 'Suspend failed');
+      }
+    },
+    [requireModOrAdmin, fetchUsersList]
+  );
+
+  const deleteUserAccount = useCallback(
+    async (userId: number) => {
+      if (!requireAdmin('Delete account')) return;
+
+      setUsers((prev) => prev.filter((u: any) => Number(u.id) !== Number(userId)));
+
+      try {
+        await apiFetch('/api/admin/users/delete', {
+          method: 'DELETE',
+          body: JSON.stringify({ user_id: Number(userId) }),
+        });
+
+        await fetchUsersList();
+        fetchPostsForHome(currentUser).catch(() => {});
+      } catch (e: any) {
+        await fetchUsersList();
+        setLoginError(e?.message || 'Delete failed');
+      }
+    },
+    [requireAdmin, fetchUsersList, fetchPostsForHome, currentUser]
+  );
+
+  const setModeratorRole = useCallback(
+    async (userId: number, role: 'moderator' | 'user') => {
+      if (!requireAdmin('Change user role')) return;
+
+      try {
+        await apiFetch('/api/admin/users/role', {
+          method: 'POST',
+          body: JSON.stringify({ user_id: Number(userId), role }),
+        });
+
+        await fetchUsersList();
+      } catch (e: any) {
+        setLoginError(e?.message || 'Role change failed');
+      }
+    },
+    [requireAdmin, fetchUsersList]
+  );
+
+  const handleHashtagClick = useCallback((tag: string) => {
+    const cleanedTag = tag.startsWith('#') ? tag.toLowerCase() : `#${tag.toLowerCase()}`;
+    setActiveHashtag(cleanedTag);
+    setView('home');
+    window.scrollTo(0, 0);
+  }, []);
+
+  const clearHashtag = useCallback(() => {
+    setActiveHashtag(null);
+  }, []);
+
+  const filteredPosts = useMemo(() => {
+    if (!activeHashtag) return posts;
+    
+    const tagWithoutHash = activeHashtag.replace('#', '').toLowerCase();
+    return posts.filter((p: any) => {
+      const content = String(p.content || '').toLowerCase();
+      return content.includes(`#${tagWithoutHash}`) || content.includes(` ${tagWithoutHash} `);
+    });
+  }, [posts, activeHashtag]);
+
+  const rankedPosts = useMemo(() => {
+    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
+                     activeHashtag ? filteredPosts : posts;
+    return Array.isArray(feedToRank) ? feedToRank : [];
+  }, [posts, filteredPosts, activeHashtag]);
+
+  const activePost = useMemo(() => {
+    if (activeCommentsPostId == null) return null;
+
+    if (commentPostSnapshot && Number((commentPostSnapshot as any)?.id) === Number(activeCommentsPostId)) {
+      return commentPostSnapshot;
+    }
+
+    const source = view === 'profile' ? profilePosts : posts;
+    return source.find((p: any) => Number(p.id) === Number(activeCommentsPostId)) || null;
+  }, [posts, profilePosts, view, activeCommentsPostId, commentPostSnapshot]);
+
+  const profileUser = useMemo(() => {
+    if (selectedUserId) {
+      return users.find((u) => Number(u.id) === Number(selectedUserId)) || null;
+    }
+    return currentUser || null;
+  }, [selectedUserId, users, currentUser]);
+
+  const handleRegister = useCallback(async (userData: any) => {
+    try {
+      setLoginError('');
+
+      const res = await fetch('/api/users/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Registration failed');
+      if (!data?.user) throw new Error('Registration failed: user missing');
+
+      const normalized = normalizeUser(data.user);
+      if (!normalized?.id) throw new Error('Registration failed: invalid user id');
+
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(normalized));
+
+      setCurrentUser(normalized);
+      setSelectedUserId(Number(normalized.id));
+
+      setUsers((prev) => {
+        const arr = safeArray(prev);
+        const exists = arr.some((x) => Number(x.id) === Number(normalized.id));
+        if (exists) return arr.map((x) => (Number(x.id) === Number(normalized.id) ? normalized : x));
+        return [normalized, ...arr];
+      });
+
+      try {
+        sessionStorage.removeItem(FEED_SESSION_KEY);
+      } catch {}
+
+      setView('home');
+      await fetchPostsForHome(normalized);
+      await fetchReels();
+
+    } catch (error: any) {
+      setLoginError(error?.message || 'Registration failed');
+    }
+  }, [fetchPostsForHome, fetchReels]);
+
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      setLoginError('');
+
+      const res = await fetch('/api/users/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Login failed');
+      if (!data?.user) throw new Error('Login failed: user missing');
+
+      const normalized = normalizeUser(data.user);
+      if (!normalized?.id) throw new Error('Login failed: invalid user id');
+
+      let finalUser = normalized;
+      try {
+        const fresh = await apiFetch(`/api/users?id=${normalized.id}`);
+        finalUser = normalizeUser({ ...normalized, ...fresh });
+      } catch {}
+
+      setCurrentUser(finalUser);
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(finalUser));
+
+      try {
+        sessionStorage.removeItem(FEED_SESSION_KEY);
+      } catch {}
+
+      setUsers((prev) => {
+        const arr = safeArray(prev);
+        const exists = arr.some((x) => Number(x.id) === Number(finalUser.id));
+        if (exists) return arr.map((x) => (Number(x.id) === Number(finalUser.id) ? finalUser : x));
+        return [finalUser, ...arr];
+      });
+
+      setSelectedUserId(Number(finalUser.id));
+      setView('home');
+
+      await fetchPostsForHome(finalUser);
+      await fetchReels();
+    } catch (error: any) {
+      setLoginError(error?.message || 'Login failed');
+    }
   };
 
-  return (
-    <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
-      <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
-            onClick={onClose}
-            aria-label="Back"
-          >
-            <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
-          </button>
-          <div className="text-[#E4E6EB] font-bold text-[20px]">Post</div>
-        </div>
+  const followUser = useCallback(
+    async (targetUserId: number) => {
+      if (!requireAuth('Following')) return;
+      if (!currentUser) return;
 
-        <div className="flex items-center gap-4">
-          <div className="text-[#B0B3B8] text-[14px]">
-            {formatCount(comments.length)} comments
-          </div>
-          <button
-            type="button"
-            className="text-[#1877F2] font-bold text-[15px] hover:underline"
-            onClick={onClose}
-          >
-            See less
-          </button>
-        </div>
-      </div>
+      const meId = Number(currentUser.id);
+      const targetId = Number(targetUserId);
 
-      <div 
-        ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto scroll-smooth"
-      >
-        <div className="p-4 border-b border-[#3E4042]">
-          <div className="flex items-center gap-3 mb-4">
-            <img
-              src={avatarFrom(postAuthor)}
-              className="w-12 h-12 rounded-full object-cover border border-[#3E4042] cursor-pointer"
-              alt=""
-              onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
-                    onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}>
-                    {postAuthor?.name || postAuthor?.username || 'User'}
-                  </div>
-                  <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
-                    <span>{formatRelativeTime(p.created_at)}</span>
-                    <span>•</span>
-                    <i className="fas fa-globe-americas text-[12px]"></i>
-                  </div>
-                </div>
-                
-                {onFollow && currentUser && postAuthor?.id && safeUserId(postAuthor) !== safeUserId(currentUser) && (
-                  <button
-                    onClick={(e) => handleFollowClick(e, safeUserId(postAuthor))}
-                    className={`px-3 py-1 text-sm font-semibold rounded-lg transition-all duration-200 ${
-                      checkIsFollowing && checkIsFollowing(safeUserId(postAuthor))
-                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                    }`}
-                  >
-                    {checkIsFollowing && checkIsFollowing(safeUserId(postAuthor)) ? 'Following' : 'Follow'}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
+      if (!targetId || targetId === meId) return;
 
-          {/* ===== TEXT PREVIEW - ALWAYS SHOW FOR TEXT POSTS ===== */}
-          {!p.background && textPreview && (
-            <div className="mb-4">
-              <ExpandableRichText
-                text={String(p.content)}
-                users={users}
-                onProfileClick={onProfileClick}
-                onHashtagClick={onHashtagClick}
-                fontSizePx={21}
-                forceExpanded={true}
-              />
-            </div>
-          )}
+      const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
+      const isFollowingNow = myFollowing.has(targetId);
 
-          {/* ===== BACKGROUND POST TEXT ===== */}
-          {p.background && textPreview && (
-            <div
-              className="mb-4 -mx-4 h-[320px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
-              style={{ background: p.background, backgroundSize: 'cover' }}
-            >
-              {textPreview}
-            </div>
-          )}
+      setFollowLoading(prev => ({ ...prev, [targetId]: true }));
 
-          {/* ===== MARKETPLACE MEDIA IN COMMENTS SHEET ===== */}
-          {isMarketplace && mpImages.length > 0 && (
-            <div className="mb-4 -mx-4">
-              <div className="w-full bg-black">
-                <MediaGrid
-                  media={mpImages.map(url => ({ url }))}
-                  onOpen={(url, index) => {
-                    console.log('Open marketplace image:', url, index);
-                  }}
-                />
-              </div>
-            </div>
-          )}
+      const originalUsers = [...users];
+      const originalCurrentUser = { ...currentUser };
 
-          {isMarketplace && price && (
-            <div className="mb-4 px-4 py-2 flex items-center justify-between bg-[#242526] border border-[#3E4042] rounded-lg">
-              <div className="flex items-center gap-1">
-                <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
-                <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
-              </div>
+      setUsers((prev) => {
+        const arr = safeArray(prev).map(normalizeUser);
 
-              <button
-                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (productId && onViewProductFromPost) onViewProductFromPost(productId);
-                  else if (productId) onViewProduct?.(productId);
-                }}
-              >
-                View product
-              </button>
-            </div>
-          )}
+        return arr.map((u) => {
+          const uid = Number(u.id);
 
-          {/* ===== MUSIC/PODCAST IN COMMENTS SHEET ===== */}
-          {(isMusic || isPodcast) && (
-            <div className="mb-4 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
-              <div className="flex items-center gap-3 p-3">
-                <img
-                  src={(isMusic ? song?.cover_image_url : podcast?.cover_image_url) || ''}
-                  className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
-                  alt=""
-                />
-                <div className="flex-1 overflow-hidden">
-                  <div className="text-white font-bold truncate">
-                    {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
-                  </div>
-                  <div className="text-[#B0B3B8] text-xs truncate">
-                    {isMusic ? song?.artist_name : podcast?.description}
-                  </div>
-                </div>
+          if (uid === meId) {
+            const following = new Set<number>(safeArray<number>((u as any).following));
+            if (isFollowingNow) following.delete(targetId);
+            else following.add(targetId);
+            return normalizeUser({ ...u, following: Array.from(following) });
+          }
 
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenAudio?.(isMusic ? song : podcast);
-                  }}
-                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl"
-                >
-                  Play
-                </button>
-              </div>
-            </div>
-          )}
+          if (uid === targetId) {
+            const followers = new Set<number>(safeArray<number>((u as any).followers));
+            if (isFollowingNow) followers.delete(meId);
+            else followers.add(meId);
+            return normalizeUser({ ...u, followers: Array.from(followers) });
+          }
 
-          {/* ===== LINK PREVIEW IN COMMENTS SHEET ===== */}
-          {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
-            <div
-              className="mb-4 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
-              onClick={() => window.open(p.link_preview.url, '_blank', 'noopener noreferrer')}
-            >
-              {p.link_preview.image && (
-                <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
-                  <img
-                    src={p.link_preview.image}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                </div>
-              )}
-              <div className="p-4 bg-[#3A3B3C]">
-                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
-                  {p.link_preview.domain}
-                </div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-2">
-                  {p.link_preview.title}
-                </div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-3">
-                  {p.link_preview.description}
-                </div>
-              </div>
-            </div>
-          )}
+          return u;
+        });
+      });
 
-          {/* ===== IMAGES IN COMMENTS SHEET ===== */}
-          {!isMarketplace && imageMedia.length > 0 && (
-            <div className="mb-4 -mx-4">
-              {imageMedia.length > 1 ? (
-                <MediaGrid
-                  media={imageMedia.map(m => ({ url: m.url }))}
-                  onOpen={(url, index) => {
-                    console.log('Open image:', url, index);
-                  }}
-                />
-              ) : (
-                <div className="w-full bg-black">
-                  <img
-                    src={imageMedia[0].url}
-                    alt=""
-                    className="w-full h-auto max-h-[70vh] object-contain"
-                    loading="lazy"
-                  />
-                </div>
-              )}
-            </div>
-          )}
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        const following = new Set<number>(safeArray<number>((prev as any).following));
+        if (isFollowingNow) following.delete(targetId);
+        else following.add(targetId);
+        const next = normalizeUser({ ...prev, following: Array.from(following) });
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
+        return next;
+      });
 
-          {/* ===== VIDEO IN COMMENTS SHEET ===== */}
-          {!isMarketplace && videoMedia.length > 0 && (
-            <div className="mb-4 -mx-4 w-full bg-black">
-              <video
-                src={videoMedia[0].url}
-                controls
-                playsInline
-                className="w-full h-auto max-h-[70vh] object-contain bg-black"
-              />
-            </div>
-          )}
+      try {
+        if (isFollowingNow) {
+          await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
+            method: 'DELETE',
+          });
+        } else {
+          await apiFetch('/api/user-follows', {
+            method: 'POST',
+            body: JSON.stringify({ follower_id: meId, following_id: targetId }),
+          });
+        }
 
-          {/* ===== AUDIO IN COMMENTS SHEET ===== */}
-          {!isMarketplace && mediaInfo.mediaUrl && mediaInfo.isAudio && (
-            <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-xl">
-              <div className="text-[#E4E6EB] font-bold mb-3">Audio Track</div>
-              <audio controls className="w-full">
-                <source src={mediaInfo.mediaUrl} />
-              </audio>
-            </div>
-          )}
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
 
-          <div className="flex items-center justify-between text-[#B0B3B8] text-[14px] pt-3 border-t border-[#3E4042]">
-            <div className="flex items-center gap-2">
-              {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
-            </div>
-            <div className="flex items-center gap-4">
-              <span>{formatCount(comments.length)} comments</span>
-              {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
-            </div>
-          </div>
-        </div>
+        scheduleSilentRefresh();
+      } catch (e: any) {
+        console.error('Follow toggle failed:', e);
 
-        <div className="p-4">
-          {replyTo && (
-            <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-[#B0B3B8] text-sm">Replying to</span>
-                <span className="text-[#1877F2] font-medium">
-                  {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
-                </span>
-              </div>
-              <button
-                onClick={() => setReplyTo(null)}
-                className="text-[#B0B3B8] hover:text-[#E4E6EB] text-lg"
-              >
-                <i className="fas fa-times"></i>
-              </button>
-            </div>
-          )}
-
-          {showEmojiPicker && (
-            <div className="mb-4 p-3 border border-[#3E4042] rounded-lg">
-              <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
-                {QUICK_EMOJIS.map(emoji => (
-                  <button
-                    key={emoji}
-                    onClick={() => addEmoji(emoji)}
-                    className="text-2xl hover:scale-125 transition-transform p-1"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {comments.length === 0 ? (
-            <div className="text-center py-10">
-              <div className="text-[#B0B3B8] text-lg mb-2">No comments yet</div>
-              <p className="text-[#B0B3B8] text-sm">Be the first to comment!</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {comments.map((c) => {
-                const a = resolveAuthor(c);
-                const isReply = !!c.parent_comment_id;
-                const isCurrentUserComment = a.uid === safeUserId(currentUser);
-                const isFollowing = checkIsFollowing ? checkIsFollowing(a.uid) : false;
-                
-                return (
-                  <div 
-                    key={String(c.id)} 
-                    className={`animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
-                  >
-                    {isReply && (
-                      <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
-                    )}
-                    
-                    <div className="flex gap-3">
-                      <img
-                        src={a.image}
-                        className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
-                        alt=""
-                        onClick={() => a.uid && onProfileClick(a.uid)}
-                      />
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="mb-1">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span
-                                className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
-                                onClick={() => a.uid && onProfileClick(a.uid)}
-                              >
-                                {a.name}
-                              </span>
-                              <span className="text-[#B0B3B8] text-[12px]">
-                                • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
-                              </span>
-                            </div>
-                            
-                            {onFollow && currentUser && a.uid && !isCurrentUserComment && (
-                              <button
-                                onClick={(e) => handleFollowClick(e, a.uid)}
-                                className={`px-2 py-0.5 text-xs font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                                  isFollowing 
-                                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                                }`}
-                              >
-                                {isFollowing ? 'Following' : 'Follow'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="text-[#E4E6EB] text-[18px] font-bold whitespace-pre-wrap break-words mb-2">
-                          <RichText
-                            text={String(c.text || '')}
-                            users={users}
-                            onProfileClick={onProfileClick}
-                            onHashtagClick={onHashtagClick}
-                          />
-                        </div>
-                        
-                        <div className="flex items-center gap-4">
-                          <button
-                            onClick={() => handleLikeComment(c)}
-                            className={`text-[13px] ${c.liked_by_me ? 'text-[#1877F2] font-semibold' : 'text-[#B0B3B8] hover:text-[#E4E6EB]'}`}
-                          >
-                            {c.liked_by_me ? 'Liked' : 'Like'}
-                          </button>
-                          <button
-                            onClick={() => {
-                              const target = getReplyLabel(c);
-                              setReplyTo({
-                                ...c,
-                                _reply_author: target,
-                              });
-                              inputRef.current?.focus();
-                              setShowEmojiPicker(false);
-                            }}
-                            className="text-[13px] text-[#B0B3B8] hover:text-[#E4E6EB]"
-                          >
-                            Reply
-                          </button>
-                          {c.likes_count > 0 && (
-                            <span className="text-[13px] text-[#B0B3B8]">
-                              {formatCount(c.likes_count)} like{c.likes_count !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
-        <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
-          <button
-            type="button"
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="text-[#B0B3B8] hover:text-[#E4E6EB] text-2xl p-1 transition-colors"
-          >
-            😀
-          </button>
-          <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="text"
-              className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[15px]"
-              placeholder={replyTo ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...` : "Write a comment..."}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <button 
-            type="submit" 
-            className="text-[#1877F2] font-bold text-[15px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
-            disabled={!text.trim()}
-          >
-            Post
-          </button>
-        </form>
-      </div>
-    </div>
+        setUsers(originalUsers);
+        setCurrentUser(originalCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
+        
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
+        
+        setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
+      } finally {
+        setFollowLoading(prev => ({ ...prev, [targetId]: false }));
+      }
+    },
+    [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
   );
-};
 
-/**
- * =========================
- * SUGGESTED PRODUCTS WIDGET
- * =========================
- */
-export const SuggestedProductsWidget: React.FC<{
-  products: Product[];
-  currentUser: User;
-  onViewProduct: (product: Product) => void;
-  onSeeAll: () => void;
-}> = ({ products, currentUser, onViewProduct, onSeeAll }) => {
-  const suggested = (products || [])
-    .filter((p: any) => p.seller_id !== safeUserId(currentUser))
-    .slice(0, 4);
+  const checkIsFollowing = useCallback((targetUserId: number): boolean => {
+    if (!currentUser || !targetUserId) return false;
+    
+    const myFollowing = safeArray<number>((currentUser as any).following);
+    return myFollowing.includes(Number(targetUserId));
+  }, [currentUser]);
 
-  if (suggested.length === 0) return null;
+  const handleLogout = () => {
+    localStorage.removeItem(LS_USER_KEY);
+    localStorage.removeItem(STORY_SEEN_KEY);
+    localStorage.removeItem(STORIES_CACHE_KEY);
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
+        localStorage.removeItem(key);
+      }
+    });
 
-  return (
-    <div className="w-full">
-      <div className="bg-[#242526] w-full p-4">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
-          <button
-            onClick={onSeeAll}
-            className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
-          >
-            See all
-          </button>
-        </div>
+    try {
+      sessionStorage.removeItem(FEED_SESSION_KEY);
+    } catch {}
 
-        <div className="grid grid-cols-2 gap-2">
-          {suggested.map((product: any) => {
-            const countryData = MARKETPLACE_COUNTRIES.find((c) =>
-              String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
-            );
-            const symbol = countryData ? countryData.symbol : '$';
+    setCurrentUser(null);
+    setSelectedUserId(null);
+    setProfilePosts([]);
+    setReels([]);
+    setStories([]);
+    setActiveStoryId(null);
+    setSeenStoryIds(new Set());
+    setStoryMuted(true);
+    setActiveHashtag(null);
+    setLikedTracks([]);
+    setMyTotalPlays(0);
+    setPlayHistory([]);
+    setTrackPlays({});
+    setCurrentAudioTrack(null);
+    setIsAudioPlaying(false);
+    setSelectedReelSound(null);
+    setSongs([]);
+    setEvents([]);
+    setView('home');
+    fetchPostsForHome(null).catch(() => {});
+    fetchReels().catch(() => {});
+  };
 
-            return (
-              <div
-                key={String(product.id)}
-                className="cursor-pointer group"
-                onClick={() => onViewProduct(product)}
-              >
-                <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
-                  <img
-                    src={product.images?.[0]}
-                    alt={product.title}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
-                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
-                    {symbol}
-                    {product.main_price}
-                  </div>
-                </div>
-                <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">
-                  {product.title}
-                </h4>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+  const handleNavigate = (target: View) => {
+    if (['settings', 'memories'].includes(target) && !currentUser) {
+      setLoginError(`Please login to view ${target}.`);
+      return setView('login');
+    }
+
+    if (target === 'profile') {
+      if (!currentUser) {
+        setLoginError('Please login to view your profile.');
+        return setView('login');
+      }
+      openProfile(currentUser.id);
+      return;
+    }
+
+    setView(target);
+
+    if (['home', 'reels', 'marketplace', 'groups'].includes(target)) {
+      setActiveTab(target as any);
+    }
+    window.scrollTo(0, 0);
+  };
+
+  const createPost = useCallback(
+    async (
+      text: string,
+      files: File[] | File | null,
+      meta?: {
+        type?: 'text' | 'image' | 'video';
+        visibility?: string;
+        location?: string;
+        feeling?: string;
+        taggedUsers?: number[];
+        background?: string;
+        linkPreview?: any;
+      }
+    ) => {
+      if (!requireAuth('Creating posts')) return;
+
+      const trimmed = (text || '').trim();
+      if (!trimmed && !files && !meta?.background) return;
+
+      const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
+
+      let media_urls: string[] = [];
+      let media_types: string[] = [];
+
+      if (list.length) {
+        try {
+          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
+          media_urls = ups.map((u) => u.url).filter(Boolean);
+          media_types = ups.map((u) => u.type).filter(Boolean);
+        } catch (error: any) {
+          setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
+          return;
+        }
+      }
+
+      const media_url = media_urls[0] ?? null;
+      const media_type = media_types[0] ?? null;
+
+      const payload: any = {
+        user_id: currentUser!.id,
+        content: trimmed,
+
+        media_url,
+        media_type,
+
+        media_urls: media_urls.length ? media_urls : undefined,
+        media_types: media_types.length ? media_types : undefined,
+
+        visibility: meta?.visibility ?? 'public',
+        location: meta?.location,
+        feeling: meta?.feeling,
+        tagged_users: meta?.taggedUsers,
+        background: meta?.background,
+        link_preview: meta?.linkPreview,
+        type: (() => {
+          const t = media_type || media_types[0] || null;
+          if (!t) return meta?.type || 'text';
+          if (t.startsWith('image/')) return 'image';
+          if (t.startsWith('video/')) return 'video';
+          if (t.startsWith('audio/')) return 'audio';
+          return meta?.type || 'text';
+        })(),
+      };
+
+      const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
+
+      const newPostRaw =
+        data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
+
+      (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
+      (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
+
+      const normalized = normalizePost(newPostRaw);
+
+      setPosts((prev) => {
+        const next = [normalized, ...safeArray(prev)];
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      setProfilePosts((prev) => {
+        if (!currentUser) return prev;
+        const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
+        if (!isMyProfile) return prev;
+
+        const next = [normalized, ...safeArray(prev)];
+        return next;
+      });
+
+      pushSeenIds([Number((normalized as any).id)]);
+
+      setShowCreatePostModal(false);
+      scheduleSilentRefresh();
+    },
+    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
+  );
+
+  const onReactPost = useCallback(
+    async (postId: number, type: ReactionType) => {
+      if (!requireAuth('Reacting')) return;
+      const meId = Number(currentUser!.id);
+
+      setPosts(prev => {
+        const next = safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId));
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
+
+      setCommentPostSnapshot(prev =>
+        prev && Number(prev.id) === Number(postId)
+          ? applyOptimisticReaction(prev, postId, type, meId)
+          : prev
+      );
+
+      try {
+        const data = await apiFetch(`/api/posts/${postId}/react`, {
+          method: 'POST',
+          body: JSON.stringify({ type, user_id: meId }),
+        });
+
+        if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
+          const serverMy = data.my_reaction ?? null;
+          const serverCount = safeNumber(data.reactions_count, 0);
+
+          const applyServerTruth = (p: any) => {
+            if (Number(p?.id) !== Number(postId)) return p;
+
+            const prevArr = safeArray<any>(p?.reactions);
+            const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== Number(meId));
+            const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
+
+            return {
+              ...p,
+              reactions: nextArr,
+              my_reaction: serverMy,
+              myReaction: serverMy,
+              reactions_count: serverCount,
+              reactionsCount: serverCount,
+              likesCount: serverCount,
+            };
+          };
+
+          setPosts(prev => safeArray(prev).map(applyServerTruth));
+          setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
+          setCommentPostSnapshot(prev => (prev ? applyServerTruth(prev) : prev));
+        }
+      } catch {
+        scheduleSilentRefresh();
+      }
+    },
+    [currentUser, requireAuth, scheduleSilentRefresh]
+  );
+
+  const handleOpenShareSheet = useCallback(
+    (post: any) => {
+      if (!currentUser) {
+        setLoginError('Please login to share posts.');
+        setView('login');
+        return;
+      }
+      setActiveSharePost(post);
+      setShowShareSheet(true);
+    },
+    [currentUser]
+  );
+
+  const handleShareComplete = useCallback(
+    async (destination: string, data?: any) => {
+      if (data?.success && activeSharePost) {
+        setPosts((prev) => {
+          const next = safeArray(prev).map((p: any) =>
+            Number(p.id) === Number(activeSharePost.id)
+              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+              : p
+          );
+          lastGoodPostsRef.current = next;
+          stableFeedRef.current = next;
+          return next;
+        });
+
+        setProfilePosts((prev) => {
+          return safeArray(prev).map((p: any) =>
+            Number(p.id) === Number(activeSharePost.id)
+              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+              : p
+          );
+        });
+
+        try {
+          await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
+            method: 'POST',
+            body: JSON.stringify({ destination }),
+          });
+        } catch (error) {
+          console.error('Failed to record share:', error);
+        }
+      }
+
+      setShareInProgress(false);
+      setActiveSharePost(null);
+      setShowShareSheet(false);
+      scheduleSilentRefresh();
+    },
+    [activeSharePost, scheduleSilentRefresh]
+  );
+
+  const onOpenComments = (postId: number) => {
+    if (!requireAuth('Commenting')) return;
+
+    const pid = Number(postId);
+    setActiveCommentsPostId(pid);
+
+    const source = view === 'profile' ? profilePosts : posts;
+    const found = source.find((p: any) => Number(p.id) === pid) || null;
+    setCommentPostSnapshot(found);
+  };
+
+  const deletePost = useCallback(
+    async (postId: number) => {
+      if (!requireAuth('Deleting posts')) return;
+
+      const prev = posts;
+      const prevProfilePosts = profilePosts;
       
-      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      setPosts((p) => {
+        const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+      } catch {
+        setPosts(prev);
+        lastGoodPostsRef.current = prev;
+        stableFeedRef.current = prev;
+        
+        setProfilePosts(prevProfilePosts);
+        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+      }
+    },
+    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+  );
+
+  const editPost = useCallback(
+    async (postId: number, content: string) => {
+      if (!requireAuth('Editing posts')) return;
+      const trimmed = (content || '').trim();
+      if (!trimmed) return;
+
+      const prev = posts;
+      const prevProfilePosts = profilePosts;
+      
+      setPosts((p) => {
+        const next = safeArray(p).map((x: any) =>
+          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+        );
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      setProfilePosts((prev) =>
+        safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
+      );
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
+      } catch {
+        setPosts(prev);
+        lastGoodPostsRef.current = prev;
+        stableFeedRef.current = prev;
+        
+        setProfilePosts(prevProfilePosts);
+        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+      }
+    },
+    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+  );
+
+  const updateUserDetails = useCallback(
+    async (data: Partial<User>) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      await apiFetch(`/api/users`, {
+        method: 'PUT',
+        body: JSON.stringify({ id: currentUser.id, ...data }),
+      });
+
+      const merged = normalizeUser({ ...currentUser, ...data });
+      setCurrentUser(merged);
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(merged));
+
+      setUsers((prev) => safeArray(prev).map((u) => (Number(u.id) === Number(merged.id) ? merged : u)));
+    },
+    [requireAuth, currentUser]
+  );
+
+  const updateProfileImage = useCallback(
+    async (file: File) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      if (!file.type || !file.type.startsWith('image/')) {
+        setLoginError('Only image files are allowed.');
+        return;
+      }
+
+      try {
+        const uploadResult = await uploadToCloudflareR2(file, 'profiles');
+        await updateUserDetails({ profile_image_url: uploadResult.url } as any);
+      } catch (error: any) {
+        setLoginError(`Failed to upload profile image: ${error.message}`);
+      }
+    },
+    [requireAuth, currentUser, updateUserDetails]
+  );
+
+  const updateCoverImage = useCallback(
+    async (file: File) => {
+      if (!requireAuth('Updating profile')) return;
+      if (!currentUser) return;
+
+      if (!file.type || !file.type.startsWith('image/')) {
+        setLoginError('Only image files are allowed.');
+        return;
+      }
+
+      try {
+        const uploadResult = await uploadToCloudflareR2(file, 'covers');
+        await updateUserDetails({ cover_image_url: uploadResult.url } as any);
+      } catch (error: any) {
+        setLoginError(`Failed to upload cover image: ${error.message}`);
+      }
+    },
+    [requireAuth, currentUser, updateUserDetails]
+  );
+
+  const getPostAuthor = useCallback(
+    (post: PostType) => {
+      const author = users.find((u) => Number(u.id) === Number((post as any).user_id));
+      if (author) return author;
+      return createFallbackUser();
+    },
+    [users]
+  );
+
+  const handleCreateStoryFromProfile = useCallback(() => {
+    if (!requireAuth('Creating stories')) return;
+    setShowCreateStoryModal(true);
+  }, [requireAuth]);
+
+  const allKnownPosts = useMemo(() => {
+    const map = new Map<number, PostType>();
+    [...safeArray(posts), ...safeArray(profilePosts)].forEach(p => {
+      if (p?.id) {
+        map.set(Number(p.id), p);
+      }
+    });
+    return Array.from(map.values());
+  }, [posts, profilePosts]);
+
+  const openProductFromPost = useCallback(
+    (productId: number) => {
+      const p = (products || []).find((x: any) => Number(x.id) === Number(productId));
+      if (!p) {
+        setView('marketplace');
+        return;
+      }
+      setView('marketplace');
+      setActiveProduct(p);
+    },
+    [products]
+  );
+
+  const isLoading = false;
+  if (isLoading) return <ProfessionalLoader />;
+
+  const getProductData = useCallback((productId: number) => {
+    const product = products.find(p => Number(p.id) === Number(productId));
+    if (!product) return null;
+    return {
+      price: product.discount_price ?? product.main_price,
+      location: product.address || 'Marketplace',
+      currency: product.currency_symbol || 'TZS'
+    };
+  }, [products]);
+
+  /** ---------- Facebook-like video click handler ---------- */
+  const handleVideoClick = useCallback((item: any) => {
+    const videoId = resolveVideoId(item);
+    if (!videoId) {
+      console.warn('Could not resolve video ID for item:', item);
+      return;
+    }
+    
+    setActiveReelId(videoId);
+    setView('reels');
+  }, []);
+
+  return (
+    <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
+      <Header
+        onHomeClick={() => handleNavigate('home')}
+        onProfileClick={(id: number) => openProfile(id)}
+        onReelsClick={() => handleNavigate('reels')}
+        onMarketplaceClick={() => handleNavigate('marketplace')}
+        onGroupsClick={() => handleNavigate('groups')}
+        currentUser={currentUser}
+        notifications={notifications}
+        users={users}
+        onLogout={handleLogout}
+        onLoginClick={() => setView('login')}
+        onMarkNotificationsRead={() => {}}
+        activeTab={activeTab}
+        onNavigate={(v: any) => handleNavigate(v)}
+      />
+
+      <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
+        {currentUser && (
+          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
+            <Sidebar
+              currentUser={currentUser}
+              onProfileClick={(id) => openProfile(id)}
+              onReelsClick={() => handleNavigate('reels')}
+              onMarketplaceClick={() => handleNavigate('marketplace')}
+              onGroupsClick={() => handleNavigate('groups')}
+            />
+          </div>
+        )}
+
+        <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
+          {view === 'home' && (
+            <div className="w-full pt-4 md:px-8 pb-10">
+              {activeHashtag && (
+                <div className="mb-3 px-4">
+                  <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
+                    <span className="text-[#1877F2] font-semibold">{activeHashtag}</span>
+                    <button 
+                      onClick={clearHashtag} 
+                      className="text-[#B0B3B8] hover:text-white ml-1"
+                    >
+                      <i className="fas fa-times" />
+                    </button>
+                  </div>
+                  <p className="text-[#B0B3B8] text-xs mt-1">
+                    Showing posts with {activeHashtag}
+                  </p>
+                </div>
+              )}
+
+              <StoryReel
+                stories={orderedStories}
+                onProfileClick={(id) => openProfile(id)}
+                onCreateStory={() => {
+                  if (!requireAuth('Creating stories')) return;
+                  setShowCreateStoryModal(true);
+                }}
+                onViewStory={openStoryViewer}
+                currentUser={currentUser}
+                onRequestLogin={() => setView('login')}
+                onFollow={followUser}
+                checkIsFollowing={checkIsFollowing}
+                followLoading={followLoading}
+                onFetchViewers={fetchStoryViewers}
+                onReaction={reactToStory}
+                onReply={replyToStory}
+                onToggleMute={() => setStoryMuted(!storyMuted)}
+                muted={storyMuted}
+              />
+
+              {currentUser && (
+                <CreatePost
+                  currentUser={currentUser}
+                  onProfileClick={(id) => openProfile(id)}
+                  onClick={() => {
+                    if (!requireAuth('Creating posts')) return;
+                    setShowCreatePostModal(true);
+                  }}
+                  onCreateEventClick={() => {
+                    if (!requireAuth('Creating events')) return;
+                    setShowCreateEventModal(true);
+                  }}
+                />
+              )}
+
+              <div className="space-y-2">
+                <MarketplaceContext.Provider value={{
+                  onViewProduct: (productId) => {
+                    const product = products.find(p => Number(p.id) === Number(productId));
+                    if (product) {
+                      setView('marketplace');
+                      setActiveProduct(product);
+                    }
+                  },
+                  getProductData
+                }}>
+                  {rankedPosts.length > 0 ? (
+                    rankedPosts.map((post, idx) => {
+                      const postAuthorId = Number((post as any).user_id);
+                      const isFollowing = checkIsFollowing(postAuthorId);
+                      
+                      return (
+                        <Post
+                          key={getStableItemKey(post, 'post')}
+                          post={post}
+                          author={getPostAuthor(post)}
+                          currentUser={currentUser}
+                          users={users}
+                          onProfileClick={(id) => openProfile(id)}
+                          onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                          onShare={() => handleOpenShareSheet(post)}
+                          onViewImage={setFullScreenImage}
+                          onOpenComments={(postId: number) => onOpenComments(postId)}
+                          onVideoClick={handleVideoClick}
+                          onPlayAudioTrack={onPlayTrack}
+                          groups={groups}
+                          brands={brands}
+                          chats={chats}
+                          onHashtagClick={handleHashtagClick}
+                          isFollowing={isFollowing}
+                          onFollow={() => followUser(postAuthorId)}
+                          followLoading={followLoading[postAuthorId] || false}
+                          onViewProductFromPost={openProductFromPost}
+                          onRSVPEvent={onRSVPEvent} // Pass the unified RSVP handler to Post component
+                        />
+                      );
+                    })
+                  ) : !feedHydrated ? (
+                    <div className="text-center py-20 text-[#B0B3B8]"></div>
+                  ) : activeHashtag ? (
+                    <div className="text-center py-20 text-[#B0B3B8]">
+                      <p>No posts found with {activeHashtag}.</p>
+                      <button 
+                        onClick={clearHashtag}
+                        className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
+                      >
+                        Clear filter
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-center py-20 text-[#B0B3B8]">
+                      <p>No posts available.</p>
+                      {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
+                    </div>
+                  )}
+                </MarketplaceContext.Provider>
+              </div>
+            </div>
+          )}
+
+          {view === 'reels' && (
+            <ReelsFeed
+              activeReelId={activeReelId}
+              onActiveReelConsumed={handleActiveReelConsumed}
+              reels={reels}
+              users={users}
+              currentUser={currentUser}
+              songs={songs}
+              selectedSound={selectedReelSound}
+              onPickSound={(sound: ReelSound | null) => setSelectedReelSound(sound)}
+              onProfileClick={(id) => openProfile(id)}
+              onCreateReelClick={() => {
+                if (!requireAuth('Creating reels')) return;
+                setSelectedReelSound(null);
+                setShowCreateReelModal(true);
+              }}
+              onReact={reactToReel}
+              onComment={commentOnReel}
+              onShare={shareReel}
+              onFollow={followUser}
+              onUseSound={useSoundFromReel}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          )}
+
+          {view === 'marketplace' && (
+            <MarketplacePage
+              currentUser={currentUser}
+              products={products}
+              onNavigateHome={() => handleNavigate('home')}
+              onCreateProduct={createProduct}
+              onViewProduct={setActiveProduct}
+            />
+          )}
+
+          {view === 'groups' && (
+            <ErrorBoundary>
+              <GroupsPage
+                currentUser={currentUser}
+                groups={groups}
+                users={users}
+                onCreateGroup={createGroup}
+                onJoinGroup={joinGroup}
+                onLeaveGroup={leaveGroup}
+                onDeleteGroup={deleteGroup}
+                onUpdateGroupImage={updateGroupImage}
+                onPostToGroup={createGroupPost}
+                onCreateGroupEvent={createGroupEvent}
+                onInviteToGroup={inviteToGroup}
+                onProfileClick={openProfile}
+                onLikePost={toggleGroupPostLike}
+                onSharePost={(postId: number, newShareCount: number) => {
+                  // Update local state
+                  setPosts(prev => prev.map(p => 
+                    p.id === postId ? { ...p, shares: newShareCount } as any : p
+                  ));
+                }}
+                onDeleteGroupPost={deleteGroupPost}
+                onEditGroupPost={editGroupPost}
+                onRemoveMember={removeGroupMember}
+                onUpdateGroupSettings={updateGroupSettings}
+                onEventRSVP={handleEventRSVP}
+                fetchGroupPosts={fetchGroupPosts}
+                fetchGroupDetails={fetchGroupDetails}
+                fetchGroupEvents={fetchGroupEvents}
+                fetchComments={fetchGroupPostComments}
+                onComment={createGroupPostComment}
+                onLikeComment={handleLikeComment}
+                onPlayAudioTrack={onPlayTrack}
+                onFollow={followUser}
+                checkIsFollowing={checkIsFollowing}
+                onHashtagClick={handleHashtagClick}
+                onViewImage={setFullScreenImage}
+                onVideoClick={handleVideoClick}
+                initialGroupId={null}
+              />
+            </ErrorBoundary>
+          )}
+
+          {view === 'brands' && (
+            <BrandsPage
+              currentUser={currentUser}
+              brands={brands}
+              posts={posts}
+              users={users}
+              onCreateBrand={() => requireAuth('Creating brands')}
+              onFollowBrand={(id: number) => followUser(id)}
+              onProfileClick={(id) => openProfile(id)}
+              onPostAsBrand={() => requireAuth('Posting')}
+              onReact={() => requireAuth('Reacting')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onOpenComments={(id: any) => {
+                if (!requireAuth('Commenting')) return;
+                const pid = Number(id);
+                setActiveCommentsPostId(pid);
+                const source = view === 'profile' ? profilePosts : posts;
+                const found = source.find((p: any) => Number(p.id) === pid) || null;
+                setCommentPostSnapshot(found);
+              }}
+              onDeleteBrand={() => requireAuth('Deleting brands')}
+              onPlayAudioTrack={onPlayTrack}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          )}
+
+          {view === 'music' && (
+            <MusicSystem
+              currentUser={currentUser}
+              onPlayTrack={onPlayTrack}
+              onProfileClick={(id) => openProfile(id)}
+              likedTracks={likedTracks}
+              onToggleLike={handleMusicSystemLikeSync}
+              playHistory={playHistory}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              users={users}
+              currentTrack={currentAudioTrack}
+              isPlaying={isAudioPlaying}
+              myTotalPlays={currentUser?.id ? myTotalPlays : 0}
+              playsLoading={playsLoading}
+            />
+          )}
+
+          {view === 'tools' && <ToolsPage />}
+
+          {view === 'profiles' && (
+            <SuggestedProfilesPage
+              currentUser={currentUser as any}
+              users={users}
+              onFollow={(id: number) => followUser(id)}
+              onProfileClick={(id) => openProfile(id)}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          )}
+
+          {view === 'events' && (
+            <ErrorBoundary>
+              <EventsPage
+                events={events}
+                currentUser={currentUser ?? null}
+                onJoinEvent={joinEvent}
+                onInterestedEvent={markEventInterested}
+                onCreateEventClick={() => {
+                  if (!requireAuth('Creating events')) return;
+                  setShowCreateEventModal(true);
+                }}
+                onProfileClick={(id) => openProfile(id)}
+                onFollow={followUser}
+                checkIsFollowing={checkIsFollowing}
+              />
+            </ErrorBoundary>
+          )}
+
+          {view === 'birthdays' && (
+            <BirthdaysPage
+              currentUser={currentUser as any}
+              users={users}
+              onMessage={(id) => {
+                if (!requireAuth('Messaging')) return;
+                setActiveChatUser(users.find((u) => u.id === id) || null);
+              }}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+            />
+          )}
+
+          {view === 'memories' && currentUser && (
+            <MemoriesPage
+              currentUser={currentUser}
+              posts={allKnownPosts}
+              users={users}
+              onProfileClick={(id: number) => openProfile(id)}
+              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onViewImage={setFullScreenImage}
+              onOpenComments={(postId: number) => onOpenComments(postId)}
+              onVideoClick={handleVideoClick}
+              onPlayAudioTrack={onPlayTrack}
+              onHashtagClick={handleHashtagClick}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+              groups={groups}
+              brands={brands}
+              chats={chats}
+            />
+          )}
+
+          {view === 'settings' && currentUser && (
+            <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
+          )}
+
+          {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
+          {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
+          {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
+
+          {view === 'profile' && profileUser && (
+            <UserProfile
+              user={profileUser}
+              currentUser={currentUser}
+              users={users}
+              posts={profilePosts}
+              reels={reels}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={(id: number) => followUser(id)}
+              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+              onComment={() => requireAuth('Commenting')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onMessage={(id) => {
+                if (!requireAuth('Messaging')) return;
+                setActiveChatUser(users.find((u) => u.id === id) || null);
+              }}
+              onCreatePost={createPost as any}
+              onUpdateProfileImage={updateProfileImage as any}
+              onUpdateCoverImage={updateCoverImage as any}
+              onUpdateUserDetails={updateUserDetails as any}
+              onDeletePost={(postId: number) => deletePost(postId)}
+              onEditPost={(postId: number, content: string) => editPost(postId, content)}
+              getCommentAuthor={(id) => users.find((u) => u.id === id)}
+              onViewImage={setFullScreenImage}
+              onOpenComments={(postId) => onOpenComments(postId)}
+              onVideoClick={handleVideoClick}
+              onPlayAudioTrack={onPlayTrack}
+              onCreateStoryClick={handleCreateStoryFromProfile}
+              onVerifyUser={(id) => verifyUser(id)}
+              onRestrictUser={(id, duration) => suspendUser(id, duration)}
+              onDeleteUser={(id) => deleteUserAccount(id)}
+              onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
+              isFollowing={checkIsFollowing(Number(profileUser.id))}
+              followLoading={followLoading[Number(profileUser.id)] || false}
+            />
+          )}
+
+          {view === 'login' && (
+            <Login
+              onLogin={handleLogin}
+              onNavigateToRegister={() => setView('register')}
+              onNavigateToForgotPassword={() => setView('login')}
+              onClose={() => setView('home')}
+              error={loginError}
+            />
+          )}
+
+          {view === 'register' && (
+            <Register 
+              onRegister={handleRegister} 
+              onBackToLogin={() => setView('login')} 
+              error={loginError}
+            />
+          )}
+        </div>
+
+        {currentUser && (
+          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
+            <RightSidebar
+              contacts={users.filter((u) => u.id !== currentUser.id)}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          </div>
+        )}
+      </div>
+
+      {activeProduct && (
+        <ProductDetailModal
+          product={activeProduct}
+          currentUser={currentUser}
+          onClose={() => setActiveProduct(null)}
+          onMessage={(id) => {
+            if (!requireAuth('Messaging')) return;
+            setActiveChatUser(users.find((u) => u.id === id) || null);
+            setView('home');
+          }}
+        />
+      )}
+
+      {showCreateEventModal && currentUser && (
+        <CreateEventModal
+          currentUser={currentUser}
+          onClose={() => setShowCreateEventModal(false)}
+          onCreate={createEvent}
+        />
+      )}
+
+      {showCreatePostModal && currentUser && (
+        <CreatePostModal
+          currentUser={currentUser}
+          users={users}
+          onClose={() => setShowCreatePostModal(false)}
+          onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
+          onCreateEventClick={() => {
+            setShowCreatePostModal(false); // Close the post modal first
+            setShowCreateEventModal(true);  // Then open the event modal
+          }}
+        />
+      )}
+
+      {activePost && currentUser && (
+        <CommentsSheet
+          post={activePost}
+          currentUser={currentUser}
+          users={users}
+          onClose={() => {
+            setActiveCommentsPostId(null);
+            setCommentPostSnapshot(null);
+          }}
+          onComment={createGroupPostComment}
+          onLikeComment={handleLikeComment}
+          getCommentAuthor={(id) => users.find((u) => u.id === id)}
+          onProfileClick={(id) => openProfile(id)}
+          onHashtagClick={handleHashtagClick}
+          onFollow={followUser}
+          checkIsFollowing={checkIsFollowing}
+        />
+      )}
+
+      {activeSharePost && (
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => {
+            setShowShareSheet(false);
+            setActiveSharePost(null);
+          }}
+          post={activeSharePost}
+          currentUser={currentUser}
+          users={users}
+          groups={groups}
+          brands={brands}
+          chats={chats}
+          onShareComplete={handleShareComplete}
+          onFollow={followUser}
+          checkIsFollowing={checkIsFollowing}
+        />
+      )}
+
+      {showCreateReelModal && currentUser && (
+        <CreateReelModal
+          currentUser={currentUser}
+          onClose={() => {
+            setShowCreateReelModal(false);
+          }}
+          onCreate={(reelData: any) => {
+            return createReel({
+              ...reelData,
+              audioUrl:
+                reelData.audioUrl ||
+                (selectedReelSound?.songId && songs.find(s => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+                selectedReelSound?.audioUrl ||
+                '',
+              originalSoundId: selectedReelSound?.songId,
+              songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+              audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+              audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+            });
+          }}
+          songs={songs}
+          selectedSound={selectedReelSound}
+          onPickSound={setSelectedReelSound}
+          toBlobUrl={toBlobUrl}
+        />
+      )}
+
+      {activeStoryId && activeStory && (
+        <StoryViewerModal
+          story={activeStory}
+          onClose={closeStoryViewer}
+          onProfileClick={(id) => {
+            closeStoryViewer();
+            openProfile(id);
+          }}
+          currentUser={currentUser}
+          onFollow={followUser}
+          checkIsFollowing={checkIsFollowing}
+          followLoading={followLoading}
+          allStories={orderedStories}
+          onFetchViewers={fetchStoryViewers}
+          onFetchAnalytics={fetchStoryAnalytics}
+          onReply={replyToStory}
+          onLike={likeStory}
+          onReaction={reactToStory}
+          onNext={handleStoryNext}
+          onPrev={handleStoryPrev}
+          muted={storyMuted}
+          onToggleMute={() => setStoryMuted(!storyMuted)}
+        />
+      )}
+
+      {showCreateStoryModal && currentUser && (
+        <CreateStoryModal
+          currentUser={currentUser}
+          songs={songs}
+          onClose={() => setShowCreateStoryModal(false)}
+          onCreate={createStory}
+        />
+      )}
+
+      {currentAudioTrack && (
+        <GlobalAudioPlayer
+          currentTrack={currentAudioTrack}
+          isPlaying={isAudioPlaying}
+          onTogglePlay={onTogglePlay}
+          onNext={onNext}
+          onPrevious={onPrevious}
+          onClose={onClosePlayer}
+          onDownload={(id) => {
+            console.log('Download track:', id);
+          }}
+          onLike={(id, type) => {
+            const k = `${type}:${String(id)}`;
+            const nextLiked = !likedTracks.includes(k);
+            handleMusicSystemLikeSync(k, nextLiked);
+          }}
+          onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
+          isLiked={isPlayerLiked}
+          ownerUser={resolveTrackOwner(currentAudioTrack)}
+          totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
+          totalPlaysLoading={playsLoading}
+          onStarted={onStarted}
+        />
+      )}
+
+      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
     </div>
   );
-};
-
-// Export all components
-export { getMediaTypeInfo, avatarFrom };
+}
