@@ -1952,6 +1952,208 @@ export const EventPost: React.FC<{
 
 /**
  * =========================
+ * ✅ NEW: EVENT FEED CARD COMPONENT
+ * =========================
+ */
+type FeedEventItem = {
+  id: number;
+  feed_key: string;
+  item_type: "event";
+  event_id: number;
+
+  user_id: number;
+  name: string;
+  username: string;
+  profile_image_url: string | null;
+  created_at: string;
+
+  content: string; // title
+  event_date?: string; // from api/feeds
+  event_description?: string;
+  location?: string;
+
+  media_url?: string | null; // cover
+  attending_count?: number;
+  interested_count?: number;
+  my_rsvp_status?: "" | "going" | "interested";
+};
+
+export const EventFeedCard: React.FC<{
+  item: FeedEventItem;
+  currentUser: { id: number } | null;
+  onProfileClick: (id: number) => void;
+  onUpdateItem: (patch: Partial<FeedEventItem>) => void;
+}> = ({ item, currentUser, onProfileClick, onUpdateItem }) => {
+  const [loading, setLoading] = useState(false);
+
+  const whenText = useMemo(() => {
+    const d = item.event_date ? new Date(item.event_date) : null;
+    if (!d || isNaN(d.getTime())) return "";
+    return d.toLocaleString(undefined, { 
+      weekday: "short", 
+      month: "short", 
+      day: "numeric", 
+      hour: "2-digit", 
+      minute: "2-digit" 
+    });
+  }, [item.event_date]);
+
+  const rsvp = async (status: "going" | "interested" | "not_going") => {
+    if (!currentUser) {
+      alert("Please login to RSVP");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/events/rsvp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_id: item.event_id || item.id,
+          user_id: currentUser.id,
+          status,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        alert(data?.error || "Failed to RSVP");
+        return;
+      }
+
+      // Update this feed item instantly
+      onUpdateItem({
+        my_rsvp_status: data.my_status || "",
+        attending_count: data.attending ?? item.attending_count ?? 0,
+        interested_count: data.interested ?? item.interested_count ?? 0,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const my = item.my_rsvp_status || "";
+  const attending = Number(item.attending_count ?? 0);
+
+  return (
+    <div className="w-full">
+      <div className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042]">
+        {/* Header */}
+        <div className="flex items-center gap-3 p-3">
+          <img
+            src={item.profile_image_url || "https://via.placeholder.com/40"}
+            className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+            alt=""
+            onClick={() => onProfileClick(item.user_id)}
+          />
+          <div className="min-w-0">
+            <div className="text-[#E4E6EB] font-bold truncate">{item.name}</div>
+            <div className="text-[#B0B3B8] text-xs">
+              {new Date(item.created_at).toLocaleString()} • created an event
+            </div>
+          </div>
+        </div>
+
+        {/* Cover image (TOP) - NOT full screen */}
+        {item.media_url ? (
+          <div className="w-full h-56 bg-black overflow-hidden">
+            <img 
+              src={item.media_url} 
+              className="w-full h-full object-cover" 
+              alt="" 
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                const parent = e.currentTarget.parentElement;
+                if (parent) {
+                  const fallback = document.createElement('div');
+                  fallback.className = 'w-full h-56 bg-[#1B1C1D] flex items-center justify-center';
+                  fallback.innerHTML = '<i class="fas fa-calendar text-[#1877F2] text-4xl opacity-60"></i>';
+                  parent.appendChild(fallback);
+                }
+              }}
+            />
+          </div>
+        ) : (
+          <div className="w-full h-40 bg-[#1B1C1D] flex items-center justify-center">
+            <i className="fas fa-calendar text-[#1877F2] text-4xl opacity-60"></i>
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="p-4">
+          <div className="text-[#E4E6EB] font-black text-xl leading-tight">
+            {item.content}
+          </div>
+
+          {item.event_description ? (
+            <div className="text-[#B0B3B8] text-sm mt-2 line-clamp-2">
+              {item.event_description}
+            </div>
+          ) : null}
+
+          <div className="mt-3 space-y-2 text-[#B0B3B8] text-sm">
+            {whenText ? (
+              <div className="flex items-center gap-2">
+                <i className="fas fa-clock text-[#1877F2] w-5"></i>
+                <span>{whenText}</span>
+              </div>
+            ) : null}
+
+            {item.location ? (
+              <div className="flex items-center gap-2">
+                <i className="fas fa-map-marker-alt text-[#F02849] w-5"></i>
+                <span className="line-clamp-1">{item.location}</span>
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-2">
+              <i className="fas fa-users text-[#45BD62] w-5"></i>
+              <span>{attending} attending</span>
+            </div>
+          </div>
+
+          {/* RSVP Buttons */}
+          <div className="mt-4 flex gap-2">
+            <button
+              disabled={loading}
+              onClick={(e) => {
+                e.stopPropagation();
+                rsvp(my === "going" ? "not_going" : "going");
+              }}
+              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 ${
+                my === "going"
+                  ? "bg-[#45BD62] text-white"
+                  : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
+              }`}
+            >
+              {my === "going" ? "Going" : "Going"}
+            </button>
+
+            <button
+              disabled={loading}
+              onClick={(e) => {
+                e.stopPropagation();
+                rsvp(my === "interested" ? "not_going" : "interested");
+              }}
+              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 ${
+                my === "interested"
+                  ? "bg-[#F7B928] text-black"
+                  : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+              }`}
+            >
+              Interested
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+    </div>
+  );
+};
+
+/**
+ * =========================
  * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
  * =========================
  */
