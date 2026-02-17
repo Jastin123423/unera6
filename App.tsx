@@ -1241,6 +1241,20 @@ async function recordPlay(track: AudioTrack, userId: any) {
   return null;
 }
 
+/** ✅ Helper for making JSON POST requests */
+const postJSON = async (url: string, body: any) => {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    throw new Error(data?.error || `Request failed: ${url}`);
+  }
+  return data;
+};
+
 export default function App() {
   useLanguage();
 
@@ -2734,7 +2748,7 @@ export default function App() {
   }, []);
 
   /**
-   * Unified RSVP handler for the new /api/events/rsvp endpoint
+   * ✅ FIXED: Unified RSVP handler using /api/attend and /api/interested endpoints
    * This updates both event_attendees and event_interested tables
    */
   const onRSVPEvent = useCallback(async (eventId: number, status: "going" | "interested" | "not_going") => {
@@ -2772,33 +2786,28 @@ export default function App() {
     );
 
     try {
-      const res = await fetch("/api/events/rsvp", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json" 
-        },
-        body: JSON.stringify({ 
-          event_id: eventId, 
-          user_id: currentUser.id, 
-          status 
-        }),
-      });
+      const payload = { event_id: eventId, user_id: currentUser.id };
 
-      const data = await res.json().catch(() => ({}));
-      
-      if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || "RSVP failed");
+      // ✅ Use the working /api/attend and /api/interested endpoints
+      if (status === "going") {
+        await postJSON("/api/attend", { ...payload, action: "add" });
+      } else if (status === "interested") {
+        await postJSON("/api/interested", { ...payload, action: "add" });
+      } else {
+        // not_going = remove from both
+        await postJSON("/api/attend", { ...payload, action: "remove" });
+        await postJSON("/api/interested", { ...payload, action: "remove" });
       }
 
-      // Fetch fresh events data to ensure consistency
+      // ✅ Refresh events from real events table to ensure consistency
       const freshEvents = await fetchEvents();
       setEvents(freshEvents);
 
-      return data;
+      return { success: true };
     } catch (err: any) {
       console.error('❌ onRSVPEvent failed:', err);
       
-      // Revert optimistic update on error
+      // Revert optimistic update on error by fetching fresh data
       const freshEvents = await fetchEvents();
       setEvents(freshEvents);
       
