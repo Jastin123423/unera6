@@ -105,7 +105,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         p.created_at AS created_at,
 
-        -- canonical identifiers for the frontend (prevents ID collisions)
         p.id AS post_id,
         NULL AS reel_id,
         NULL AS song_id2,
@@ -181,18 +180,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        -- Event extras (keep columns consistent across item types)
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        -- event extras (keep columns consistent across UNION)
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status,
-
-        -- keep existing fields used by your UI
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta
+        NULL AS my_rsvp_status
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
     `;
@@ -286,16 +284,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status,
-
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta
+        NULL AS my_rsvp_status
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
     `;
@@ -407,16 +405,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status,
-
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta
+        NULL AS my_rsvp_status
       FROM songs s
       LEFT JOIN users u ON u.id = s.uploader_id
     `;
@@ -517,22 +515,22 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         pc.cover_url AS podcast_cover_url,
         COALESCE(pc.plays_count, 0) AS podcast_plays_count,
 
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status,
-
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta
+        NULL AS my_rsvp_status
       FROM podcasts pc
       LEFT JOIN users u ON u.id = pc.creator_id
     `;
 
     // ============================================================
-    // 5) EVENTS  ✅ FIXED FOR YOUR SCHEMA (event_date, description)
+    // 5) EVENTS  ✅ FIXED to your schema: e.event_date (not start_time)
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -636,7 +634,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        -- ✅ EVENT EXTRA FIELDS YOUR UI NEEDS
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        -- ✅ EVENT EXTRAS FOR FEED UI
         e.event_date AS event_date,
         e.description AS event_description,
 
@@ -647,12 +650,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           WHEN EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = e.id AND ea.user_id = ?) THEN 'going'
           WHEN EXISTS (SELECT 1 FROM event_interested ei WHERE ei.event_id = e.id AND ei.user_id = ?) THEN 'interested'
           ELSE ''
-        END AS my_rsvp_status,
-
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta
+        END AS my_rsvp_status
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
     `;
@@ -776,22 +774,22 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status,
-
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta
+        NULL AS my_rsvp_status
       FROM group_posts gp
       LEFT JOIN users u ON u.id = gp.user_id
     `;
 
     // ============================================================
-    // 7) PRODUCTS (feed-injection)
+    // 7) PRODUCTS (A) feed-injection as marketplace posts
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -876,12 +874,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        NULL AS event_date,
-        NULL AS event_description,
-        NULL AS attending_count,
-        NULL AS interested_count,
-        NULL AS my_rsvp_status,
-
         'marketplace' AS type,
         'product' AS post_type,
         'product' AS kind,
@@ -892,9 +884,54 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'type','product',
           'product_id', pr.id,
           'marketplace', json_object('id', pr.id)
-        ) AS meta
+        ) AS meta,
+
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status
       FROM products pr
       LEFT JOIN users u ON u.id = pr.seller_id
+    `;
+
+    // ============================================================
+    // 8) PRODUCTS (B) separate list
+    // ============================================================
+    const whereProducts: string[] = [];
+    const bindsProducts: any[] = [];
+
+    if (cursor && cursor.trim()) {
+      whereProducts.push(`pr.created_at < ?`);
+      bindsProducts.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereProducts.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsProducts.push(...seen);
+    }
+
+    const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(" AND ")}` : "";
+
+    const selectProducts = `
+      SELECT
+        pr.id,
+        pr.seller_id,
+        pr.title,
+        pr.category,
+        pr.description,
+        pr.country,
+        pr.address,
+        pr.main_price,
+        pr.discount_price,
+        pr.quantity,
+        pr.phone_number,
+        pr.images,
+        pr.created_at
+      FROM products pr
+      ${whereProductsSql}
+      ORDER BY pr.created_at DESC
+      LIMIT ?
     `;
 
     // ============================================================
@@ -920,7 +957,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(...bindsPodcasts, freshCount).all();
     const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
 
-    // ✅ IMPORTANT: baseSelectEvents has 2 extra ? placeholders for my_rsvp_status
+    // ✅ IMPORTANT: bind reactionUserId TWICE for my_rsvp_status
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
     ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
@@ -934,7 +971,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const freshProductsFeedRes = await env.DB.prepare(
       `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY pr.created_at DESC LIMIT ?`
     ).bind(...bindsProductsFeed, freshCount).all();
-    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results) ? freshProductsFeedRes.results : [];
+    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results)
+      ? freshProductsFeedRes.results
+      : [];
+
+    const freshProductsRes = await env.DB.prepare(selectProducts)
+      .bind(...bindsProducts, freshCount)
+      .all();
+    const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
 
     // ============================================================
     // RUN QUERIES (Explore)
@@ -946,6 +990,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     let exploreEvents: any[] = [];
     let exploreGroupPosts: any[] = [];
     let exploreProductsFeed: any[] = [];
+    let exploreProducts: any[] = [];
 
     if (exploreCount > 0) {
       const explorePostsRes = await env.DB.prepare(
@@ -968,6 +1013,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ).bind(...bindsPodcasts, exploreCount).all();
       explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
 
+      // ✅ bind reactionUserId TWICE for my_rsvp_status
       const exploreEventsRes = await env.DB.prepare(
         `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount).all();
@@ -976,16 +1022,33 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       const exploreGroupPostsRes = await env.DB.prepare(
         `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, ...bindsGroupPosts, exploreCount).all();
-      exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results) ? exploreGroupPostsRes.results : [];
+      exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results)
+        ? exploreGroupPostsRes.results
+        : [];
 
       const exploreProductsFeedRes = await env.DB.prepare(
         `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(...bindsProductsFeed, exploreCount).all();
-      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results) ? exploreProductsFeedRes.results : [];
+      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results)
+        ? exploreProductsFeedRes.results
+        : [];
+
+      const exploreProductsRes = await env.DB.prepare(
+        `
+          SELECT
+            pr.id, pr.seller_id, pr.title, pr.category, pr.description, pr.country, pr.address,
+            pr.main_price, pr.discount_price, pr.quantity, pr.phone_number, pr.images, pr.created_at
+          FROM products pr
+          ${whereProductsSql}
+          ORDER BY RANDOM()
+          LIMIT ?
+        `
+      ).bind(...bindsProducts, exploreCount).all();
+      exploreProducts = Array.isArray(exploreProductsRes?.results) ? exploreProductsRes.results : [];
     }
 
     // ============================================================
-    // Merge + dedup FEED (feed_key)
+    // Merge + dedup FEED (use feed_key)
     // ============================================================
     const map = new Map<string, any>();
     const allFeedRows = [
@@ -1029,7 +1092,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const ordered = seededShuffle(merged, seed);
 
     // ============================================================
-    // hasMore (posts-only simple) ✅ keep original behavior
+    // Merge + dedup PRODUCTS (separate list)
+    // ============================================================
+    const productMap = new Map<number, any>();
+    for (const row of [...freshProducts, ...exploreProducts]) {
+      const id = Number((row as any)?.id);
+      if (!Number.isFinite(id)) continue;
+      if (!productMap.has(id)) productMap.set(id, row);
+    }
+    const products = Array.from(productMap.values());
+
+    // ============================================================
+    // hasMore (posts-only simple)
     // ============================================================
     let hasMore = false;
     if (nextCursor) {
@@ -1054,7 +1128,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       nextCursor,
       hasMore,
       feed: ordered,
-      products: [], // keep key if your frontend expects it (you can restore your products list if needed)
+      products,
     };
 
     if (debug) {
@@ -1063,6 +1137,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         debug: {
           seenCount: seen.length,
           returnedFeed: ordered.length,
+          returnedProducts: products.length,
           fresh: {
             posts: freshPosts.length,
             reels: freshReels.length,
@@ -1071,6 +1146,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             events: freshEvents.length,
             groupPosts: freshGroupPosts.length,
             productsFeed: freshProductsFeed.length,
+            products: freshProducts.length,
           },
           explore: {
             posts: explorePosts.length,
@@ -1080,6 +1156,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             events: exploreEvents.length,
             groupPosts: exploreGroupPosts.length,
             productsFeed: exploreProductsFeed.length,
+            products: exploreProducts.length,
           },
         },
       });
