@@ -1,4 +1,4 @@
-Here api/feeds 
+
 // functions/api/feeds.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
