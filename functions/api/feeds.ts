@@ -125,7 +125,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        p.content AS content,
+        -- ✅ plain text support (prevents null)
+        COALESCE(p.content,'') AS content,
         p.visibility AS visibility,
         p.views AS views,
         p.shares AS shares,
@@ -507,7 +508,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS  ✅ same “style/shape” as your original, but includes event details in meta
+    // 5) EVENTS  ✅ FIXED for your schema (event_date, not start_time)
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -555,6 +556,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
+        -- feed uses content as headline
         e.title AS content,
         'public' AS visibility,
         0 AS views,
@@ -611,24 +613,34 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        -- keep existing fields used by your UI (unchanged)
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
+        -- ✅ Event feed identification (so Feed can render EventCard)
+        'event' AS type,
+        'event' AS post_type,
+        'event' AS kind,
 
-        -- ✅ Event requirements for feed preview: keep shape same, put details in meta (safe to ignore)
+        -- ✅ Counts + RSVP from your tables + event_date from your schema
         json_object(
-          'kind', 'event',
+          'kind','event',
+          'type','event',
           'event_id', e.id,
+          'creator_id', e.creator_id,
           'title', e.title,
-          'description', e.description,
-          'start_time', e.start_time,
-          'end_time', e.end_time,
-          'date', e.date,
-          'time', e.time,
-          'location', e.location,
-          'visibility', e.visibility,
-          'cover_url', e.cover_url
+          'description', COALESCE(e.description,''),
+          'event_date', e.event_date,
+          'location', COALESCE(e.location,''),
+          'cover_url', COALESCE(e.cover_url,''),
+          'visibility', COALESCE(e.visibility,'worldwide'),
+          'group_id', e.group_id,
+
+          'attendees_count', (SELECT COUNT(*) FROM event_attendees ea WHERE ea.event_id = e.id),
+          'interested_count', (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id),
+
+          'my_rsvp_status',
+            CASE
+              WHEN EXISTS(SELECT 1 FROM event_attendees ea2 WHERE ea2.event_id = e.id AND ea2.user_id = ?) THEN 'going'
+              WHEN EXISTS(SELECT 1 FROM event_interested ei2 WHERE ei2.event_id = e.id AND ei2.user_id = ?) THEN 'interested'
+              ELSE NULL
+            END
         ) AS meta
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
@@ -683,7 +695,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        gp.content AS content,
+        COALESCE(gp.content,'') AS content,
         'public' AS visibility,
         0 AS views,
         0 AS shares,
@@ -763,7 +775,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     // ============================================================
     // 7) PRODUCTS (A) feed-injection as marketplace posts ✅
-    // ✅ item_type is now 'product' (NOT 'post')
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -925,9 +936,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(...bindsPodcasts, freshCount).all();
     const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
 
+    // ✅ EVENTS now binds reactionUserId twice (for RSVP CASE)
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
-    ).bind(...bindsEvents, freshCount).all();
+    ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
     const freshEvents = Array.isArray(freshEventsRes?.results) ? freshEventsRes.results : [];
 
     const freshGroupPostsRes = await env.DB.prepare(
@@ -982,9 +994,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ).bind(...bindsPodcasts, exploreCount).all();
       explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
 
+      // ✅ EVENTS now binds reactionUserId twice (for RSVP CASE)
       const exploreEventsRes = await env.DB.prepare(
         `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(...bindsEvents, exploreCount).all();
+      ).bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount).all();
       exploreEvents = Array.isArray(exploreEventsRes?.results) ? exploreEventsRes.results : [];
 
       const exploreGroupPostsRes = await env.DB.prepare(
@@ -1097,14 +1110,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       cursor: cursor ?? null,
       nextCursor,
       hasMore,
-
-      // ✅ main unified feed
       feed: ordered,
-
-      // ✅ BACKWARD-COMPAT (prevents “No posts available” if frontend still reads data.posts)
-      // Does NOT change your feed structure; it only adds an alias.
-      posts: ordered,
-
       products, // ✅ RESTORED as before
     };
 
