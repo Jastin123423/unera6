@@ -1,4 +1,3 @@
-// Feed.tsx
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -2265,8 +2264,11 @@ export const Post: React.FC<{
     !!p?.product_id ||
     !!p?.meta?.marketplace?.id;
 
-  // ========== EVENT DETECTION ==========
+  // ========== EVENT DETECTION - FIXED: Now detects feed events properly ==========
   const isEventPost =
+    p?.item_type === "event" ||                    // From your API feed response
+    String(p?.feed_key || "").startsWith("event:") || // Feed key pattern
+    p?.source === "event" ||
     p?.type === 'event' ||
     p?.post_type === 'event' ||
     meta?.type === 'event' ||
@@ -2274,8 +2276,37 @@ export const Post: React.FC<{
     !!p?.event_id ||
     !!meta?.event;
 
-  // If it's an event post, render the EventPost component instead
-  if (isEventPost && onRSVP) {
+  // ========== FALLBACK RSVP FUNCTION - Ensures events always work ==========
+  const fallbackRSVP = async (eventId: number, status: "going" | "interested" | "not_going") => {
+    if (!currentUser) { 
+      alert("Please login to RSVP"); 
+      return; 
+    }
+
+    try {
+      const response = await fetch("/api/events/rsvp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          event_id: eventId, 
+          user_id: currentUser.id, 
+          status 
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to RSVP");
+      }
+    } catch (error: any) {
+      console.error('Fallback RSVP failed:', error);
+      alert(error.message || "Failed to RSVP. Please try again.");
+      throw error;
+    }
+  };
+
+  // If it's an event post, render the EventPost component (no onRSVP gate!)
+  if (isEventPost) {
     const event = normalizeEventFromFeed(p);
     return (
       <EventPost
@@ -2284,7 +2315,7 @@ export const Post: React.FC<{
         currentUser={currentUser}
         users={users}
         onProfileClick={onProfileClick}
-        onRSVP={onRSVP}
+        onRSVP={onRSVP || fallbackRSVP}  // Use provided onRSVP or fallback
         onFollow={onFollow}
         isFollowing={isFollowing}
         followLoading={followLoading}
