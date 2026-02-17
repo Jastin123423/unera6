@@ -181,18 +181,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        -- keep existing fields used by your UI
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta,
-
-        -- events-only extra fields (kept NULL for non-events)
+        -- ✅ event fields stay NULL for posts
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status
+        NULL AS my_rsvp_status,
+
+        -- keep existing fields used by your UI
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
     `;
@@ -286,17 +286,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta,
-
-        -- events-only extra fields (kept NULL for non-events)
+        -- ✅ event fields stay NULL for reels
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status
+        NULL AS my_rsvp_status,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
     `;
@@ -408,17 +408,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta,
-
-        -- events-only extra fields (kept NULL for non-events)
+        -- ✅ event fields stay NULL for songs
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status
+        NULL AS my_rsvp_status,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM songs s
       LEFT JOIN users u ON u.id = s.uploader_id
     `;
@@ -519,23 +519,23 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         pc.cover_url AS podcast_cover_url,
         COALESCE(pc.plays_count, 0) AS podcast_plays_count,
 
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta,
-
-        -- events-only extra fields (kept NULL for non-events)
+        -- ✅ event fields stay NULL for podcasts
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status
+        NULL AS my_rsvp_status,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM podcasts pc
       LEFT JOIN users u ON u.id = pc.creator_id
     `;
 
     // ============================================================
-    // 5) EVENTS
+    // 5) EVENTS  ✅ FIXED for your schema (event_date + description)
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -639,12 +639,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta,
-
-        -- ✅ events extras for feed card/buttons
+        -- ✅ REQUIRED EVENT EXTRA FIELDS (for EventFeedCard)
         e.event_date AS event_date,
         e.description AS event_description,
 
@@ -655,13 +650,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           WHEN EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = e.id AND ea.user_id = ?) THEN 'going'
           WHEN EXISTS (SELECT 1 FROM event_interested ei WHERE ei.event_id = e.id AND ei.user_id = ?) THEN 'interested'
           ELSE ''
-        END AS my_rsvp_status
+        END AS my_rsvp_status,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
     `;
 
     // ============================================================
-    // 6) GROUP POSTS  ✅ item_type is now 'group_post' (NOT 'post')
+    // 6) GROUP POSTS ✅ item_type is now 'group_post' (NOT 'post')
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -779,24 +779,23 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta,
-
-        -- events-only extra fields (kept NULL for non-events)
+        -- ✅ event fields stay NULL for group_post
         NULL AS event_date,
         NULL AS event_description,
         NULL AS attending_count,
         NULL AS interested_count,
-        NULL AS my_rsvp_status
+        NULL AS my_rsvp_status,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
       FROM group_posts gp
       LEFT JOIN users u ON u.id = gp.user_id
     `;
 
     // ============================================================
     // 7) PRODUCTS (A) feed-injection as marketplace posts ✅
-    // ✅ item_type is now 'product' (NOT 'post')
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -881,6 +880,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        -- ✅ event fields stay NULL for product feed
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status,
+
         'marketplace' AS type,
         'product' AS post_type,
         'product' AS kind,
@@ -891,14 +897,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'type','product',
           'product_id', pr.id,
           'marketplace', json_object('id', pr.id)
-        ) AS meta,
-
-        -- events-only extra fields (kept NULL for non-events)
-        NULL AS event_date,
-        NULL AS event_description,
-        NULL AS attending_count,
-        NULL AS interested_count,
-        NULL AS my_rsvp_status
+        ) AS meta
       FROM products pr
       LEFT JOIN users u ON u.id = pr.seller_id
     `;
@@ -965,7 +964,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(...bindsPodcasts, freshCount).all();
     const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
 
-    // ✅ IMPORTANT: bind reactionUserId TWICE for my_rsvp_status
+    // ✅ IMPORTANT: bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount)
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
     ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
@@ -1023,7 +1022,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ).bind(...bindsPodcasts, exploreCount).all();
       explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
 
-      // ✅ IMPORTANT: bind reactionUserId TWICE for my_rsvp_status
+      // ✅ IMPORTANT: bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount)
       const exploreEventsRes = await env.DB.prepare(
         `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount).all();
