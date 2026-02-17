@@ -125,8 +125,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        -- ✅ plain text support (prevents null)
-        COALESCE(p.content,'') AS content,
+        p.content AS content,
         p.visibility AS visibility,
         p.views AS views,
         p.shares AS shares,
@@ -186,7 +185,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        -- events-only extra fields (kept NULL for non-events)
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
     `;
@@ -283,7 +289,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        -- events-only extra fields (kept NULL for non-events)
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
     `;
@@ -398,7 +411,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        -- events-only extra fields (kept NULL for non-events)
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status
       FROM songs s
       LEFT JOIN users u ON u.id = s.uploader_id
     `;
@@ -502,13 +522,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        -- events-only extra fields (kept NULL for non-events)
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status
       FROM podcasts pc
       LEFT JOIN users u ON u.id = pc.creator_id
     `;
 
     // ============================================================
-    // 5) EVENTS  ✅ FIXED for your schema (event_date, not start_time)
+    // 5) EVENTS
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -556,7 +583,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        -- feed uses content as headline
         e.title AS content,
         'public' AS visibility,
         0 AS views,
@@ -613,35 +639,23 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        -- ✅ Event feed identification (so Feed can render EventCard)
-        'event' AS type,
-        'event' AS post_type,
-        'event' AS kind,
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
 
-        -- ✅ Counts + RSVP from your tables + event_date from your schema
-        json_object(
-          'kind','event',
-          'type','event',
-          'event_id', e.id,
-          'creator_id', e.creator_id,
-          'title', e.title,
-          'description', COALESCE(e.description,''),
-          'event_date', e.event_date,
-          'location', COALESCE(e.location,''),
-          'cover_url', COALESCE(e.cover_url,''),
-          'visibility', COALESCE(e.visibility,'worldwide'),
-          'group_id', e.group_id,
+        -- ✅ events extras for feed card/buttons
+        e.event_date AS event_date,
+        e.description AS event_description,
 
-          'attendees_count', (SELECT COUNT(*) FROM event_attendees ea WHERE ea.event_id = e.id),
-          'interested_count', (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id),
+        (SELECT COUNT(*) FROM event_attendees ea WHERE ea.event_id = e.id) AS attending_count,
+        (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id) AS interested_count,
 
-          'my_rsvp_status',
-            CASE
-              WHEN EXISTS(SELECT 1 FROM event_attendees ea2 WHERE ea2.event_id = e.id AND ea2.user_id = ?) THEN 'going'
-              WHEN EXISTS(SELECT 1 FROM event_interested ei2 WHERE ei2.event_id = e.id AND ei2.user_id = ?) THEN 'interested'
-              ELSE NULL
-            END
-        ) AS meta
+        CASE
+          WHEN EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = e.id AND ea.user_id = ?) THEN 'going'
+          WHEN EXISTS (SELECT 1 FROM event_interested ei WHERE ei.event_id = e.id AND ei.user_id = ?) THEN 'interested'
+          ELSE ''
+        END AS my_rsvp_status
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
     `;
@@ -695,7 +709,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        COALESCE(gp.content,'') AS content,
+        gp.content AS content,
         'public' AS visibility,
         0 AS views,
         0 AS shares,
@@ -768,13 +782,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        -- events-only extra fields (kept NULL for non-events)
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status
       FROM group_posts gp
       LEFT JOIN users u ON u.id = gp.user_id
     `;
 
     // ============================================================
     // 7) PRODUCTS (A) feed-injection as marketplace posts ✅
+    // ✅ item_type is now 'product' (NOT 'post')
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -869,7 +891,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'type','product',
           'product_id', pr.id,
           'marketplace', json_object('id', pr.id)
-        ) AS meta
+        ) AS meta,
+
+        -- events-only extra fields (kept NULL for non-events)
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status
       FROM products pr
       LEFT JOIN users u ON u.id = pr.seller_id
     `;
@@ -936,7 +965,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(...bindsPodcasts, freshCount).all();
     const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
 
-    // ✅ EVENTS now binds reactionUserId twice (for RSVP CASE)
+    // ✅ IMPORTANT: bind reactionUserId TWICE for my_rsvp_status
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
     ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
@@ -994,7 +1023,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ).bind(...bindsPodcasts, exploreCount).all();
       explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
 
-      // ✅ EVENTS now binds reactionUserId twice (for RSVP CASE)
+      // ✅ IMPORTANT: bind reactionUserId TWICE for my_rsvp_status
       const exploreEventsRes = await env.DB.prepare(
         `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount).all();
