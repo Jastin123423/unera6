@@ -2296,45 +2296,23 @@ export const Post: React.FC<{
     !!p?.event_id ||
     !!meta?.event;
 
-  // ========== FALLBACK RSVP FUNCTION ==========
-  const fallbackRSVP = async (eventId: number, status: "going" | "interested" | "not_going") => {
-    if (!currentUser) { 
-      alert("Please login to RSVP"); 
-      return; 
-    }
-
-    try {
-      const payload = { event_id: eventId, user_id: currentUser.id };
-
-      if (status === "going") {
-        await postJSON("/api/attend", { ...payload, action: "add" });
-      } else if (status === "interested") {
-        await postJSON("/api/interested", { ...payload, action: "add" });
-      } else {
-        await postJSON("/api/attend", { ...payload, action: "remove" });
-        await postJSON("/api/interested", { ...payload, action: "remove" });
-      }
-    } catch (error: any) {
-      console.error('Fallback RSVP failed:', error);
-      alert(error.message || "Failed to RSVP. Please try again.");
-      throw error;
-    }
-  };
+  
 
   // If it's an event post, render the EventPost component
   if (isEventPost) {
     const event = normalizeEventFromFeed(p);
     return (
-      <EventPost
-        event={event}
-        author={a}
-        currentUser={currentUser}
-        users={users}
-        onProfileClick={onProfileClick}
-        onRSVP={onRSVP || fallbackRSVP}
-        onFollow={onFollow}
-        isFollowing={isFollowing}
-        followLoading={followLoading}
+  
+        <EventPost
+       event={event}
+       author={a}
+      currentUser={currentUser}
+      users={users}
+      onProfileClick={onProfileClick}
+      onRSVP={onRSVP}  // ✅ Only use the provided handler
+      onFollow={onFollow}
+      isFollowing={isFollowing}
+      followLoading={followLoading}
       />
     );
   }
