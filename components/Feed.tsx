@@ -1735,6 +1735,12 @@ export const EventPost: React.FC<{
   onFollow?: (id: number) => void;
   isFollowing?: boolean;
   followLoading?: boolean;
+  onReact?: (id: number, type: ReactionType) => void;
+  onShare?: (id: number, newShareCount: number) => void;
+  onOpenComments?: (id: number) => void;
+  groups?: Group[];
+  brands?: Brand[];
+  chats?: any[];
 }> = ({ 
   event, 
   author, 
@@ -1745,9 +1751,16 @@ export const EventPost: React.FC<{
   onFollow,
   isFollowing = false,
   followLoading = false,
+  onReact,
+  onShare,
+  onOpenComments,
+  groups = [],
+  brands = [],
+  chats = [],
 }) => {
   const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
   const [busy, setBusy] = useState(false);
+  const [showShareSheet, setShowShareSheet] = useState(false);
   
   const creator = author || users?.find(u => Number(u.id) === Number(event.creator_id)) || null;
   
@@ -1797,197 +1810,264 @@ export const EventPost: React.FC<{
     }
   };
 
+  const handleReact = (type: ReactionType) => {
+    if (onReact && event.id) {
+      onReact(event.id, type);
+    }
+  };
+
+  const handleShare = () => {
+    if (!currentUser) {
+      alert('Please login to share');
+      return;
+    }
+    setShowShareSheet(true);
+  };
+
+  const handleShareComplete = (destination: string, data?: any) => {
+    if (onShare && data?.success && event.id) {
+      const newShares = data?.shares || 0;
+      onShare(event.id, newShares);
+    }
+    setShowShareSheet(false);
+  };
+
+  const handleOpenComments = () => {
+    if (onOpenComments && event.id) {
+      onOpenComments(event.id);
+    }
+  };
+
   return (
-    <div className="w-full">
-      <div className="bg-[#242526] w-full overflow-hidden">
-        {/* Header */}
-        <div className="p-3 md:p-4 flex items-center justify-between">
-          <div
-            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-            onClick={() => creator?.id && onProfileClick(Number(creator.id))}
-          >
-            <img
-              src={avatarFrom(creator)}
-              alt=""
-              className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-            />
-            <div className="min-w-0">
-              <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] truncate">
-                  {creator?.name || creator?.username || 'User'}
-                </h4>
-              </div>
-              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                <span>{formatRelativeTime(event.created_at)}</span>
-                <span>•</span>
-                <i className="fas fa-globe-americas text-[12px]"></i>
-                <span>• created an event</span>
-              </div>
-            </div>
-          </div>
-
-          {onFollow && currentUser && creator?.id && safeUserId(creator) !== safeUserId(currentUser) && (
-            <button
-              onClick={handleFollowClick}
-              disabled={followLoading}
-              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                isFollowing 
-                  ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                  : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-              } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+    <>
+      <div className="w-full">
+        <div className="bg-[#242526] w-full overflow-hidden">
+          {/* Header */}
+          <div className="p-3 md:p-4 flex items-center justify-between">
+            <div
+              className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+              onClick={() => creator?.id && onProfileClick(Number(creator.id))}
             >
-              {followLoading ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : isFollowing ? (
-                'Following'
-              ) : (
-                'Follow'
-              )}
-            </button>
-          )}
-        </div>
+              <img
+                src={avatarFrom(creator)}
+                alt=""
+                className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-1 flex-wrap">
+                  <h4 className="font-bold text-[#E4E6EB] text-[18.5px] truncate">
+                    {creator?.name || creator?.username || 'User'}
+                  </h4>
+                </div>
+                <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                  <span>{formatRelativeTime(event.created_at)}</span>
+                  <span>•</span>
+                  <i className="fas fa-globe-americas text-[12px]"></i>
+                  <span>• created an event</span>
+                </div>
+              </div>
+            </div>
 
-        {/* EVENT BODY - FIXED: Image now shows on top */}
-        <div className="px-3 md:px-4 pb-4">
-          <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
-            {/* Cover Image - FIXED: Now properly displays the event cover */}
-            {event.cover_image ? (
-              <div className="h-48 bg-[#18191A] overflow-hidden relative">
-                <img
-                  src={event.cover_image}
-                  alt={event.title}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    // Fallback if image fails to load
-                    (e.currentTarget as HTMLImageElement).style.display = 'none';
-                    const parent = e.currentTarget.parentElement;
-                    if (parent) {
-                      const fallback = document.createElement('div');
-                      fallback.className = 'h-32 bg-[#1f2a37] flex items-center justify-center';
-                      fallback.innerHTML = '<i class="fas fa-calendar text-white/30 text-5xl"></i>';
-                      parent.appendChild(fallback);
-                    }
-                  }}
-                />
-                {/* Date Badge */}
-                {month && day && (
-                  <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                    <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
-                    <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
-                    {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
-                  </div>
+            {onFollow && currentUser && creator?.id && safeUserId(creator) !== safeUserId(currentUser) && (
+              <button
+                onClick={handleFollowClick}
+                disabled={followLoading}
+                className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                  isFollowing 
+                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+              >
+                {followLoading ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : isFollowing ? (
+                  'Following'
+                ) : (
+                  'Follow'
                 )}
-              </div>
-            ) : (
-              <div className="h-32 bg-[#1f2a37] flex items-center justify-center relative">
-                <i className="fas fa-calendar text-white/30 text-5xl"></i>
-                {month && day && (
-                  <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                    <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
-                    <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
-                    {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
-                  </div>
-                )}
-              </div>
+              </button>
             )}
+          </div>
 
-            {/* Details */}
-            <div className="p-4">
-              <div className="text-[#E4E6EB] font-black text-[20px] line-clamp-2">
-                {event.title}
-              </div>
-
-              {event.description && (
-                <div className="text-[#B0B3B8] text-[14px] mt-1 line-clamp-2">
-                  {event.description}
+          {/* EVENT BODY - FIXED: Image now shows on top */}
+          <div className="pb-4">
+            <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
+              {/* Cover Image - FIXED: Now properly displays the event cover */}
+              {event.cover_image ? (
+                <div className="h-48 bg-[#18191A] overflow-hidden relative">
+                  <img
+                    src={event.cover_image}
+                    alt={event.title}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      // Fallback if image fails to load
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      const parent = e.currentTarget.parentElement;
+                      if (parent) {
+                        const fallback = document.createElement('div');
+                        fallback.className = 'h-48 bg-[#1f2a37] flex items-center justify-center';
+                        fallback.innerHTML = '<i class="fas fa-calendar text-white/30 text-5xl"></i>';
+                        parent.appendChild(fallback);
+                      }
+                    }}
+                  />
+                  {/* Date Badge */}
+                  {month && day && (
+                    <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                      <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
+                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
+                      {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="h-32 bg-[#1f2a37] flex items-center justify-center relative">
+                  <i className="fas fa-calendar text-white/30 text-5xl"></i>
+                  {month && day && (
+                    <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                      <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
+                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
+                      {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
+                    </div>
+                  )}
                 </div>
               )}
 
-              <div className="mt-3 space-y-2">
-                {event.start_time && (
-                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                    <i className="fas fa-clock text-[#1877F2] w-4"></i>
-                    <span>
-                      {dateObj?.toLocaleDateString()} at {timeLabel}
-                    </span>
-                  </div>
-                )}
-                {event.location && (
-                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                    <i className="fas fa-map-marker-alt text-[#F02849] w-4"></i>
-                    <span className="line-clamp-1">{event.location}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                  <i className="fas fa-users text-[#45BD62] w-4"></i>
-                  <span>{event.attendees_count || 0} attending</span>
+              {/* Details */}
+              <div className="p-4">
+                <div className="text-[#E4E6EB] font-black text-[20px] line-clamp-2">
+                  {event.title}
                 </div>
-              </div>
 
-              {/* RSVP Buttons - FIXED: Now actually work */}
-              <div className="mt-4 flex gap-2">
-                <button
-                  disabled={busy}
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    handleRSVPClick('going'); 
-                  }}
-                  className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
-                    rsvpStatus === 'going'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                  } disabled:opacity-60`}
-                >
-                  {busy && rsvpStatus === 'going' ? (
-                    <i className="fas fa-spinner fa-spin"></i>
-                  ) : (
-                    'Going'
-                  )}
-                </button>
+                {event.description && (
+                  <div className="text-[#B0B3B8] text-[14px] mt-1 line-clamp-2">
+                    {event.description}
+                  </div>
+                )}
 
-                <button
-                  disabled={busy}
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    handleRSVPClick('interested'); 
-                  }}
-                  className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
-                    rsvpStatus === 'interested'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                  } disabled:opacity-60`}
-                >
-                  {busy && rsvpStatus === 'interested' ? (
-                    <i className="fas fa-spinner fa-spin"></i>
-                  ) : (
-                    'Interested'
+                <div className="mt-3 space-y-2">
+                  {event.start_time && (
+                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                      <i className="fas fa-clock text-[#1877F2] w-4"></i>
+                      <span>
+                        {dateObj?.toLocaleDateString()} at {timeLabel}
+                      </span>
+                    </div>
                   )}
-                </button>
+                  {event.location && (
+                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                      <i className="fas fa-map-marker-alt text-[#F02849] w-4"></i>
+                      <span className="line-clamp-1">{event.location}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                    <i className="fas fa-users text-[#45BD62] w-4"></i>
+                    <span>{event.attendees_count || 0} attending</span>
+                  </div>
+                </div>
+
+                {/* RSVP Buttons - FIXED: Now actually work */}
+                <div className="mt-4 flex gap-2">
+                  <button
+                    disabled={busy}
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      handleRSVPClick('going'); 
+                    }}
+                    className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
+                      rsvpStatus === 'going'
+                        ? 'bg-[#45BD62] text-white'
+                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                    } disabled:opacity-60`}
+                  >
+                    {busy && rsvpStatus === 'going' ? (
+                      <i className="fas fa-spinner fa-spin"></i>
+                    ) : (
+                      rsvpStatus === 'going' ? 'Going' : 'Going'
+                    )}
+                  </button>
+
+                  <button
+                    disabled={busy}
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      handleRSVPClick('interested'); 
+                    }}
+                    className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
+                      rsvpStatus === 'interested'
+                        ? 'bg-[#F7B928] text-black'
+                        : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                    } disabled:opacity-60`}
+                  >
+                    {busy && rsvpStatus === 'interested' ? (
+                      <i className="fas fa-spinner fa-spin"></i>
+                    ) : (
+                      'Interested'
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Action row - NOW ENABLED AND WORKING for events */}
+          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+            {/* Like/React Button */}
+            <div className="flex-1">
+              <ReactionButton
+                currentUserReactions={undefined}
+                reactionCount={0}
+                onReact={handleReact}
+                isGuest={!currentUser}
+              />
+            </div>
+            
+            {/* Comment Button */}
+            <button
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              onClick={handleOpenComments}
+            >
+              <i className="far fa-comment-alt text-[20px]"></i>
+              <span className="text-[17px] font-medium">Comment</span>
+            </button>
+            
+            {/* Share Button */}
+            <button
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              onClick={handleShare}
+            >
+              <i className="fas fa-share text-[20px]"></i>
+              <span className="text-[17px] font-medium">Share</span>
+            </button>
+          </div>
         </div>
 
-        {/* Action row - Hidden for events since they don't have reactions/comments yet */}
-        <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between opacity-50">
-          <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
-            <i className="far fa-thumbs-up text-[20px]"></i>
-            <span className="text-[17px] font-medium">Like</span>
-          </div>
-          <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
-          </div>
-          <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
-            <i className="fas fa-share text-[20px]"></i>
-            <span className="text-[17px] font-medium">Share</span>
-          </div>
-        </div>
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
       </div>
 
-      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-    </div>
+      {/* Share Bottom Sheet */}
+      {event && (
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => setShowShareSheet(false)}
+          post={{
+            id: event.id,
+            author: creator,
+            content: event.title,
+            description: event.description,
+            media_url: event.cover_image,
+            created_at: event.created_at
+          }}
+          currentUser={currentUser}
+          users={users}
+          groups={groups}
+          brands={brands}
+          chats={chats}
+          onShareComplete={handleShareComplete}
+        />
+      )}
+    </>
   );
 };
 
@@ -2296,23 +2376,26 @@ export const Post: React.FC<{
     !!p?.event_id ||
     !!meta?.event;
 
-  
-
   // If it's an event post, render the EventPost component
   if (isEventPost) {
     const event = normalizeEventFromFeed(p);
     return (
-  
-        <EventPost
-       event={event}
-       author={a}
-      currentUser={currentUser}
-      users={users}
-      onProfileClick={onProfileClick}
-      onRSVP={onRSVP}  // ✅ Only use the provided handler
-      onFollow={onFollow}
-      isFollowing={isFollowing}
-      followLoading={followLoading}
+      <EventPost
+        event={event}
+        author={a}
+        currentUser={currentUser}
+        users={users}
+        onProfileClick={onProfileClick}
+        onRSVP={onRSVP}
+        onFollow={onFollow}
+        isFollowing={isFollowing}
+        followLoading={followLoading}
+        onReact={onReact}
+        onShare={onShare}
+        onOpenComments={onOpenComments}
+        groups={groups}
+        brands={brands}
+        chats={chats}
       />
     );
   }
