@@ -1,4 +1,3 @@
-//Feed.tsx 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -97,6 +96,40 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   } finally {
     clearTimeout(timeoutId);
   }
+};
+
+/**
+ * =========================
+ * ✅ NEW: authHeaders helper and safeJson function
+ * =========================
+ */
+const authHeaders = () => {
+  const token = localStorage.getItem("unera_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+async function safeJson(res: Response) {
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return res.json();
+  const txt = await res.text();
+  try { return JSON.parse(txt); } catch { return { raw: txt }; }
+}
+
+const postJSON = async (url: string, body: any) => {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body ?? {}),
+  });
+
+  const data = await safeJson(res);
+
+  // your APIs sometimes return {success:false,...}
+  if (!res.ok || (data && data.success === false)) {
+    throw new Error(data?.error || data?.message || `Request failed: ${url}`);
+  }
+
+  return data;
 };
 
 /**
@@ -2013,51 +2046,55 @@ export const EventFeedCard: React.FC<{
     setError(null);
     
     try {
-      const payload = { 
-        event_id: item.event_id || item.id, 
-        user_id: currentUser.id 
-      };
+      const eventId = item.event_id || item.id;
+      const userId = currentUser.id;
 
-      const postJSON = async (url: string, body: any) => {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+      // helper to refresh counts/status from server response (safe)
+      const applyCounts = (resp: any) => {
+        // support different response shapes without breaking
+        const attending =
+          resp?.attending_count ?? resp?.attending ?? resp?.attendees_count ?? item.attending_count ?? 0;
+        const interested =
+          resp?.interested_count ?? resp?.interested ?? item.interested_count ?? 0;
+        onUpdateItem({
+          attending_count: Number(attending) || 0,
+          interested_count: Number(interested) || 0,
+          my_rsvp_status:
+            status === "not_going" ? "" : (status as any),
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data?.success === false) {
-          throw new Error(data?.error || `Request failed: ${url}`);
-        }
-        return data;
       };
-
-      let responseData;
 
       if (status === "going") {
-        responseData = await postJSON("/api/attend", { ...payload, action: "add" });
-        onUpdateItem({ my_rsvp_status: "going" });
-      } else if (status === "interested") {
-        responseData = await postJSON("/api/interested", { ...payload, action: "add" });
-        onUpdateItem({ my_rsvp_status: "interested" });
-      } else {
-        // not_going = remove from both
-        await postJSON("/api/attend", { ...payload, action: "remove" });
-        await postJSON("/api/interested", { ...payload, action: "remove" });
-        onUpdateItem({ my_rsvp_status: "" });
+        // remove interested if previously interested
+        if (item.my_rsvp_status === "interested") {
+          await postJSON("/api/interested", { event_id: eventId, user_id: userId, action: "remove" });
+        }
+        const resp = await postJSON("/api/attend", { event_id: eventId, user_id: userId, action: "add" });
+        applyCounts(resp);
+        return;
       }
 
-      // If endpoints return updated counts, apply them
-      if (responseData) {
-        onUpdateItem({ 
-          attending_count: responseData.attending ?? responseData.attending_count ?? item.attending_count,
-          interested_count: responseData.interested ?? responseData.interested_count ?? item.interested_count
-        });
+      if (status === "interested") {
+        // remove going if previously going
+        if (item.my_rsvp_status === "going") {
+          await postJSON("/api/attend", { event_id: eventId, user_id: userId, action: "remove" });
+        }
+        const resp = await postJSON("/api/interested", { event_id: eventId, user_id: userId, action: "add" });
+        applyCounts(resp);
+        return;
       }
 
-    } catch (err: any) {
-      console.error('RSVP failed:', err);
-      setError(err.message || "Failed to RSVP. Please try again.");
-      alert(err?.message || "Failed to RSVP");
+      // not_going: remove both
+      await postJSON("/api/attend", { event_id: eventId, user_id: userId, action: "remove" });
+      await postJSON("/api/interested", { event_id: eventId, user_id: userId, action: "remove" });
+
+      onUpdateItem({
+        my_rsvp_status: "",
+        // keep counts if you want, or set to 0 only if backend returns counts
+      });
+    } catch (e: any) {
+      setError(e?.message || "Failed to RSVP. Please try again.");
+      alert(e?.message || "Failed to RSVP");
     } finally {
       setLoading(false);
     }
@@ -2292,19 +2329,6 @@ export const Post: React.FC<{
 
     try {
       const payload = { event_id: eventId, user_id: currentUser.id };
-
-      const postJSON = async (url: string, body: any) => {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data?.success === false) {
-          throw new Error(data?.error || `Request failed: ${url}`);
-        }
-        return data;
-      };
 
       if (status === "going") {
         await postJSON("/api/attend", { ...payload, action: "add" });
