@@ -1,4 +1,3 @@
-//Feed.tsx 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -101,7 +100,7 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 
 /**
  * =========================
- * ✅ NEW: authHeaders helper and safeJson function
+ * ✅ authHeaders helper and safeJson function
  * =========================
  */
 const authHeaders = () => {
@@ -1683,42 +1682,41 @@ const getEventCover = (item: any, meta?: any) => {
   return '';
 };
 
+/**
+ * =========================
+ * ✅ FIXED: normalizeEventFromFeed - Maps API response to EventPost props
+ * =========================
+ */
 const normalizeEventFromFeed = (item: any) => {
-  const meta = item?.meta || {};
+  const metaRaw = item?.meta || {};
+  let meta: any = metaRaw;
   
-  // Parse meta if it's a string
-  let parsedMeta = meta;
-  if (typeof meta === 'string') {
-    try {
-      parsedMeta = JSON.parse(meta);
-    } catch {
-      parsedMeta = {};
-    }
+  if (typeof metaRaw === "string") {
+    try { meta = JSON.parse(metaRaw); } catch { meta = {}; }
   }
-  
-  // Get cover image using our helper
-  const cover = getEventCover(item, parsedMeta);
+
+  const cover = getEventCover(item, meta);
+
+  // ✅ api/feeds event fields:
+  // title -> item.content
+  // description -> item.event_description
+  // date -> item.event_date (your DB column is event_date)
+  const id = Number(item?.event_id ?? item?.id ?? meta?.event_id ?? 0);
 
   return {
-    id: Number(item?.event_id ?? item?.id ?? parsedMeta?.event_id ?? 0),
-    title: String(item?.title ?? parsedMeta?.title ?? 'Event'),
-    description: String(item?.description ?? parsedMeta?.description ?? ''),
-    cover_image: cover,
-    location: String(item?.location ?? parsedMeta?.location ?? ''),
-    start_time: String(
-      item?.start_time ??
-        item?.date ??
-        parsedMeta?.start_time ??
-        parsedMeta?.date ??
-        ''
-    ),
-    end_time: String(item?.end_time ?? parsedMeta?.end_time ?? ''),
-    created_at: String(item?.created_at ?? parsedMeta?.created_at ?? ''),
-    attendees: Array.isArray(item?.attendees) ? item.attendees : 
-               Array.isArray(parsedMeta?.attendees) ? parsedMeta.attendees : [],
-    attendees_count: Number(item?.attendees_count ?? parsedMeta?.attendees_count ?? 0),
-    user_rsvp_status: String(item?.user_rsvp_status ?? parsedMeta?.my_rsvp_status ?? ''),
-    creator_id: Number(item?.user_id ?? item?.author_id ?? parsedMeta?.creator_id ?? 0),
+    id,
+    title: String(item?.content ?? meta?.title ?? "Event"),
+    description: String(item?.event_description ?? meta?.description ?? ""),
+    cover_image: String(cover || ""),
+    location: String(item?.location ?? meta?.location ?? ""),
+    start_time: String(item?.event_date ?? meta?.event_date ?? meta?.start_time ?? ""),
+    created_at: String(item?.created_at ?? meta?.created_at ?? ""),
+    // counts from feeds (what you added in feeds.ts)
+    attendees_count: Number(item?.attending_count ?? meta?.attending_count ?? 0),
+    interested_count: Number(item?.interested_count ?? meta?.interested_count ?? 0),
+    // rsvp status from feeds
+    user_rsvp_status: String(item?.my_rsvp_status ?? meta?.my_rsvp_status ?? ""),
+    creator_id: Number(item?.user_id ?? meta?.creator_id ?? 0),
   };
 };
 
@@ -1774,12 +1772,13 @@ export const EventPost: React.FC<{
 
     setBusy(true);
     
-    // Optimistic update
+    // Optimistic update - toggle off if already selected
     const previousStatus = rsvpStatus;
-    setRsvpStatus(status);
+    const newStatus = previousStatus === status ? '' : status;
+    setRsvpStatus(newStatus);
 
     try {
-      await onRSVP(event.id, status);
+      await onRSVP(event.id, newStatus || 'not_going');
     } catch (error) {
       // Rollback on failure
       setRsvpStatus(previousStatus);
@@ -1804,13 +1803,13 @@ export const EventPost: React.FC<{
         {/* Header */}
         <div className="p-3 md:p-4 flex items-center justify-between">
           <div
-            className="flex items-center gap-2 flex-1 min-w-0"
+            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
             onClick={() => creator?.id && onProfileClick(Number(creator.id))}
           >
             <img
               src={avatarFrom(creator)}
               alt=""
-              className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+              className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
             />
             <div className="min-w-0">
               <div className="flex items-center gap-1 flex-wrap">
@@ -1940,7 +1939,11 @@ export const EventPost: React.FC<{
                       : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                   } disabled:opacity-60`}
                 >
-                  Going
+                  {busy && rsvpStatus === 'going' ? (
+                    <i className="fas fa-spinner fa-spin"></i>
+                  ) : (
+                    'Going'
+                  )}
                 </button>
 
                 <button
@@ -1955,15 +1958,19 @@ export const EventPost: React.FC<{
                       : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                   } disabled:opacity-60`}
                 >
-                  Interested
+                  {busy && rsvpStatus === 'interested' ? (
+                    <i className="fas fa-spinner fa-spin"></i>
+                  ) : (
+                    'Interested'
+                  )}
                 </button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Action row */}
-        <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+        {/* Action row - Hidden for events since they don't have reactions/comments yet */}
+        <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between opacity-50">
           <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
             <i className="far fa-thumbs-up text-[20px]"></i>
             <span className="text-[17px] font-medium">Like</span>
@@ -1986,7 +1993,7 @@ export const EventPost: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: EVENT FEED CARD COMPONENT WITH FIXED RSVP USING /api/attend AND /api/interested
+ * ✅ UPDATED: EVENT FEED CARD COMPONENT - NOW USES onRSVPEvent PROP
  * =========================
  */
 type FeedEventItem = {
@@ -2017,7 +2024,8 @@ export const EventFeedCard: React.FC<{
   currentUser: { id: number } | null;
   onProfileClick: (id: number) => void;
   onUpdateItem: (patch: Partial<FeedEventItem>) => void;
-}> = ({ item, currentUser, onProfileClick, onUpdateItem }) => {
+  onRSVPEvent: (eventId: number, status: "going" | "interested" | "not_going") => Promise<any>;
+}> = ({ item, currentUser, onProfileClick, onUpdateItem, onRSVPEvent }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -2034,8 +2042,8 @@ export const EventFeedCard: React.FC<{
   }, [item.event_date]);
 
   /**
-   * ✅ FIXED: RSVP function now uses /api/attend and /api/interested endpoints
-   * instead of the broken /api/events/rsvp
+   * ✅ FIXED: RSVP function now uses the onRSVPEvent prop from App.tsx
+   * instead of making direct API calls
    */
   const rsvp = async (status: "going" | "interested" | "not_going") => {
     if (!currentUser) {
@@ -2048,52 +2056,19 @@ export const EventFeedCard: React.FC<{
     
     try {
       const eventId = item.event_id || item.id;
-      const userId = currentUser.id;
-
-      // helper to refresh counts/status from server response (safe)
-      const applyCounts = (resp: any) => {
-        // support different response shapes without breaking
-        const attending =
-          resp?.attending_count ?? resp?.attending ?? resp?.attendees_count ?? item.attending_count ?? 0;
-        const interested =
-          resp?.interested_count ?? resp?.interested ?? item.interested_count ?? 0;
-        onUpdateItem({
-          attending_count: Number(attending) || 0,
-          interested_count: Number(interested) || 0,
-          my_rsvp_status:
-            status === "not_going" ? "" : (status as any),
-        });
-      };
-
-      if (status === "going") {
-        // remove interested if previously interested
-        if (item.my_rsvp_status === "interested") {
-          await postJSON("/api/interested", { event_id: eventId, user_id: userId, action: "remove" });
-        }
-        const resp = await postJSON("/api/attend", { event_id: eventId, user_id: userId, action: "add" });
-        applyCounts(resp);
-        return;
-      }
-
-      if (status === "interested") {
-        // remove going if previously going
-        if (item.my_rsvp_status === "going") {
-          await postJSON("/api/attend", { event_id: eventId, user_id: userId, action: "remove" });
-        }
-        const resp = await postJSON("/api/interested", { event_id: eventId, user_id: userId, action: "add" });
-        applyCounts(resp);
-        return;
-      }
-
-      // not_going: remove both
-      await postJSON("/api/attend", { event_id: eventId, user_id: userId, action: "remove" });
-      await postJSON("/api/interested", { event_id: eventId, user_id: userId, action: "remove" });
-
-      onUpdateItem({
-        my_rsvp_status: "",
-        // keep counts if you want, or set to 0 only if backend returns counts
-      });
+      
+      // Optimistic update
+      const previousStatus = item.my_rsvp_status || '';
+      onUpdateItem({ my_rsvp_status: status === "not_going" ? "" : status });
+      
+      // Call the parent handler (which uses the working endpoints)
+      await onRSVPEvent(eventId, status);
+      
+      // If we get here, success - counts will be refreshed on next feed fetch
     } catch (e: any) {
+      // Rollback optimistic update on error
+      onUpdateItem({ my_rsvp_status: item.my_rsvp_status || '' });
+      
       setError(e?.message || "Failed to RSVP. Please try again.");
       alert(e?.message || "Failed to RSVP");
     } finally {
@@ -2118,12 +2093,12 @@ export const EventFeedCard: React.FC<{
           <div className="min-w-0">
             <div className="text-[#E4E6EB] font-bold truncate">{item.name}</div>
             <div className="text-[#B0B3B8] text-xs">
-              {new Date(item.created_at).toLocaleString()} • created an event
+              {formatRelativeTime(item.created_at)} • created an event
             </div>
           </div>
         </div>
 
-        {/* Cover image (TOP) - NOT full screen */}
+        {/* Cover image */}
         {item.media_url ? (
           <div className="w-full h-56 bg-black overflow-hidden">
             <img 
@@ -2202,7 +2177,7 @@ export const EventFeedCard: React.FC<{
                   : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
               }`}
             >
-              {loading ? (
+              {loading && my === "going" ? (
                 <i className="fas fa-spinner fa-spin"></i>
               ) : (
                 my === "going" ? "Going" : "Going"
@@ -2221,7 +2196,7 @@ export const EventFeedCard: React.FC<{
                   : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
               }`}
             >
-              {loading ? (
+              {loading && my === "interested" ? (
                 <i className="fas fa-spinner fa-spin"></i>
               ) : (
                 "Interested"
@@ -2309,7 +2284,7 @@ export const Post: React.FC<{
     !!p?.product_id ||
     !!p?.meta?.marketplace?.id;
 
-  // ========== EVENT DETECTION - FIXED: Now detects feed events properly ==========
+  // ========== EVENT DETECTION ==========
   const isEventPost =
     p?.item_type === "event" ||                    // From your API feed response
     String(p?.feed_key || "").startsWith("event:") || // Feed key pattern
@@ -2321,7 +2296,7 @@ export const Post: React.FC<{
     !!p?.event_id ||
     !!meta?.event;
 
-  // ========== FALLBACK RSVP FUNCTION - Ensures events always work ==========
+  // ========== FALLBACK RSVP FUNCTION ==========
   const fallbackRSVP = async (eventId: number, status: "going" | "interested" | "not_going") => {
     if (!currentUser) { 
       alert("Please login to RSVP"); 
@@ -2346,7 +2321,7 @@ export const Post: React.FC<{
     }
   };
 
-  // If it's an event post, render the EventPost component (no onRSVP gate!)
+  // If it's an event post, render the EventPost component
   if (isEventPost) {
     const event = normalizeEventFromFeed(p);
     return (
@@ -2356,7 +2331,7 @@ export const Post: React.FC<{
         currentUser={currentUser}
         users={users}
         onProfileClick={onProfileClick}
-        onRSVP={onRSVP || fallbackRSVP}  // Use provided onRSVP or fallback
+        onRSVP={onRSVP || fallbackRSVP}
         onFollow={onFollow}
         isFollowing={isFollowing}
         followLoading={followLoading}
@@ -2370,7 +2345,7 @@ export const Post: React.FC<{
   const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
   const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
 
-  // ✅ Gallery state for multi-image swiping
+  // Gallery state for multi-image swiping
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
@@ -2381,64 +2356,13 @@ export const Post: React.FC<{
     setGalleryOpen(true);
   };
 
-  // ✅ MARKETPLACE TOP LINE - ONLY MARKETPLACE BADGE AND LOCATION
-  const marketplaceTop = isMarketplace ? (
-    <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
-      <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
-        Marketplace
-      </span>
-      {loc && (
-        <div className="flex items-center gap-1 text-[#B0B3B8]">
-          <i className="fas fa-map-marker-alt text-[12px] text-[#F02849]"></i>
-          <span className="text-sm">{loc}</span>
-        </div>
-      )}
-    </div>
-  ) : null;
-
-  // ✅ MARKETPLACE MEDIA GRID - FULL WIDTH WITH GALLERY SUPPORT
-  const marketplaceMedia = isMarketplace ? (
-    mpImages.length > 0 ? (
-      <div className="w-full">
-        <div className="w-full bg-black">
-          <MediaGrid
-            media={mpImages.map(url => ({ url }))}
-            onOpen={(url, index) => {
-              openGallery(mpImages, index);
-            }}
-          />
-        </div>
-      </div>
-    ) : null
-  ) : null;
-
-  // ✅ MARKETPLACE PRICE AND BUTTON SECTION
-  const marketplaceFooter = isMarketplace && price ? (
-    <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
-      <div className="flex items-center gap-1">
-        <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
-        <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
-      </div>
-
-      <button
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (productId) onViewProduct?.(productId);
-        }}
-      >
-        View product
-      </button>
-    </div>
-  ) : null;
-
-  // ✅ Music/Podcast detection
+  // Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
   const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
   const song = meta?.song;
   const podcast = meta?.podcast;
 
-  // ✅ Group detection
+  // Group detection
   const groupId = Number(p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0);
   const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
 
@@ -2489,7 +2413,7 @@ export const Post: React.FC<{
     return count.toString();
   };
 
-  // ✅ Facebook-style reaction emojis
+  // Facebook-style reaction emojis
   const emojiList = useMemo(() => {
     if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
       const em = topReactionEmojis(reactionsArr, 2);
@@ -2540,19 +2464,19 @@ export const Post: React.FC<{
   // ========== REGULAR POST RENDERING ==========
   return (
     <>
-      {/* ✅ Unified post wrapper */}
+      {/* Unified post wrapper */}
       <div className="w-full">
         <div className="bg-[#242526] w-full overflow-hidden">
           {/* ===== POST HEADER ===== */}
           <div className="p-3 md:p-4 flex items-center justify-between">
             <div
-              className="flex items-center gap-2 flex-1 min-w-0"
+              className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
               onClick={() => onProfileClick(safeUserId(a))}
             >
               <img
                 src={avatarFrom(a)}
                 alt=""
-                className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+                className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
               />
               <div className="min-w-0">
                 {/* Group name header for group posts */}
@@ -2638,7 +2562,19 @@ export const Post: React.FC<{
           </div>
 
           {/* ===== MARKETPLACE TOP LINE ===== */}
-          {marketplaceTop}
+          {isMarketplace && (
+            <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
+              <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
+                Marketplace
+              </span>
+              {loc && (
+                <div className="flex items-center gap-1 text-[#B0B3B8]">
+                  <i className="fas fa-map-marker-alt text-[12px] text-[#F02849]"></i>
+                  <span className="text-sm">{loc}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ===== POST CONTENT ===== */}
           {p.content && !isMarketplace && (
@@ -2730,7 +2666,18 @@ export const Post: React.FC<{
 
           {/* ===== MEDIA RENDERING ===== */}
           {isMarketplace ? (
-            marketplaceMedia
+            mpImages.length > 0 ? (
+              <div className="w-full">
+                <div className="w-full bg-black">
+                  <MediaGrid
+                    media={mpImages.map(url => ({ url }))}
+                    onOpen={(url, index) => {
+                      openGallery(mpImages, index);
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null
           ) : (
             <>
               {/* Images Grid */}
@@ -2877,7 +2824,24 @@ export const Post: React.FC<{
           )}
 
           {/* ===== MARKETPLACE PRICE AND BUTTON FOOTER ===== */}
-          {marketplaceFooter}
+          {isMarketplace && price && (
+            <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
+              <div className="flex items-center gap-1">
+                <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
+                <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
+              </div>
+
+              <button
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (productId) onViewProduct?.(productId);
+                }}
+              >
+                View product
+              </button>
+            </div>
+          )}
 
           {/* ===== REACTION SUMMARY ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
@@ -3643,7 +3607,7 @@ export const CommentsSheet: React.FC<{
   const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
   const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
 
-  // ✅ Music/Podcast detection
+  // Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
   const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
   const song = meta?.song;
