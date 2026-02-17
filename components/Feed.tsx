@@ -1616,33 +1616,338 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
- * ✅ EVENT DETECTION AND NORMALIZATION
+ * ✅ EVENT DETECTION AND NORMALIZATION WITH COVER IMAGE FIX
  * =========================
  */
+const safeParseJsonArray = (v: any): string[] => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.filter(Boolean).map(String);
+  if (typeof v === 'string') {
+    try {
+      const arr = JSON.parse(v);
+      if (Array.isArray(arr)) return arr.filter(Boolean).map(String);
+    } catch {}
+  }
+  return [];
+};
+
+const getEventCover = (item: any, meta?: any) => {
+  // Check media_urls first (JSON array)
+  const urls = safeParseJsonArray(item?.media_urls);
+  if (urls.length > 0) return urls[0];
+  
+  // Check single media_url
+  if (item?.media_url) return item.media_url;
+  
+  // Check meta for cover_url
+  if (meta?.cover_url) return meta.cover_url;
+  
+  // Check meta for image/cover in various formats
+  if (meta?.image) return meta.image;
+  if (meta?.cover) return meta.cover;
+  
+  return '';
+};
+
 const normalizeEventFromFeed = (item: any) => {
   const meta = item?.meta || {};
-  const e = meta?.event || item?.event || item || {};
+  
+  // Parse meta if it's a string
+  let parsedMeta = meta;
+  if (typeof meta === 'string') {
+    try {
+      parsedMeta = JSON.parse(meta);
+    } catch {
+      parsedMeta = {};
+    }
+  }
+  
+  // Get cover image using our helper
+  const cover = getEventCover(item, parsedMeta);
 
   return {
-    id: Number(e?.id ?? item?.event_id ?? meta?.event_id ?? item?.id ?? 0),
-    title: String(e?.title ?? item?.title ?? meta?.title ?? 'Event'),
-    description: String(e?.description ?? item?.description ?? meta?.description ?? ''),
-    cover_image: String(e?.cover_image ?? item?.cover_image ?? meta?.cover_image ?? ''),
-    location: String(e?.location ?? item?.location ?? meta?.location ?? ''),
+    id: Number(item?.event_id ?? item?.id ?? parsedMeta?.event_id ?? 0),
+    title: String(item?.title ?? parsedMeta?.title ?? 'Event'),
+    description: String(item?.description ?? parsedMeta?.description ?? ''),
+    cover_image: cover,
+    location: String(item?.location ?? parsedMeta?.location ?? ''),
     start_time: String(
-      e?.start_time ??
-        e?.date ??
-        item?.start_time ??
+      item?.start_time ??
         item?.date ??
-        meta?.start_time ??
-        meta?.date ??
+        parsedMeta?.start_time ??
+        parsedMeta?.date ??
         ''
     ),
-    created_at: String(e?.created_at ?? item?.created_at ?? ''),
-    attendees: Array.isArray(e?.attendees) ? e.attendees : [],
-    user_rsvp_status: String(e?.user_rsvp_status ?? ''),
-    creator_id: Number(e?.creator_id ?? item?.user_id ?? item?.author_id ?? 0),
-  } as any;
+    end_time: String(item?.end_time ?? parsedMeta?.end_time ?? ''),
+    created_at: String(item?.created_at ?? parsedMeta?.created_at ?? ''),
+    attendees: Array.isArray(item?.attendees) ? item.attendees : 
+               Array.isArray(parsedMeta?.attendees) ? parsedMeta.attendees : [],
+    attendees_count: Number(item?.attendees_count ?? parsedMeta?.attendees_count ?? 0),
+    user_rsvp_status: String(item?.user_rsvp_status ?? parsedMeta?.my_rsvp_status ?? ''),
+    creator_id: Number(item?.user_id ?? item?.author_id ?? parsedMeta?.creator_id ?? 0),
+  };
+};
+
+/**
+ * =========================
+ * ✅ EVENT POST COMPONENT - FIXED IMAGE AND RSVP BUTTONS
+ * =========================
+ */
+export const EventPost: React.FC<{
+  event: any;
+  author?: any;
+  currentUser: User | null;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onRSVP: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+  onFollow?: (id: number) => void;
+  isFollowing?: boolean;
+  followLoading?: boolean;
+}> = ({ 
+  event, 
+  author, 
+  currentUser, 
+  users = [], 
+  onProfileClick, 
+  onRSVP,
+  onFollow,
+  isFollowing = false,
+  followLoading = false,
+}) => {
+  const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
+  const [busy, setBusy] = useState(false);
+  
+  const creator = author || users?.find(u => Number(u.id) === Number(event.creator_id)) || null;
+  
+  const dateObj = event.start_time ? new Date(event.start_time) : null;
+  const day = dateObj && Number.isFinite(dateObj.getTime()) ? dateObj.getDate() : '';
+  const month = dateObj && Number.isFinite(dateObj.getTime())
+    ? dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+    : '';
+  const year = dateObj && Number.isFinite(dateObj.getTime())
+    ? dateObj.getFullYear()
+    : '';
+  const timeLabel = dateObj && Number.isFinite(dateObj.getTime())
+    ? dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  const handleRSVPClick = async (status: 'going' | 'interested') => {
+    if (!currentUser) {
+      alert('Please login to RSVP');
+      return;
+    }
+    if (!event.id) return;
+
+    setBusy(true);
+    
+    // Optimistic update
+    const previousStatus = rsvpStatus;
+    setRsvpStatus(status);
+
+    try {
+      await onRSVP(event.id, status);
+    } catch (error) {
+      // Rollback on failure
+      setRsvpStatus(previousStatus);
+      console.error('RSVP failed:', error);
+      alert('Failed to RSVP. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleFollowClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (onFollow && creator?.id) {
+      onFollow(safeUserId(creator));
+    }
+  };
+
+  return (
+    <div className="w-full">
+      <div className="bg-[#242526] w-full overflow-hidden">
+        {/* Header */}
+        <div className="p-3 md:p-4 flex items-center justify-between">
+          <div
+            className="flex items-center gap-2 flex-1 min-w-0"
+            onClick={() => creator?.id && onProfileClick(Number(creator.id))}
+          >
+            <img
+              src={avatarFrom(creator)}
+              alt=""
+              className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] truncate">
+                  {creator?.name || creator?.username || 'User'}
+                </h4>
+              </div>
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                <span>{formatRelativeTime(event.created_at)}</span>
+                <span>•</span>
+                <i className="fas fa-globe-americas text-[12px]"></i>
+                <span>• created an event</span>
+              </div>
+            </div>
+          </div>
+
+          {onFollow && currentUser && creator?.id && safeUserId(creator) !== safeUserId(currentUser) && (
+            <button
+              onClick={handleFollowClick}
+              disabled={followLoading}
+              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                isFollowing 
+                  ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+                  : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+              } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+            >
+              {followLoading ? (
+                <i className="fas fa-spinner fa-spin"></i>
+              ) : isFollowing ? (
+                'Following'
+              ) : (
+                'Follow'
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* EVENT BODY - FIXED: Image now shows on top */}
+        <div className="px-3 md:px-4 pb-4">
+          <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
+            {/* Cover Image - FIXED: Now properly displays the event cover */}
+            {event.cover_image ? (
+              <div className="h-48 bg-[#18191A] overflow-hidden relative">
+                <img
+                  src={event.cover_image}
+                  alt={event.title}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  onError={(e) => {
+                    // Fallback if image fails to load
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                    const parent = e.currentTarget.parentElement;
+                    if (parent) {
+                      const fallback = document.createElement('div');
+                      fallback.className = 'h-32 bg-[#1f2a37] flex items-center justify-center';
+                      fallback.innerHTML = '<i class="fas fa-calendar text-white/30 text-5xl"></i>';
+                      parent.appendChild(fallback);
+                    }
+                  }}
+                />
+                {/* Date Badge */}
+                {month && day && (
+                  <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                    <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
+                    <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
+                    {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="h-32 bg-[#1f2a37] flex items-center justify-center relative">
+                <i className="fas fa-calendar text-white/30 text-5xl"></i>
+                {month && day && (
+                  <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                    <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
+                    <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
+                    {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Details */}
+            <div className="p-4">
+              <div className="text-[#E4E6EB] font-black text-[20px] line-clamp-2">
+                {event.title}
+              </div>
+
+              {event.description && (
+                <div className="text-[#B0B3B8] text-[14px] mt-1 line-clamp-2">
+                  {event.description}
+                </div>
+              )}
+
+              <div className="mt-3 space-y-2">
+                {event.start_time && (
+                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                    <i className="fas fa-clock text-[#1877F2] w-4"></i>
+                    <span>
+                      {dateObj?.toLocaleDateString()} at {timeLabel}
+                    </span>
+                  </div>
+                )}
+                {event.location && (
+                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                    <i className="fas fa-map-marker-alt text-[#F02849] w-4"></i>
+                    <span className="line-clamp-1">{event.location}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                  <i className="fas fa-users text-[#45BD62] w-4"></i>
+                  <span>{event.attendees_count || 0} attending</span>
+                </div>
+              </div>
+
+              {/* RSVP Buttons - FIXED: Now actually work */}
+              <div className="mt-4 flex gap-2">
+                <button
+                  disabled={busy}
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    handleRSVPClick('going'); 
+                  }}
+                  className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
+                    rsvpStatus === 'going'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                  } disabled:opacity-60`}
+                >
+                  Going
+                </button>
+
+                <button
+                  disabled={busy}
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    handleRSVPClick('interested'); 
+                  }}
+                  className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
+                    rsvpStatus === 'interested'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                  } disabled:opacity-60`}
+                >
+                  Interested
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Action row */}
+        <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+          <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
+            <i className="far fa-thumbs-up text-[20px]"></i>
+            <span className="text-[17px] font-medium">Like</span>
+          </div>
+          <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
+            <i className="far fa-comment-alt text-[20px]"></i>
+            <span className="text-[17px] font-medium">Comment</span>
+          </div>
+          <div className="flex-1 flex items-center justify-center gap-2 h-10 text-[#B0B3B8]">
+            <i className="fas fa-share text-[20px]"></i>
+            <span className="text-[17px] font-medium">Share</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+    </div>
+  );
 };
 
 /**
@@ -1667,6 +1972,7 @@ export const Post: React.FC<{
   onViewProductFromPost?: (productId: number) => void;
   onOpenGroup?: (groupId: number) => void;
   onOpenAudio?: (item: any) => void;
+  onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
@@ -1690,6 +1996,7 @@ export const Post: React.FC<{
   onViewProductFromPost,
   onOpenGroup,
   onOpenAudio,
+  onRSVP,
   groups = [],
   brands = [],
   chats = [],
@@ -1723,6 +2030,24 @@ export const Post: React.FC<{
     meta?.kind === 'event' ||
     !!p?.event_id ||
     !!meta?.event;
+
+  // If it's an event post, render the EventPost component instead
+  if (isEventPost && onRSVP) {
+    const event = normalizeEventFromFeed(p);
+    return (
+      <EventPost
+        event={event}
+        author={a}
+        currentUser={currentUser}
+        users={users}
+        onProfileClick={onProfileClick}
+        onRSVP={onRSVP}
+        onFollow={onFollow}
+        isFollowing={isFollowing}
+        followLoading={followLoading}
+      />
+    );
+  }
 
   const productId = isMarketplace ? getMarketplaceProductId(p) : null;
   const productData = productId ? getProductData?.(productId) : null;
@@ -1896,211 +2221,6 @@ export const Post: React.FC<{
   // Split media by type for rendering
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
-
-  // ========== EVENT POST RENDERING ==========
-  if (isEventPost) {
-    const ev = normalizeEventFromFeed(p);
-
-    // Resolve creator (same as normal posts)
-    const creator =
-      users?.find(u => Number(u.id) === Number(ev.creator_id)) ||
-      p?.author ||
-      a ||
-      null;
-
-    const dateObj = ev.start_time ? new Date(ev.start_time) : null;
-    const day = dateObj && Number.isFinite(dateObj.getTime()) ? dateObj.getDate() : '';
-    const mon = dateObj && Number.isFinite(dateObj.getTime())
-      ? dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
-      : '';
-    const timeLabel = dateObj && Number.isFinite(dateObj.getTime())
-      ? dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-      : '';
-
-    return (
-      <div className="w-full">
-        <div className="bg-[#242526] w-full overflow-hidden">
-          {/* Header like normal post */}
-          <div className="p-3 md:p-4 flex items-center justify-between">
-            <div
-              className="flex items-center gap-2 flex-1 min-w-0"
-              onClick={() => creator?.id && onProfileClick(Number(creator.id))}
-            >
-              <img
-                src={avatarFrom(creator)}
-                alt=""
-                className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
-              />
-              <div className="min-w-0">
-                <div className="flex items-center gap-1 flex-wrap">
-                  <h4 className="font-bold text-[#E4E6EB] text-[18.5px] truncate">
-                    {creator?.name || creator?.username || 'User'}
-                  </h4>
-                </div>
-                <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                  <span>{formatRelativeTime(ev.created_at || p.created_at)}</span>
-                  <span>•</span>
-                  <i className="fas fa-globe-americas text-[12px]"></i>
-                  <span>• created an event</span>
-                </div>
-              </div>
-            </div>
-
-            {onFollow && currentUser && creator?.id && safeUserId(creator) !== safeUserId(currentUser) && (
-              <button
-                onClick={handleFollowClick}
-                disabled={followLoading}
-                className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                  isFollowing 
-                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-              >
-                {followLoading ? (
-                  <i className="fas fa-spinner fa-spin"></i>
-                ) : isFollowing ? (
-                  'Following'
-                ) : (
-                  'Follow'
-                )}
-              </button>
-            )}
-          </div>
-
-          {/* EVENT BODY (feed design) */}
-          <div className="px-3 md:px-4 pb-4">
-            <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
-              {/* Cover */}
-              {ev.cover_image ? (
-                <div className="h-44 bg-black overflow-hidden relative">
-                  <img
-                    src={ev.cover_image}
-                    alt={ev.title}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                  {!!mon && (
-                    <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                      <div className="text-[#B0B3B8] text-[11px] font-black">{mon}</div>
-                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
-                      {timeLabel && (
-                        <div className="text-[#E4E6EB] text-[11px] font-semibold">{timeLabel}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="h-28 bg-[#1877F2]/20 flex items-center justify-center relative">
-                  <i className="fas fa-calendar text-[#1877F2] text-5xl opacity-40"></i>
-                  {!!mon && (
-                    <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                      <div className="text-[#B0B3B8] text-[11px] font-black">{mon}</div>
-                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
-                      {timeLabel && (
-                        <div className="text-[#E4E6EB] text-[11px] font-semibold">{timeLabel}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Details */}
-              <div className="p-4">
-                <div className="text-[#E4E6EB] font-black text-[20px] line-clamp-2">
-                  {ev.title}
-                </div>
-
-                {ev.description && (
-                  <div className="text-[#B0B3B8] text-[14px] mt-1 line-clamp-2">
-                    {ev.description}
-                  </div>
-                )}
-
-                <div className="mt-3 space-y-2">
-                  {ev.start_time && (
-                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                      <i className="fas fa-clock text-[#1877F2] w-4"></i>
-                      <span>{new Date(ev.start_time).toLocaleString()}</span>
-                    </div>
-                  )}
-                  {ev.location && (
-                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                      <i className="fas fa-map-marker-alt text-[#F02849] w-4"></i>
-                      <span className="line-clamp-1">{ev.location}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                    <i className="fas fa-users text-[#45BD62] w-4"></i>
-                    <span>{(ev.attendees?.length || 0)} attending</span>
-                  </div>
-                </div>
-
-                {/* RSVP buttons */}
-                <div className="mt-4 flex gap-2">
-                  <button
-                    className="flex-1 bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-2.5 rounded-xl"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!currentUser) return alert('Please login to RSVP');
-                      apiFetch(`/api/events/${ev.id}/rsvp`, {
-                        method: 'POST',
-                        body: JSON.stringify({ user_id: safeUserId(currentUser), status: 'going' }),
-                      });
-                    }}
-                  >
-                    Going
-                  </button>
-
-                  <button
-                    className="flex-1 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-bold py-2.5 rounded-xl"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!currentUser) return alert('Please login to RSVP');
-                      apiFetch(`/api/events/${ev.id}/rsvp`, {
-                        method: 'POST',
-                        body: JSON.stringify({ user_id: safeUserId(currentUser), status: 'interested' }),
-                      });
-                    }}
-                  >
-                    Interested
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Action row */}
-          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-            <ReactionButton
-              currentUserReactions={finalMyReaction}
-              reactionCount={finalReactionCount}
-              onReact={(type) => onReact(safePostId(p), type)}
-              isGuest={!currentUser}
-            />
-            <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => (currentUser ? onOpenComments(Number(safePostId(p))) : alert('Login first'))}
-            >
-              <i className="far fa-comment-alt text-[20px]"></i>
-              <span className="text-[17px] font-medium">Comment</span>
-            </button>
-            <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => {
-                if (!currentUser) return alert('Please login to share posts.');
-                setShowShareSheet(true);
-              }}
-            >
-              <i className="fas fa-share text-[20px]"></i>
-              <span className="text-[17px] font-medium">Share</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-      </div>
-    );
-  }
 
   // ========== REGULAR POST RENDERING ==========
   return (
