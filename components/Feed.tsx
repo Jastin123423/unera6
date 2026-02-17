@@ -14,8 +14,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
-import { CreateEventModal} from './Events';
-
+import { CreateEventModal } from './Events';
 
 /**
  * =========================
@@ -46,54 +45,6 @@ const avatarFrom = (u: any) => {
     'User';
 
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=1877F2&color=fff&bold=true`;
-};
-
-/**
- * =========================
- * ✅ TEXT PREVIEW HELPER FOR PLAIN TEXT POSTS
- * =========================
- */
-const getPostTextPreview = (p: any, max = 140) => {
-  const t = String(p?.content ?? p?.text ?? '').trim();
-  if (!t) return '';
-  return t.length > max ? t.slice(0, max).trim() + '…' : t;
-};
-
-/**
- * =========================
- * ✅ EVENT DETECTION AND NORMALIZATION HELPERS
- * =========================
- */
-const isEventPost = (p: any): boolean => {
-  const meta = p?.meta || {};
-  return (
-    p?.type === 'event' ||
-    p?.post_type === 'event' ||
-    meta?.type === 'event' ||
-    meta?.kind === 'event' ||
-    !!p?.event_id ||
-    !!meta?.event ||
-    !!p?.event
-  );
-};
-
-const normalizeEventFromPost = (p: any): Event => {
-  const meta = p?.meta || {};
-  const e = meta?.event || p?.event || {};
-
-  return {
-    id: Number(e?.id ?? p?.event_id ?? meta?.event_id ?? 0),
-    title: String(e?.title ?? p?.title ?? meta?.title ?? 'Event'),
-    description: String(e?.description ?? p?.description ?? meta?.description ?? ''),
-    cover_image: e?.cover_image ?? p?.cover_image ?? meta?.cover_image ?? '',
-    location: e?.location ?? p?.location ?? meta?.location ?? '',
-    start_time: e?.start_time ?? e?.date ?? p?.start_time ?? p?.date ?? meta?.start_time ?? meta?.date ?? '',
-    attendees: Array.isArray(e?.attendees) ? e.attendees : [],
-    created_at: e?.created_at ?? p?.created_at ?? '',
-    user_rsvp_status: e?.user_rsvp_status ?? '',
-    creator_id: Number(e?.creator_id ?? p?.user_id ?? p?.author_id ?? 0),
-    group_id: Number(e?.group_id ?? p?.group_id ?? 0),
-  } as Event;
 };
 
 /**
@@ -162,6 +113,17 @@ const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallb
 
 const safeUserId = (u: any) => safeNumber(u?.id ?? u?.user_id ?? u?.userId, 0);
 const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
+
+/**
+ * =========================
+ * ✅ HELPER: GET POST TEXT PREVIEW
+ * =========================
+ */
+const getPostTextPreview = (p: any, max = 140) => {
+  const t = String(p?.content ?? p?.text ?? '').trim();
+  if (!t) return '';
+  return t.length > max ? t.slice(0, max).trim() + '…' : t;
+};
 
 /**
  * =========================
@@ -1102,7 +1064,7 @@ const GalleryViewer: React.FC<{
 
 /**
  * =========================
- * ✅ SHARE BOTTOM SHEET - UPDATED WITH TEXT PREVIEW
+ * ✅ SHARE BOTTOM SHEET
  * =========================
  */
 export const ShareBottomSheet: React.FC<{
@@ -1203,6 +1165,7 @@ export const ShareBottomSheet: React.FC<{
     }
   };
 
+  const textPreview = getPostTextPreview(post, 100);
   const previewUrl = useMemo(() => {
     return (
       (Array.isArray(post?.media_urls) && post.media_urls[0]) ||
@@ -1210,10 +1173,6 @@ export const ShareBottomSheet: React.FC<{
       post?.media_url ||
       ''
     );
-  }, [post]);
-
-  const textPreview = useMemo(() => {
-    return getPostTextPreview(post, 100);
   }, [post]);
 
   if (!isOpen) return null;
@@ -1408,8 +1367,8 @@ export const ShareBottomSheet: React.FC<{
                   />
                 </div>
               ) : textPreview ? (
-                <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-[#1877F2] flex items-center justify-center">
-                  <i className="fas fa-file-alt text-white text-2xl"></i>
+                <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-[#1877F2]/10 flex items-center justify-center">
+                  <i className="fas fa-file-alt text-[#1877F2] text-xl"></i>
                 </div>
               ) : null}
               
@@ -1424,8 +1383,7 @@ export const ShareBottomSheet: React.FC<{
                   </span>
                 </div>
                 <p className="text-[#B0B3B8] text-sm line-clamp-2">
-                  {textPreview || post.content?.substring(0, 100) || 'Shared post'}
-                  {!textPreview && post.content?.length > 100 ? '...' : ''}
+                  {textPreview || 'Shared post'}
                 </p>
               </div>
             </div>
@@ -1599,6 +1557,37 @@ export const ShareBottomSheet: React.FC<{
 
 /**
  * =========================
+ * ✅ EVENT DETECTION AND NORMALIZATION
+ * =========================
+ */
+const normalizeEventFromFeed = (item: any) => {
+  const meta = item?.meta || {};
+  const e = meta?.event || item?.event || item || {};
+
+  return {
+    id: Number(e?.id ?? item?.event_id ?? meta?.event_id ?? item?.id ?? 0),
+    title: String(e?.title ?? item?.title ?? meta?.title ?? 'Event'),
+    description: String(e?.description ?? item?.description ?? meta?.description ?? ''),
+    cover_image: String(e?.cover_image ?? item?.cover_image ?? meta?.cover_image ?? ''),
+    location: String(e?.location ?? item?.location ?? meta?.location ?? ''),
+    start_time: String(
+      e?.start_time ??
+        e?.date ??
+        item?.start_time ??
+        item?.date ??
+        meta?.start_time ??
+        meta?.date ??
+        ''
+    ),
+    created_at: String(e?.created_at ?? item?.created_at ?? ''),
+    attendees: Array.isArray(e?.attendees) ? e.attendees : [],
+    user_rsvp_status: String(e?.user_rsvp_status ?? ''),
+    creator_id: Number(e?.creator_id ?? item?.user_id ?? item?.author_id ?? 0),
+  } as any;
+};
+
+/**
+ * =========================
  * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
  * =========================
  */
@@ -1619,7 +1608,6 @@ export const Post: React.FC<{
   onViewProductFromPost?: (productId: number) => void;
   onOpenGroup?: (groupId: number) => void;
   onOpenAudio?: (item: any) => void;
-  onRSVP?: (eventId: number, status: string) => Promise<any>;
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
@@ -1643,7 +1631,6 @@ export const Post: React.FC<{
   onViewProductFromPost,
   onOpenGroup,
   onOpenAudio,
-  onRSVP,
   groups = [],
   brands = [],
   chats = [],
@@ -1655,50 +1642,6 @@ export const Post: React.FC<{
   
   const p: any = post as any;
   const a: any = author as any;
-
-  // ========== EVENT DETECTION ==========
-  const isEvent = isEventPost(p);
-  
-  // If this is an event post, render EventCard instead
-  if (isEvent) {
-    const eventData = normalizeEventFromPost(p);
-    
-    // Find creator and group from users/groups arrays
-    const creatorUser = users.find(u => Number(u.id) === Number(eventData.creator_id)) || a;
-    const eventGroup = groups?.find(g => Number(g.id) === Number(eventData.group_id));
-
-    return (
-      <div className="w-full">
-        <EventCard
-          event={eventData}
-          group={eventGroup}
-          creator={creatorUser}
-          currentUser={currentUser}
-          onRSVP={async (eventId, status) => {
-            if (onRSVP) {
-              return onRSVP(eventId, status);
-            }
-            // Default RSVP handler if not provided
-            return apiFetch(`/api/events/${eventId}/rsvp`, {
-              method: 'POST',
-              body: JSON.stringify({ user_id: safeUserId(currentUser), status }),
-            });
-          }}
-          onClick={() => {
-            // You can implement event detail navigation here
-            // e.g., router.push(`/events/${eventData.id}`)
-            console.log('Open event:', eventData.id);
-          }}
-          onProfileClick={onProfileClick}
-          onShare={() => {
-            // Optional share handler for events
-            console.log('Share event:', eventData.id);
-          }}
-        />
-        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-      </div>
-    );
-  }
 
   // ========== MARKETPLACE DETECTION ==========
   const meta: any = p?.meta || {};
@@ -1712,6 +1655,15 @@ export const Post: React.FC<{
     meta?.kind === 'product' ||
     !!p?.product_id ||
     !!p?.meta?.marketplace?.id;
+
+  // ========== EVENT DETECTION ==========
+  const isEventPost =
+    p?.type === 'event' ||
+    p?.post_type === 'event' ||
+    meta?.type === 'event' ||
+    meta?.kind === 'event' ||
+    !!p?.event_id ||
+    !!meta?.event;
 
   const productId = isMarketplace ? getMarketplaceProductId(p) : null;
   const productData = productId ? getProductData?.(productId) : null;
@@ -1886,6 +1838,212 @@ export const Post: React.FC<{
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
+  // ========== EVENT POST RENDERING ==========
+  if (isEventPost) {
+    const ev = normalizeEventFromFeed(p);
+
+    // Resolve creator (same as normal posts)
+    const creator =
+      users?.find(u => Number(u.id) === Number(ev.creator_id)) ||
+      p?.author ||
+      a ||
+      null;
+
+    const dateObj = ev.start_time ? new Date(ev.start_time) : null;
+    const day = dateObj && Number.isFinite(dateObj.getTime()) ? dateObj.getDate() : '';
+    const mon = dateObj && Number.isFinite(dateObj.getTime())
+      ? dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+      : '';
+    const timeLabel = dateObj && Number.isFinite(dateObj.getTime())
+      ? dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      : '';
+
+    return (
+      <div className="w-full">
+        <div className="bg-[#242526] w-full overflow-hidden">
+          {/* Header like normal post */}
+          <div className="p-3 md:p-4 flex items-center justify-between">
+            <div
+              className="flex items-center gap-2 flex-1 min-w-0"
+              onClick={() => creator?.id && onProfileClick(Number(creator.id))}
+            >
+              <img
+                src={avatarFrom(creator)}
+                alt=""
+                className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-1 flex-wrap">
+                  <h4 className="font-bold text-[#E4E6EB] text-[18.5px] truncate">
+                    {creator?.name || creator?.username || 'User'}
+                  </h4>
+                </div>
+                <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                  <span>{formatRelativeTime(ev.created_at || p.created_at)}</span>
+                  <span>•</span>
+                  <i className="fas fa-globe-americas text-[12px]"></i>
+                  <span>• created an event</span>
+                </div>
+              </div>
+            </div>
+
+            {onFollow && currentUser && creator?.id && safeUserId(creator) !== safeUserId(currentUser) && (
+              <button
+                onClick={handleFollowClick}
+                disabled={followLoading}
+                className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                  isFollowing 
+                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+              >
+                {followLoading ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : isFollowing ? (
+                  'Following'
+                ) : (
+                  'Follow'
+                )}
+              </button>
+            )}
+          </div>
+
+          {/* EVENT BODY (feed design) */}
+          <div className="px-3 md:px-4 pb-4">
+            <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
+              {/* Cover */}
+              {ev.cover_image ? (
+                <div className="h-44 bg-black overflow-hidden relative">
+                  <img
+                    src={ev.cover_image}
+                    alt={ev.title}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  {!!mon && (
+                    <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                      <div className="text-[#B0B3B8] text-[11px] font-black">{mon}</div>
+                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
+                      {timeLabel && (
+                        <div className="text-[#E4E6EB] text-[11px] font-semibold">{timeLabel}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="h-28 bg-[#1877F2]/20 flex items-center justify-center relative">
+                  <i className="fas fa-calendar text-[#1877F2] text-5xl opacity-40"></i>
+                  {!!mon && (
+                    <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                      <div className="text-[#B0B3B8] text-[11px] font-black">{mon}</div>
+                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
+                      {timeLabel && (
+                        <div className="text-[#E4E6EB] text-[11px] font-semibold">{timeLabel}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Details */}
+              <div className="p-4">
+                <div className="text-[#E4E6EB] font-black text-[20px] line-clamp-2">
+                  {ev.title}
+                </div>
+
+                {ev.description && (
+                  <div className="text-[#B0B3B8] text-[14px] mt-1 line-clamp-2">
+                    {ev.description}
+                  </div>
+                )}
+
+                <div className="mt-3 space-y-2">
+                  {ev.start_time && (
+                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                      <i className="fas fa-clock text-[#1877F2] w-4"></i>
+                      <span>{new Date(ev.start_time).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {ev.location && (
+                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                      <i className="fas fa-map-marker-alt text-[#F02849] w-4"></i>
+                      <span className="line-clamp-1">{ev.location}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                    <i className="fas fa-users text-[#45BD62] w-4"></i>
+                    <span>{(ev.attendees?.length || 0)} attending</span>
+                  </div>
+                </div>
+
+                {/* RSVP buttons */}
+                <div className="mt-4 flex gap-2">
+                  <button
+                    className="flex-1 bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-2.5 rounded-xl"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!currentUser) return alert('Please login to RSVP');
+                      apiFetch(`/api/events/${ev.id}/rsvp`, {
+                        method: 'POST',
+                        body: JSON.stringify({ user_id: safeUserId(currentUser), status: 'going' }),
+                      });
+                    }}
+                  >
+                    Going
+                  </button>
+
+                  <button
+                    className="flex-1 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-bold py-2.5 rounded-xl"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!currentUser) return alert('Please login to RSVP');
+                      apiFetch(`/api/events/${ev.id}/rsvp`, {
+                        method: 'POST',
+                        body: JSON.stringify({ user_id: safeUserId(currentUser), status: 'interested' }),
+                      });
+                    }}
+                  >
+                    Interested
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Action row */}
+          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+            <ReactionButton
+              currentUserReactions={finalMyReaction}
+              reactionCount={finalReactionCount}
+              onReact={(type) => onReact(safePostId(p), type)}
+              isGuest={!currentUser}
+            />
+            <button
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              onClick={() => (currentUser ? onOpenComments(Number(safePostId(p))) : alert('Login first'))}
+            >
+              <i className="far fa-comment-alt text-[20px]"></i>
+              <span className="text-[17px] font-medium">Comment</span>
+            </button>
+            <button
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              onClick={() => {
+                if (!currentUser) return alert('Please login to share posts.');
+                setShowShareSheet(true);
+              }}
+            >
+              <i className="fas fa-share text-[20px]"></i>
+              <span className="text-[17px] font-medium">Share</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      </div>
+    );
+  }
+
+  // ========== REGULAR POST RENDERING ==========
   return (
     <>
       {/* ✅ Unified post wrapper */}
@@ -3001,12 +3159,9 @@ export const CommentsSheet: React.FC<{
   const mediaList = useMemo(() => getPostMediaList(p), [p]);
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
-  
-  // ✅ Get text preview for plain text posts
-  const textPreview = useMemo(() => {
-    return getPostTextPreview(p);
-  }, [p]);
 
+  const textPreview = getPostTextPreview(p, 140);
+  
   const resolveAuthor = (c: any) => {
     const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
 
@@ -3346,8 +3501,8 @@ export const CommentsSheet: React.FC<{
             </div>
           </div>
 
-          {/* ===== TEXT CONTENT WITH PREVIEW SUPPORT ===== */}
-          {p.content && !p.background && (
+          {/* ===== TEXT PREVIEW - ALWAYS SHOW FOR TEXT POSTS ===== */}
+          {!p.background && textPreview && (
             <div className="mb-4">
               <ExpandableRichText
                 text={String(p.content)}
@@ -3360,10 +3515,10 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ===== BACKGROUND POST IN COMMENTS SHEET ===== */}
+          {/* ===== BACKGROUND POST TEXT ===== */}
           {p.background && textPreview && (
             <div
-              className="mb-4 -mx-4 h-[200px] flex items-center justify-center p-8 text-center text-white font-bold text-xl"
+              className="mb-4 -mx-4 h-[320px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
               style={{ background: p.background, backgroundSize: 'cover' }}
             >
               {textPreview}
@@ -3766,4 +3921,4 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { getMediaTypeInfo, avatarFrom, getPostTextPreview, isEventPost, normalizeEventFromPost };
+export { getMediaTypeInfo, avatarFrom };
