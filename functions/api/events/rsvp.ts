@@ -31,7 +31,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const body = await request.json().catch(() => ({} as any));
 
-    const event_id = toInt(body.event_id ?? body.id, 0);
+    const event_id = toInt(body.event_id, 0);
     const user_id = toInt(body.user_id, 0);
     const status = safeStr(body.status); // "going" | "interested" | "not_going"
 
@@ -44,53 +44,67 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // Ensure event exists
-    const ev = await env.DB.prepare(`SELECT id FROM events WHERE id = ? LIMIT 1`).bind(event_id).first();
+    const ev = await env.DB.prepare(`SELECT id FROM events WHERE id = ? LIMIT 1`)
+      .bind(event_id)
+      .first();
     if (!ev) return json({ success: false, error: "Event not found" }, 404);
 
-    // Transaction-like sequence (D1 doesn’t support real BEGIN for all cases; this is fine)
+    // RSVP logic:
+    // going       -> insert attendees, delete interested
+    // interested  -> insert interested, delete attendees
+    // not_going   -> delete both
     if (status === "going") {
-      // remove interested if exists, add attendee
       await env.DB.prepare(`DELETE FROM event_interested WHERE event_id = ? AND user_id = ?`)
-        .bind(event_id, user_id).run();
+        .bind(event_id, user_id)
+        .run();
 
       await env.DB.prepare(
         `INSERT OR IGNORE INTO event_attendees (event_id, user_id) VALUES (?, ?)`
-      ).bind(event_id, user_id).run();
-    }
-
-    if (status === "interested") {
-      // remove attendee if exists, add interested
+      )
+        .bind(event_id, user_id)
+        .run();
+    } else if (status === "interested") {
       await env.DB.prepare(`DELETE FROM event_attendees WHERE event_id = ? AND user_id = ?`)
-        .bind(event_id, user_id).run();
+        .bind(event_id, user_id)
+        .run();
 
       await env.DB.prepare(
         `INSERT OR IGNORE INTO event_interested (event_id, user_id) VALUES (?, ?)`
-      ).bind(event_id, user_id).run();
-    }
-
-    if (status === "not_going") {
-      // remove both
+      )
+        .bind(event_id, user_id)
+        .run();
+    } else {
       await env.DB.prepare(`DELETE FROM event_attendees WHERE event_id = ? AND user_id = ?`)
-        .bind(event_id, user_id).run();
-
+        .bind(event_id, user_id)
+        .run();
       await env.DB.prepare(`DELETE FROM event_interested WHERE event_id = ? AND user_id = ?`)
-        .bind(event_id, user_id).run();
+        .bind(event_id, user_id)
+        .run();
     }
 
+    // Return updated counts + my status
     const attendingRow = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM event_attendees WHERE event_id = ?`
-    ).bind(event_id).first();
+    )
+      .bind(event_id)
+      .first();
     const interestedRow = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM event_interested WHERE event_id = ?`
-    ).bind(event_id).first();
+    )
+      .bind(event_id)
+      .first();
 
     const isGoing = await env.DB.prepare(
-      `SELECT 1 AS x FROM event_attendees WHERE event_id = ? AND user_id = ? LIMIT 1`
-    ).bind(event_id, user_id).first();
+      `SELECT 1 FROM event_attendees WHERE event_id = ? AND user_id = ? LIMIT 1`
+    )
+      .bind(event_id, user_id)
+      .first();
 
     const isInterested = await env.DB.prepare(
-      `SELECT 1 AS x FROM event_interested WHERE event_id = ? AND user_id = ? LIMIT 1`
-    ).bind(event_id, user_id).first();
+      `SELECT 1 FROM event_interested WHERE event_id = ? AND user_id = ? LIMIT 1`
+    )
+      .bind(event_id, user_id)
+      .first();
 
     const my_status = isGoing ? "going" : isInterested ? "interested" : "";
 
@@ -98,8 +112,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       success: true,
       event_id,
       my_status,
-      attending: toInt((attendingRow as any)?.c, 0),
-      interested: toInt((interestedRow as any)?.c, 0),
+      attending: Number((attendingRow as any)?.c ?? 0),
+      interested: Number((interestedRow as any)?.c ?? 0),
     });
   } catch (e: any) {
     return json({ success: false, error: e?.message || String(e) }, 500);
