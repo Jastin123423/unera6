@@ -834,6 +834,27 @@ export const MarketplaceContext = React.createContext<{
   getProductData: () => null,
 });
 
+/** ✅ helper for JSON POST requests */
+const postJSON = async (url: string, body: any) => {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+
+  const text = await res.text();
+  let data: any = {};
+  try { data = text ? JSON.parse(text) : {}; } catch {}
+
+  if (!res.ok) {
+    throw new Error(data?.error || `HTTP ${res.status}: ${url}`);
+  }
+  if (data?.success === false) {
+    throw new Error(data?.error || `Request failed: ${url}`);
+  }
+  return data;
+};
+
 /** ---------- Optimistic reaction helper ---------- */
 const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meId: number) => {
   if (Number(p?.id) !== Number(postId)) return p;
@@ -1240,20 +1261,6 @@ async function recordPlay(track: AudioTrack, userId: any) {
 
   return null;
 }
-
-/** ✅ Helper for making JSON POST requests */
-const postJSON = async (url: string, body: any) => {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data?.success === false) {
-    throw new Error(data?.error || `Request failed: ${url}`);
-  }
-  return data;
-};
 
 export default function App() {
   useLanguage();
@@ -2720,101 +2727,80 @@ export default function App() {
     }
   }, []);
 
-  const updateEventState = useCallback((
-    eventId: number,
-    action: 'join' | 'leave' | 'interested' | 'uninterested',
-    userId: number
-  ) => {
-    setEvents(prev =>
-      safeArray(prev).map(ev => {
-        const e = normalizeEvent(ev);
-        if (Number(e.id) !== Number(eventId)) return e;
-
-        const attendees = new Set(e.attendees);
-        const interested = new Set(e.interestedIds);
-
-        if (action === 'join') { attendees.add(userId); interested.delete(userId); }
-        if (action === 'leave') { attendees.delete(userId); }
-        if (action === 'interested') { interested.add(userId); attendees.delete(userId); }
-        if (action === 'uninterested') { interested.delete(userId); }
-
-        return {
-          ...e,
-          attendees: Array.from(attendees),
-          interestedIds: Array.from(interested),
-        };
-      })
-    );
-  }, []);
-
   /**
-   * ✅ FIXED: Unified RSVP handler using /api/attend and /api/interested endpoints
-   * This updates both event_attendees and event_interested tables
+   * ✅ RSVP handler using REAL endpoints:
+   * - /api/events/:id/attend
+   * - /api/events/:id/interested
+   *
+   * NOTE: your backend currently has NO "remove" endpoint.
+   * So "not_going" cannot truly remove unless we add a remove route.
+   * (We'll handle toggle-off safely in UI without calling remove.)
    */
-  const onRSVPEvent = useCallback(async (eventId: number, status: "going" | "interested" | "not_going") => {
-    if (!requireAuth('RSVP to events')) return;
-    if (!currentUser) return;
+  const onRSVPEvent = useCallback(
+    async (eventId: number, status: "going" | "interested" | "not_going") => {
+      if (!requireAuth("RSVP to events")) return;
+      if (!currentUser) return;
 
-    const meId = Number(currentUser.id);
+      const meId = Number(currentUser.id);
+      const id = Number(eventId);
+      if (!id) return;
 
-    // Optimistic update
-    setEvents(prev => 
-      safeArray(prev).map(event => {
-        if (Number(event.id) !== Number(eventId)) return event;
-        
-        const attendees = new Set(event.attendees || []);
-        const interested = new Set(event.interestedIds || []);
-        
-        if (status === 'going') {
-          attendees.add(meId);
-          interested.delete(meId);
-        } else if (status === 'interested') {
-          interested.add(meId);
-          attendees.delete(meId);
-        } else if (status === 'not_going') {
-          attendees.delete(meId);
-          interested.delete(meId);
+      // ✅ Optimistic UI update (works instantly)
+      setEvents(prev =>
+        safeArray(prev).map(ev => {
+          const e: any = normalizeEvent(ev);
+          if (Number(e.id) !== id) return e;
+
+          const attendees = new Set<number>(safeArray(e.attendees).map(Number));
+          const interested = new Set<number>(safeArray(e.interestedIds ?? e.interested_ids).map(Number));
+
+          if (status === "going") {
+            attendees.add(meId);
+            interested.delete(meId);
+          } else if (status === "interested") {
+            interested.add(meId);
+            attendees.delete(meId);
+          } else {
+            // not_going: optimistic remove both
+            attendees.delete(meId);
+            interested.delete(meId);
+          }
+
+          return {
+            ...e,
+            attendees: Array.from(attendees),
+            interestedIds: Array.from(interested),
+            user_rsvp_status: status === "not_going" ? "" : status,
+          };
+        })
+      );
+
+      try {
+        // ✅ REAL working calls (actual files)
+        if (status === "going") {
+          await postJSON(`/api/events/${id}/attend`, { user_id: meId });
+        } else if (status === "interested") {
+          await postJSON(`/api/events/${id}/interested`, { user_id: meId });
+        } else {
+          // ⚠️ Your backend has no DELETE/remove.
+          // We just keep optimistic UI for now.
+          // (If you want true removal, I'll give you two tiny remove endpoints.)
         }
-        
-        return {
-          ...event,
-          attendees: Array.from(attendees),
-          interestedIds: Array.from(interested),
-          user_rsvp_status: status === 'not_going' ? null : status,
-        } as Event;
-      })
-    );
 
-    try {
-      const payload = { event_id: eventId, user_id: currentUser.id };
+        // Optional: refresh events table
+        const fresh = await fetchEvents();
+        setEvents(fresh);
 
-      // ✅ Use the working /api/attend and /api/interested endpoints
-      if (status === "going") {
-        await postJSON("/api/attend", { ...payload, action: "add" });
-      } else if (status === "interested") {
-        await postJSON("/api/interested", { ...payload, action: "add" });
-      } else {
-        // not_going = remove from both
-        await postJSON("/api/attend", { ...payload, action: "remove" });
-        await postJSON("/api/interested", { ...payload, action: "remove" });
+        return { success: true };
+      } catch (err: any) {
+        // rollback by refreshing
+        const fresh = await fetchEvents();
+        setEvents(fresh);
+        throw err;
       }
-
-      // ✅ Refresh events from real events table to ensure consistency
-      const freshEvents = await fetchEvents();
-      setEvents(freshEvents);
-
-      return { success: true };
-    } catch (err: any) {
-      console.error('❌ onRSVPEvent failed:', err);
-      
-      // Revert optimistic update on error by fetching fresh data
-      const freshEvents = await fetchEvents();
-      setEvents(freshEvents);
-      
-      setLoginError(err?.message || 'Failed to update RSVP');
-      throw err;
-    }
-  }, [currentUser, requireAuth, fetchEvents]);
+    },
+    [currentUser, requireAuth, fetchEvents]
+  );
 
   /**
    * Legacy joinEvent - now uses onRSVPEvent
