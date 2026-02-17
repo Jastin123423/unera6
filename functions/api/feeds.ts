@@ -507,7 +507,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS  ✅ UPDATED to include description + meta for feed rendering
+    // 5) EVENTS  ✅ same “style/shape” as your original, but includes event details in meta
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -587,10 +587,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS my_reaction,
 
         NULL AS video_url,
-
-        -- ✅ use caption field to deliver event description to the existing feed schema
-        COALESCE(e.description, '') AS caption,
-
+        NULL AS caption,
         NULL AS song_name,
         NULL AS audio_url,
         0 AS audio_start,
@@ -614,24 +611,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        -- ✅ optional but very helpful for frontend routing/rendering
-        'event' AS type,
-        'event' AS post_type,
-        'event' AS kind,
+        -- keep existing fields used by your UI (unchanged)
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
 
-        -- ✅ meta carries start_time/date without changing the unified select schema
+        -- ✅ Event requirements for feed preview: keep shape same, put details in meta (safe to ignore)
         json_object(
-          'kind','event',
-          'type','event',
-          'event', json_object(
-            'id', e.id,
-            'title', e.title,
-            'description', COALESCE(e.description,''),
-            'cover_image', COALESCE(e.cover_url,''),
-            'location', COALESCE(e.location,''),
-            'start_time', COALESCE(e.start_time, e.date, ''),
-            'created_at', e.created_at
-          )
+          'kind', 'event',
+          'event_id', e.id,
+          'title', e.title,
+          'description', e.description,
+          'start_time', e.start_time,
+          'end_time', e.end_time,
+          'date', e.date,
+          'time', e.time,
+          'location', e.location,
+          'visibility', e.visibility,
+          'cover_url', e.cover_url
         ) AS meta
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
@@ -1100,7 +1097,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       cursor: cursor ?? null,
       nextCursor,
       hasMore,
+
+      // ✅ main unified feed
       feed: ordered,
+
+      // ✅ BACKWARD-COMPAT (prevents “No posts available” if frontend still reads data.posts)
+      // Does NOT change your feed structure; it only adds an alias.
+      posts: ordered,
+
       products, // ✅ RESTORED as before
     };
 
