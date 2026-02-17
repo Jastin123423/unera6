@@ -1,18 +1,18 @@
 // functions/api/feeds.ts
-import type { PagesFunction } from '@cloudflare/workers-types';
+import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
 
 const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
 const toInt = (v: any, fallback = 0) => {
@@ -25,7 +25,7 @@ const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(ma
 const parseSeenIds = (raw: string | null, max = 250) => {
   if (!raw) return [];
   const ids = raw
-    .split(',')
+    .split(",")
     .map((x) => Number(String(x).trim()))
     .filter((n) => Number.isFinite(n) && n > 0);
   return Array.from(new Set(ids)).slice(0, max);
@@ -56,19 +56,19 @@ export const onRequestOptions: PagesFunction = async () =>
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    if (!env.DB) return json({ success: false, error: 'DB binding missing (DB)' }, 500);
+    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
     const url = new URL(request.url);
 
     // ✅ allow opening /api/feeds directly in browser
-    const userId = toInt(url.searchParams.get('userId'), 0);
+    const userId = toInt(url.searchParams.get("userId"), 0);
     const reactionUserId = userId || 0;
 
-    const limit = clamp(toInt(url.searchParams.get('limit'), 20), 1, 50);
-    const cursor = url.searchParams.get('cursor'); // older-than created_at
-    const seed = toInt(url.searchParams.get('seed'), 1);
-    const seen = parseSeenIds(url.searchParams.get('seen'), 250);
-    const debug = url.searchParams.get('debug') === '1';
+    const limit = clamp(toInt(url.searchParams.get("limit"), 20), 1, 50);
+    const cursor = url.searchParams.get("cursor"); // older-than created_at
+    const seed = toInt(url.searchParams.get("seed"), 1);
+    const seen = parseSeenIds(url.searchParams.get("seen"), 250);
+    const debug = url.searchParams.get("debug") === "1";
 
     const freshCount = Math.max(5, Math.floor(limit * 0.65));
     const exploreCount = Math.max(0, limit - freshCount);
@@ -89,11 +89,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     if (seen.length > 0) {
-      wherePosts.push(`p.id NOT IN (${seen.map(() => '?').join(',')})`);
+      wherePosts.push(`p.id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsPosts.push(...seen);
     }
 
-    const wherePostsSql = wherePosts.length ? `WHERE ${wherePosts.join(' AND ')}` : '';
+    const wherePostsSql = wherePosts.length ? `WHERE ${wherePosts.join(" AND ")}` : "";
 
     const baseSelectPosts = `
       SELECT
@@ -206,11 +206,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     if (seen.length > 0) {
-      whereReels.push(`r.id NOT IN (${seen.map(() => '?').join(',')})`);
+      whereReels.push(`r.id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsReels.push(...seen);
     }
 
-    const whereReelsSql = whereReels.length ? `WHERE ${whereReels.join(' AND ')}` : '';
+    const whereReelsSql = whereReels.length ? `WHERE ${whereReels.join(" AND ")}` : "";
 
     const baseSelectReels = `
       SELECT
@@ -299,11 +299,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     if (seen.length > 0) {
-      whereSongs.push(`s.id NOT IN (${seen.map(() => '?').join(',')})`);
+      whereSongs.push(`s.id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsSongs.push(...seen);
     }
 
-    const whereSongsSql = whereSongs.length ? `WHERE ${whereSongs.join(' AND ')}` : '';
+    const whereSongsSql = whereSongs.length ? `WHERE ${whereSongs.join(" AND ")}` : "";
 
     const baseSelectSongs = `
       SELECT
@@ -414,11 +414,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     if (seen.length > 0) {
-      wherePodcasts.push(`pc.id NOT IN (${seen.map(() => '?').join(',')})`);
+      wherePodcasts.push(`pc.id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsPodcasts.push(...seen);
     }
 
-    const wherePodcastsSql = wherePodcasts.length ? `WHERE ${wherePodcasts.join(' AND ')}` : '';
+    const wherePodcastsSql = wherePodcasts.length ? `WHERE ${wherePodcasts.join(" AND ")}` : "";
 
     const baseSelectPodcasts = `
       SELECT
@@ -507,7 +507,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS  ✅ FIXED FOR YOUR SCHEMA (event_date) + COUNTS + my_rsvp_status
+    // 5) EVENTS ✅ FIXED FOR YOUR SCHEMA (event_date, description)
+    // + counts + my_rsvp_status
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -520,11 +521,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     if (seen.length > 0) {
-      whereEvents.push(`e.id NOT IN (${seen.map(() => '?').join(',')})`);
+      whereEvents.push(`e.id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsEvents.push(...seen);
     }
 
-    const whereEventsSql = whereEvents.length ? `WHERE ${whereEvents.join(' AND ')}` : '';
+    const whereEventsSql = whereEvents.length ? `WHERE ${whereEvents.join(" AND ")}` : "";
 
     const baseSelectEvents = `
       SELECT
@@ -555,20 +556,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        -- ✅ what your EventFeedCard expects
         e.title AS content,
-        e.event_date AS event_date,
-        e.description AS event_description,
-
-        (SELECT COUNT(*) FROM event_attendees ea WHERE ea.event_id = e.id) AS attending_count,
-        (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id) AS interested_count,
-
-        CASE
-          WHEN EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = e.id AND ea.user_id = ?) THEN 'going'
-          WHEN EXISTS (SELECT 1 FROM event_interested ei WHERE ei.event_id = e.id AND ei.user_id = ?) THEN 'interested'
-          ELSE ''
-        END AS my_rsvp_status,
-
         'public' AS visibility,
         0 AS views,
         0 AS shares,
@@ -624,6 +612,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        -- ✅ EXTRA EVENT FIELDS FOR FEED UI
+        e.event_date AS event_date,
+        e.description AS event_description,
+
+        (SELECT COUNT(*) FROM event_attendees ea WHERE ea.event_id = e.id) AS attending_count,
+        (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id) AS interested_count,
+
+        CASE
+          WHEN EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = e.id AND ea.user_id = ?) THEN 'going'
+          WHEN EXISTS (SELECT 1 FROM event_interested ei WHERE ei.event_id = e.id AND ei.user_id = ?) THEN 'interested'
+          ELSE ''
+        END AS my_rsvp_status,
+
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
@@ -646,11 +647,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     if (seen.length > 0) {
-      whereGroupPosts.push(`gp.id NOT IN (${seen.map(() => '?').join(',')})`);
+      whereGroupPosts.push(`gp.id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsGroupPosts.push(...seen);
     }
 
-    const whereGroupPostsSql = whereGroupPosts.length ? `WHERE ${whereGroupPosts.join(' AND ')}` : '';
+    const whereGroupPostsSql = whereGroupPosts.length ? `WHERE ${whereGroupPosts.join(" AND ")}` : "";
 
     const baseSelectGroupPosts = `
       SELECT
@@ -760,7 +761,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS (A) feed-injection as marketplace posts
+    // 7) PRODUCTS feed-injection as marketplace posts
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -771,11 +772,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     if (seen.length > 0) {
-      whereProductsFeed.push(`pr.id NOT IN (${seen.map(() => '?').join(',')})`);
+      whereProductsFeed.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsProductsFeed.push(...seen);
     }
 
-    const whereProductsFeedSql = whereProductsFeed.length ? `WHERE ${whereProductsFeed.join(' AND ')}` : '';
+    const whereProductsFeedSql = whereProductsFeed.length
+      ? `WHERE ${whereProductsFeed.join(" AND ")}`
+      : "";
 
     const baseSelectProductsFeed = `
       SELECT
@@ -861,7 +864,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) PRODUCTS (B) separate list
+    // 8) PRODUCTS (separate list)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -872,11 +875,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     if (seen.length > 0) {
-      whereProducts.push(`pr.id NOT IN (${seen.map(() => '?').join(',')})`);
+      whereProducts.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsProducts.push(...seen);
     }
 
-    const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(' AND ')}` : '';
+    const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(" AND ")}` : "";
 
     const selectProducts = `
       SELECT
@@ -922,7 +925,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(...bindsPodcasts, freshCount).all();
     const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
 
-    // ✅ IMPORTANT: bind reactionUserId TWICE for my_rsvp_status
+    // ✅ IMPORTANT: bind reactionUserId twice for my_rsvp_status
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
     ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
@@ -980,7 +983,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ).bind(...bindsPodcasts, exploreCount).all();
       explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
 
-      // ✅ IMPORTANT: bind reactionUserId TWICE here as well
       const exploreEventsRes = await env.DB.prepare(
         `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount).all();
@@ -1016,7 +1018,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     // ============================================================
     // Merge + dedup FEED
-    // ✅ Use feed_key for dedup (prevents ID collisions across sources)
     // ============================================================
     const map = new Map<string, any>();
     const allFeedRows = [
@@ -1037,13 +1038,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ];
 
     for (const row of allFeedRows) {
-      const fk = String((row as any)?.feed_key || '');
+      const fk = String((row as any)?.feed_key || "");
       if (fk) {
         if (!map.has(fk)) map.set(fk, row);
         continue;
       }
-      // fallback if feed_key missing for any reason
-      const src = String((row as any)?.source || '');
+      const src = String((row as any)?.source || "");
       const id = Number((row as any)?.id);
       if (!src || !Number.isFinite(id)) continue;
       const key = `${src}:${id}`;
@@ -1072,7 +1072,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const products = Array.from(productMap.values());
 
     // ============================================================
-    // hasMore (posts-only simple) ✅ keep your original behavior
+    // hasMore (posts-only simple)
     // ============================================================
     let hasMore = false;
     if (nextCursor) {
@@ -1097,7 +1097,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       nextCursor,
       hasMore,
       feed: ordered,
-      products, // ✅ RESTORED as before
+      products,
     };
 
     if (debug) {
