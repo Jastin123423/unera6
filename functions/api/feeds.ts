@@ -1,3 +1,4 @@
+Here api/feeds 
 // functions/api/feeds.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
@@ -507,7 +508,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS  ✅ same “style/shape” as your original, but includes event details in meta
+    // 5) EVENTS
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -611,25 +612,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        -- keep existing fields used by your UI (unchanged)
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-
-        -- ✅ Event requirements for feed preview: keep shape same, put details in meta (safe to ignore)
-        json_object(
-          'kind', 'event',
-          'event_id', e.id,
-          'title', e.title,
-          'description', e.description,
-          'start_time', e.start_time,
-          'end_time', e.end_time,
-          'date', e.date,
-          'time', e.time,
-          'location', e.location,
-          'visibility', e.visibility,
-          'cover_url', e.cover_url
-        ) AS meta
+        NULL AS meta
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
     `;
@@ -1097,14 +1083,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       cursor: cursor ?? null,
       nextCursor,
       hasMore,
-
-      // ✅ main unified feed
       feed: ordered,
-
-      // ✅ BACKWARD-COMPAT (prevents “No posts available” if frontend still reads data.posts)
-      // Does NOT change your feed structure; it only adds an alias.
-      posts: ordered,
-
       products, // ✅ RESTORED as before
     };
 
