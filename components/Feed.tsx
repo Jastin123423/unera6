@@ -101,6 +101,65 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 
 /**
  * =========================
+ * ✅ NORMALIZE FEED RESPONSE - SUPPORTS BOTH data.feed AND data.posts
+ * =========================
+ */
+const normalizeFeedResponse = (data: any): any[] => {
+  // Handle various response shapes:
+  // - { feed: [...] }
+  // - { posts: [...] }
+  // - { data: { feed: [...] } }
+  // - { data: { posts: [...] } }
+  // - Direct array
+  
+  if (!data) return [];
+  
+  // Direct array
+  if (Array.isArray(data)) return data;
+  
+  // { feed: [...] }
+  if (Array.isArray(data.feed)) return data.feed;
+  
+  // { posts: [...] }
+  if (Array.isArray(data.posts)) return data.posts;
+  
+  // { data: { feed: [...] } }
+  if (data.data && Array.isArray(data.data.feed)) return data.data.feed;
+  
+  // { data: { posts: [...] } }
+  if (data.data && Array.isArray(data.data.posts)) return data.data.posts;
+  
+  // { data: [...] }
+  if (Array.isArray(data.data)) return data.data;
+  
+  return [];
+};
+
+/**
+ * =========================
+ * ✅ UNWRAP FEED ITEM - HANDLES WRAPPED ITEMS
+ * =========================
+ */
+const unwrapFeedItem = (item: any): any => {
+  if (!item) return null;
+  
+  // If item has a type wrapper, extract the actual content
+  if (item.type === 'post' && item.post) return item.post;
+  if (item.type === 'event' && item.event) return item.event;
+  if (item.type === 'product' && item.product) return item.product;
+  if (item.type === 'marketplace' && item.marketplace) return item.marketplace;
+  if (item.type === 'music' && item.music) return item.music;
+  if (item.type === 'podcast' && item.podcast) return item.podcast;
+  
+  // If item has a data wrapper
+  if (item.data) return item.data;
+  
+  // Otherwise return the item itself
+  return item;
+};
+
+/**
+ * =========================
  * SMALL HELPERS
  * =========================
  */
