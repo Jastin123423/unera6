@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -8,7 +6,6 @@ import {
   Post,
   CommentsSheet,
   CreatePostModal,
-  SuggestedProductsWidget,
   ShareBottomSheet,
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
@@ -2736,83 +2733,93 @@ export default function App() {
     );
   }, []);
 
+  /**
+   * Unified RSVP handler for the new /api/events/rsvp endpoint
+   * This updates both event_attendees and event_interested tables
+   */
+  const onRSVPEvent = useCallback(async (eventId: number, status: "going" | "interested" | "not_going") => {
+    if (!requireAuth('RSVP to events')) return;
+    if (!currentUser) return;
+
+    const meId = Number(currentUser.id);
+
+    // Optimistic update
+    setEvents(prev => 
+      safeArray(prev).map(event => {
+        if (Number(event.id) !== Number(eventId)) return event;
+        
+        const attendees = new Set(event.attendees || []);
+        const interested = new Set(event.interestedIds || []);
+        
+        if (status === 'going') {
+          attendees.add(meId);
+          interested.delete(meId);
+        } else if (status === 'interested') {
+          interested.add(meId);
+          attendees.delete(meId);
+        } else if (status === 'not_going') {
+          attendees.delete(meId);
+          interested.delete(meId);
+        }
+        
+        return {
+          ...event,
+          attendees: Array.from(attendees),
+          interestedIds: Array.from(interested),
+          user_rsvp_status: status === 'not_going' ? null : status,
+        } as Event;
+      })
+    );
+
+    try {
+      const res = await fetch("/api/events/rsvp", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json" 
+        },
+        body: JSON.stringify({ 
+          event_id: eventId, 
+          user_id: currentUser.id, 
+          status 
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.error || "RSVP failed");
+      }
+
+      // Fetch fresh events data to ensure consistency
+      const freshEvents = await fetchEvents();
+      setEvents(freshEvents);
+
+      return data;
+    } catch (err: any) {
+      console.error('❌ onRSVPEvent failed:', err);
+      
+      // Revert optimistic update on error
+      const freshEvents = await fetchEvents();
+      setEvents(freshEvents);
+      
+      setLoginError(err?.message || 'Failed to update RSVP');
+      throw err;
+    }
+  }, [currentUser, requireAuth, fetchEvents]);
+
+  /**
+   * Legacy joinEvent - now uses onRSVPEvent
+   */
   const joinEvent = useCallback(async (eventId: number) => {
-    if (!requireAuth('Joining events')) return;
-    if (!currentUser) return;
+    return onRSVPEvent(eventId, 'going');
+  }, [onRSVPEvent]);
 
-    updateEventState(eventId, 'join', currentUser.id);
-
-    try {
-      const res = await apiFetch(`/api/events/${eventId}/attend`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      const returned = res?.event ?? res?.data?.event ?? null;
-      if (returned) {
-        const normalized = normalizeEvent(returned);
-        setEvents((prev: any) => {
-          const arr = safeArray(prev);
-          const idx = arr.findIndex((x: any) => safeNumber(x?.id) === normalized.id);
-          if (idx >= 0) {
-            const copy = [...arr];
-            copy[idx] = normalized;
-            return copy;
-          }
-          return [normalized, ...arr];
-        });
-      } else {
-        fetchEvents().then(setEvents).catch(() => {});
-      }
-
-      return res;
-    } catch (err: any) {
-      console.error('❌ joinEvent failed:', err);
-      updateEventState(eventId, 'leave', currentUser.id);
-      fetchEvents().then(setEvents).catch(() => {});
-      setLoginError(err?.message || 'Failed to join event');
-      throw err;
-    }
-  }, [currentUser, requireAuth, updateEventState, fetchEvents]);
-
+  /**
+   * Legacy markEventInterested - now uses onRSVPEvent
+   */
   const markEventInterested = useCallback(async (eventId: number) => {
-    if (!requireAuth('Marking event as interested')) return;
-    if (!currentUser) return;
-
-    updateEventState(eventId, 'interested', currentUser.id);
-
-    try {
-      const res = await apiFetch(`/api/events/${eventId}/interested`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      const returned = res?.event ?? res?.data?.event ?? null;
-      if (returned) {
-        const normalized = normalizeEvent(returned);
-        setEvents((prev: any) => {
-          const arr = safeArray(prev);
-          const idx = arr.findIndex((x: any) => safeNumber(x?.id) === normalized.id);
-          if (idx >= 0) {
-            const copy = [...arr];
-            copy[idx] = normalized;
-            return copy;
-          }
-          return [normalized, ...arr];
-        });
-      } else {
-        fetchEvents().then(setEvents).catch(() => {});
-      }
-
-      return res;
-    } catch (err: any) {
-      console.error('❌ markEventInterested failed:', err);
-      updateEventState(eventId, 'uninterested', currentUser.id);
-      fetchEvents().then(setEvents).catch(() => {});
-      setLoginError(err?.message || 'Failed to mark interest');
-      throw err;
-    }
-  }, [currentUser, requireAuth, updateEventState, fetchEvents]);
+    return onRSVPEvent(eventId, 'interested');
+  }, [onRSVPEvent]);
 
   const createEvent = useCallback(async (eventData: any) => {
     if (!requireAuth('Creating events')) return;
@@ -3331,78 +3338,19 @@ export default function App() {
     if (!requireAuth('RSVP to events')) return;
     if (!currentUser) return;
 
-    const meId = Number(currentUser.id);
-
-    try {
-      let response;
-      
-      if (status === 'going') {
-        response = await apiFetch(`/api/events/${eventId}/attend`, {
-          method: 'POST',
-          body: JSON.stringify({ user_id: meId }),
-        });
-      } else if (status === 'interested') {
-        response = await apiFetch(`/api/events/${eventId}/interested`, {
-          method: 'POST',
-          body: JSON.stringify({ user_id: meId }),
-        });
-      } else if (status === 'not_going') {
-        // For "not_going", we need to remove from both attend and interested
-        // First try to remove from attendees
-        try {
-          await apiFetch(`/api/events/${eventId}/attend?user_id=${meId}`, {
-            method: 'DELETE',
-          });
-        } catch (e) {
-          // Ignore error if not in attendees
-        }
-        
-        // Then try to remove from interested
-        try {
-          await apiFetch(`/api/events/${eventId}/interested?user_id=${meId}`, {
-            method: 'DELETE',
-          });
-        } catch (e) {
-          // Ignore error if not in interested
-        }
-        
-        response = { success: true };
-      }
-
-      // Update local events state
-      setEvents(prev => 
-        safeArray(prev).map(event => {
-          if (Number(event.id) !== Number(eventId)) return event;
-          
-          const attendees = new Set(event.attendees || []);
-          const interested = new Set(event.interestedIds || []);
-          
-          if (status === 'going') {
-            attendees.add(meId);
-            interested.delete(meId);
-          } else if (status === 'interested') {
-            interested.add(meId);
-            attendees.delete(meId);
-          } else if (status === 'not_going') {
-            attendees.delete(meId);
-            interested.delete(meId);
-          }
-          
-          return {
-            ...event,
-            attendees: Array.from(attendees),
-            interestedIds: Array.from(interested),
-            user_rsvp_status: status === 'not_going' ? null : status,
-          } as Event;
-        })
-      );
-
-      return response;
-    } catch (error) {
-      console.error('Failed to RSVP to event:', error);
-      throw error;
+    // Map status to the format expected by onRSVPEvent
+    let mappedStatus: "going" | "interested" | "not_going";
+    
+    if (status === 'going') {
+      mappedStatus = 'going';
+    } else if (status === 'interested') {
+      mappedStatus = 'interested';
+    } else {
+      mappedStatus = 'not_going';
     }
-  }, [currentUser, requireAuth]);
+
+    return onRSVPEvent(eventId, mappedStatus);
+  }, [currentUser, requireAuth, onRSVPEvent]);
 
   /** ---------- ✅ FIXED: Edit group post function with proper auth and user_id ---------- */
   const editGroupPost = useCallback(async (postId: number, content: string) => {
@@ -4489,15 +4437,6 @@ export default function App() {
                 />
               )}
 
-              {currentUser && products.length > 0 && (
-                <SuggestedProductsWidget
-                  products={products}
-                  currentUser={currentUser}
-                  onViewProduct={setActiveProduct}
-                  onSeeAll={() => handleNavigate('marketplace')}
-                />
-              )}
-
               <div className="space-y-2">
                 <MarketplaceContext.Provider value={{
                   onViewProduct: (productId) => {
@@ -4536,6 +4475,7 @@ export default function App() {
                           onFollow={() => followUser(postAuthorId)}
                           followLoading={followLoading[postAuthorId] || false}
                           onViewProductFromPost={openProductFromPost}
+                          onRSVPEvent={onRSVPEvent} // Pass the unified RSVP handler to Post component
                         />
                       );
                     })
