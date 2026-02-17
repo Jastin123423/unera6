@@ -507,7 +507,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS
+    // 5) EVENTS  ✅ UPDATED to include description + meta for feed rendering
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -587,7 +587,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS my_reaction,
 
         NULL AS video_url,
-        NULL AS caption,
+
+        -- ✅ use caption field to deliver event description to the existing feed schema
+        COALESCE(e.description, '') AS caption,
+
         NULL AS song_name,
         NULL AS audio_url,
         0 AS audio_start,
@@ -611,10 +614,25 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta
+        -- ✅ optional but very helpful for frontend routing/rendering
+        'event' AS type,
+        'event' AS post_type,
+        'event' AS kind,
+
+        -- ✅ meta carries start_time/date without changing the unified select schema
+        json_object(
+          'kind','event',
+          'type','event',
+          'event', json_object(
+            'id', e.id,
+            'title', e.title,
+            'description', COALESCE(e.description,''),
+            'cover_image', COALESCE(e.cover_url,''),
+            'location', COALESCE(e.location,''),
+            'start_time', COALESCE(e.start_time, e.date, ''),
+            'created_at', e.created_at
+          )
+        ) AS meta
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
     `;
