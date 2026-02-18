@@ -73,7 +73,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const exploreCount = Math.max(0, limit - freshCount);
 
     // ============================================================
-    // 1) POSTS (✅ excludes marketplace/product posts via is_marketplace flag)
+    // 1) POSTS (✅ exclude product posts stored in posts using isMarketplace)
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -82,8 +82,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
 
-    // ✅ HARD BLOCK: remove any marketplace/product-post rows stored in posts
-    wherePosts.push(`COALESCE(p.is_marketplace, 0) = 0`);
+    // ✅ IMPORTANT: your column is isMarketplace
+    wherePosts.push(`COALESCE(p.isMarketplace, 0) = 0`);
 
     if (cursor && cursor.trim()) {
       wherePosts.push(`p.created_at < ?`);
@@ -953,7 +953,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         FROM posts p
         WHERE
           (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')
-          AND COALESCE(p.is_marketplace, 0) = 0
+          AND COALESCE(p.isMarketplace, 0) = 0
           AND p.created_at < ?
         ORDER BY p.created_at DESC
         LIMIT 1
@@ -973,16 +973,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       products,
     };
 
-    if (debug) {
-      return json({
-        ...payload,
-        debug: {
-          seenCount: seen.length,
-          returnedFeed: ordered.length,
-          returnedProducts: products.length,
-        },
-      });
-    }
+    if (debug) return json({ ...payload, debug: { returnedFeed: ordered.length, returnedProducts: products.length } });
 
     return json(payload);
   } catch (e: any) {
