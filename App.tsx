@@ -486,6 +486,35 @@ const normalizePost = (p: any): PostType => {
 
   const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
 
+  // Handle event posts specifically
+  if (p?.type === 'event' || p?.meta?.kind === 'event') {
+    return {
+      ...p,
+      id: resolvedId,
+      user_id: safeNumber(p?.user_id),
+      content: safeString(p?.content),
+      type: 'event',
+      event_id: p?.event_id || p?.meta?.event_id,
+      media_url: p?.meta?.event?.cover_url || mediaUrl,
+      media_type: 'image',
+      meta: {
+        kind: 'event',
+        event_id: p?.event_id || p?.meta?.event_id,
+        event: p?.meta?.event || {
+          id: p?.event_id,
+          title: p?.meta?.event?.title || p?.title,
+          description: p?.meta?.event?.description || p?.description,
+          date: p?.meta?.event?.date,
+          time: p?.meta?.event?.time,
+          location: p?.meta?.event?.location,
+          cover_url: p?.meta?.event?.cover_url || mediaUrl,
+          attendees: p?.meta?.event?.attendees || [],
+          interested: p?.meta?.event?.interested || [],
+        }
+      }
+    } as any;
+  }
+
   return {
     ...p,
     id: resolvedId,
@@ -2849,6 +2878,9 @@ export default function App() {
     return onRSVPEvent(eventId, 'interested');
   }, [onRSVPEvent]);
 
+  /**
+   * ✅ MODIFIED: createEvent now creates a feed post when event is created
+   */
   const createEvent = useCallback(async (eventData: any) => {
     if (!requireAuth('Creating events')) return;
     if (!currentUser) return;
@@ -2880,12 +2912,67 @@ export default function App() {
       group_id: eventData?.group_id ? Number(eventData.group_id) : null,
     };
 
+    // Create the event
     const res = await apiFetch('/api/events', { method: 'POST', body: JSON.stringify(payload) });
-
     const newEvent = normalizeEvent(res?.event ?? res);
+    
+    // Update events state
     setEvents((prev: any) => [newEvent, ...safeArray(prev)]);
+
+    // ✅ Also create a feed post for this event
+    try {
+      const eventPostPayload = {
+        user_id: currentUser.id,
+        content: `🎉 Check out my new event: ${newEvent.title}`,
+        type: "event",
+        event_id: newEvent.id,
+        visibility: 'public',
+        meta: {
+          kind: "event",
+          event_id: newEvent.id,
+          event: {
+            id: newEvent.id,
+            title: newEvent.title,
+            description: newEvent.description,
+            date: newEvent.date,
+            time: newEvent.time,
+            location: newEvent.location,
+            cover_url: newEvent.cover_url,
+            attendees: newEvent.attendees || [],
+            interested: newEvent.interestedIds || [],
+          }
+        }
+      };
+
+      const postRes = await apiFetch('/api/posts', { 
+        method: 'POST', 
+        body: JSON.stringify(eventPostPayload) 
+      });
+      
+      const newPost = normalizePost(postRes?.post ?? postRes);
+      
+      // Add to feed immediately (optimistic update)
+      setPosts(prev => {
+        const next = [newPost, ...safeArray(prev)];
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      // Also add to profile posts if it's the current user's profile
+      if (selectedUserId === currentUser.id) {
+        setProfilePosts(prev => [newPost, ...safeArray(prev)]);
+      }
+
+      pushSeenIds([Number(newPost.id)]);
+    } catch (error) {
+      console.error('Failed to create event post:', error);
+      // Don't throw - event was created successfully, just the post failed
+    }
+
+    scheduleSilentRefresh();
     return newEvent;
-  }, [currentUser, requireAuth]);
+  }, [currentUser, requireAuth, selectedUserId]);
 
   /** ---------- ✅ FIXED: Refresh group members helper ---------- */
   const refreshGroupMembers = useCallback(async (groupId: number) => {
