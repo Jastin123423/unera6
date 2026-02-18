@@ -17,55 +17,32 @@ import { CreateEventModal } from './Events';
 
 /**
  * =========================
- * ✅ RSVP HELPER - Works directly with backend
+ * ✅ RSVP HELPER - Works directly with backend (updated)
  * =========================
  */
-type RSVPStatus = "going" | "interested" | "not_going";
+type RSVPStatus = "going" | "interested" | "";  // "" means not_going/removed
 
 const rsvpEventDirect = async (args: {
   eventId: number;
   userId: number;
-  newStatus: RSVPStatus;
-  prevStatus?: "" | "going" | "interested";
+  nextStatus: RSVPStatus;           // "" means remove
+  previousStatus: RSVPStatus;       // "" | going | interested
 }) => {
-  const { eventId, userId, newStatus, prevStatus = "" } = args;
+  const { eventId, userId, nextStatus, previousStatus } = args;
 
-  // Which endpoint to call?
-  // - going -> /api/attend
-  // - interested -> /api/interested
-  // - not_going -> call the endpoint that matches prevStatus (to "remove" it)
+  // choose endpoint based on which bucket we’re changing
   const endpoint =
-    newStatus === "going"
+    nextStatus === "going" || previousStatus === "going"
       ? "/api/attend"
-      : newStatus === "interested"
-        ? "/api/interested"
-        : prevStatus === "interested"
-          ? "/api/interested"
-          : "/api/attend";
+      : "/api/interested";
 
-  // Payload with status field
-  const payloadStatus = {
+  const action = nextStatus === "" ? "remove" : "add";
+
+  return await postJSON(endpoint, {
     event_id: eventId,
     user_id: userId,
-    status: newStatus,
-  };
-
-  try {
-    return await postJSON(endpoint, payloadStatus);
-  } catch (e1: any) {
-    // Fallback if backend expects action flags instead of "status"
-    const payloadAction = {
-      event_id: eventId,
-      user_id: userId,
-      action: newStatus === "not_going" ? "remove" : "add",
-    };
-
-    try {
-      return await postJSON(endpoint, payloadAction);
-    } catch (e2: any) {
-      throw new Error(e2?.message || e1?.message || "RSVP failed");
-    }
-  }
+    action, // ✅ add | remove (matches your backend)
+  });
 };
 
 /**
@@ -1784,7 +1761,7 @@ export const EventPost: React.FC<{
   currentUser: User | null;
   users?: User[];
   onProfileClick: (id: number) => void;
-  onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+  onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<any>;
   onFollow?: (id: number) => void;
   isFollowing?: boolean;
   followLoading?: boolean;
@@ -1830,9 +1807,9 @@ export const EventPost: React.FC<{
     : '';
 
   /**
-   * ✅ FIXED: RSVP handler that uses either the parent handler or direct API
+   * ✅ FIXED: RSVP handler that uses the new transition logic
    */
-  const handleRSVPClick = async (status: 'going' | 'interested') => {
+  const handleRSVPClick = async (target: 'going' | 'interested') => {
     if (!currentUser) {
       alert('Please login to RSVP');
       return;
@@ -1841,61 +1818,46 @@ export const EventPost: React.FC<{
 
     setBusy(true);
     
-    // Optimistic update - toggle off if already selected
-    const previousStatus = rsvpStatus;
-    const newStatus = previousStatus === status ? '' : status;
-    setRsvpStatus(newStatus);
+    const previousStatus = (rsvpStatus || '') as '' | 'going' | 'interested';
+    const nextStatus: '' | 'going' | 'interested' =
+      previousStatus === target ? '' : target;
 
-    // Optimistically update counts
-    const prevGoing = event.attendees_count || 0;
-    const prevInterested = event.interested_count || 0;
+    // Optimistic UI update
+    setRsvpStatus(nextStatus);
     
-    if (status === 'going') {
-      if (previousStatus === 'going') {
-        // Removing going
-        event.attendees_count = Math.max(0, prevGoing - 1);
-      } else if (previousStatus === 'interested') {
-        // Switching from interested to going
-        event.attendees_count = prevGoing + 1;
-        event.interested_count = Math.max(0, prevInterested - 1);
-      } else {
-        // Adding going
-        event.attendees_count = prevGoing + 1;
-      }
-    } else if (status === 'interested') {
-      if (previousStatus === 'interested') {
-        // Removing interested
-        event.interested_count = Math.max(0, prevInterested - 1);
-      } else if (previousStatus === 'going') {
-        // Switching from going to interested
-        event.interested_count = prevInterested + 1;
-        event.attendees_count = Math.max(0, prevGoing - 1);
-      } else {
-        // Adding interested
-        event.interested_count = prevInterested + 1;
-      }
-    }
+    // Save previous counts for rollback
+    const prevAtt = Number(event.attendees_count ?? 0);
+    const prevInt = Number(event.interested_count ?? 0);
 
     try {
-      // Call parent handler if provided, otherwise use direct API
-      const newStatusToSend = (newStatus || 'not_going') as RSVPStatus;
-      
+      let res;
       if (onRSVP) {
-        await onRSVP(event.id, newStatusToSend);
+        // Parent handler expects "not_going" for removal
+        await onRSVP(event.id, nextStatus || 'not_going');
+        // We don't have response data, so we assume success and will rely on next feed refresh
+        res = { success: true };
       } else {
-        await rsvpEventDirect({
+        res = await rsvpEventDirect({
           eventId: event.id,
           userId: safeUserId(currentUser),
-          newStatus: newStatusToSend,
-          prevStatus: previousStatus as any,
+          nextStatus,
+          previousStatus,
         });
+      }
+
+      // ✅ Overwrite with backend truth if available
+      if (res?.success && res.attending_count !== undefined && res.interested_count !== undefined) {
+        event.attendees_count = Number(res.attending_count);
+        event.interested_count = Number(res.interested_count);
+        if (res.my_status !== undefined) {
+          setRsvpStatus(res.my_status);
+        }
       }
     } catch (error) {
       // Rollback on failure
       setRsvpStatus(previousStatus);
-      // Restore counts
-      event.attendees_count = prevGoing;
-      event.interested_count = prevInterested;
+      event.attendees_count = prevAtt;
+      event.interested_count = prevInt;
       console.error('RSVP failed:', error);
       alert('Failed to RSVP. Please try again.');
     } finally {
@@ -2174,7 +2136,7 @@ export const EventPost: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: EVENT FEED CARD COMPONENT - WORKS WITHOUT onRSVPEvent PROP
+ * ✅ UPDATED: EVENT FEED CARD COMPONENT - FIXED RSVP LOGIC
  * =========================
  */
 type FeedEventItem = {
@@ -2205,7 +2167,6 @@ export const EventFeedCard: React.FC<{
   currentUser: { id: number } | null;
   onProfileClick: (id: number) => void;
   onUpdateItem: (patch: Partial<FeedEventItem>) => void;
-  // onRSVPEvent prop is now OPTIONAL - will use direct API if not provided
   onRSVPEvent?: (eventId: number, status: "going" | "interested" | "not_going") => Promise<any>;
 }> = ({ item, currentUser, onProfileClick, onUpdateItem, onRSVPEvent }) => {
   const [loading, setLoading] = useState(false);
@@ -2224,10 +2185,9 @@ export const EventFeedCard: React.FC<{
   }, [item.event_date]);
 
   /**
-   * ✅ FIXED: RSVP function now uses the onRSVPEvent prop if provided,
-   * otherwise uses direct API calls
+   * ✅ FIXED: RSVP function now accepts only "going"|"interested" and uses transition logic
    */
-  const rsvp = async (status: "going" | "interested" | "not_going") => {
+  const rsvp = async (target: "going" | "interested") => {
     if (!currentUser) {
       alert("Please login to RSVP");
       return;
@@ -2236,74 +2196,56 @@ export const EventFeedCard: React.FC<{
     setLoading(true);
     setError(null);
     
+    const eventId = item.event_id || item.id;
+    const previousStatus = (item.my_rsvp_status || '') as '' | 'going' | 'interested';
+    const nextStatus: '' | 'going' | 'interested' =
+      previousStatus === target ? '' : target;
+
+    // Save previous counts for rollback
+    const prevAtt = Number(item.attending_count ?? 0);
+    const prevInt = Number(item.interested_count ?? 0);
+
+    // Optimistic UI update
+    onUpdateItem({ my_rsvp_status: nextStatus as any });
+    
     try {
-      const eventId = item.event_id || item.id;
-      
-      // Determine new status (toggle off if already selected)
-      const previousStatus = item.my_rsvp_status || '';
-      const newStatus = previousStatus === status ? '' : status;
-      
-      // Save previous counts for rollback
-      const prevAttending = item.attending_count || 0;
-      const prevInterested = item.interested_count || 0;
-      
-      // Optimistic update for status
-      onUpdateItem({ my_rsvp_status: newStatus as any });
-      
-      // Optimistic update for counts
-      if (status === 'going') {
-        if (previousStatus === 'going') {
-          // Removing going
-          onUpdateItem({ attending_count: Math.max(0, prevAttending - 1) });
-        } else if (previousStatus === 'interested') {
-          // Switching from interested to going
-          onUpdateItem({ 
-            attending_count: prevAttending + 1,
-            interested_count: Math.max(0, prevInterested - 1)
-          });
-        } else {
-          // Adding going
-          onUpdateItem({ attending_count: prevAttending + 1 });
-        }
-      } else if (status === 'interested') {
-        if (previousStatus === 'interested') {
-          // Removing interested
-          onUpdateItem({ interested_count: Math.max(0, prevInterested - 1) });
-        } else if (previousStatus === 'going') {
-          // Switching from going to interested
-          onUpdateItem({ 
-            interested_count: prevInterested + 1,
-            attending_count: Math.max(0, prevAttending - 1)
-          });
-        } else {
-          // Adding interested
-          onUpdateItem({ interested_count: prevInterested + 1 });
-        }
-      }
-      
-      // If parent handler provided, use it. Otherwise use direct API
+      let res;
       if (onRSVPEvent) {
-        await onRSVPEvent(eventId, newStatus || 'not_going');
+        // Parent handler expects "not_going" for removal
+        await onRSVPEvent(eventId, nextStatus || 'not_going');
+        // No response data, so we keep optimistic counts and rely on next feed refresh
+        res = { success: true };
       } else {
-        await rsvpEventDirect({
+        res = await rsvpEventDirect({
           eventId,
           userId: currentUser.id,
-          newStatus: (newStatus || 'not_going') as RSVPStatus,
-          prevStatus: previousStatus as any,
+          nextStatus,
+          previousStatus,
         });
       }
-      
-      // If we get here, success - counts will be refreshed on next feed fetch
+
+      // ✅ IMPORTANT: overwrite from backend truth if available
+      if (res?.success) {
+        const patch: Partial<FeedEventItem> = {};
+        if (res.my_status !== undefined) {
+          patch.my_rsvp_status = res.my_status;
+        }
+        if (res.attending_count !== undefined) {
+          patch.attending_count = Number(res.attending_count);
+        }
+        if (res.interested_count !== undefined) {
+          patch.interested_count = Number(res.interested_count);
+        }
+        onUpdateItem(patch);
+      }
     } catch (e: any) {
-      // Rollback optimistic update on error
-      onUpdateItem({ 
-        my_rsvp_status: item.my_rsvp_status || '',
-        attending_count: item.attending_count,
-        interested_count: item.interested_count
+      // rollback counts/status
+      onUpdateItem({
+        my_rsvp_status: previousStatus as any,
+        attending_count: prevAtt,
+        interested_count: prevInt,
       });
-      
       setError(e?.message || "Failed to RSVP. Please try again.");
-      alert(e?.message || "Failed to RSVP");
     } finally {
       setLoading(false);
     }
@@ -2403,7 +2345,7 @@ export const EventFeedCard: React.FC<{
               disabled={loading}
               onClick={(e) => {
                 e.stopPropagation();
-                rsvp(my === "going" ? "not_going" : "going");
+                rsvp("going");
               }}
               className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
                 my === "going"
@@ -2422,7 +2364,7 @@ export const EventFeedCard: React.FC<{
               disabled={loading}
               onClick={(e) => {
                 e.stopPropagation();
-                rsvp(my === "interested" ? "not_going" : "interested");
+                rsvp("interested");
               }}
               className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
                 my === "interested"
