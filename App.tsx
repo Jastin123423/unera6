@@ -2728,13 +2728,10 @@ export default function App() {
   }, []);
 
   /**
-   * ✅ RSVP handler using REAL endpoints:
-   * - /api/events/:id/attend
-   * - /api/events/:id/interested
-   *
-   * NOTE: your backend currently has NO "remove" endpoint.
-   * So "not_going" cannot truly remove unless we add a remove route.
-   * (We'll handle toggle-off safely in UI without calling remove.)
+   * ✅ FIXED: RSVP handler using CORRECT endpoints:
+   * - /api/attend (for going)
+   * - /api/interested (for interested)
+   * - Both support "add"/"remove" actions
    */
   const onRSVPEvent = useCallback(
     async (eventId: number, status: "going" | "interested" | "not_going") => {
@@ -2761,7 +2758,7 @@ export default function App() {
             interested.add(meId);
             attendees.delete(meId);
           } else {
-            // not_going: optimistic remove both
+            // not_going: remove from both
             attendees.delete(meId);
             interested.delete(meId);
           }
@@ -2776,25 +2773,61 @@ export default function App() {
       );
 
       try {
-        // ✅ REAL working calls (actual files)
+        // ✅ Use the CORRECT endpoints - /api/attend and /api/interested
         if (status === "going") {
-          await postJSON(`/api/events/${id}/attend`, { user_id: meId });
-        } else if (status === "interested") {
-          await postJSON(`/api/events/${id}/interested`, { user_id: meId });
-        } else {
-          // ⚠️ Your backend has no DELETE/remove.
-          // We just keep optimistic UI for now.
-          // (If you want true removal, I'll give you two tiny remove endpoints.)
+          // Add to attendees
+          await postJSON("/api/attend", { 
+            event_id: id, 
+            user_id: meId, 
+            action: "add" 
+          });
+          
+          // Remove from interested (silently fail if not there)
+          await postJSON("/api/interested", { 
+            event_id: id, 
+            user_id: meId, 
+            action: "remove" 
+          }).catch(() => {});
+        } 
+        else if (status === "interested") {
+          // Add to interested
+          await postJSON("/api/interested", { 
+            event_id: id, 
+            user_id: meId, 
+            action: "add" 
+          });
+          
+          // Remove from attendees (silently fail if not there)
+          await postJSON("/api/attend", { 
+            event_id: id, 
+            user_id: meId, 
+            action: "remove" 
+          }).catch(() => {});
+        } 
+        else if (status === "not_going") {
+          // Remove from both
+          await postJSON("/api/attend", { 
+            event_id: id, 
+            user_id: meId, 
+            action: "remove" 
+          }).catch(() => {});
+          
+          await postJSON("/api/interested", { 
+            event_id: id, 
+            user_id: meId, 
+            action: "remove" 
+          }).catch(() => {});
         }
 
-        // Optional: refresh events table
-        const fresh = await fetchEvents();
+        // Optional: refresh events to ensure consistency
+        const fresh = await fetchEvents().catch(() => []);
         setEvents(fresh);
 
         return { success: true };
       } catch (err: any) {
-        // rollback by refreshing
-        const fresh = await fetchEvents();
+        // Rollback by refreshing
+        console.error('RSVP failed:', err);
+        const fresh = await fetchEvents().catch(() => []);
         setEvents(fresh);
         throw err;
       }
