@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Notification } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -14,7 +13,7 @@ interface MenuOverlayProps {
 export const MenuOverlay: React.FC<MenuOverlayProps> = ({ currentUser, onClose, onNavigate, onLogout }) => {
     const menuItems = [
         { id: 'marketplace', title: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', desc: 'Buy and sell in your community.' },
-        { id: 'create_event', title: 'Create Event', icon: 'fas fa-calendar-plus', color: '#F3425F', desc: 'Host a new event for friends.' },
+        { id: 'events', title: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', desc: 'Discover events near you.' }, // Changed from 'create_event' to 'events'
         { id: 'profiles', title: 'Profiles', icon: 'fas fa-user-friends', color: '#1877F2', desc: 'See friends and profiles.' },
         { id: 'groups', title: 'Groups', icon: 'fas fa-users', color: '#1877F2', desc: 'Connect with people who share your interests.' },
         { id: 'brands', title: 'Brands', icon: 'fas fa-award', color: '#F7B928', desc: 'Discover and create business pages.' },
@@ -163,9 +162,10 @@ interface SidebarProps {
     onReelsClick: () => void;
     onMarketplaceClick: () => void;
     onGroupsClick: () => void;
+    onEventsClick: () => void; // New prop for events navigation
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onProfileClick, onReelsClick, onMarketplaceClick, onGroupsClick }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onProfileClick, onReelsClick, onMarketplaceClick, onGroupsClick, onEventsClick }) => {
     const items = [
         { id: 'friends', label: 'Friends', icon: 'fas fa-user-friends', color: '#1877F2' },
         { id: 'memories', label: 'Memories', icon: 'fas fa-history', color: '#1877F2' },
@@ -173,7 +173,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onProfileClick, o
         { id: 'groups', label: 'Groups', icon: 'fas fa-users', color: '#1877F2', onClick: onGroupsClick },
         { id: 'marketplace', label: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', onClick: onMarketplaceClick },
         { id: 'reels', label: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F', onClick: onReelsClick },
-        { id: 'events', label: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F' },
+        { id: 'events', label: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', onClick: onEventsClick }, // Added onClick handler
     ];
 
     return (
