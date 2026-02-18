@@ -51,6 +51,22 @@ const seededShuffle = <T,>(arr: T[], seed: number) => {
   return a;
 };
 
+// ✅ Read table columns safely (so we can exclude "product posts" without guessing schema)
+const getTableColumns = async (db: D1Database, table: string): Promise<Set<string>> => {
+  try {
+    const res = await db.prepare(`SELECT name FROM pragma_table_info(?)`).bind(table).all();
+    const cols = new Set<string>();
+    const rows = Array.isArray(res?.results) ? (res.results as any[]) : [];
+    for (const r of rows) {
+      const n = String(r?.name ?? "").trim();
+      if (n) cols.add(n);
+    }
+    return cols;
+  } catch {
+    return new Set<string>();
+  }
+};
+
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
@@ -73,8 +89,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const freshCount = Math.max(5, Math.floor(limit * 0.65));
     const exploreCount = Math.max(0, limit - freshCount);
 
+    // ✅ detect posts schema so we can exclude product-posts correctly
+    const postsCols = await getTableColumns(env.DB, "posts");
+
     // ============================================================
-    // 1) POSTS
+    // 1) POSTS  (✅ excludes "product posts" stored in posts)
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -82,6 +101,34 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     wherePosts.push(
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
+
+    // ✅ Exclude marketplace/product posts from posts table (ONLY if columns exist)
+    // This prevents product cards from showing in feed; products remain in payload.products (Marketplace).
+    const productExclusions: string[] = [];
+
+    if (postsCols.has("type")) productExclusions.push(`COALESCE(p.type,'') != 'marketplace'`);
+    if (postsCols.has("post_type")) productExclusions.push(`COALESCE(p.post_type,'') != 'product'`);
+    if (postsCols.has("kind")) productExclusions.push(`COALESCE(p.kind,'') != 'product'`);
+    if (postsCols.has("item_type")) productExclusions.push(`COALESCE(p.item_type,'') != 'product'`);
+
+    // If posts has an explicit product_id / marketplace_id, exclude rows that reference products
+    if (postsCols.has("product_id")) productExclusions.push(`COALESCE(p.product_id, 0) = 0`);
+    if (postsCols.has("marketplace_id")) productExclusions.push(`COALESCE(p.marketplace_id, 0) = 0`);
+
+    // If posts uses meta JSON to reference products, exclude those too
+    if (postsCols.has("meta")) {
+      productExclusions.push(
+        `(p.meta IS NULL OR (
+          json_extract(p.meta, '$.marketplace.id') IS NULL
+          AND json_extract(p.meta, '$.product_id') IS NULL
+          AND json_extract(p.meta, '$.product.id') IS NULL
+        ))`
+      );
+    }
+
+    if (productExclusions.length > 0) {
+      wherePosts.push(`(${productExclusions.join(" AND ")})`);
+    }
 
     if (cursor && cursor.trim()) {
       wherePosts.push(`p.created_at < ?`);
@@ -507,8 +554,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS ✅ FIXED FOR YOUR SCHEMA (event_date, description)
-    // + counts + my_rsvp_status
+    // 5) EVENTS
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -612,7 +658,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        -- ✅ EXTRA EVENT FIELDS FOR FEED UI
         e.event_date AS event_date,
         e.description AS event_description,
 
@@ -761,7 +806,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) PRODUCTS (separate list) ✅ KEEP ONLY THIS (NO FEED INJECTION)
+    // 8) PRODUCTS (separate list) ✅ KEEP (Marketplace)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -822,7 +867,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(...bindsPodcasts, freshCount).all();
     const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
 
-    // ✅ IMPORTANT: bind reactionUserId twice for my_rsvp_status
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
     ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
@@ -988,6 +1032,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           seenCount: seen.length,
           returnedFeed: ordered.length,
           returnedProducts: products.length,
+          postsColumnsDetected: Array.from(postsColsToArray(postsCols)), // helpful visibility
           fresh: {
             posts: freshPosts.length,
             reels: freshReels.length,
@@ -1015,3 +1060,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     return json({ success: false, error: e?.message || String(e) }, 500);
   }
 };
+
+// helper to avoid TS complaining in debug payload
+function postsColsToArray(s: Set<string>) {
+  try {
+    return Array.from(s.values());
+  } catch {
+    return [];
+  }
+}
