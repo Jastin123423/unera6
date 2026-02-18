@@ -177,16 +177,12 @@ export const BirthdaysPage: React.FC<BirthdaysPageProps> = ({
 interface EventsPageProps { 
     events: Event[]; 
     currentUser: User | null; 
-    onJoinEvent: (eventId: number) => void; 
-    onCreateEventClick: () => void; 
-    onViewAllEvents?: () => void; // New prop for navigation to AllEvents.tsx
+    onViewAllEvents: () => void; // Only navigation to AllEvents.tsx
 }
 
 export const EventsPage: React.FC<EventsPageProps> = ({ 
     events, 
     currentUser, 
-    onJoinEvent, 
-    onCreateEventClick,
     onViewAllEvents 
 }) => {
     const [selectedCategory, setSelectedCategory] = useState('All');
@@ -196,7 +192,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
     const filteredEvents = useMemo(() => {
         if (selectedCategory === 'All' || selectedCategory === 'Discover') return events;
         if (selectedCategory === 'Hosting' && currentUser) return events.filter(e => e.organizerId === currentUser.id);
-        if (selectedCategory === 'Upcoming' && currentUser) return events.filter(e => e.attendees.includes(currentUser.id));
+        if (selectedCategory === 'Upcoming' && currentUser) return events.filter(e => e.attendees?.includes(currentUser.id));
         return events;
     }, [events, selectedCategory, currentUser]);
 
@@ -212,24 +208,13 @@ export const EventsPage: React.FC<EventsPageProps> = ({
                         <p className="text-[#B0B3B8] text-lg font-medium mt-1">Discover experiences near you.</p>
                     </div>
                 </div>
-                <div className="flex gap-3">
-                    {currentUser && (
-                        <button 
-                            onClick={onCreateEventClick}
-                            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95"
-                        >
-                            <i className="fas fa-plus-circle text-xl"></i>
-                            <span>Create New Event</span>
-                        </button>
-                    )}
-                    <button 
-                        onClick={onViewAllEvents}
-                        className="bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95 border border-[#4E4F50]"
-                    >
-                        <i className="fas fa-calendar-check text-xl"></i>
-                        <span>View All Events</span>
-                    </button>
-                </div>
+                <button 
+                    onClick={onViewAllEvents}
+                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95"
+                >
+                    <i className="fas fa-calendar-check text-xl"></i>
+                    <span>View All Events</span>
+                </button>
             </div>
 
             {/* Filter Tabs */}
@@ -289,15 +274,14 @@ export const EventsPage: React.FC<EventsPageProps> = ({
 
                                     <div className="mt-auto flex gap-2">
                                         <button 
-                                            onClick={() => onJoinEvent(event.id)}
-                                            className={`flex-1 py-2.5 rounded-xl font-black text-sm transition-all flex items-center justify-center gap-2 ${
-                                                isAttending 
-                                                ? 'bg-[#45BD62]/10 text-[#45BD62] border border-[#45BD62]/30' 
-                                                : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                                            }`}
+                                            onClick={() => {
+                                                // Navigate to event details or handle interest
+                                                console.log('Event clicked:', event.id);
+                                            }}
+                                            className="flex-1 py-2.5 rounded-xl font-black text-sm transition-all bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50] flex items-center justify-center gap-2"
                                         >
-                                            <i className={`fas ${isAttending ? 'fa-check' : 'fa-star'}`}></i>
-                                            {isAttending ? 'Going' : 'Interested'}
+                                            <i className="fas fa-star"></i>
+                                            Interested
                                         </button>
                                         <button className="w-12 h-10 bg-[#3A3B3C] rounded-xl flex items-center justify-center text-[#E4E6EB] hover:bg-[#4E4F50] transition-colors">
                                             <i className="fas fa-share"></i>
@@ -330,7 +314,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
                             <i className="fas fa-calendar-times text-5xl"></i>
                         </div>
                         <h3 className="text-xl font-black text-[#E4E6EB] mb-2">No events found</h3>
-                        <p className="max-w-xs mx-auto font-medium">Try changing your filters or create a new event to get the party started.</p>
+                        <p className="max-w-xs mx-auto font-medium">Try changing your filters or browse all events.</p>
                     </div>
                     
                     {/* View All Events Card (when no events) */}
