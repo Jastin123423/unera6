@@ -122,7 +122,7 @@ export const BirthdaysPage: React.FC<BirthdaysPageProps> = ({
       <div className="mb-10">
         <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-4">
           Today's Stars{" "}
-          <span className="text-xs bg-[#F3425F] px-2 py-0.5 rounded-full animate-pulse uppercase tracking-wider">
+          <span className="text-xs bg-[#F3425F] px-2 py-0.5 rounded-full animate-pulse-slow uppercase tracking-wider">
             Live
           </span>
         </h2>
@@ -135,7 +135,7 @@ export const BirthdaysPage: React.FC<BirthdaysPageProps> = ({
                 className="relative group overflow-hidden rounded-3xl bg-gradient-to-br from-[#242526] to-[#18191A] border border-[#3E4042] hover:border-[#1877F2]/50 transition-all duration-300 shadow-xl p-6 flex flex-col items-center text-center"
               >
                 <div className="relative mb-4">
-                  <div className="absolute -inset-1 bg-gradient-to-tr from-[#1877F2] via-[#F3425F] to-[#FAB400] rounded-full animate-[spin_3s_linear_infinite] opacity-75 blur-sm"></div>
+                  <div className="absolute -inset-1 bg-gradient-to-tr from-[#1877F2] via-[#F3425F] to-[#FAB400] rounded-full animate-spin-slow opacity-50 blur-sm"></div>
                   <img
                     src={person.profile_image_url}
                     className="w-24 h-24 rounded-full object-cover border-4 border-[#242526] relative z-10 cursor-pointer"
