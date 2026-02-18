@@ -17,6 +17,59 @@ import { CreateEventModal } from './Events';
 
 /**
  * =========================
+ * ✅ RSVP HELPER - Works directly with backend
+ * =========================
+ */
+type RSVPStatus = "going" | "interested" | "not_going";
+
+const rsvpEventDirect = async (args: {
+  eventId: number;
+  userId: number;
+  newStatus: RSVPStatus;
+  prevStatus?: "" | "going" | "interested";
+}) => {
+  const { eventId, userId, newStatus, prevStatus = "" } = args;
+
+  // Which endpoint to call?
+  // - going -> /api/attend
+  // - interested -> /api/interested
+  // - not_going -> call the endpoint that matches prevStatus (to "remove" it)
+  const endpoint =
+    newStatus === "going"
+      ? "/api/attend"
+      : newStatus === "interested"
+        ? "/api/interested"
+        : prevStatus === "interested"
+          ? "/api/interested"
+          : "/api/attend";
+
+  // Payload with status field
+  const payloadStatus = {
+    event_id: eventId,
+    user_id: userId,
+    status: newStatus,
+  };
+
+  try {
+    return await postJSON(endpoint, payloadStatus);
+  } catch (e1: any) {
+    // Fallback if backend expects action flags instead of "status"
+    const payloadAction = {
+      event_id: eventId,
+      user_id: userId,
+      action: newStatus === "not_going" ? "remove" : "add",
+    };
+
+    try {
+      return await postJSON(endpoint, payloadAction);
+    } catch (e2: any) {
+      throw new Error(e2?.message || e1?.message || "RSVP failed");
+    }
+  }
+};
+
+/**
+ * =========================
  * ✅ HELPER: UNIFIED AVATAR GENERATION WITH PROPER INITIALS
  * =========================
  */
@@ -1731,7 +1784,7 @@ export const EventPost: React.FC<{
   currentUser: User | null;
   users?: User[];
   onProfileClick: (id: number) => void;
-  onRSVP: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+  onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
   onFollow?: (id: number) => void;
   isFollowing?: boolean;
   followLoading?: boolean;
@@ -1777,10 +1830,7 @@ export const EventPost: React.FC<{
     : '';
 
   /**
-   * ✅ FIXED: RSVP handler that calls the parent onRSVP function
-   * The parent function (from App.tsx) will use the correct endpoints:
-   * - /api/attend for "going"
-   * - /api/interested for "interested"
+   * ✅ FIXED: RSVP handler that uses either the parent handler or direct API
    */
   const handleRSVPClick = async (status: 'going' | 'interested') => {
     if (!currentUser) {
@@ -1827,8 +1877,19 @@ export const EventPost: React.FC<{
     }
 
     try {
-      // ✅ Call the parent handler which uses the correct endpoints
-      await onRSVP(event.id, newStatus || 'not_going');
+      // Call parent handler if provided, otherwise use direct API
+      const newStatusToSend = (newStatus || 'not_going') as RSVPStatus;
+      
+      if (onRSVP) {
+        await onRSVP(event.id, newStatusToSend);
+      } else {
+        await rsvpEventDirect({
+          eventId: event.id,
+          userId: safeUserId(currentUser),
+          newStatus: newStatusToSend,
+          prevStatus: previousStatus as any,
+        });
+      }
     } catch (error) {
       // Rollback on failure
       setRsvpStatus(previousStatus);
@@ -2113,7 +2174,7 @@ export const EventPost: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: EVENT FEED CARD COMPONENT - NOW USES onRSVPEvent PROP
+ * ✅ UPDATED: EVENT FEED CARD COMPONENT - WORKS WITHOUT onRSVPEvent PROP
  * =========================
  */
 type FeedEventItem = {
@@ -2144,7 +2205,8 @@ export const EventFeedCard: React.FC<{
   currentUser: { id: number } | null;
   onProfileClick: (id: number) => void;
   onUpdateItem: (patch: Partial<FeedEventItem>) => void;
-  onRSVPEvent: (eventId: number, status: "going" | "interested" | "not_going") => Promise<any>;
+  // onRSVPEvent prop is now OPTIONAL - will use direct API if not provided
+  onRSVPEvent?: (eventId: number, status: "going" | "interested" | "not_going") => Promise<any>;
 }> = ({ item, currentUser, onProfileClick, onUpdateItem, onRSVPEvent }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2162,8 +2224,8 @@ export const EventFeedCard: React.FC<{
   }, [item.event_date]);
 
   /**
-   * ✅ FIXED: RSVP function now uses the onRSVPEvent prop from App.tsx
-   * instead of making direct API calls
+   * ✅ FIXED: RSVP function now uses the onRSVPEvent prop if provided,
+   * otherwise uses direct API calls
    */
   const rsvp = async (status: "going" | "interested" | "not_going") => {
     if (!currentUser) {
@@ -2186,7 +2248,7 @@ export const EventFeedCard: React.FC<{
       const prevInterested = item.interested_count || 0;
       
       // Optimistic update for status
-      onUpdateItem({ my_rsvp_status: newStatus });
+      onUpdateItem({ my_rsvp_status: newStatus as any });
       
       // Optimistic update for counts
       if (status === 'going') {
@@ -2219,8 +2281,17 @@ export const EventFeedCard: React.FC<{
         }
       }
       
-      // ✅ Call the parent handler (which uses the working endpoints)
-      await onRSVPEvent(eventId, newStatus || 'not_going');
+      // If parent handler provided, use it. Otherwise use direct API
+      if (onRSVPEvent) {
+        await onRSVPEvent(eventId, newStatus || 'not_going');
+      } else {
+        await rsvpEventDirect({
+          eventId,
+          userId: currentUser.id,
+          newStatus: (newStatus || 'not_going') as RSVPStatus,
+          prevStatus: previousStatus as any,
+        });
+      }
       
       // If we get here, success - counts will be refreshed on next feed fetch
     } catch (e: any) {
