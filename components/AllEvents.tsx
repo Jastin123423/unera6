@@ -1,26 +1,27 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { User } from '../types';
-import { useNavigate } from 'react-router-dom';
+// AllEvents.tsx
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { User } from "../types";
+import { useNavigate } from "react-router-dom";
 
 // ========== UNERA COLOR SYSTEM ==========
 const UNERA = {
   colors: {
-    primary: '#1877F2',      // UNERA Blue
-    secondary: '#45BD62',     // UNERA Green
-    accent: '#F7B928',        // UNERA Yellow
-    danger: '#F02849',        // UNERA Red
+    primary: "#1877F2",
+    secondary: "#45BD62",
+    accent: "#F7B928",
+    danger: "#F02849",
     bg: {
-      primary: '#18191A',     // Main background
-      secondary: '#242526',   // Card background
-      tertiary: '#3A3B3C',    // Hover/input background
+      primary: "#18191A",
+      secondary: "#242526",
+      tertiary: "#3A3B3C",
     },
     text: {
-      primary: '#E4E6EB',     // Primary text
-      secondary: '#B0B3B8',   // Secondary text
-      tertiary: '#8A8D91',    // Tertiary text
+      primary: "#E4E6EB",
+      secondary: "#B0B3B8",
+      tertiary: "#8A8D91",
     },
-    border: '#3E4042',        // Border color
-  }
+    border: "#3E4042",
+  },
 };
 
 // ========== API HELPERS (copied from Feed.tsx) ==========
@@ -33,7 +34,11 @@ async function safeJson(res: Response) {
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) return res.json();
   const txt = await res.text();
-  try { return JSON.parse(txt); } catch { return { raw: txt }; }
+  try {
+    return JSON.parse(txt);
+  } catch {
+    return { raw: txt };
+  }
 }
 
 const postJSON = async (url: string, body: any) => {
@@ -63,10 +68,6 @@ const rsvpEventDirect = async (args: {
 }) => {
   const { eventId, userId, newStatus, prevStatus = "" } = args;
 
-  // Which endpoint to call?
-  // - going -> /api/attend
-  // - interested -> /api/interested
-  // - not_going -> call the endpoint that matches prevStatus (to "remove" it)
   const endpoint =
     newStatus === "going"
       ? "/api/attend"
@@ -76,7 +77,6 @@ const rsvpEventDirect = async (args: {
           ? "/api/interested"
           : "/api/attend";
 
-  // Payload with status field
   const payloadStatus = {
     event_id: eventId,
     user_id: userId,
@@ -86,7 +86,6 @@ const rsvpEventDirect = async (args: {
   try {
     return await postJSON(endpoint, payloadStatus);
   } catch (e1: any) {
-    // Fallback if backend expects action flags instead of "status"
     const payloadAction = {
       event_id: eventId,
       user_id: userId,
@@ -105,86 +104,96 @@ const rsvpEventDirect = async (args: {
 const avatarFrom = (u: any) => {
   const img = String(
     u?.profile_image_url ??
-    u?.profileImage ??
-    u?.avatar ??
-    u?.author_image ??
-    u?.authorImage ??
-    u?.image ??
-    u?.picture ??
-    ''
+      u?.profileImage ??
+      u?.avatar ??
+      u?.author_image ??
+      u?.authorImage ??
+      u?.image ??
+      u?.picture ??
+      ""
   ).trim();
 
-  if (img && img !== 'null' && img !== 'undefined') return img;
+  if (img && img !== "null" && img !== "undefined") return img;
 
   const label =
-    String(u?.name ?? '').trim() ||
-    String(u?.username ?? '').trim() ||
-    String(u?.author_name ?? '').trim() ||
-    String(u?.author_username ?? '').trim() ||
-    'User';
+    String(u?.name ?? "").trim() ||
+    String(u?.username ?? "").trim() ||
+    String(u?.author_name ?? "").trim() ||
+    String(u?.author_username ?? "").trim() ||
+    "User";
 
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=1877F2&color=fff&bold=true`;
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    label
+  )}&background=1877F2&color=fff&bold=true`;
 };
 
 // ========== RELATIVE TIME FORMATTER ==========
 const toDateSafe = (input: any): Date | null => {
   if (!input) return null;
   if (input instanceof Date && Number.isFinite(input.getTime())) return input;
-  if (typeof input === 'number') {
+
+  if (typeof input === "number") {
     const ms = input < 1e12 ? input * 1000 : input;
     const d = new Date(ms);
     return Number.isFinite(d.getTime()) ? d : null;
   }
-  if (typeof input === 'string') {
+
+  if (typeof input === "string") {
     const s = input.trim();
+
+    // "YYYY-MM-DD HH:mm:ss" -> force UTC
     if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
-      const iso = s.replace(' ', 'T') + 'Z';
+      const iso = s.replace(" ", "T") + "Z";
       const d = new Date(iso);
       return Number.isFinite(d.getTime()) ? d : null;
     }
+
+    // "YYYY-MM-DDTHH:mm:ss" without timezone -> force UTC
     if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
-      const d = new Date(s + 'Z');
+      const d = new Date(s + "Z");
       return Number.isFinite(d.getTime()) ? d : null;
     }
+
     const d = new Date(s);
     return Number.isFinite(d.getTime()) ? d : null;
   }
+
   return null;
 };
 
 const formatRelativeTime = (dateInput: any): string => {
   const d = toDateSafe(dateInput);
-  if (!d) return 'Just now';
+  if (!d) return "Just now";
 
   const now = Date.now();
   let diffMs = now - d.getTime();
   if (diffMs < 0) diffMs = 0;
 
   const sec = Math.floor(diffMs / 1000);
-  if (sec < 60) return 'Just now';
+  if (sec < 60) return "Just now";
 
   const min = Math.floor(sec / 60);
-  if (min < 60) return min === 1 ? '1 min' : `${min} mins`;
+  if (min < 60) return min === 1 ? "1 min" : `${min} mins`;
 
   const hrs = Math.floor(min / 60);
-  if (hrs < 24) return hrs === 1 ? '1 hr' : `${hrs} hrs`;
+  if (hrs < 24) return hrs === 1 ? "1 hr" : `${hrs} hrs`;
 
   const days = Math.floor(hrs / 24);
-  if (days < 7) return days === 1 ? '1 day' : `${days} days`;
+  if (days < 7) return days === 1 ? "1 day" : `${days} days`;
 
   const weeks = Math.floor(days / 7);
-  if (weeks < 4) return weeks === 1 ? '1 week' : `${weeks} weeks`;
+  if (weeks < 4) return weeks === 1 ? "1 week" : `${weeks} weeks`;
 
   const months = Math.floor(days / 30);
-  if (months < 12) return months === 1 ? '1 month' : `${months} months`;
+  if (months < 12) return months === 1 ? "1 month" : `${months} months`;
 
   const years = Math.floor(days / 365);
-  return years === 1 ? '1 year' : `${years} years`;
+  return years === 1 ? "1 year" : `${years} years`;
 };
 
 // ========== TYPES ==========
-type EventFilter = 'all' | 'upcoming' | 'past' | 'today' | 'this-week' | 'this-month';
-type EventSort = 'date' | 'popular' | 'trending';
+type EventFilter = "all" | "upcoming" | "past" | "today" | "this-week" | "this-month";
+type EventSort = "date" | "popular" | "trending";
 
 interface EventFromAPI {
   id: number;
@@ -197,7 +206,7 @@ interface EventFromAPI {
   created_at: string;
   attendees_count: number;
   interested_count: number;
-  user_rsvp_status?: '' | 'going' | 'interested';
+  user_rsvp_status?: "" | "going" | "interested";
   creator_id: number;
   creator_name?: string;
   creator_image?: string;
@@ -229,9 +238,10 @@ const FilterChip: React.FC<{
     className={`
       px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200
       flex items-center gap-2 whitespace-nowrap
-      ${active 
-        ? 'bg-[#1877F2] text-white shadow-lg shadow-[#1877F2]/20' 
-        : 'bg-[#3A3B3C] text-[#B0B3B8] hover:bg-[#4E4F50] hover:text-[#E4E6EB]'
+      ${
+        active
+          ? "bg-[#1877F2] text-white shadow-lg shadow-[#1877F2]/20"
+          : "bg-[#3A3B3C] text-[#B0B3B8] hover:bg-[#4E4F50] hover:text-[#E4E6EB]"
       }
     `}
   >
@@ -249,8 +259,10 @@ const StatsCard: React.FC<{
 }> = ({ icon, label, value, color }) => (
   <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042] hover:border-[#1877F2]/30 transition-all duration-300 group">
     <div className="flex items-center gap-4">
-      <div className={`w-12 h-12 rounded-xl bg-opacity-10 flex items-center justify-center group-hover:scale-110 transition-transform`}
-        style={{ backgroundColor: color + '20' }}>
+      <div
+        className="w-12 h-12 rounded-xl bg-opacity-10 flex items-center justify-center group-hover:scale-110 transition-transform"
+        style={{ backgroundColor: color + "20" }}
+      >
         <i className={`fas fa-${icon} text-2xl`} style={{ color }}></i>
       </div>
       <div>
@@ -267,115 +279,145 @@ const EventCard: React.FC<{
   currentUser: User | null;
   onEventClick: (id: number) => void;
   onProfileClick: (id: number) => void;
-  onRSVPUpdate?: (eventId: number, newStatus: '' | 'going' | 'interested', newAttendees: number, newInterested: number) => void;
+  onRSVPUpdate?: (
+    eventId: number,
+    newStatus: "" | "going" | "interested",
+    newAttendees: number,
+    newInterested: number
+  ) => void;
 }> = ({ event, currentUser, onEventClick, onProfileClick, onRSVPUpdate }) => {
-  const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
+  const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || "");
   const [attendeesCount, setAttendeesCount] = useState(event.attendees_count || 0);
   const [interestedCount, setInterestedCount] = useState(event.interested_count || 0);
   const [loading, setLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
 
+  // Keep local state in sync when parent updates event list
+  useEffect(() => {
+    setRsvpStatus(event.user_rsvp_status || "");
+  }, [event.user_rsvp_status]);
+
+  useEffect(() => {
+    setAttendeesCount(event.attendees_count || 0);
+  }, [event.attendees_count]);
+
+  useEffect(() => {
+    setInterestedCount(event.interested_count || 0);
+  }, [event.interested_count]);
+
   const dateObj = event.start_time ? new Date(event.start_time) : null;
   const endDateObj = event.end_time ? new Date(event.end_time) : null;
 
-  const isPast = dateObj && dateObj < new Date();
-  const isToday = dateObj && dateObj.toDateString() === new Date().toDateString();
-  const isTomorrow = dateObj && 
-    new Date(dateObj.setDate(dateObj.getDate() + 1)).toDateString() === new Date().toDateString();
+  const nowLocal = new Date();
+  const isPast = !!dateObj && dateObj < nowLocal;
+
+  const isToday =
+    !!dateObj && dateObj.toDateString() === nowLocal.toDateString();
+
+  // ✅ FIX: do NOT mutate dateObj (was causing "fast rotation"/changing)
+  const isTomorrow = (() => {
+    if (!dateObj) return false;
+    const t = new Date(dateObj.getTime());
+    t.setDate(t.getDate() + 1);
+    return t.toDateString() === nowLocal.toDateString();
+  })();
 
   const formatEventDate = () => {
-    if (!dateObj) return 'Date TBD';
-    
-    if (isToday) return 'Today';
-    if (isTomorrow) return 'Tomorrow';
-    
-    return dateObj.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric' 
+    if (!dateObj) return "Date TBD";
+    if (isToday) return "Today";
+    if (isTomorrow) return "Tomorrow";
+
+    return dateObj.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
     });
   };
 
   const formatEventTime = () => {
-    if (!dateObj) return '';
-    return dateObj.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    if (!dateObj) return "";
+    return dateObj.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
-  /**
-   * ✅ RSVP handler that calls the API directly
-   * Uses the same pattern as Feed.tsx
-   */
-  const handleRSVPClick = async (status: 'going' | 'interested') => {
+  const handleRSVPClick = async (status: "going" | "interested") => {
     if (!currentUser) {
-      alert('Please login to RSVP');
+      alert("Please login to RSVP");
       return;
     }
     if (!event.id) return;
 
     setLoading(true);
-    
-    // Determine new status (toggle off if already selected)
+
     const previousStatus = rsvpStatus;
-    const newStatus = previousStatus === status ? '' : status;
-    
-    // Save previous counts for rollback
+    const newStatus = previousStatus === status ? "" : status;
+
+    // rollback snapshot
     const prevAttending = attendeesCount;
     const prevInterested = interestedCount;
-    
-    // Optimistic update for status
+
+    // optimistic status
     setRsvpStatus(newStatus);
-    
-    // Optimistic update for counts
-    if (status === 'going') {
-      if (previousStatus === 'going') {
-        // Removing going
+
+    // optimistic counts
+    if (status === "going") {
+      if (previousStatus === "going") {
         setAttendeesCount(Math.max(0, prevAttending - 1));
-      } else if (previousStatus === 'interested') {
-        // Switching from interested to going
+      } else if (previousStatus === "interested") {
         setAttendeesCount(prevAttending + 1);
         setInterestedCount(Math.max(0, prevInterested - 1));
       } else {
-        // Adding going
         setAttendeesCount(prevAttending + 1);
       }
-    } else if (status === 'interested') {
-      if (previousStatus === 'interested') {
-        // Removing interested
+    } else {
+      if (previousStatus === "interested") {
         setInterestedCount(Math.max(0, prevInterested - 1));
-      } else if (previousStatus === 'going') {
-        // Switching from going to interested
+      } else if (previousStatus === "going") {
         setInterestedCount(prevInterested + 1);
         setAttendeesCount(Math.max(0, prevAttending - 1));
       } else {
-        // Adding interested
         setInterestedCount(prevInterested + 1);
       }
     }
 
+    // Compute the *intended* new counts after optimistic changes
+    // (because state updates are async, we compute deterministically)
+    let nextAtt = prevAttending;
+    let nextInt = prevInterested;
+
+    if (status === "going") {
+      if (previousStatus === "going") nextAtt = Math.max(0, prevAttending - 1);
+      else if (previousStatus === "interested") {
+        nextAtt = prevAttending + 1;
+        nextInt = Math.max(0, prevInterested - 1);
+      } else nextAtt = prevAttending + 1;
+    } else {
+      if (previousStatus === "interested") nextInt = Math.max(0, prevInterested - 1);
+      else if (previousStatus === "going") {
+        nextInt = prevInterested + 1;
+        nextAtt = Math.max(0, prevAttending - 1);
+      } else nextInt = prevInterested + 1;
+    }
+
     try {
-      // ✅ Call the API directly using our helper
       await rsvpEventDirect({
         eventId: event.id,
         userId: currentUser.id,
-        newStatus: (newStatus || 'not_going') as RSVPStatus,
+        newStatus: (newStatus || "not_going") as RSVPStatus,
         prevStatus: previousStatus as any,
       });
 
-      // Notify parent of update if needed
       if (onRSVPUpdate) {
-        onRSVPUpdate(event.id, newStatus, attendeesCount, interestedCount);
+        onRSVPUpdate(event.id, newStatus, nextAtt, nextInt);
       }
-      
     } catch (error) {
-      // Rollback on failure
       setRsvpStatus(previousStatus);
       setAttendeesCount(prevAttending);
       setInterestedCount(prevInterested);
-      console.error('RSVP failed:', error);
-      alert('Failed to RSVP. Please try again.');
+      console.error("RSVP failed:", error);
+      alert("Failed to RSVP. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -383,16 +425,16 @@ const EventCard: React.FC<{
 
   const creator = event.creator || {
     id: event.creator_id,
-    name: event.creator_name || 'Event Organizer',
-    profile_image_url: event.creator_image
+    name: event.creator_name || "Event Organizer",
+    profile_image_url: event.creator_image,
   };
 
   return (
-    <div 
+    <div
       className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group"
       onClick={() => onEventClick(event.id)}
     >
-      {/* Cover Image with Overlay Badge */}
+      {/* Cover Image */}
       <div className="relative h-48 overflow-hidden">
         {event.cover_image && !imageError ? (
           <img
@@ -406,18 +448,15 @@ const EventCard: React.FC<{
             <i className="fas fa-calendar text-white/30 text-6xl"></i>
           </div>
         )}
-        
-        {/* Gradient Overlay */}
+
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-        
+
         {/* Date Badge */}
         <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/20">
           <div className="text-[#F7B928] text-[11px] font-black uppercase">
-            {dateObj?.toLocaleDateString('en-US', { month: 'short' })}
+            {dateObj?.toLocaleDateString("en-US", { month: "short" })}
           </div>
-          <div className="text-white text-[24px] font-black leading-tight">
-            {dateObj?.getDate()}
-          </div>
+          <div className="text-white text-[24px] font-black leading-tight">{dateObj?.getDate()}</div>
         </div>
 
         {/* Status Badge */}
@@ -431,21 +470,19 @@ const EventCard: React.FC<{
           </div>
         )}
 
-        {/* RSVP Count */}
+        {/* Going count */}
         <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1">
           <div className="flex items-center gap-2">
             <i className="fas fa-users text-[#45BD62] text-xs"></i>
-            <span className="text-white text-xs font-semibold">
-              {attendeesCount} going
-            </span>
+            <span className="text-white text-xs font-semibold">{attendeesCount} going</span>
           </div>
         </div>
       </div>
 
-      {/* Event Details */}
+      {/* Details */}
       <div className="p-4">
-        {/* Creator Info */}
-        <div 
+        {/* Creator row */}
+        <div
           className="flex items-center gap-2 mb-3 cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
@@ -458,30 +495,23 @@ const EventCard: React.FC<{
             className="w-6 h-6 rounded-full object-cover border border-[#3E4042]"
           />
           <span className="text-[#B0B3B8] text-xs hover:underline">
-            {creator.name || 'Event Organizer'}
+            {creator.name || "Event Organizer"}
           </span>
           <span className="text-[#3E4042] text-xs">•</span>
-          <span className="text-[#B0B3B8] text-xs">
-            {formatRelativeTime(event.created_at)}
-          </span>
+          <span className="text-[#B0B3B8] text-xs">{formatRelativeTime(event.created_at)}</span>
         </div>
 
-        {/* Title */}
         <h3 className="text-[#E4E6EB] font-black text-[18px] mb-2 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
           {event.title}
         </h3>
 
-        {/* Description */}
         {event.description && (
-          <p className="text-[#B0B3B8] text-sm mb-3 line-clamp-2">
-            {event.description}
-          </p>
+          <p className="text-[#B0B3B8] text-sm mb-3 line-clamp-2">{event.description}</p>
         )}
 
-        {/* Event Meta */}
         <div className="space-y-2 mb-4">
           <div className="flex items-center gap-2 text-[#B0B3B8] text-xs">
-            <i className={`fas fa-calendar-alt w-4 ${isPast ? 'text-[#B0B3B8]' : 'text-[#1877F2]'}`}></i>
+            <i className={`fas fa-calendar-alt w-4 ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
             <span>
               {formatEventDate()}
               {formatEventTime() && ` at ${formatEventTime()}`}
@@ -503,27 +533,30 @@ const EventCard: React.FC<{
           </div>
         </div>
 
-        {/* Action Buttons */}
+        {/* Actions */}
         <div className="flex gap-2">
           <button
             disabled={loading || isPast}
             onClick={(e) => {
               e.stopPropagation();
-              handleRSVPClick('going');
+              handleRSVPClick("going");
             }}
             className={`
               flex-1 py-2.5 rounded-lg font-bold text-sm transition-all duration-200
-              ${isPast ? 'opacity-50 cursor-not-allowed' : ''}
-              ${rsvpStatus === 'going'
-                ? 'bg-[#45BD62] text-white hover:bg-[#3da855]'
-                : 'bg-[#1877F2] text-white hover:bg-[#166FE5] hover:shadow-lg hover:shadow-[#1877F2]/20'
+              ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+              ${
+                rsvpStatus === "going"
+                  ? "bg-[#45BD62] text-white hover:bg-[#3da855]"
+                  : "bg-[#1877F2] text-white hover:bg-[#166FE5] hover:shadow-lg hover:shadow-[#1877F2]/20"
               }
             `}
           >
-            {loading && rsvpStatus === 'going' ? (
+            {loading && rsvpStatus === "going" ? (
               <i className="fas fa-spinner fa-spin"></i>
+            ) : rsvpStatus === "going" ? (
+              "✓ Going"
             ) : (
-              rsvpStatus === 'going' ? '✓ Going' : 'Going'
+              "Going"
             )}
           </button>
 
@@ -531,21 +564,24 @@ const EventCard: React.FC<{
             disabled={loading || isPast}
             onClick={(e) => {
               e.stopPropagation();
-              handleRSVPClick('interested');
+              handleRSVPClick("interested");
             }}
             className={`
               flex-1 py-2.5 rounded-lg font-bold text-sm transition-all duration-200
-              ${isPast ? 'opacity-50 cursor-not-allowed' : ''}
-              ${rsvpStatus === 'interested'
-                ? 'bg-[#F7B928] text-black hover:bg-[#e5aa24]'
-                : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+              ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+              ${
+                rsvpStatus === "interested"
+                  ? "bg-[#F7B928] text-black hover:bg-[#e5aa24]"
+                  : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
               }
             `}
           >
-            {loading && rsvpStatus === 'interested' ? (
+            {loading && rsvpStatus === "interested" ? (
               <i className="fas fa-spinner fa-spin"></i>
+            ) : rsvpStatus === "interested" ? (
+              "✓ Interested"
             ) : (
-              rsvpStatus === 'interested' ? '✓ Interested' : 'Interested'
+              "Interested"
             )}
           </button>
         </div>
@@ -563,17 +599,22 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   onCreateEventClick,
 }) => {
   const navigate = useNavigate();
-  
-  // State
+
   const [events, setEvents] = useState<EventFromAPI[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<EventFilter>('upcoming');
-  const [sort, setSort] = useState<EventSort>('date');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  const [filter, setFilter] = useState<EventFilter>("upcoming");
+  const [sort, setSort] = useState<EventSort>("date");
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState(""); // ✅ debounce search
+
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+
   const [stats, setStats] = useState({
     total: 0,
     upcoming: 0,
@@ -581,136 +622,187 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     thisWeek: 0,
   });
 
-  const observerRef = useRef<IntersectionObserver>();
-  const lastEventRef = useRef<HTMLDivElement>(null);
+  // ✅ Sentinel for infinite scroll (more stable than "last item ref")
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // ✅ prevent multi-fire + stale responses
+  const loadingRef = useRef(false);
+  const reqIdRef = useRef(0);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  // ✅ Debounce searchQuery
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const buildParams = useCallback(
+    (usePage: number) => {
+      const params = new URLSearchParams({
+        page: String(usePage),
+        limit: "12",
+        filter,
+        sort,
+      });
+      if (debouncedQ) params.set("q", debouncedQ);
+      return params;
+    },
+    [filter, sort, debouncedQ]
+  );
 
   /**
    * ✅ Fetch events from /api/events
+   * - ignores stale responses (reqIdRef)
+   * - uses reset mode correctly
    */
-  const fetchEvents = async (reset = false) => {
-    if (loading && !reset) return;
-    
-    setLoading(true);
-    setError(null);
+  const fetchEvents = useCallback(
+    async (reset = false, nextPage?: number) => {
+      const reqId = ++reqIdRef.current;
 
-    try {
-      const params = new URLSearchParams({
-        page: reset ? '1' : page.toString(),
-        limit: '12',
-        filter,
-        sort,
-        ...(searchQuery && { q: searchQuery }),
-      });
+      const pageToLoad = typeof nextPage === "number" ? nextPage : reset ? 1 : page;
 
-      const response = await fetch(`/api/events?${params}`, {
-        headers: {
-          ...authHeaders(),
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const data = await response.json();
+      // if already loading and not reset, don't pile requests
+      if (loadingRef.current && !reset) return;
 
-      if (!response.ok) {
-        throw new Error(data.error || data.message || 'Failed to fetch events');
-      }
+      setLoading(true);
+      setError(null);
 
-      // Handle different response formats
-      const newEvents = data.events || data.data || data || [];
-      
-      setEvents(prev => reset ? newEvents : [...prev, ...newEvents]);
-      setHasMore(newEvents.length === 12);
-      
-      // Update stats if provided
-      if (data.stats) {
-        setStats(data.stats);
-      } else {
-        // Calculate stats from events if not provided
-        const now = new Date();
-        const today = now.toDateString();
-        const weekFromNow = new Date(now.setDate(now.getDate() + 7));
-        
-        setStats({
-          total: data.total || newEvents.length,
-          upcoming: newEvents.filter((e: any) => new Date(e.start_time) > now).length,
-          today: newEvents.filter((e: any) => new Date(e.start_time).toDateString() === today).length,
-          thisWeek: newEvents.filter((e: any) => {
+      try {
+        const params = buildParams(pageToLoad);
+
+        const response = await fetch(`/api/events?${params.toString()}`, {
+          headers: {
+            ...authHeaders(),
+            "Content-Type": "application/json",
+          },
+        });
+
+        const data = await safeJson(response);
+
+        if (reqId !== reqIdRef.current) return; // stale response, ignore
+
+        if (!response.ok) {
+          throw new Error(data?.error || data?.message || "Failed to fetch events");
+        }
+
+        const newEvents: EventFromAPI[] = (data?.events || data?.data || data || []) as any;
+
+        setEvents((prev) => (reset ? newEvents : [...prev, ...newEvents]));
+        setHasMore(Array.isArray(newEvents) && newEvents.length === 12);
+
+        // Stats: use backend if provided, else compute from currently fetched page
+        if (data?.stats) {
+          setStats(data.stats);
+        } else {
+          const now = new Date();
+          const todayStr = now.toDateString();
+          const weekFromNow = new Date(now.getTime());
+          weekFromNow.setDate(weekFromNow.getDate() + 7);
+
+          const upcomingCount = (newEvents || []).filter((e: any) => new Date(e.start_time) > now).length;
+          const todayCount = (newEvents || []).filter((e: any) => new Date(e.start_time).toDateString() === todayStr).length;
+          const thisWeekCount = (newEvents || []).filter((e: any) => {
             const d = new Date(e.start_time);
             return d > now && d < weekFromNow;
-          }).length,
-        });
-      }
+          }).length;
 
-      if (reset) setPage(1);
-    } catch (err: any) {
-      setError(err.message);
-      console.error('Error fetching events:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+          setStats({
+            total: data?.total || (reset ? newEvents.length : events.length + newEvents.length),
+            upcoming: upcomingCount,
+            today: todayCount,
+            thisWeek: thisWeekCount,
+          });
+        }
+
+        // keep page state in sync when reset
+        if (reset) setPage(1);
+      } catch (err: any) {
+        if (reqId !== reqIdRef.current) return;
+        setError(err?.message || "Failed to fetch events");
+        console.error("Error fetching events:", err);
+      } finally {
+        if (reqId === reqIdRef.current) setLoading(false);
+      }
+    },
+    [page, buildParams, events.length]
+  );
 
   // Handle RSVP update from card
-  const handleRSVPUpdate = (eventId: number, newStatus: '' | 'going' | 'interested', newAttendees: number, newInterested: number) => {
-    setEvents(prev => prev.map(e => 
-      e.id === eventId 
-        ? { 
-            ...e, 
-            user_rsvp_status: newStatus,
-            attendees_count: newAttendees,
-            interested_count: newInterested
-          } 
-        : e
-    ));
-  };
+  const handleRSVPUpdate = useCallback(
+    (
+      eventId: number,
+      newStatus: "" | "going" | "interested",
+      newAttendees: number,
+      newInterested: number
+    ) => {
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === eventId
+            ? {
+                ...e,
+                user_rsvp_status: newStatus,
+                attendees_count: newAttendees,
+                interested_count: newInterested,
+              }
+            : e
+        )
+      );
+    },
+    []
+  );
 
-  // Initial load
+  // ✅ Initial / filter / sort / search load (reset)
   useEffect(() => {
-    fetchEvents(true);
-  }, [filter, sort, searchQuery]);
+    setEvents([]);
+    setHasMore(true);
+    setPage(1);
+    fetchEvents(true, 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, sort, debouncedQ]);
 
-  // Infinite scroll
+  // ✅ Infinite scroll observer (sentinel)
   useEffect(() => {
-    if (loading || !hasMore) return;
+    if (!hasMore) return;
 
-    const observer = new IntersectionObserver(
+    const obs = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore) {
-          setPage(p => p + 1);
+        const first = entries[0];
+        if (first?.isIntersecting && hasMore && !loadingRef.current) {
+          setPage((p) => p + 1);
         }
       },
       { threshold: 0.1 }
     );
 
-    if (lastEventRef.current) {
-      observer.observe(lastEventRef.current);
-    }
+    const el = sentinelRef.current;
+    if (el) obs.observe(el);
 
-    return () => observer.disconnect();
-  }, [loading, hasMore]);
+    return () => obs.disconnect();
+  }, [hasMore]);
 
-  // Load more when page changes
+  // ✅ Load more when page increases
   useEffect(() => {
     if (page > 1) {
-      fetchEvents();
+      fetchEvents(false, page);
     }
-  }, [page]);
+  }, [page, fetchEvents]);
 
-  // Filter options
   const filterOptions: { value: EventFilter; label: string; icon: string }[] = [
-    { value: 'all', label: 'All Events', icon: 'calendar' },
-    { value: 'upcoming', label: 'Upcoming', icon: 'arrow-right' },
-    { value: 'today', label: 'Today', icon: 'sun' },
-    { value: 'this-week', label: 'This Week', icon: 'calendar-week' },
-    { value: 'this-month', label: 'This Month', icon: 'calendar-alt' },
-    { value: 'past', label: 'Past Events', icon: 'history' },
+    { value: "all", label: "All Events", icon: "calendar" },
+    { value: "upcoming", label: "Upcoming", icon: "arrow-right" },
+    { value: "today", label: "Today", icon: "sun" },
+    { value: "this-week", label: "This Week", icon: "calendar-week" },
+    { value: "this-month", label: "This Month", icon: "calendar-alt" },
+    { value: "past", label: "Past Events", icon: "history" },
   ];
 
-  // Sort options
   const sortOptions: { value: EventSort; label: string }[] = [
-    { value: 'date', label: 'Date' },
-    { value: 'popular', label: 'Most Popular' },
-    { value: 'trending', label: 'Trending' },
+    { value: "date", label: "Date" },
+    { value: "popular", label: "Most Popular" },
+    { value: "trending", label: "Trending" },
   ];
 
   return (
@@ -766,7 +858,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
             />
             {searchQuery && (
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => setSearchQuery("")}
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
               >
                 <i className="fas fa-times"></i>
@@ -798,9 +890,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
                     onClick={() => setSort(option.value)}
                     className={`
                       px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors
-                      ${sort === option.value
-                        ? 'bg-[#1877F2] text-white'
-                        : 'text-[#B0B3B8] hover:bg-[#3A3B3C] hover:text-[#E4E6EB]'
+                      ${
+                        sort === option.value
+                          ? "bg-[#1877F2] text-white"
+                          : "text-[#B0B3B8] hover:bg-[#3A3B3C] hover:text-[#E4E6EB]"
                       }
                     `}
                   >
@@ -812,21 +905,21 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
             <div className="flex gap-1">
               <button
-                onClick={() => setViewMode('grid')}
+                onClick={() => setViewMode("grid")}
                 className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                  viewMode === 'grid' 
-                    ? 'bg-[#1877F2] text-white' 
-                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  viewMode === "grid"
+                    ? "bg-[#1877F2] text-white"
+                    : "text-[#B0B3B8] hover:bg-[#3A3B3C]"
                 }`}
               >
                 <i className="fas fa-th"></i>
               </button>
               <button
-                onClick={() => setViewMode('list')}
+                onClick={() => setViewMode("list")}
                 className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                  viewMode === 'list' 
-                    ? 'bg-[#1877F2] text-white' 
-                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  viewMode === "list"
+                    ? "bg-[#1877F2] text-white"
+                    : "text-[#B0B3B8] hover:bg-[#3A3B3C]"
                 }`}
               >
                 <i className="fas fa-list"></i>
@@ -842,7 +935,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
             <p className="text-[#E4E6EB] font-bold mb-2">Failed to load events</p>
             <p className="text-[#B0B3B8] text-sm mb-4">{error}</p>
             <button
-              onClick={() => fetchEvents(true)}
+              onClick={() => fetchEvents(true, 1)}
               className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors"
             >
               Try Again
@@ -855,9 +948,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
             </div>
             <h3 className="text-[#E4E6EB] text-xl font-black mb-2">No events found</h3>
             <p className="text-[#B0B3B8] mb-6">
-              {searchQuery 
-                ? `No events matching "${searchQuery}"` 
-                : "There are no events to display at the moment."}
+              {searchQuery ? `No events matching "${searchQuery}"` : "There are no events to display at the moment."}
             </p>
             {currentUser && (
               <button
@@ -870,16 +961,15 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         ) : (
           <>
-            <div className={
-              viewMode === 'grid' 
-                ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6' 
-                : 'space-y-4'
-            }>
-              {events.map((event, index) => (
-                <div
-                  key={event.id}
-                  ref={index === events.length - 1 ? lastEventRef : undefined}
-                >
+            <div
+              className={
+                viewMode === "grid"
+                  ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                  : "space-y-4"
+              }
+            >
+              {events.map((event) => (
+                <div key={event.id}>
                   <EventCard
                     event={event}
                     currentUser={currentUser}
@@ -890,6 +980,9 @@ export const AllEvents: React.FC<AllEventsProps> = ({
                 </div>
               ))}
             </div>
+
+            {/* Sentinel (for infinite scroll) */}
+            <div ref={sentinelRef} className="h-1" />
 
             {/* Loading Indicator */}
             {loading && (
