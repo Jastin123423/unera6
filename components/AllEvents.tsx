@@ -546,10 +546,12 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   // infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // guards
+  // ✅ FIX 1: Add lock refs to prevent observer spam
+  const fetchingMoreRef = useRef(false);
   const loadingRef = useRef(false);
   const reqIdRef = useRef(0);
 
+  // Keep loadingRef in sync with loading state
   useEffect(() => {
     loadingRef.current = loading;
   }, [loading]);
@@ -565,7 +567,12 @@ export const AllEvents: React.FC<AllEventsProps> = ({
       const reqId = ++reqIdRef.current;
 
       const pageToLoad = typeof nextPage === "number" ? nextPage : reset ? 1 : page;
-      if (loadingRef.current && !reset) return;
+      
+      // ✅ FIX 1: Lock check to prevent multiple simultaneous fetches
+      if (!reset) {
+        if (fetchingMoreRef.current) return; // already loading next page
+        fetchingMoreRef.current = true;
+      }
 
       setLoading(true);
       setError(null);
@@ -595,6 +602,9 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         const newEvents: EventFromAPI[] = (data?.events || []) as any;
 
         setEvents((prev) => (reset ? newEvents : [...prev, ...newEvents]));
+        
+        // ✅ FIX 3: Better hasMore detection (backend should implement limit+1)
+        // For now, keep existing logic but note the recommended approach
         setHasMore(!!data?.has_more || newEvents.length === 12);
 
         if (data?.stats) setStats(data.stats);
@@ -604,7 +614,11 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         if (reqId !== reqIdRef.current) return;
         setError(e?.message || "Failed to load events");
       } finally {
-        if (reqId === reqIdRef.current) setLoading(false);
+        if (reqId === reqIdRef.current) {
+          setLoading(false);
+          // ✅ FIX 1: Release lock when done
+          if (!reset) fetchingMoreRef.current = false;
+        }
       }
     },
     [page, filter, sort, debouncedQ, currentUser?.id]
@@ -632,24 +646,36 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, sort, debouncedQ, currentUser?.id]);
 
-  // observer
+  // ✅ FIX 2: Fixed observer with proper guards and rootMargin
   useEffect(() => {
     if (!hasMore) return;
 
+    const el = sentinelRef.current;
+    if (!el) return;
+
     const obs = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && hasMore && !loadingRef.current) {
-          setPage((p) => p + 1);
-        }
+        const first = entries[0];
+        if (!first?.isIntersecting) return;
+
+        // ✅ Hard guards to prevent spam
+        if (loadingRef.current) return;
+        if (fetchingMoreRef.current) return;
+        if (!hasMore) return;
+
+        setPage((p) => p + 1);
       },
-      { threshold: 0.1 }
+      {
+        threshold: 0.1,
+        // ✅ This helps prevent “always visible sentinel” spam
+        // Triggers before reaching bottom and reduces jitter
+        rootMargin: "300px 0px 300px 0px",
+      }
     );
 
-    const el = sentinelRef.current;
-    if (el) obs.observe(el);
-
+    obs.observe(el);
     return () => obs.disconnect();
-  }, [hasMore]);
+  }, [hasMore]); // Only recreate when hasMore changes
 
   // load more
   useEffect(() => {
