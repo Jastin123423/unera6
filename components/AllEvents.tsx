@@ -1,427 +1,933 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Event } from '../types';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { User } from '../types';
+import { useNavigate } from 'react-router-dom';
 
-interface AllEventsProps {
-    currentUser: User | null;
-    onEventClick?: (eventId: number) => void;
-    onInterested?: (eventId: number) => void;
-}
-
-export const AllEvents: React.FC<AllEventsProps> = ({ 
-    currentUser, 
-    onEventClick,
-    onInterested 
-}) => {
-    const [events, setEvents] = useState<Event[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [page, setPage] = useState(1);
-    const [hasMore, setHasMore] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const abortControllerRef = useRef<AbortController | null>(null);
-    const [processingEvents, setProcessingEvents] = useState<Set<number>>(new Set());
-
-    // Fetch events with proper abort handling
-    const fetchEvents = useCallback(async (pageNum: number, refresh = false) => {
-        // Cancel previous request if any
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
-
-        // Create new abort controller
-        const controller = new AbortController();
-        abortControllerRef.current = controller;
-
-        try {
-            if (refresh) {
-                setRefreshing(true);
-            } else if (pageNum === 1) {
-                setLoading(true);
-            }
-            
-            setError(null);
-
-            const url = `/api/events?page=${pageNum}&limit=10`;
-            const response = await fetch(url, {
-                signal: controller.signal,
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(currentUser?.id ? { 'X-User-Id': String(currentUser.id) } : {})
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch events: ${response.status}`);
-            }
-
-            const data = await response.json();
-            
-            // Handle different response formats
-            let newEvents: Event[] = [];
-            if (Array.isArray(data)) {
-                newEvents = data;
-            } else if (data.events && Array.isArray(data.events)) {
-                newEvents = data.events;
-            } else if (data.data && Array.isArray(data.data)) {
-                newEvents = data.data;
-            }
-
-            // Update state based on refresh or load more
-            setEvents(prev => {
-                if (refresh || pageNum === 1) {
-                    return newEvents;
-                }
-                // Avoid duplicates
-                const existingIds = new Set(prev.map(e => e.id));
-                const uniqueNew = newEvents.filter(e => !existingIds.has(e.id));
-                return [...prev, ...uniqueNew];
-            });
-
-            // Check if there are more events to load
-            setHasMore(newEvents.length === 10);
-            
-        } catch (err: any) {
-            if (err.name === 'AbortError') {
-                // Ignore abort errors
-                return;
-            }
-            console.error('Error fetching events:', err);
-            setError(err.message || 'Failed to load events');
-        } finally {
-            if (refresh) {
-                setRefreshing(false);
-            } else if (pageNum === 1) {
-                setLoading(false);
-            }
-        }
-    }, [currentUser?.id]);
-
-    // Initial fetch
-    useEffect(() => {
-        fetchEvents(1);
-
-        // Cleanup on unmount
-        return () => {
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
-        };
-    }, [fetchEvents]);
-
-    // Handle load more
-    const handleLoadMore = useCallback(() => {
-        if (!loading && !refreshing && hasMore) {
-            const nextPage = page + 1;
-            setPage(nextPage);
-            fetchEvents(nextPage);
-        }
-    }, [loading, refreshing, hasMore, page, fetchEvents]);
-
-    // Handle refresh
-    const handleRefresh = useCallback(() => {
-        setPage(1);
-        fetchEvents(1, true);
-    }, [fetchEvents]);
-
-    // Handle interested button click with debounce
-    const handleInterestedClick = useCallback(async (eventId: number, e: React.MouseEvent) => {
-        e.stopPropagation();
-        
-        if (!currentUser) {
-            alert('Please login to show interest');
-            return;
-        }
-
-        // Prevent double-clicking
-        if (processingEvents.has(eventId)) {
-            return;
-        }
-
-        setProcessingEvents(prev => new Set(prev).add(eventId));
-
-        try {
-            // Optimistic update
-            setEvents(prev => prev.map(event => {
-                if (event.id === eventId) {
-                    const isInterested = event.interestedIds?.includes(currentUser.id);
-                    return {
-                        ...event,
-                        interestedIds: isInterested 
-                            ? (event.interestedIds?.filter(id => id !== currentUser.id) || [])
-                            : [...(event.interestedIds || []), currentUser.id]
-                    };
-                }
-                return event;
-            }));
-
-            // Make API call
-            const response = await fetch('/api/events/interested', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    event_id: eventId,
-                    user_id: currentUser.id
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to update interest');
-            }
-
-            // Call parent handler if provided
-            if (onInterested) {
-                onInterested(eventId);
-            }
-
-        } catch (err: any) {
-            console.error('Error updating interest:', err);
-            
-            // Revert optimistic update on error
-            setEvents(prev => prev.map(event => {
-                if (event.id === eventId) {
-                    const wasInterested = event.interestedIds?.includes(currentUser.id);
-                    return {
-                        ...event,
-                        interestedIds: wasInterested
-                            ? (event.interestedIds?.filter(id => id !== currentUser.id) || [])
-                            : [...(event.interestedIds || []), currentUser.id]
-                    };
-                }
-                return event;
-            }));
-
-            alert(err.message || 'Failed to update interest');
-        } finally {
-            setProcessingEvents(prev => {
-                const next = new Set(prev);
-                next.delete(eventId);
-                return next;
-            });
-        }
-    }, [currentUser, onInterested, processingEvents]);
-
-    // Format date safely
-    const formatEventDate = useCallback((dateStr: string) => {
-        try {
-            const date = new Date(dateStr);
-            if (isNaN(date.getTime())) return 'Date TBD';
-            
-            return date.toLocaleDateString(undefined, { 
-                month: 'short', 
-                day: 'numeric',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        } catch {
-            return 'Date TBD';
-        }
-    }, []);
-
-    if (loading && events.length === 0) {
-        return (
-            <div className="w-full max-w-[1200px] mx-auto p-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {[1, 2, 3, 4, 5, 6].map(i => (
-                        <div key={i} className="bg-[#242526] rounded-2xl overflow-hidden animate-pulse">
-                            <div className="h-48 bg-[#3A3B3C]"></div>
-                            <div className="p-6">
-                                <div className="h-6 bg-[#3A3B3C] rounded mb-3 w-3/4"></div>
-                                <div className="h-4 bg-[#3A3B3C] rounded mb-2 w-1/2"></div>
-                                <div className="h-4 bg-[#3A3B3C] rounded mb-4 w-2/3"></div>
-                                <div className="h-10 bg-[#3A3B3C] rounded"></div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    }
-
-    if (error && events.length === 0) {
-        return (
-            <div className="w-full max-w-[1200px] mx-auto p-8 text-center">
-                <div className="bg-[#242526] rounded-3xl p-12 border border-[#3E4042]">
-                    <i className="fas fa-exclamation-circle text-[#F02849] text-5xl mb-4"></i>
-                    <h3 className="text-2xl font-bold text-[#E4E6EB] mb-2">Failed to Load Events</h3>
-                    <p className="text-[#B0B3B8] mb-6">{error}</p>
-                    <button 
-                        onClick={handleRefresh}
-                        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-8 py-3 rounded-xl font-bold transition-colors"
-                    >
-                        Try Again
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="w-full max-w-[1200px] mx-auto p-4 font-sans pb-20 animate-fade-in">
-            {/* Header */}
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-3xl font-black text-[#E4E6EB]">All Events</h1>
-                    <p className="text-[#B0B3B8] text-lg mt-1">Discover events from around the world</p>
-                </div>
-                <button
-                    onClick={handleRefresh}
-                    disabled={refreshing}
-                    className="bg-[#3A3B3C] hover:bg-[#4E4F50] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors disabled:opacity-50"
-                >
-                    <i className={`fas fa-sync-alt ${refreshing ? 'animate-spin' : ''}`}></i>
-                    <span>Refresh</span>
-                </button>
-            </div>
-
-            {/* Events Grid */}
-            {events.length === 0 ? (
-                <div className="bg-[#242526] rounded-3xl p-16 text-center border border-[#3E4042]">
-                    <div className="w-24 h-24 bg-[#3A3B3C] rounded-full flex items-center justify-center mx-auto mb-6">
-                        <i className="fas fa-calendar-times text-5xl text-[#B0B3B8]"></i>
-                    </div>
-                    <h3 className="text-2xl font-bold text-[#E4E6EB] mb-2">No Events Found</h3>
-                    <p className="text-[#B0B3B8] max-w-md mx-auto">
-                        There are no events available at the moment. Check back later or create your own event.
-                    </p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {events.map(event => {
-                        const isInterested = currentUser && event.interestedIds?.includes(currentUser.id);
-                        const isProcessing = processingEvents.has(event.id);
-
-                        return (
-                            <div 
-                                key={event.id}
-                                onClick={() => onEventClick?.(event.id)}
-                                className="bg-[#242526] rounded-2xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2]/50 transition-all cursor-pointer group"
-                            >
-                                {/* Event Image */}
-                                <div className="h-48 relative overflow-hidden">
-                                    <img 
-                                        src={event.image || 'https://via.placeholder.com/400x200?text=Event'} 
-                                        alt={event.title}
-                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                                        onError={(e) => {
-                                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x200?text=Event';
-                                        }}
-                                    />
-                                    
-                                    {/* Date Badge */}
-                                    <div className="absolute top-4 left-4 bg-white/95 text-black rounded-xl px-3 py-2 text-center shadow-lg">
-                                        <div className="text-xs font-bold uppercase text-[#1877F2]">
-                                            {new Date(event.date).toLocaleString('default', { month: 'short' })}
-                                        </div>
-                                        <div className="text-xl font-black leading-tight">
-                                            {new Date(event.date).getDate()}
-                                        </div>
-                                    </div>
-
-                                    {/* Attendees Count Badge */}
-                                    <div className="absolute bottom-4 right-4 bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-2">
-                                        <i className="fas fa-users text-[#45BD62]"></i>
-                                        <span>{event.attendees?.length || 0} going</span>
-                                    </div>
-                                </div>
-
-                                {/* Event Details */}
-                                <div className="p-6">
-                                    <h3 className="text-xl font-bold text-[#E4E6EB] mb-2 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
-                                        {event.title}
-                                    </h3>
-
-                                    <div className="space-y-2 mb-4">
-                                        {/* Date/Time */}
-                                        <div className="flex items-center gap-2 text-[#B0B3B8] text-sm">
-                                            <i className="fas fa-clock text-[#1877F2] w-5"></i>
-                                            <span>{formatEventDate(event.date)}</span>
-                                        </div>
-
-                                        {/* Location */}
-                                        <div className="flex items-center gap-2 text-[#B0B3B8] text-sm">
-                                            <i className="fas fa-map-marker-alt text-[#F02849] w-5"></i>
-                                            <span className="truncate">{event.location || 'Location TBD'}</span>
-                                        </div>
-
-                                        {/* Description */}
-                                        {event.description && (
-                                            <p className="text-[#B0B3B8] text-sm line-clamp-2 mt-2">
-                                                {event.description}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Interested Button */}
-                                    <button
-                                        onClick={(e) => handleInterestedClick(event.id, e)}
-                                        disabled={!currentUser || isProcessing}
-                                        className={`w-full py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
-                                            isInterested
-                                                ? 'bg-[#45BD62] text-white hover:bg-[#3da855]'
-                                                : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                                    >
-                                        {isProcessing ? (
-                                            <i className="fas fa-spinner fa-spin"></i>
-                                        ) : (
-                                            <>
-                                                <i className={`fas ${isInterested ? 'fa-check' : 'fa-star'}`}></i>
-                                                <span>{isInterested ? 'Interested' : 'Interested'}</span>
-                                            </>
-                                        )}
-                                    </button>
-
-                                    {/* Interested count */}
-                                    {event.interestedIds && event.interestedIds.length > 0 && (
-                                        <div className="mt-3 text-xs text-[#B0B3B8] text-center">
-                                            {event.interestedIds.length} {event.interestedIds.length === 1 ? 'person is' : 'people are'} interested
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-
-            {/* Load More */}
-            {hasMore && events.length > 0 && (
-                <div className="mt-8 text-center">
-                    <button
-                        onClick={handleLoadMore}
-                        disabled={loading || refreshing}
-                        className="bg-[#3A3B3C] hover:bg-[#4E4F50] text-white px-8 py-3 rounded-xl font-bold transition-colors disabled:opacity-50 inline-flex items-center gap-2"
-                    >
-                        {loading ? (
-                            <>
-                                <i className="fas fa-spinner fa-spin"></i>
-                                <span>Loading...</span>
-                            </>
-                        ) : (
-                            <>
-                                <i className="fas fa-chevron-down"></i>
-                                <span>Load More Events</span>
-                            </>
-                        )}
-                    </button>
-                </div>
-            )}
-
-            {/* Scroll to top button (appears after scrolling) */}
-            {events.length > 0 && (
-                <button
-                    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                    className="fixed bottom-24 right-8 bg-[#1877F2] text-white w-12 h-12 rounded-full shadow-lg hover:bg-[#166FE5] transition-colors flex items-center justify-center"
-                    aria-label="Scroll to top"
-                >
-                    <i className="fas fa-arrow-up"></i>
-                </button>
-            )}
-        </div>
-    );
+// ========== UNERA COLOR SYSTEM ==========
+const UNERA = {
+  colors: {
+    primary: '#1877F2',      // UNERA Blue
+    secondary: '#45BD62',     // UNERA Green
+    accent: '#F7B928',        // UNERA Yellow
+    danger: '#F02849',        // UNERA Red
+    bg: {
+      primary: '#18191A',     // Main background
+      secondary: '#242526',   // Card background
+      tertiary: '#3A3B3C',    // Hover/input background
+    },
+    text: {
+      primary: '#E4E6EB',     // Primary text
+      secondary: '#B0B3B8',   // Secondary text
+      tertiary: '#8A8D91',    // Tertiary text
+    },
+    border: '#3E4042',        // Border color
+  }
 };
 
-export default AllEvents;
+// ========== API HELPERS (copied from Feed.tsx) ==========
+const authHeaders = () => {
+  const token = localStorage.getItem("unera_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+async function safeJson(res: Response) {
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return res.json();
+  const txt = await res.text();
+  try { return JSON.parse(txt); } catch { return { raw: txt }; }
+}
+
+const postJSON = async (url: string, body: any) => {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body ?? {}),
+  });
+
+  const data = await safeJson(res);
+
+  if (!res.ok || (data && data.success === false)) {
+    throw new Error(data?.error || data?.message || `Request failed: ${url}`);
+  }
+
+  return data;
+};
+
+// ========== RSVP HELPER (same as Feed.tsx) ==========
+type RSVPStatus = "going" | "interested" | "not_going";
+
+const rsvpEventDirect = async (args: {
+  eventId: number;
+  userId: number;
+  newStatus: RSVPStatus;
+  prevStatus?: "" | "going" | "interested";
+}) => {
+  const { eventId, userId, newStatus, prevStatus = "" } = args;
+
+  // Which endpoint to call?
+  // - going -> /api/attend
+  // - interested -> /api/interested
+  // - not_going -> call the endpoint that matches prevStatus (to "remove" it)
+  const endpoint =
+    newStatus === "going"
+      ? "/api/attend"
+      : newStatus === "interested"
+        ? "/api/interested"
+        : prevStatus === "interested"
+          ? "/api/interested"
+          : "/api/attend";
+
+  // Payload with status field
+  const payloadStatus = {
+    event_id: eventId,
+    user_id: userId,
+    status: newStatus,
+  };
+
+  try {
+    return await postJSON(endpoint, payloadStatus);
+  } catch (e1: any) {
+    // Fallback if backend expects action flags instead of "status"
+    const payloadAction = {
+      event_id: eventId,
+      user_id: userId,
+      action: newStatus === "not_going" ? "remove" : "add",
+    };
+
+    try {
+      return await postJSON(endpoint, payloadAction);
+    } catch (e2: any) {
+      throw new Error(e2?.message || e1?.message || "RSVP failed");
+    }
+  }
+};
+
+// ========== AVATAR HELPER (copied from Feed.tsx) ==========
+const avatarFrom = (u: any) => {
+  const img = String(
+    u?.profile_image_url ??
+    u?.profileImage ??
+    u?.avatar ??
+    u?.author_image ??
+    u?.authorImage ??
+    u?.image ??
+    u?.picture ??
+    ''
+  ).trim();
+
+  if (img && img !== 'null' && img !== 'undefined') return img;
+
+  const label =
+    String(u?.name ?? '').trim() ||
+    String(u?.username ?? '').trim() ||
+    String(u?.author_name ?? '').trim() ||
+    String(u?.author_username ?? '').trim() ||
+    'User';
+
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=1877F2&color=fff&bold=true`;
+};
+
+// ========== RELATIVE TIME FORMATTER ==========
+const toDateSafe = (input: any): Date | null => {
+  if (!input) return null;
+  if (input instanceof Date && Number.isFinite(input.getTime())) return input;
+  if (typeof input === 'number') {
+    const ms = input < 1e12 ? input * 1000 : input;
+    const d = new Date(ms);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+  if (typeof input === 'string') {
+    const s = input.trim();
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
+      const iso = s.replace(' ', 'T') + 'Z';
+      const d = new Date(iso);
+      return Number.isFinite(d.getTime()) ? d : null;
+    }
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
+      const d = new Date(s + 'Z');
+      return Number.isFinite(d.getTime()) ? d : null;
+    }
+    const d = new Date(s);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+  return null;
+};
+
+const formatRelativeTime = (dateInput: any): string => {
+  const d = toDateSafe(dateInput);
+  if (!d) return 'Just now';
+
+  const now = Date.now();
+  let diffMs = now - d.getTime();
+  if (diffMs < 0) diffMs = 0;
+
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return 'Just now';
+
+  const min = Math.floor(sec / 60);
+  if (min < 60) return min === 1 ? '1 min' : `${min} mins`;
+
+  const hrs = Math.floor(min / 60);
+  if (hrs < 24) return hrs === 1 ? '1 hr' : `${hrs} hrs`;
+
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return days === 1 ? '1 day' : `${days} days`;
+
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) return weeks === 1 ? '1 week' : `${weeks} weeks`;
+
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? '1 month' : `${months} months`;
+
+  const years = Math.floor(days / 365);
+  return years === 1 ? '1 year' : `${years} years`;
+};
+
+// ========== TYPES ==========
+type EventFilter = 'all' | 'upcoming' | 'past' | 'today' | 'this-week' | 'this-month';
+type EventSort = 'date' | 'popular' | 'trending';
+
+interface EventFromAPI {
+  id: number;
+  title: string;
+  description: string;
+  cover_image: string;
+  location: string;
+  start_time: string;
+  end_time?: string;
+  created_at: string;
+  attendees_count: number;
+  interested_count: number;
+  user_rsvp_status?: '' | 'going' | 'interested';
+  creator_id: number;
+  creator_name?: string;
+  creator_image?: string;
+  creator?: {
+    id: number;
+    name: string;
+    username?: string;
+    profile_image_url?: string;
+  };
+}
+
+interface AllEventsProps {
+  currentUser: User | null;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onEventClick: (eventId: number) => void;
+  onCreateEventClick?: () => void;
+}
+
+// ========== FILTER CHIP COMPONENT ==========
+const FilterChip: React.FC<{
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  icon?: string;
+}> = ({ label, active, onClick, icon }) => (
+  <button
+    onClick={onClick}
+    className={`
+      px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200
+      flex items-center gap-2 whitespace-nowrap
+      ${active 
+        ? 'bg-[#1877F2] text-white shadow-lg shadow-[#1877F2]/20' 
+        : 'bg-[#3A3B3C] text-[#B0B3B8] hover:bg-[#4E4F50] hover:text-[#E4E6EB]'
+      }
+    `}
+  >
+    {icon && <i className={`fas fa-${icon} text-sm`}></i>}
+    {label}
+  </button>
+);
+
+// ========== STATS CARD COMPONENT ==========
+const StatsCard: React.FC<{
+  icon: string;
+  label: string;
+  value: number;
+  color: string;
+}> = ({ icon, label, value, color }) => (
+  <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042] hover:border-[#1877F2]/30 transition-all duration-300 group">
+    <div className="flex items-center gap-4">
+      <div className={`w-12 h-12 rounded-xl bg-opacity-10 flex items-center justify-center group-hover:scale-110 transition-transform`}
+        style={{ backgroundColor: color + '20' }}>
+        <i className={`fas fa-${icon} text-2xl`} style={{ color }}></i>
+      </div>
+      <div>
+        <div className="text-[#B0B3B8] text-sm">{label}</div>
+        <div className="text-[#E4E6EB] text-2xl font-black">{value.toLocaleString()}</div>
+      </div>
+    </div>
+  </div>
+);
+
+// ========== EVENT CARD COMPONENT ==========
+const EventCard: React.FC<{
+  event: EventFromAPI;
+  currentUser: User | null;
+  onEventClick: (id: number) => void;
+  onProfileClick: (id: number) => void;
+  onRSVPUpdate?: (eventId: number, newStatus: '' | 'going' | 'interested', newAttendees: number, newInterested: number) => void;
+}> = ({ event, currentUser, onEventClick, onProfileClick, onRSVPUpdate }) => {
+  const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
+  const [attendeesCount, setAttendeesCount] = useState(event.attendees_count || 0);
+  const [interestedCount, setInterestedCount] = useState(event.interested_count || 0);
+  const [loading, setLoading] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
+  const dateObj = event.start_time ? new Date(event.start_time) : null;
+  const endDateObj = event.end_time ? new Date(event.end_time) : null;
+
+  const isPast = dateObj && dateObj < new Date();
+  const isToday = dateObj && dateObj.toDateString() === new Date().toDateString();
+  const isTomorrow = dateObj && 
+    new Date(dateObj.setDate(dateObj.getDate() + 1)).toDateString() === new Date().toDateString();
+
+  const formatEventDate = () => {
+    if (!dateObj) return 'Date TBD';
+    
+    if (isToday) return 'Today';
+    if (isTomorrow) return 'Tomorrow';
+    
+    return dateObj.toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+
+  const formatEventTime = () => {
+    if (!dateObj) return '';
+    return dateObj.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
+
+  /**
+   * ✅ RSVP handler that calls the API directly
+   * Uses the same pattern as Feed.tsx
+   */
+  const handleRSVPClick = async (status: 'going' | 'interested') => {
+    if (!currentUser) {
+      alert('Please login to RSVP');
+      return;
+    }
+    if (!event.id) return;
+
+    setLoading(true);
+    
+    // Determine new status (toggle off if already selected)
+    const previousStatus = rsvpStatus;
+    const newStatus = previousStatus === status ? '' : status;
+    
+    // Save previous counts for rollback
+    const prevAttending = attendeesCount;
+    const prevInterested = interestedCount;
+    
+    // Optimistic update for status
+    setRsvpStatus(newStatus);
+    
+    // Optimistic update for counts
+    if (status === 'going') {
+      if (previousStatus === 'going') {
+        // Removing going
+        setAttendeesCount(Math.max(0, prevAttending - 1));
+      } else if (previousStatus === 'interested') {
+        // Switching from interested to going
+        setAttendeesCount(prevAttending + 1);
+        setInterestedCount(Math.max(0, prevInterested - 1));
+      } else {
+        // Adding going
+        setAttendeesCount(prevAttending + 1);
+      }
+    } else if (status === 'interested') {
+      if (previousStatus === 'interested') {
+        // Removing interested
+        setInterestedCount(Math.max(0, prevInterested - 1));
+      } else if (previousStatus === 'going') {
+        // Switching from going to interested
+        setInterestedCount(prevInterested + 1);
+        setAttendeesCount(Math.max(0, prevAttending - 1));
+      } else {
+        // Adding interested
+        setInterestedCount(prevInterested + 1);
+      }
+    }
+
+    try {
+      // ✅ Call the API directly using our helper
+      await rsvpEventDirect({
+        eventId: event.id,
+        userId: currentUser.id,
+        newStatus: (newStatus || 'not_going') as RSVPStatus,
+        prevStatus: previousStatus as any,
+      });
+
+      // Notify parent of update if needed
+      if (onRSVPUpdate) {
+        onRSVPUpdate(event.id, newStatus, attendeesCount, interestedCount);
+      }
+      
+    } catch (error) {
+      // Rollback on failure
+      setRsvpStatus(previousStatus);
+      setAttendeesCount(prevAttending);
+      setInterestedCount(prevInterested);
+      console.error('RSVP failed:', error);
+      alert('Failed to RSVP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const creator = event.creator || {
+    id: event.creator_id,
+    name: event.creator_name || 'Event Organizer',
+    profile_image_url: event.creator_image
+  };
+
+  return (
+    <div 
+      className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group"
+      onClick={() => onEventClick(event.id)}
+    >
+      {/* Cover Image with Overlay Badge */}
+      <div className="relative h-48 overflow-hidden">
+        {event.cover_image && !imageError ? (
+          <img
+            src={event.cover_image}
+            alt={event.title}
+            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex items-center justify-center">
+            <i className="fas fa-calendar text-white/30 text-6xl"></i>
+          </div>
+        )}
+        
+        {/* Gradient Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+        
+        {/* Date Badge */}
+        <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/20">
+          <div className="text-[#F7B928] text-[11px] font-black uppercase">
+            {dateObj?.toLocaleDateString('en-US', { month: 'short' })}
+          </div>
+          <div className="text-white text-[24px] font-black leading-tight">
+            {dateObj?.getDate()}
+          </div>
+        </div>
+
+        {/* Status Badge */}
+        {isPast ? (
+          <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1 border border-white/20">
+            <span className="text-[#B0B3B8] text-xs font-semibold">Past Event</span>
+          </div>
+        ) : (
+          <div className="absolute top-3 right-3 bg-[#45BD62]/90 backdrop-blur-sm rounded-full px-3 py-1">
+            <span className="text-white text-xs font-semibold">Upcoming</span>
+          </div>
+        )}
+
+        {/* RSVP Count */}
+        <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1">
+          <div className="flex items-center gap-2">
+            <i className="fas fa-users text-[#45BD62] text-xs"></i>
+            <span className="text-white text-xs font-semibold">
+              {attendeesCount} going
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Event Details */}
+      <div className="p-4">
+        {/* Creator Info */}
+        <div 
+          className="flex items-center gap-2 mb-3 cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (creator.id) onProfileClick(creator.id);
+          }}
+        >
+          <img
+            src={avatarFrom(creator)}
+            alt=""
+            className="w-6 h-6 rounded-full object-cover border border-[#3E4042]"
+          />
+          <span className="text-[#B0B3B8] text-xs hover:underline">
+            {creator.name || 'Event Organizer'}
+          </span>
+          <span className="text-[#3E4042] text-xs">•</span>
+          <span className="text-[#B0B3B8] text-xs">
+            {formatRelativeTime(event.created_at)}
+          </span>
+        </div>
+
+        {/* Title */}
+        <h3 className="text-[#E4E6EB] font-black text-[18px] mb-2 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
+          {event.title}
+        </h3>
+
+        {/* Description */}
+        {event.description && (
+          <p className="text-[#B0B3B8] text-sm mb-3 line-clamp-2">
+            {event.description}
+          </p>
+        )}
+
+        {/* Event Meta */}
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center gap-2 text-[#B0B3B8] text-xs">
+            <i className={`fas fa-calendar-alt w-4 ${isPast ? 'text-[#B0B3B8]' : 'text-[#1877F2]'}`}></i>
+            <span>
+              {formatEventDate()}
+              {formatEventTime() && ` at ${formatEventTime()}`}
+            </span>
+          </div>
+
+          {event.location && (
+            <div className="flex items-center gap-2 text-[#B0B3B8] text-xs">
+              <i className="fas fa-map-marker-alt w-4 text-[#F02849]"></i>
+              <span className="line-clamp-1">{event.location}</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 text-[#B0B3B8] text-xs">
+            <i className="fas fa-user-friends w-4 text-[#45BD62]"></i>
+            <span>
+              {attendeesCount} attending • {interestedCount} interested
+            </span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          <button
+            disabled={loading || isPast}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRSVPClick('going');
+            }}
+            className={`
+              flex-1 py-2.5 rounded-lg font-bold text-sm transition-all duration-200
+              ${isPast ? 'opacity-50 cursor-not-allowed' : ''}
+              ${rsvpStatus === 'going'
+                ? 'bg-[#45BD62] text-white hover:bg-[#3da855]'
+                : 'bg-[#1877F2] text-white hover:bg-[#166FE5] hover:shadow-lg hover:shadow-[#1877F2]/20'
+              }
+            `}
+          >
+            {loading && rsvpStatus === 'going' ? (
+              <i className="fas fa-spinner fa-spin"></i>
+            ) : (
+              rsvpStatus === 'going' ? '✓ Going' : 'Going'
+            )}
+          </button>
+
+          <button
+            disabled={loading || isPast}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRSVPClick('interested');
+            }}
+            className={`
+              flex-1 py-2.5 rounded-lg font-bold text-sm transition-all duration-200
+              ${isPast ? 'opacity-50 cursor-not-allowed' : ''}
+              ${rsvpStatus === 'interested'
+                ? 'bg-[#F7B928] text-black hover:bg-[#e5aa24]'
+                : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+              }
+            `}
+          >
+            {loading && rsvpStatus === 'interested' ? (
+              <i className="fas fa-spinner fa-spin"></i>
+            ) : (
+              rsvpStatus === 'interested' ? '✓ Interested' : 'Interested'
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ========== MAIN ALL EVENTS PAGE ==========
+export const AllEvents: React.FC<AllEventsProps> = ({
+  currentUser,
+  users = [],
+  onProfileClick,
+  onEventClick,
+  onCreateEventClick,
+}) => {
+  const navigate = useNavigate();
+  
+  // State
+  const [events, setEvents] = useState<EventFromAPI[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<EventFilter>('upcoming');
+  const [sort, setSort] = useState<EventSort>('date');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [stats, setStats] = useState({
+    total: 0,
+    upcoming: 0,
+    today: 0,
+    thisWeek: 0,
+  });
+
+  const observerRef = useRef<IntersectionObserver>();
+  const lastEventRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * ✅ Fetch events from /api/events
+   */
+  const fetchEvents = async (reset = false) => {
+    if (loading && !reset) return;
+    
+    setLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams({
+        page: reset ? '1' : page.toString(),
+        limit: '12',
+        filter,
+        sort,
+        ...(searchQuery && { q: searchQuery }),
+      });
+
+      const response = await fetch(`/api/events?${params}`, {
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Failed to fetch events');
+      }
+
+      // Handle different response formats
+      const newEvents = data.events || data.data || data || [];
+      
+      setEvents(prev => reset ? newEvents : [...prev, ...newEvents]);
+      setHasMore(newEvents.length === 12);
+      
+      // Update stats if provided
+      if (data.stats) {
+        setStats(data.stats);
+      } else {
+        // Calculate stats from events if not provided
+        const now = new Date();
+        const today = now.toDateString();
+        const weekFromNow = new Date(now.setDate(now.getDate() + 7));
+        
+        setStats({
+          total: data.total || newEvents.length,
+          upcoming: newEvents.filter((e: any) => new Date(e.start_time) > now).length,
+          today: newEvents.filter((e: any) => new Date(e.start_time).toDateString() === today).length,
+          thisWeek: newEvents.filter((e: any) => {
+            const d = new Date(e.start_time);
+            return d > now && d < weekFromNow;
+          }).length,
+        });
+      }
+
+      if (reset) setPage(1);
+    } catch (err: any) {
+      setError(err.message);
+      console.error('Error fetching events:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle RSVP update from card
+  const handleRSVPUpdate = (eventId: number, newStatus: '' | 'going' | 'interested', newAttendees: number, newInterested: number) => {
+    setEvents(prev => prev.map(e => 
+      e.id === eventId 
+        ? { 
+            ...e, 
+            user_rsvp_status: newStatus,
+            attendees_count: newAttendees,
+            interested_count: newInterested
+          } 
+        : e
+    ));
+  };
+
+  // Initial load
+  useEffect(() => {
+    fetchEvents(true);
+  }, [filter, sort, searchQuery]);
+
+  // Infinite scroll
+  useEffect(() => {
+    if (loading || !hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          setPage(p => p + 1);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (lastEventRef.current) {
+      observer.observe(lastEventRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [loading, hasMore]);
+
+  // Load more when page changes
+  useEffect(() => {
+    if (page > 1) {
+      fetchEvents();
+    }
+  }, [page]);
+
+  // Filter options
+  const filterOptions: { value: EventFilter; label: string; icon: string }[] = [
+    { value: 'all', label: 'All Events', icon: 'calendar' },
+    { value: 'upcoming', label: 'Upcoming', icon: 'arrow-right' },
+    { value: 'today', label: 'Today', icon: 'sun' },
+    { value: 'this-week', label: 'This Week', icon: 'calendar-week' },
+    { value: 'this-month', label: 'This Month', icon: 'calendar-alt' },
+    { value: 'past', label: 'Past Events', icon: 'history' },
+  ];
+
+  // Sort options
+  const sortOptions: { value: EventSort; label: string }[] = [
+    { value: 'date', label: 'Date' },
+    { value: 'popular', label: 'Most Popular' },
+    { value: 'trending', label: 'Trending' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-[#18191A] font-sans">
+      {/* Header */}
+      <div className="sticky top-0 z-50 bg-[#242526] border-b border-[#3E4042] backdrop-blur-lg bg-opacity-90">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigate(-1)}
+                className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+              >
+                <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+              </button>
+              <h1 className="text-[#E4E6EB] text-[28px] font-black">Events</h1>
+            </div>
+
+            {currentUser && (
+              <button
+                onClick={onCreateEventClick}
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-[#1877F2]/20"
+              >
+                <i className="fas fa-plus"></i>
+                <span>Create Event</span>
+              </button>
+            )}
+          </div>
+
+          {/* Stats Row */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+            <StatsCard icon="calendar" label="Total Events" value={stats.total} color="#1877F2" />
+            <StatsCard icon="arrow-right" label="Upcoming" value={stats.upcoming} color="#45BD62" />
+            <StatsCard icon="sun" label="Today" value={stats.today} color="#F7B928" />
+            <StatsCard icon="calendar-week" label="This Week" value={stats.thisWeek} color="#F02849" />
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Search and Filters */}
+        <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042] mb-6">
+          {/* Search Bar */}
+          <div className="relative mb-4">
+            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] text-sm"></i>
+            <input
+              type="text"
+              placeholder="Search events by title, location, or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#3A3B3C] text-[#E4E6EB] placeholder-[#B0B3B8] rounded-xl py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            )}
+          </div>
+
+          {/* Filter Chips */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            {filterOptions.map((option) => (
+              <FilterChip
+                key={option.value}
+                label={option.label}
+                icon={option.icon}
+                active={filter === option.value}
+                onClick={() => setFilter(option.value)}
+              />
+            ))}
+          </div>
+
+          {/* Sort and View Toggle */}
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#3E4042]">
+            <div className="flex items-center gap-2">
+              <span className="text-[#B0B3B8] text-sm">Sort by:</span>
+              <div className="flex gap-1">
+                {sortOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setSort(option.value)}
+                    className={`
+                      px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors
+                      ${sort === option.value
+                        ? 'bg-[#1877F2] text-white'
+                        : 'text-[#B0B3B8] hover:bg-[#3A3B3C] hover:text-[#E4E6EB]'
+                      }
+                    `}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-1">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+                  viewMode === 'grid' 
+                    ? 'bg-[#1877F2] text-white' 
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <i className="fas fa-th"></i>
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+                  viewMode === 'list' 
+                    ? 'bg-[#1877F2] text-white' 
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <i className="fas fa-list"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Events Grid/List */}
+        {error ? (
+          <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
+            <i className="fas fa-exclamation-triangle text-[#F02849] text-4xl mb-3"></i>
+            <p className="text-[#E4E6EB] font-bold mb-2">Failed to load events</p>
+            <p className="text-[#B0B3B8] text-sm mb-4">{error}</p>
+            <button
+              onClick={() => fetchEvents(true)}
+              className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : events.length === 0 && !loading ? (
+          <div className="bg-[#242526] rounded-xl p-12 text-center border border-[#3E4042]">
+            <div className="w-20 h-20 bg-[#3A3B3C] rounded-full flex items-center justify-center mx-auto mb-4">
+              <i className="fas fa-calendar text-[#1877F2] text-3xl"></i>
+            </div>
+            <h3 className="text-[#E4E6EB] text-xl font-black mb-2">No events found</h3>
+            <p className="text-[#B0B3B8] mb-6">
+              {searchQuery 
+                ? `No events matching "${searchQuery}"` 
+                : "There are no events to display at the moment."}
+            </p>
+            {currentUser && (
+              <button
+                onClick={onCreateEventClick}
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors"
+              >
+                Create Your First Event
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className={
+              viewMode === 'grid' 
+                ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6' 
+                : 'space-y-4'
+            }>
+              {events.map((event, index) => (
+                <div
+                  key={event.id}
+                  ref={index === events.length - 1 ? lastEventRef : undefined}
+                >
+                  <EventCard
+                    event={event}
+                    currentUser={currentUser}
+                    onEventClick={onEventClick}
+                    onProfileClick={onProfileClick}
+                    onRSVPUpdate={handleRSVPUpdate}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Loading Indicator */}
+            {loading && (
+              <div className="flex justify-center py-8">
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full border-4 border-[#3A3B3C] border-t-[#1877F2] animate-spin"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-2 h-2 bg-[#1877F2] rounded-full animate-ping"></div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* End of List */}
+            {!hasMore && events.length > 0 && (
+              <div className="text-center py-8">
+                <div className="inline-flex items-center gap-2 bg-[#242526] px-4 py-2 rounded-full border border-[#3E4042]">
+                  <i className="fas fa-check-circle text-[#45BD62]"></i>
+                  <span className="text-[#B0B3B8] text-sm">You've seen all events</span>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Floating Action Button for Mobile */}
+      {currentUser && (
+        <button
+          onClick={onCreateEventClick}
+          className="fixed bottom-6 right-6 md:hidden w-14 h-14 bg-[#1877F2] rounded-full shadow-lg shadow-[#1877F2]/30 flex items-center justify-center hover:bg-[#166FE5] transition-all hover:scale-110 z-50"
+        >
+          <i className="fas fa-plus text-white text-xl"></i>
+        </button>
+      )}
+    </div>
+  );
+};
+
+// Export additional components if needed
+export { EventCard, FilterChip, StatsCard };
