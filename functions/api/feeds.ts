@@ -51,22 +51,6 @@ const seededShuffle = <T,>(arr: T[], seed: number) => {
   return a;
 };
 
-// ✅ Read table columns safely (so we can exclude "product posts" without guessing schema)
-const getTableColumns = async (db: D1Database, table: string): Promise<Set<string>> => {
-  try {
-    const res = await db.prepare(`SELECT name FROM pragma_table_info(?)`).bind(table).all();
-    const cols = new Set<string>();
-    const rows = Array.isArray(res?.results) ? (res.results as any[]) : [];
-    for (const r of rows) {
-      const n = String(r?.name ?? "").trim();
-      if (n) cols.add(n);
-    }
-    return cols;
-  } catch {
-    return new Set<string>();
-  }
-};
-
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
@@ -76,12 +60,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const url = new URL(request.url);
 
-    // ✅ allow opening /api/feeds directly in browser
     const userId = toInt(url.searchParams.get("userId"), 0);
     const reactionUserId = userId || 0;
 
     const limit = clamp(toInt(url.searchParams.get("limit"), 20), 1, 50);
-    const cursor = url.searchParams.get("cursor"); // older-than created_at
+    const cursor = url.searchParams.get("cursor");
     const seed = toInt(url.searchParams.get("seed"), 1);
     const seen = parseSeenIds(url.searchParams.get("seen"), 250);
     const debug = url.searchParams.get("debug") === "1";
@@ -89,11 +72,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const freshCount = Math.max(5, Math.floor(limit * 0.65));
     const exploreCount = Math.max(0, limit - freshCount);
 
-    // ✅ detect posts schema so we can exclude product-posts correctly
-    const postsCols = await getTableColumns(env.DB, "posts");
-
     // ============================================================
-    // 1) POSTS  (✅ excludes "product posts" stored in posts)
+    // 1) POSTS (✅ excludes marketplace/product posts via is_marketplace flag)
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -102,33 +82,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
 
-    // ✅ Exclude marketplace/product posts from posts table (ONLY if columns exist)
-    // This prevents product cards from showing in feed; products remain in payload.products (Marketplace).
-    const productExclusions: string[] = [];
-
-    if (postsCols.has("type")) productExclusions.push(`COALESCE(p.type,'') != 'marketplace'`);
-    if (postsCols.has("post_type")) productExclusions.push(`COALESCE(p.post_type,'') != 'product'`);
-    if (postsCols.has("kind")) productExclusions.push(`COALESCE(p.kind,'') != 'product'`);
-    if (postsCols.has("item_type")) productExclusions.push(`COALESCE(p.item_type,'') != 'product'`);
-
-    // If posts has an explicit product_id / marketplace_id, exclude rows that reference products
-    if (postsCols.has("product_id")) productExclusions.push(`COALESCE(p.product_id, 0) = 0`);
-    if (postsCols.has("marketplace_id")) productExclusions.push(`COALESCE(p.marketplace_id, 0) = 0`);
-
-    // If posts uses meta JSON to reference products, exclude those too
-    if (postsCols.has("meta")) {
-      productExclusions.push(
-        `(p.meta IS NULL OR (
-          json_extract(p.meta, '$.marketplace.id') IS NULL
-          AND json_extract(p.meta, '$.product_id') IS NULL
-          AND json_extract(p.meta, '$.product.id') IS NULL
-        ))`
-      );
-    }
-
-    if (productExclusions.length > 0) {
-      wherePosts.push(`(${productExclusions.join(" AND ")})`);
-    }
+    // ✅ HARD BLOCK: remove any marketplace/product-post rows stored in posts
+    wherePosts.push(`COALESCE(p.is_marketplace, 0) = 0`);
 
     if (cursor && cursor.trim()) {
       wherePosts.push(`p.created_at < ?`);
@@ -149,10 +104,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         p.id AS id,
         ('post:' || CAST(p.id AS TEXT)) AS feed_key,
-
         p.created_at AS created_at,
 
-        -- canonical identifiers for the frontend (prevents ID collisions)
         p.id AS post_id,
         NULL AS reel_id,
         NULL AS song_id2,
@@ -228,7 +181,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        -- keep existing fields used by your UI
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
@@ -266,7 +218,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         r.id AS id,
         ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
-
         r.created_at AS created_at,
 
         NULL AS post_id,
@@ -359,7 +310,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         s.id AS id,
         ('song:' || CAST(s.id AS TEXT)) AS feed_key,
-
         s.created_at AS created_at,
 
         NULL AS post_id,
@@ -474,7 +424,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         pc.id AS id,
         ('podcast:' || CAST(pc.id AS TEXT)) AS feed_key,
-
         pc.created_at AS created_at,
 
         NULL AS post_id,
@@ -580,7 +529,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         e.id AS id,
         ('event:' || CAST(e.id AS TEXT)) AS feed_key,
-
         e.created_at AS created_at,
 
         NULL AS post_id,
@@ -705,7 +653,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         gp.id AS id,
         ('group_post:' || CAST(gp.id AS TEXT)) AS feed_key,
-
         gp.created_at AS created_at,
 
         NULL AS post_id,
@@ -806,7 +753,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) PRODUCTS (separate list) ✅ KEEP (Marketplace)
+    // 8) PRODUCTS (separate list) ✅ Marketplace only
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -1006,6 +953,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         FROM posts p
         WHERE
           (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')
+          AND COALESCE(p.is_marketplace, 0) = 0
           AND p.created_at < ?
         ORDER BY p.created_at DESC
         LIMIT 1
@@ -1032,25 +980,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           seenCount: seen.length,
           returnedFeed: ordered.length,
           returnedProducts: products.length,
-          postsColumnsDetected: Array.from(postsColsToArray(postsCols)), // helpful visibility
-          fresh: {
-            posts: freshPosts.length,
-            reels: freshReels.length,
-            songs: freshSongs.length,
-            podcasts: freshPodcasts.length,
-            events: freshEvents.length,
-            groupPosts: freshGroupPosts.length,
-            products: freshProducts.length,
-          },
-          explore: {
-            posts: explorePosts.length,
-            reels: exploreReels.length,
-            songs: exploreSongs.length,
-            podcasts: explorePodcasts.length,
-            events: exploreEvents.length,
-            groupPosts: exploreGroupPosts.length,
-            products: exploreProducts.length,
-          },
         },
       });
     }
@@ -1060,12 +989,3 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     return json({ success: false, error: e?.message || String(e) }, 500);
   }
 };
-
-// helper to avoid TS complaining in debug payload
-function postsColsToArray(s: Set<string>) {
-  try {
-    return Array.from(s.values());
-  } catch {
-    return [];
-  }
-}
