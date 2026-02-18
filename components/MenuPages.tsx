@@ -179,9 +179,16 @@ interface EventsPageProps {
     currentUser: User | null; 
     onJoinEvent: (eventId: number) => void; 
     onCreateEventClick: () => void; 
+    onViewAllEvents?: () => void; // New prop for navigation to AllEvents.tsx
 }
 
-export const EventsPage: React.FC<EventsPageProps> = ({ events, currentUser, onJoinEvent, onCreateEventClick }) => {
+export const EventsPage: React.FC<EventsPageProps> = ({ 
+    events, 
+    currentUser, 
+    onJoinEvent, 
+    onCreateEventClick,
+    onViewAllEvents 
+}) => {
     const [selectedCategory, setSelectedCategory] = useState('All');
     
     const categories = ['All', 'Discover', 'Hosting', 'Upcoming'];
@@ -196,19 +203,33 @@ export const EventsPage: React.FC<EventsPageProps> = ({ events, currentUser, onJ
     return (
         <div className="w-full max-w-[1000px] mx-auto p-4 font-sans pb-24 animate-fade-in">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-[#242526] p-6 rounded-3xl border border-[#3E4042] shadow-xl">
-                <div>
-                    <h1 className="text-3xl font-black text-[#E4E6EB]">Events</h1>
-                    <p className="text-[#B0B3B8] text-lg font-medium mt-1">Discover experiences near you.</p>
+                <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-gradient-to-tr from-[#1877F2] to-[#00C6FF] rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3">
+                        <i className="fas fa-calendar-alt text-white text-2xl"></i>
+                    </div>
+                    <div>
+                        <h1 className="text-3xl font-black text-[#E4E6EB]">Events</h1>
+                        <p className="text-[#B0B3B8] text-lg font-medium mt-1">Discover experiences near you.</p>
+                    </div>
                 </div>
-                {currentUser && (
+                <div className="flex gap-3">
+                    {currentUser && (
+                        <button 
+                            onClick={onCreateEventClick}
+                            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95"
+                        >
+                            <i className="fas fa-plus-circle text-xl"></i>
+                            <span>Create New Event</span>
+                        </button>
+                    )}
                     <button 
-                        onClick={onCreateEventClick}
-                        className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95"
+                        onClick={onViewAllEvents}
+                        className="bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95 border border-[#4E4F50]"
                     >
-                        <i className="fas fa-plus-circle text-xl"></i>
-                        <span>Create New Event</span>
+                        <i className="fas fa-calendar-check text-xl"></i>
+                        <span>View All Events</span>
                     </button>
-                )}
+                </div>
             </div>
 
             {/* Filter Tabs */}
@@ -232,8 +253,8 @@ export const EventsPage: React.FC<EventsPageProps> = ({ events, currentUser, onJ
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {filteredEvents.map(event => {
                         const date = new Date(event.date);
-                        const isInterested = currentUser && event.interestedIds.includes(currentUser.id);
-                        const isAttending = currentUser && event.attendees.includes(currentUser.id);
+                        const isInterested = currentUser && event.interestedIds?.includes(currentUser.id);
+                        const isAttending = currentUser && event.attendees?.includes(currentUser.id);
 
                         return (
                             <div key={event.id} className="bg-[#242526] rounded-3xl overflow-hidden border border-[#3E4042] flex flex-col shadow-lg hover:shadow-2xl transition-all group">
@@ -262,7 +283,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({ events, currentUser, onJ
                                         </div>
                                         <div className="flex items-center gap-2 text-[#B0B3B8] text-sm font-bold">
                                             <i className="fas fa-users text-[#45BD62] w-5 text-center"></i>
-                                            <span>{event.attendees.length} going • {event.interestedIds.length} interested</span>
+                                            <span>{event.attendees?.length || 0} going • {event.interestedIds?.length || 0} interested</span>
                                         </div>
                                     </div>
 
@@ -286,14 +307,46 @@ export const EventsPage: React.FC<EventsPageProps> = ({ events, currentUser, onJ
                             </div>
                         );
                     })}
+                    
+                    {/* View All Events Card */}
+                    <div 
+                        onClick={onViewAllEvents}
+                        className="bg-gradient-to-br from-[#242526] to-[#18191A] rounded-3xl border-2 border-dashed border-[#1877F2]/30 hover:border-[#1877F2] overflow-hidden flex flex-col items-center justify-center p-8 shadow-lg hover:shadow-2xl transition-all cursor-pointer group min-h-[400px]"
+                    >
+                        <div className="w-20 h-20 bg-[#1877F2]/10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                            <i className="fas fa-calendar-plus text-[#1877F2] text-4xl"></i>
+                        </div>
+                        <h3 className="text-xl font-black text-[#E4E6EB] mb-2">View All Events</h3>
+                        <p className="text-[#B0B3B8] text-center mb-6">Discover more events happening near you and around the world</p>
+                        <button className="bg-[#1877F2] text-white px-6 py-3 rounded-xl font-bold group-hover:bg-[#166FE5] transition-colors">
+                            Browse All Events
+                        </button>
+                    </div>
                 </div>
             ) : (
-                <div className="p-16 text-center text-[#B0B3B8] bg-[#242526] rounded-3xl border border-[#3E4042] shadow-inner">
-                    <div className="w-24 h-24 bg-[#3A3B3C] rounded-full flex items-center justify-center mx-auto mb-6">
-                        <i className="fas fa-calendar-times text-5xl"></i>
+                <div className="text-center">
+                    <div className="p-16 text-center text-[#B0B3B8] bg-[#242526] rounded-3xl border border-[#3E4042] shadow-inner mb-6">
+                        <div className="w-24 h-24 bg-[#3A3B3C] rounded-full flex items-center justify-center mx-auto mb-6">
+                            <i className="fas fa-calendar-times text-5xl"></i>
+                        </div>
+                        <h3 className="text-xl font-black text-[#E4E6EB] mb-2">No events found</h3>
+                        <p className="max-w-xs mx-auto font-medium">Try changing your filters or create a new event to get the party started.</p>
                     </div>
-                    <h3 className="text-xl font-black text-[#E4E6EB] mb-2">No events found</h3>
-                    <p className="max-w-xs mx-auto font-medium">Try changing your filters or create a new event to get the party started.</p>
+                    
+                    {/* View All Events Card (when no events) */}
+                    <div 
+                        onClick={onViewAllEvents}
+                        className="bg-gradient-to-br from-[#242526] to-[#18191A] rounded-3xl border-2 border-dashed border-[#1877F2]/30 hover:border-[#1877F2] overflow-hidden flex flex-col items-center justify-center p-12 shadow-lg hover:shadow-2xl transition-all cursor-pointer group"
+                    >
+                        <div className="w-20 h-20 bg-[#1877F2]/10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                            <i className="fas fa-calendar-alt text-[#1877F2] text-4xl"></i>
+                        </div>
+                        <h3 className="text-2xl font-black text-[#E4E6EB] mb-2">Browse All Events</h3>
+                        <p className="text-[#B0B3B8] text-center mb-6">Discover events from your community and beyond</p>
+                        <button className="bg-[#1877F2] text-white px-8 py-3 rounded-xl font-bold group-hover:bg-[#166FE5] transition-colors">
+                            View All Events
+                        </button>
+                    </div>
                 </div>
             )}
         </div>
