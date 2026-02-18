@@ -60,11 +60,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const url = new URL(request.url);
 
+    // ✅ allow opening /api/feeds directly in browser
     const userId = toInt(url.searchParams.get("userId"), 0);
     const reactionUserId = userId || 0;
 
     const limit = clamp(toInt(url.searchParams.get("limit"), 20), 1, 50);
-    const cursor = url.searchParams.get("cursor");
+    const cursor = url.searchParams.get("cursor"); // older-than created_at
     const seed = toInt(url.searchParams.get("seed"), 1);
     const seen = parseSeenIds(url.searchParams.get("seen"), 250);
     const debug = url.searchParams.get("debug") === "1";
@@ -73,7 +74,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const exploreCount = Math.max(0, limit - freshCount);
 
     // ============================================================
-    // 1) POSTS (✅ exclude product posts stored in posts using isMarketplace)
+    // 1) POSTS  ✅ now excludes "product posts" stored in posts table
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -82,8 +83,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
 
-    // ✅ IMPORTANT: your column is isMarketplace
-    wherePosts.push(`COALESCE(p.isMarketplace, 0) = 0`);
+    // ✅ BLOCK product-posts that were stored in posts table (no extra DB column required)
+    // This assumes your marketplace/product posts include some JSON-ish markers in p.content
+    wherePosts.push(`(p.content IS NULL OR (
+      p.content NOT LIKE '%"post_type":"product"%'
+      AND p.content NOT LIKE '%"kind":"product"%'
+      AND p.content NOT LIKE '%"product_id"%'
+      AND p.content NOT LIKE '%marketplace%'
+    ))`);
 
     if (cursor && cursor.trim()) {
       wherePosts.push(`p.created_at < ?`);
@@ -104,8 +111,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         p.id AS id,
         ('post:' || CAST(p.id AS TEXT)) AS feed_key,
+
         p.created_at AS created_at,
 
+        -- canonical identifiers for the frontend (prevents ID collisions)
         p.id AS post_id,
         NULL AS reel_id,
         NULL AS song_id2,
@@ -181,6 +190,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        -- keep existing fields used by your UI
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
@@ -218,6 +228,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         r.id AS id,
         ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
+
         r.created_at AS created_at,
 
         NULL AS post_id,
@@ -310,6 +321,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         s.id AS id,
         ('song:' || CAST(s.id AS TEXT)) AS feed_key,
+
         s.created_at AS created_at,
 
         NULL AS post_id,
@@ -424,6 +436,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         pc.id AS id,
         ('podcast:' || CAST(pc.id AS TEXT)) AS feed_key,
+
         pc.created_at AS created_at,
 
         NULL AS post_id,
@@ -503,7 +516,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS
+    // 5) EVENTS ✅ FIXED FOR YOUR SCHEMA (event_date, description)
+    // + counts + my_rsvp_status
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -529,6 +543,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         e.id AS id,
         ('event:' || CAST(e.id AS TEXT)) AS feed_key,
+
         e.created_at AS created_at,
 
         NULL AS post_id,
@@ -606,6 +621,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        -- ✅ EXTRA EVENT FIELDS FOR FEED UI
         e.event_date AS event_date,
         e.description AS event_description,
 
@@ -653,6 +669,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         gp.id AS id,
         ('group_post:' || CAST(gp.id AS TEXT)) AS feed_key,
+
         gp.created_at AS created_at,
 
         NULL AS post_id,
@@ -753,7 +770,110 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) PRODUCTS (separate list) ✅ Marketplace only
+    // 7) PRODUCTS feed-injection as marketplace posts (✅ keep this ON)
+    // ============================================================
+    const whereProductsFeed: string[] = [];
+    const bindsProductsFeed: any[] = [];
+
+    if (cursor && cursor.trim()) {
+      whereProductsFeed.push(`pr.created_at < ?`);
+      bindsProductsFeed.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereProductsFeed.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsProductsFeed.push(...seen);
+    }
+
+    const whereProductsFeedSql = whereProductsFeed.length
+      ? `WHERE ${whereProductsFeed.join(" AND ")}`
+      : "";
+
+    const baseSelectProductsFeed = `
+      SELECT
+        'product' AS source,
+        'product' AS item_type,
+
+        pr.id AS id,
+        ('product:' || CAST(pr.id AS TEXT)) AS feed_key,
+
+        pr.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        pr.id AS product_id2,
+
+        pr.seller_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        pr.title AS content,
+        'public' AS visibility,
+        0 AS views,
+        0 AS shares,
+
+        NULL AS media_url,
+        NULL AS media_type,
+
+        pr.images AS media_urls,
+        NULL AS media_types,
+
+        0 AS reactions_count,
+        NULL AS my_reaction,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        'marketplace' AS type,
+        'product' AS post_type,
+        'product' AS kind,
+        pr.id AS product_id,
+
+        json_object(
+          'kind','product',
+          'type','product',
+          'product_id', pr.id,
+          'marketplace', json_object('id', pr.id)
+        ) AS meta
+      FROM products pr
+      LEFT JOIN users u ON u.id = pr.seller_id
+    `;
+
+    // ============================================================
+    // 8) PRODUCTS (separate list)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -814,6 +934,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(...bindsPodcasts, freshCount).all();
     const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
 
+    // ✅ IMPORTANT: bind reactionUserId twice for my_rsvp_status
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
     ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
@@ -824,6 +945,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(reactionUserId, ...bindsGroupPosts, freshCount).all();
     const freshGroupPosts = Array.isArray(freshGroupPostsRes?.results)
       ? freshGroupPostsRes.results
+      : [];
+
+    const freshProductsFeedRes = await env.DB.prepare(
+      `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY pr.created_at DESC LIMIT ?`
+    ).bind(...bindsProductsFeed, freshCount).all();
+    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results)
+      ? freshProductsFeedRes.results
       : [];
 
     const freshProductsRes = await env.DB.prepare(selectProducts)
@@ -840,6 +968,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     let explorePodcasts: any[] = [];
     let exploreEvents: any[] = [];
     let exploreGroupPosts: any[] = [];
+    let exploreProductsFeed: any[] = [];
     let exploreProducts: any[] = [];
 
     if (exploreCount > 0) {
@@ -875,6 +1004,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         ? exploreGroupPostsRes.results
         : [];
 
+      const exploreProductsFeedRes = await env.DB.prepare(
+        `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(...bindsProductsFeed, exploreCount).all();
+      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results)
+        ? exploreProductsFeedRes.results
+        : [];
+
       const exploreProductsRes = await env.DB.prepare(
         `
           SELECT
@@ -890,7 +1026,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // ============================================================
-    // Merge + dedup FEED (NO PRODUCTS IN FEED)
+    // Merge + dedup FEED
     // ============================================================
     const map = new Map<string, any>();
     const allFeedRows = [
@@ -900,13 +1036,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...freshPodcasts,
       ...freshEvents,
       ...freshGroupPosts,
-
+      ...freshProductsFeed,
       ...explorePosts,
       ...exploreReels,
       ...exploreSongs,
       ...explorePodcasts,
       ...exploreEvents,
       ...exploreGroupPosts,
+      ...exploreProductsFeed,
     ];
 
     for (const row of allFeedRows) {
@@ -944,7 +1081,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const products = Array.from(productMap.values());
 
     // ============================================================
-    // hasMore (posts-only simple)
+    // hasMore (posts-only simple) ✅ uses SAME posts filter
     // ============================================================
     let hasMore = false;
     if (nextCursor) {
@@ -953,7 +1090,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         FROM posts p
         WHERE
           (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')
-          AND COALESCE(p.isMarketplace, 0) = 0
+          AND (p.content IS NULL OR (
+            p.content NOT LIKE '%"post_type":"product"%'
+            AND p.content NOT LIKE '%"kind":"product"%'
+            AND p.content NOT LIKE '%"product_id"%'
+            AND p.content NOT LIKE '%marketplace%'
+          ))
           AND p.created_at < ?
         ORDER BY p.created_at DESC
         LIMIT 1
@@ -973,7 +1115,36 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       products,
     };
 
-    if (debug) return json({ ...payload, debug: { returnedFeed: ordered.length, returnedProducts: products.length } });
+    if (debug) {
+      return json({
+        ...payload,
+        debug: {
+          seenCount: seen.length,
+          returnedFeed: ordered.length,
+          returnedProducts: products.length,
+          fresh: {
+            posts: freshPosts.length,
+            reels: freshReels.length,
+            songs: freshSongs.length,
+            podcasts: freshPodcasts.length,
+            events: freshEvents.length,
+            groupPosts: freshGroupPosts.length,
+            productsFeed: freshProductsFeed.length,
+            products: freshProducts.length,
+          },
+          explore: {
+            posts: explorePosts.length,
+            reels: exploreReels.length,
+            songs: exploreSongs.length,
+            podcasts: explorePodcasts.length,
+            events: exploreEvents.length,
+            groupPosts: exploreGroupPosts.length,
+            productsFeed: exploreProductsFeed.length,
+            products: exploreProducts.length,
+          },
+        },
+      });
+    }
 
     return json(payload);
   } catch (e: any) {
