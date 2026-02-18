@@ -761,110 +761,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS feed-injection as marketplace posts
-    // ============================================================
-    const whereProductsFeed: string[] = [];
-    const bindsProductsFeed: any[] = [];
-
-    if (cursor && cursor.trim()) {
-      whereProductsFeed.push(`pr.created_at < ?`);
-      bindsProductsFeed.push(cursor.trim());
-    }
-
-    if (seen.length > 0) {
-      whereProductsFeed.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsProductsFeed.push(...seen);
-    }
-
-    const whereProductsFeedSql = whereProductsFeed.length
-      ? `WHERE ${whereProductsFeed.join(" AND ")}`
-      : "";
-
-    const baseSelectProductsFeed = `
-      SELECT
-        'product' AS source,
-        'product' AS item_type,
-
-        pr.id AS id,
-        ('product:' || CAST(pr.id AS TEXT)) AS feed_key,
-
-        pr.created_at AS created_at,
-
-        NULL AS post_id,
-        NULL AS reel_id,
-        NULL AS song_id2,
-        NULL AS podcast_id,
-        NULL AS event_id,
-        NULL AS group_post_id,
-        pr.id AS product_id2,
-
-        pr.seller_id AS user_id,
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role,
-
-        pr.title AS content,
-        'public' AS visibility,
-        0 AS views,
-        0 AS shares,
-
-        NULL AS media_url,
-        NULL AS media_type,
-
-        pr.images AS media_urls,
-        NULL AS media_types,
-
-        0 AS reactions_count,
-        NULL AS my_reaction,
-
-        NULL AS video_url,
-        NULL AS caption,
-        NULL AS song_name,
-        NULL AS audio_url,
-        0 AS audio_start,
-        0 AS audio_end,
-        NULL AS location,
-        NULL AS sound_key,
-        NULL AS sound_id,
-
-        NULL AS song_title,
-        NULL AS song_artist_name,
-        NULL AS song_album_name,
-        NULL AS song_cover_image_url,
-        NULL AS song_duration_seconds,
-        NULL AS song_genre,
-        NULL AS song_likes_count,
-        NULL AS song_plays_count,
-
-        NULL AS podcast_title,
-        NULL AS podcast_description,
-        NULL AS podcast_audio_url,
-        NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        'marketplace' AS type,
-        'product' AS post_type,
-        'product' AS kind,
-        pr.id AS product_id,
-
-        json_object(
-          'kind','product',
-          'type','product',
-          'product_id', pr.id,
-          'marketplace', json_object('id', pr.id)
-        ) AS meta
-      FROM products pr
-      LEFT JOIN users u ON u.id = pr.seller_id
-    `;
-
-    // ============================================================
-    // 8) PRODUCTS (separate list)
+    // 8) PRODUCTS (separate list) ✅ KEEP ONLY THIS (NO FEED INJECTION)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -938,13 +835,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ? freshGroupPostsRes.results
       : [];
 
-    const freshProductsFeedRes = await env.DB.prepare(
-      `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY pr.created_at DESC LIMIT ?`
-    ).bind(...bindsProductsFeed, freshCount).all();
-    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results)
-      ? freshProductsFeedRes.results
-      : [];
-
     const freshProductsRes = await env.DB.prepare(selectProducts)
       .bind(...bindsProducts, freshCount)
       .all();
@@ -959,7 +849,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     let explorePodcasts: any[] = [];
     let exploreEvents: any[] = [];
     let exploreGroupPosts: any[] = [];
-    let exploreProductsFeed: any[] = [];
     let exploreProducts: any[] = [];
 
     if (exploreCount > 0) {
@@ -995,13 +884,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         ? exploreGroupPostsRes.results
         : [];
 
-      const exploreProductsFeedRes = await env.DB.prepare(
-        `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(...bindsProductsFeed, exploreCount).all();
-      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results)
-        ? exploreProductsFeedRes.results
-        : [];
-
       const exploreProductsRes = await env.DB.prepare(
         `
           SELECT
@@ -1017,7 +899,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // ============================================================
-    // Merge + dedup FEED
+    // Merge + dedup FEED (NO PRODUCTS IN FEED)
     // ============================================================
     const map = new Map<string, any>();
     const allFeedRows = [
@@ -1027,14 +909,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...freshPodcasts,
       ...freshEvents,
       ...freshGroupPosts,
-      ...freshProductsFeed,
+
       ...explorePosts,
       ...exploreReels,
       ...exploreSongs,
       ...explorePodcasts,
       ...exploreEvents,
       ...exploreGroupPosts,
-      ...exploreProductsFeed,
     ];
 
     for (const row of allFeedRows) {
@@ -1114,7 +995,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             podcasts: freshPodcasts.length,
             events: freshEvents.length,
             groupPosts: freshGroupPosts.length,
-            productsFeed: freshProductsFeed.length,
             products: freshProducts.length,
           },
           explore: {
@@ -1124,7 +1004,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             podcasts: explorePodcasts.length,
             events: exploreEvents.length,
             groupPosts: exploreGroupPosts.length,
-            productsFeed: exploreProductsFeed.length,
             products: exploreProducts.length,
           },
         },
