@@ -1776,6 +1776,12 @@ export const EventPost: React.FC<{
     ? dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
     : '';
 
+  /**
+   * ✅ FIXED: RSVP handler that calls the parent onRSVP function
+   * The parent function (from App.tsx) will use the correct endpoints:
+   * - /api/attend for "going"
+   * - /api/interested for "interested"
+   */
   const handleRSVPClick = async (status: 'going' | 'interested') => {
     if (!currentUser) {
       alert('Please login to RSVP');
@@ -1790,11 +1796,45 @@ export const EventPost: React.FC<{
     const newStatus = previousStatus === status ? '' : status;
     setRsvpStatus(newStatus);
 
+    // Optimistically update counts
+    const prevGoing = event.attendees_count || 0;
+    const prevInterested = event.interested_count || 0;
+    
+    if (status === 'going') {
+      if (previousStatus === 'going') {
+        // Removing going
+        event.attendees_count = Math.max(0, prevGoing - 1);
+      } else if (previousStatus === 'interested') {
+        // Switching from interested to going
+        event.attendees_count = prevGoing + 1;
+        event.interested_count = Math.max(0, prevInterested - 1);
+      } else {
+        // Adding going
+        event.attendees_count = prevGoing + 1;
+      }
+    } else if (status === 'interested') {
+      if (previousStatus === 'interested') {
+        // Removing interested
+        event.interested_count = Math.max(0, prevInterested - 1);
+      } else if (previousStatus === 'going') {
+        // Switching from going to interested
+        event.interested_count = prevInterested + 1;
+        event.attendees_count = Math.max(0, prevGoing - 1);
+      } else {
+        // Adding interested
+        event.interested_count = prevInterested + 1;
+      }
+    }
+
     try {
+      // ✅ Call the parent handler which uses the correct endpoints
       await onRSVP(event.id, newStatus || 'not_going');
     } catch (error) {
       // Rollback on failure
       setRsvpStatus(previousStatus);
+      // Restore counts
+      event.attendees_count = prevGoing;
+      event.interested_count = prevInterested;
       console.error('RSVP failed:', error);
       alert('Failed to RSVP. Please try again.');
     } finally {
@@ -1963,7 +2003,7 @@ export const EventPost: React.FC<{
                   )}
                   <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
                     <i className="fas fa-users text-[#45BD62] w-4"></i>
-                    <span>{event.attendees_count || 0} attending</span>
+                    <span>{event.attendees_count || 0} attending • {event.interested_count || 0} interested</span>
                   </div>
                 </div>
 
@@ -2137,17 +2177,59 @@ export const EventFeedCard: React.FC<{
     try {
       const eventId = item.event_id || item.id;
       
-      // Optimistic update
+      // Determine new status (toggle off if already selected)
       const previousStatus = item.my_rsvp_status || '';
-      onUpdateItem({ my_rsvp_status: status === "not_going" ? "" : status });
+      const newStatus = previousStatus === status ? '' : status;
       
-      // Call the parent handler (which uses the working endpoints)
-      await onRSVPEvent(eventId, status);
+      // Save previous counts for rollback
+      const prevAttending = item.attending_count || 0;
+      const prevInterested = item.interested_count || 0;
+      
+      // Optimistic update for status
+      onUpdateItem({ my_rsvp_status: newStatus });
+      
+      // Optimistic update for counts
+      if (status === 'going') {
+        if (previousStatus === 'going') {
+          // Removing going
+          onUpdateItem({ attending_count: Math.max(0, prevAttending - 1) });
+        } else if (previousStatus === 'interested') {
+          // Switching from interested to going
+          onUpdateItem({ 
+            attending_count: prevAttending + 1,
+            interested_count: Math.max(0, prevInterested - 1)
+          });
+        } else {
+          // Adding going
+          onUpdateItem({ attending_count: prevAttending + 1 });
+        }
+      } else if (status === 'interested') {
+        if (previousStatus === 'interested') {
+          // Removing interested
+          onUpdateItem({ interested_count: Math.max(0, prevInterested - 1) });
+        } else if (previousStatus === 'going') {
+          // Switching from going to interested
+          onUpdateItem({ 
+            interested_count: prevInterested + 1,
+            attending_count: Math.max(0, prevAttending - 1)
+          });
+        } else {
+          // Adding interested
+          onUpdateItem({ interested_count: prevInterested + 1 });
+        }
+      }
+      
+      // ✅ Call the parent handler (which uses the working endpoints)
+      await onRSVPEvent(eventId, newStatus || 'not_going');
       
       // If we get here, success - counts will be refreshed on next feed fetch
     } catch (e: any) {
       // Rollback optimistic update on error
-      onUpdateItem({ my_rsvp_status: item.my_rsvp_status || '' });
+      onUpdateItem({ 
+        my_rsvp_status: item.my_rsvp_status || '',
+        attending_count: item.attending_count,
+        interested_count: item.interested_count
+      });
       
       setError(e?.message || "Failed to RSVP. Please try again.");
       alert(e?.message || "Failed to RSVP");
@@ -2158,6 +2240,7 @@ export const EventFeedCard: React.FC<{
 
   const my = item.my_rsvp_status || "";
   const attending = Number(item.attending_count ?? 0);
+  const interested = Number(item.interested_count ?? 0);
 
   return (
     <div className="w-full">
@@ -2232,7 +2315,7 @@ export const EventFeedCard: React.FC<{
 
             <div className="flex items-center gap-2">
               <i className="fas fa-users text-[#45BD62] w-5"></i>
-              <span>{attending} attending</span>
+              <span>{attending} attending • {interested} interested</span>
             </div>
           </div>
 
