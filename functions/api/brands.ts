@@ -121,7 +121,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           '[]'
         ) as followers_json
       FROM brands b
-      JOIN users u ON u.id = b.brand_user_id
+      LEFT JOIN users u ON u.id = b.brand_user_id
     `;
 
     const stmt = ownerId
