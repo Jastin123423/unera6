@@ -1,5 +1,4 @@
-//App.tsx 
-
+// App.tsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -14,7 +13,7 @@ import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Stor
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
-import EventsPage from "./components/EventsPage";
+import { AllEvents } from "./components/AllEvents"; // Updated import
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
   BirthdaysPage,
@@ -1507,6 +1506,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
+  const [activeEventId, setActiveEventId] = useState<number | null>(null); // Added for event detail modal
 
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
@@ -4468,6 +4468,79 @@ export default function App() {
     setView('reels');
   }, []);
 
+  /** ---------- Event detail modal ---------- */
+  const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
+    const event = events.find(e => e.id === eventId);
+    
+    if (!event) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4" onClick={onClose}>
+        <div className="bg-[#242526] rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="relative h-64">
+            <img 
+              src={event.cover_url || DEFAULT_EVENT_COVER} 
+              alt={event.title}
+              className="w-full h-full object-cover"
+            />
+            <button 
+              onClick={onClose}
+              className="absolute top-4 right-4 w-10 h-10 bg-black/60 rounded-full flex items-center justify-center hover:bg-black/80"
+            >
+              <i className="fas fa-times text-white"></i>
+            </button>
+          </div>
+          <div className="p-6">
+            <h2 className="text-2xl font-black text-white mb-2">{event.title}</h2>
+            <p className="text-[#B0B3B8] mb-4">{event.description}</p>
+            
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center gap-3 text-[#B0B3B8]">
+                <i className="fas fa-calendar-alt w-5 text-[#1877F2]"></i>
+                <span>{new Date(event.event_date).toLocaleDateString()} at {event.time}</span>
+              </div>
+              {event.location && (
+                <div className="flex items-center gap-3 text-[#B0B3B8]">
+                  <i className="fas fa-map-marker-alt w-5 text-[#F02849]"></i>
+                  <span>{event.location}</span>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  onRSVPEvent(event.id, event.user_rsvp_status === 'going' ? 'not_going' : 'going');
+                  onClose();
+                }}
+                className={`flex-1 py-3 rounded-lg font-bold ${
+                  event.user_rsvp_status === 'going'
+                    ? 'bg-[#45BD62] text-white'
+                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                }`}
+              >
+                {event.user_rsvp_status === 'going' ? '✓ Going' : 'Going'}
+              </button>
+              <button
+                onClick={() => {
+                  onRSVPEvent(event.id, event.user_rsvp_status === 'interested' ? 'not_going' : 'interested');
+                  onClose();
+                }}
+                className={`flex-1 py-3 rounded-lg font-bold ${
+                  event.user_rsvp_status === 'interested'
+                    ? 'bg-[#F7B928] text-black'
+                    : 'bg-[#3A3B3C] text-white hover:bg-[#4E4F50]'
+                }`}
+              >
+                {event.user_rsvp_status === 'interested' ? '✓ Interested' : 'Interested'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }, [events, onRSVPEvent]);
+
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
       <Header
@@ -4759,18 +4832,18 @@ export default function App() {
 
           {view === 'events' && (
             <ErrorBoundary>
-              <EventsPage
-                events={events}
+              <AllEvents
                 currentUser={currentUser ?? null}
-                onJoinEvent={joinEvent}
-                onInterestedEvent={markEventInterested}
+                users={users}
+                onProfileClick={(id) => openProfile(id)}
+                onEventClick={(eventId) => {
+                  // Open event detail modal
+                  setActiveEventId(eventId);
+                }}
                 onCreateEventClick={() => {
                   if (!requireAuth('Creating events')) return;
                   setShowCreateEventModal(true);
                 }}
-                onProfileClick={(id) => openProfile(id)}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
               />
             </ErrorBoundary>
           )}
@@ -4901,11 +4974,27 @@ export default function App() {
         />
       )}
 
+      {activeEventId && (
+        <EventDetailModal
+          eventId={activeEventId}
+          onClose={() => setActiveEventId(null)}
+        />
+      )}
+
       {showCreateEventModal && currentUser && (
         <CreateEventModal
           currentUser={currentUser}
           onClose={() => setShowCreateEventModal(false)}
-          onCreate={createEvent}
+          onCreate={async (eventData) => {
+            try {
+              const newEvent = await createEvent(eventData);
+              // The AllEvents component will automatically refresh its data
+              // because it re-fetches when the page is active
+              setShowCreateEventModal(false);
+            } catch (error) {
+              console.error('Failed to create event:', error);
+            }
+          }}
         />
       )}
 
