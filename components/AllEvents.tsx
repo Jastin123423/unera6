@@ -1,4 +1,4 @@
-// AllEvents.tsx
+// AllEvents.tsx-
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { User } from "../types";
 
