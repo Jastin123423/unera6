@@ -356,7 +356,7 @@ const EventCard: React.FC<{
       onClick={() => onEventClick(event.id)}
     >
       {/* Cover */}
-      <div className="relative h-48 overflow-hidden">
+      <div className="relative h-40 overflow-hidden">
         {event.cover_url && !imageError ? (
           <img
             src={event.cover_url}
@@ -393,10 +393,10 @@ const EventCard: React.FC<{
       </div>
 
       {/* Details */}
-      <div className="p-4">
+      <div className="p-3">
         {/* Creator row */}
         <div
-          className="flex items-center justify-between mb-3"
+          className="flex items-center justify-between mb-2"
           onClick={(e) => e.stopPropagation()}
         >
           <div
@@ -408,7 +408,7 @@ const EventCard: React.FC<{
             <img
               src={avatarFrom(creator)}
               alt=""
-              className="w-6 h-6 rounded-full object-cover border border-[#3E4042]"
+              className="w-5 h-5 rounded-full object-cover border border-[#3E4042]"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
               }}
@@ -437,7 +437,7 @@ const EventCard: React.FC<{
                     <img
                       src={avatarFrom(attendee)}
                       alt={attendee.name}
-                      className="w-6 h-6 rounded-full border-2 border-[#242526] object-cover"
+                      className="w-5 h-5 rounded-full border-2 border-[#242526] object-cover"
                     />
                   </button>
                 ))}
@@ -449,15 +449,15 @@ const EventCard: React.FC<{
           )}
         </div>
 
-        <h3 className="text-[#E4E6EB] font-black text-[18px] mb-2 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
+        <h3 className="text-[#E4E6EB] font-black text-[16px] mb-1 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
           {event.title}
         </h3>
 
         {event.description && (
-          <p className="text-[#B0B3B8] text-sm mb-3 line-clamp-2">{event.description}</p>
+          <p className="text-[#B0B3B8] text-xs mb-2 line-clamp-2">{event.description}</p>
         )}
 
-        <div className="space-y-2 mb-4">
+        <div className="space-y-1 mb-3">
           <div className="flex items-center gap-2 text-[#B0B3B8] text-xs">
             <i className={`fas fa-calendar-alt w-4 ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
             <span>
@@ -483,7 +483,7 @@ const EventCard: React.FC<{
               handleRSVPClick("going");
             }}
             className={`
-              flex-1 py-2.5 rounded-lg font-bold text-sm transition-all duration-200
+              flex-1 py-2 rounded-lg font-bold text-xs transition-all duration-200
               ${isPast ? "opacity-50 cursor-not-allowed" : ""}
               ${rsvpStatus === "going"
                 ? "bg-[#45BD62] text-white hover:bg-[#3da855]"
@@ -505,7 +505,7 @@ const EventCard: React.FC<{
               handleRSVPClick("interested");
             }}
             className={`
-              flex-1 py-2.5 rounded-lg font-bold text-sm transition-all duration-200
+              flex-1 py-2 rounded-lg font-bold text-xs transition-all duration-200
               ${isPast ? "opacity-50 cursor-not-allowed" : ""}
               ${rsvpStatus === "interested"
                 ? "bg-[#F7B928] text-black hover:bg-[#e5aa24]"
@@ -537,7 +537,9 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [filter, setFilter] = useState<EventFilter>("upcoming");
+  // CHANGED: Default filter from "upcoming" to "all"
+  const [filter, setFilter] = useState<EventFilter>("all");
+  // CHANGED: Default sort from "date" to "trending" (or you can use "date" with a note)
   const [sort, setSort] = useState<EventSort>("date");
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -610,10 +612,20 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
         const newEvents: EventFromAPI[] = (data?.events || []) as any;
 
+        // CHANGED: Sort events from new to old (descending by event_date)
+        const sortedEvents = [...newEvents].sort((a, b) => {
+          const dateA = toDateSafe(a.event_date);
+          const dateB = toDateSafe(b.event_date);
+          if (!dateA && !dateB) return 0;
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          return dateB.getTime() - dateA.getTime(); // Descending (newest first)
+        });
+
         setEvents((prev) => {
-          if (reset) return newEvents;
+          if (reset) return sortedEvents;
           const existingIds = new Set(prev.map(e => e.id));
-          const uniqueNewEvents = newEvents.filter(e => !existingIds.has(e.id));
+          const uniqueNewEvents = sortedEvents.filter(e => !existingIds.has(e.id));
           return [...prev, ...uniqueNewEvents];
         });
         
@@ -837,7 +849,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         </div>
 
-        {/* Body - Grid view preserved */}
+        {/* Body - Grid view from old AllEvents.tsx */}
         {error ? (
           <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
             <i className="fas fa-exclamation-triangle text-[#F02849] text-4xl mb-3"></i>
@@ -873,7 +885,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         ) : (
           <>
-            {/* Grid layout preserved */}
+            {/* Grid layout - copied from old AllEvents.tsx */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {events.map((event) => (
                 <div key={event.event_key || `event:${event.id}`}>
@@ -927,4 +939,4 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 };
 
 // Export all components
-export { EventCard, FilterChip, AttendeeAvatars };
+export { EventCard, FilterChip };
