@@ -171,6 +171,14 @@ const formatRelativeTime = (dateInput: any): string => {
 type EventFilter = "all" | "upcoming" | "past" | "today" | "this-week" | "this-month";
 type EventSort = "date" | "popular" | "trending";
 
+interface Attendee {
+  id: number;
+  name: string;
+  username?: string;
+  profile_image_url?: string | null;
+  is_friend?: boolean; // Whether this attendee is a friend of current user
+}
+
 interface EventFromAPI {
   event_key?: string;
   id: number;
@@ -186,6 +194,12 @@ interface EventFromAPI {
   attendees_count: number;
   interested_count: number;
   user_rsvp_status?: "" | "going" | "interested";
+  
+  // New fields for attendee information
+  attendees?: Attendee[];
+  friend_attendees?: Attendee[]; // Subset of attendees that are friends
+  interested?: Attendee[];
+  
   creator?: {
     id: number;
     name: string;
@@ -248,6 +262,75 @@ const StatsCard: React.FC<{
   </div>
 );
 
+// ========== ATTENDEE AVATARS COMPONENT ==========
+const AttendeeAvatars: React.FC<{
+  attendees?: Attendee[];
+  friendAttendees?: Attendee[];
+  totalCount: number;
+  onProfileClick: (id: number) => void;
+  maxDisplay?: number;
+}> = ({ attendees = [], friendAttendees = [], totalCount, onProfileClick, maxDisplay = 3 }) => {
+  
+  // Use friend attendees first if available
+  const displayAttendees = friendAttendees.length > 0 ? friendAttendees : attendees;
+  const displayCount = Math.min(displayAttendees.length, maxDisplay);
+  const remainingCount = totalCount - displayCount;
+
+  if (totalCount === 0) return null;
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Avatar stack */}
+      <div className="flex -space-x-2">
+        {displayAttendees.slice(0, maxDisplay).map((attendee, index) => (
+          <button
+            key={attendee.id}
+            onClick={(e) => {
+              e.stopPropagation();
+              onProfileClick(attendee.id);
+            }}
+            className="relative hover:z-10 transition-transform hover:scale-110"
+            title={attendee.name}
+          >
+            <img
+              src={avatarFrom(attendee)}
+              alt={attendee.name}
+              className="w-8 h-8 rounded-full border-2 border-[#242526] object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                  attendee.name || "User"
+                )}&background=1877F2&color=fff&bold=true`;
+              }}
+            />
+            {attendee.is_friend && (
+              <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-[#45BD62] rounded-full border-2 border-[#242526] flex items-center justify-center">
+                <i className="fas fa-user-friends text-[8px] text-white"></i>
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Text */}
+      <div className="text-[#B0B3B8] text-xs">
+        {friendAttendees.length > 0 ? (
+          <>
+            <span className="text-[#E4E6EB] font-semibold">{friendAttendees.length}</span> friend
+            {friendAttendees.length !== 1 ? 's' : ''} going
+            {remainingCount > 0 && (
+              <> +{remainingCount} other{remainingCount !== 1 ? 's' : ''}</>
+            )}
+          </>
+        ) : (
+          <>
+            <span className="text-[#E4E6EB] font-semibold">{totalCount}</span> going
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ========== EVENT CARD ==========
 const EventCard: React.FC<{
   event: EventFromAPI;
@@ -261,6 +344,7 @@ const EventCard: React.FC<{
   const [interestedCount, setInterestedCount] = useState(event?.interested_count || 0);
   const [loading, setLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [showAttendees, setShowAttendees] = useState(false);
 
   useEffect(() => {
     if (event) {
@@ -399,37 +483,48 @@ const EventCard: React.FC<{
             <span className="text-white text-xs font-semibold">Upcoming</span>
           </div>
         )}
-
-        <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1">
-          <div className="flex items-center gap-2">
-            <i className="fas fa-users text-[#45BD62] text-xs"></i>
-            <span className="text-white text-xs font-semibold">{attendeesCount} going</span>
-          </div>
-        </div>
       </div>
 
       {/* Details */}
       <div className="p-4">
+        {/* Creator row */}
         <div
-          className="flex items-center gap-2 mb-3 cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (creator?.id) onProfileClick(creator.id);
-          }}
+          className="flex items-center justify-between mb-3"
+          onClick={(e) => e.stopPropagation()}
         >
-          <img
-            src={avatarFrom(creator)}
-            alt=""
-            className="w-6 h-6 rounded-full object-cover border border-[#3E4042]"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => {
+              if (creator?.id) onProfileClick(creator.id);
             }}
-          />
-          <span className="text-[#B0B3B8] text-xs hover:underline">
-            {creator?.name || "Event Organizer"}
-          </span>
-          <span className="text-[#3E4042] text-xs">•</span>
-          <span className="text-[#B0B3B8] text-xs">{formatRelativeTime(event.created_at)}</span>
+          >
+            <img
+              src={avatarFrom(creator)}
+              alt=""
+              className="w-6 h-6 rounded-full object-cover border border-[#3E4042]"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
+              }}
+            />
+            <span className="text-[#B0B3B8] text-xs hover:underline">
+              {creator?.name || "Event Organizer"}
+            </span>
+            <span className="text-[#3E4042] text-xs">•</span>
+            <span className="text-[#B0B3B8] text-xs">{formatRelativeTime(event.created_at)}</span>
+          </div>
+
+          {/* Attendee avatars - positioned on the right */}
+          {attendeesCount > 0 && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <AttendeeAvatars
+                attendees={event.attendees}
+                friendAttendees={event.friend_attendees}
+                totalCount={attendeesCount}
+                onProfileClick={onProfileClick}
+                maxDisplay={2}
+              />
+            </div>
+          )}
         </div>
 
         <h3 className="text-[#E4E6EB] font-black text-[18px] mb-2 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
@@ -455,15 +550,9 @@ const EventCard: React.FC<{
               <span className="line-clamp-1">{event.location}</span>
             </div>
           )}
-
-          <div className="flex items-center gap-2 text-[#B0B3B8] text-xs">
-            <i className="fas fa-user-friends w-4 text-[#45BD62]"></i>
-            <span>
-              {attendeesCount} attending • {interestedCount} interested
-            </span>
-          </div>
         </div>
 
+        {/* Buttons */}
         <div className="flex gap-2">
           <button
             disabled={loading || isPast}
@@ -509,6 +598,19 @@ const EventCard: React.FC<{
             )}
           </button>
         </div>
+
+        {/* Mobile attendee info (shown only if not shown in header) */}
+        {attendeesCount > 0 && window.innerWidth < 768 && (
+          <div className="mt-3 pt-3 border-t border-[#3E4042]" onClick={(e) => e.stopPropagation()}>
+            <AttendeeAvatars
+              attendees={event.attendees}
+              friendAttendees={event.friend_attendees}
+              totalCount={attendeesCount}
+              onProfileClick={onProfileClick}
+              maxDisplay={3}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -581,6 +683,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
         if (debouncedQ) params.set("q", debouncedQ);
         if (currentUser?.id) params.set("user_id", String(currentUser.id));
+        
+        // Request attendee information
+        params.set("include_attendees", "true");
+        params.set("include_friends", "true");
 
         const res = await fetch(`/api/events_feeds?${params.toString()}`, {
           headers: { ...authHeaders(), "Content-Type": "application/json" },
@@ -634,12 +740,30 @@ export const AllEvents: React.FC<AllEventsProps> = ({
       setEvents((prev) =>
         prev.map((e) =>
           e.id === eventId
-            ? { ...e, user_rsvp_status: newStatus, attendees_count: newAtt, interested_count: newInt }
+            ? { 
+                ...e, 
+                user_rsvp_status: newStatus, 
+                attendees_count: newAtt, 
+                interested_count: newInt,
+                // If current user is going/interested, add them to the attendees list optimistically
+                attendees: newStatus === "going" && currentUser
+                  ? [
+                      ...(e.attendees || []),
+                      {
+                        id: currentUser.id,
+                        name: currentUser.name || "You",
+                        username: currentUser.username,
+                        profile_image_url: currentUser.profile_image_url,
+                        is_friend: true
+                      }
+                    ]
+                  : e.attendees?.filter(a => a.id !== currentUser?.id)
+              }
             : e
         )
       );
     },
-    []
+    [currentUser]
   );
 
   // Initial fetch
@@ -934,4 +1058,4 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 };
 
 // Export all components
-export { EventCard, FilterChip, StatsCard };
+export { EventCard, FilterChip, StatsCard, AttendeeAvatars };
