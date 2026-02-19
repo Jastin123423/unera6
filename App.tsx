@@ -14,6 +14,7 @@ import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Stor
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
+import EventsPage from "./components/EventsPage";
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
   BirthdaysPage,
@@ -813,24 +814,48 @@ const normalizeProduct = (p: any) => {
 };
 
 /**
- * Normalize brand data
+ * ✅ FIXED: Normalize brand data with backend field mapping
+ * Supports owner_id, brand_user_id, logo_url from backend
+ * Always ensures followers is an array (never undefined)
  */
 const normalizeBrand = (b: any): Brand => {
+  const name = safeString(b?.name, "Unnamed Brand");
+
   return {
     ...b,
+
+    // ids
     id: safeNumber(b?.id),
-    name: safeString(b?.name, 'Unnamed Brand'),
-    description: safeString(b?.description, ''),
-    category: safeString(b?.category, 'Other'),
-    admin_id: safeNumber(b?.admin_id ?? b?.adminId ?? 0),
-    profile_image_url: safeString(b?.profile_image_url ?? b?.profileImage ?? b?.logo ?? ''),
-    cover_image_url: safeString(b?.cover_image_url ?? b?.coverImage ?? b?.cover ?? ''),
-    website: safeString(b?.website, ''),
-    location: safeString(b?.location, ''),
-    contact_email: safeString(b?.contact_email ?? b?.email, ''),
-    contact_phone: safeString(b?.contact_phone ?? b?.phone, ''),
+    owner_id: safeNumber(b?.owner_id ?? b?.admin_id ?? b?.adminId ?? 0),
+    brand_user_id: safeNumber(b?.brand_user_id ?? b?.brandUserId ?? b?.user_id ?? 0),
+
+    // keep Brands.tsx compatibility: admin_id is the owner
+    admin_id: safeNumber(b?.owner_id ?? b?.admin_id ?? b?.adminId ?? 0),
+
+    name,
+    description: safeString(b?.description, ""),
+    category: safeString(b?.category, "Other"),
+
+    // images: backend uses logo_url; UI uses profile_image_url
+    profile_image_url: safeString(
+      b?.profile_image_url ?? b?.profileImage ?? b?.logo_url ?? b?.logo ?? "",
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
+    ),
+
+    cover_image_url: safeString(
+      b?.cover_image_url ?? b?.coverImage ?? b?.cover ?? "",
+      "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=1500&q=80"
+    ),
+
+    website: safeString(b?.website, ""),
+    location: safeString(b?.location, ""),
+    contact_email: safeString(b?.contact_email ?? b?.email, ""),
+    contact_phone: safeString(b?.contact_phone ?? b?.phone, ""),
+
+    // IMPORTANT: followers must always be an array
     followers: safeArray<number>(b?.followers ?? []),
     is_verified: Boolean(b?.is_verified ?? false),
+
     created_at: b?.created_at ?? new Date().toISOString(),
   } as any;
 };
@@ -1078,6 +1103,9 @@ const fetchUserFollowData = async (userId: number): Promise<{ followers: number[
   }
 };
 
+/**
+ * ✅ FIXED: Upload to media.unera.social instead of localhost
+ */
 const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
   try {
     const formData = new FormData();
@@ -1087,7 +1115,8 @@ const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url
     formData.append('folder', folder);
     formData.append('timestamp', Date.now().toString());
 
-    const response = await fetch('/api/upload', {
+    // ✅ FIXED: Use media.unera.social domain
+    const response = await fetch('https://media.unera.social/api/upload', {
       method: 'POST',
       body: formData,
     });
@@ -3071,7 +3100,7 @@ export default function App() {
         });
       });
       
-      // Handle brands - with proper normalization
+      // ✅ Handle brands - with proper normalization
       const bRaw = b;
       const bList = Array.isArray(bRaw)
         ? bRaw
@@ -3603,20 +3632,25 @@ export default function App() {
   }, [currentUser, requireAuth]);
 
   // ============================================================================
-  // 🔧 BRAND FUNCTIONS - NEW!
+  // 🔧 BRAND FUNCTIONS - UPDATED with backend field mapping
   // ============================================================================
   
-  /** ---------- Create a new brand ---------- */
+  /** ---------- ✅ FIXED: Create a new brand with backend field mapping ---------- */
   const createBrand = useCallback(async (brandData: Partial<Brand>) => {
     if (!requireAuth('Creating brands')) return;
     if (!currentUser) return;
 
     try {
+      // ✅ FIXED: Map frontend fields to backend expectations
       const payload = {
         ...brandData,
-        admin_id: currentUser.id,
+        // backend expects owner_id, not admin_id
+        owner_id: currentUser.id,
+        // map logo_url if profile_image_url is provided
+        logo_url: (brandData as any)?.logo_url ?? (brandData as any)?.profile_image_url ?? null,
+        // ensure followers is empty initially
+        followers: [],
         created_at: new Date().toISOString(),
-        followers: []
       };
 
       const data = await apiFetch('/api/brands', {
