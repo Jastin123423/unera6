@@ -25,6 +25,7 @@ const toInt = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+// e.g. "UNERA Shoes" -> "unera.shoes"
 const slugUsername = (name: string) =>
   name
     .toLowerCase()
@@ -38,36 +39,40 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const body = await request.json().catch(() => ({} as any));
 
-    // Accept multiple keys (to be compatible with your current frontend)
+    // Accept multiple keys to be compatible with your current frontend
     const owner_id = toInt(body.owner_id ?? body.admin_id ?? body.user_id ?? body.creator_id, 0);
     const name = safeStr(body.name);
     const description = safeStr(body.description) || null;
     const category = safeStr(body.category) || null;
 
-    // Frontend sometimes sends profile_image_url; backend column is logo_url
+    // Backend column is logo_url; frontend might send profile_image_url
     const logo_url =
       safeStr(body.logo_url ?? body.profile_image_url ?? body.avatar ?? body.image) || null;
 
     if (!owner_id || !name) return json({ success: false, error: "Missing owner_id or name" }, 400);
 
-    // ---------- 1) Create a "brand account" in users ----------
+    // IMPORTANT: brands are followable via user_follows, so each brand needs a users row.
+    // Your users.email is NOT NULL, so we auto-generate a unique placeholder email.
     const usernameBase = slugUsername(name);
-    const username = `${usernameBase}.${Math.floor(Math.random() * 9000 + 1000)}`;
+    const suffix = Math.floor(Math.random() * 900000 + 100000); // 6 digits
+    const username = `${usernameBase}.${suffix}`;
+    const brandEmail = `brand+${username}@unera.social`;
 
-    // NOTE: If your users table uses different column names, adjust here.
-    // This assumes you have at least: name, username, profile_image_url, role, created_at.
+    // 1) Create brand "user" row
+    // NOTE: If your users table has additional NOT NULL columns besides email,
+    // you must add them here too.
     const userIns = await env.DB
       .prepare(
-        `INSERT INTO users (name, username, profile_image_url, role, created_at)
-         VALUES (?, ?, ?, 'brand', CURRENT_TIMESTAMP)`
+        `INSERT INTO users (name, username, email, profile_image_url, role, created_at)
+         VALUES (?, ?, ?, ?, 'brand', CURRENT_TIMESTAMP)`
       )
-      .bind(name, username, logo_url)
+      .bind(name, username, brandEmail, logo_url)
       .run();
 
     const brand_user_id = Number(userIns.meta.last_row_id);
 
-    // ---------- 2) Create brand metadata row ----------
-    // IMPORTANT: You must add this column once:
+    // 2) Create brand metadata row
+    // You must add the column once:
     // ALTER TABLE brands ADD COLUMN brand_user_id INTEGER;
     const brandIns = await env.DB
       .prepare(
@@ -94,8 +99,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const url = new URL(request.url);
     const ownerId = toInt(url.searchParams.get("owner_id"), 0);
 
-    // Return brands + associated brand user profile + followers from user_follows
-    // followers_json is computed then parsed into followers: number[]
+    // LEFT JOIN so legacy brand rows (brand_user_id NULL) still show up.
+    // Followers won't work for those rows until you backfill brand_user_id.
     const baseSql = `
       SELECT
         b.id,
@@ -131,31 +136,37 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const { results } = await stmt.all();
 
     const brands = (results ?? []).map((r: any) => {
+      // parse followers
       let followers: number[] = [];
       try {
         const parsed = JSON.parse(r.followers_json ?? "[]");
-        followers = Array.isArray(parsed) ? parsed.map((x: any) => Number(x)).filter(Number.isFinite) : [];
+        followers = Array.isArray(parsed)
+          ? parsed.map((x: any) => Number(x)).filter((n: any) => Number.isFinite(n))
+          : [];
       } catch {
         followers = [];
       }
 
+      const brandName = safeStr(r.name) || "Brand";
+
       return {
         id: Number(r.id),
         owner_id: Number(r.owner_id),
-        brand_user_id: Number(r.brand_user_id),
+        brand_user_id: r.brand_user_id != null ? Number(r.brand_user_id) : null,
 
-        name: String(r.name ?? ""),
+        name: brandName,
         description: r.description ?? "",
         category: r.category ?? "",
         logo_url: r.logo_url ?? null,
 
-        // These match what your Brands.tsx expects
+        // match Brands.tsx expectations
+        admin_id: Number(r.owner_id), // owner acts as admin in your UI
         profile_image_url:
-          r.profile_image_url ??
-          r.logo_url ??
-          `https://ui-avatars.com/api/?name=${encodeURIComponent(String(r.name ?? "Brand"))}`,
+          safeStr(r.profile_image_url) ||
+          safeStr(r.logo_url) ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(brandName)}&background=random`,
         cover_image_url:
-          r.cover_image_url ??
+          safeStr(r.cover_image_url) ||
           "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=1500&q=80",
         is_verified: Boolean(r.is_verified),
 
