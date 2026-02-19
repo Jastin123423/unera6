@@ -1,5 +1,5 @@
 // functions/api/posts.ts
-import type { PagesFunction } from '@cloudflare/workers-types';
+import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
 
@@ -39,7 +39,6 @@ const isHttpUrl = (v: any) => {
 const normalizeStringArray = (v: any): string[] => {
   if (Array.isArray(v)) return v.map((x) => String(x || "").trim()).filter(Boolean);
   if (typeof v === "string") {
-    // allow JSON string
     try {
       const parsed = JSON.parse(v);
       if (Array.isArray(parsed)) return parsed.map((x) => String(x || "").trim()).filter(Boolean);
@@ -53,7 +52,9 @@ export const onRequestOptions: PagesFunction = async () =>
 
 /**
  * POST /api/posts
- * Creates a normal post (unchanged behavior)
+ * Creates a post (supports normal posts AND brand posts)
+ * - normal post: user_id + content/media
+ * - brand post: user_id + brand_id + content/media
  */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -64,7 +65,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const user_id = safeNumber(body.user_id, 0);
     if (!user_id) return json({ error: "Login required (user_id missing)." }, 401);
 
-    const content = safeString(body.content).trim();
+    // ✅ Brand support (optional)
+    const brand_id_raw = body.brand_id ?? body.brandId ?? body.brandID ?? null;
+    const brand_id_num = brand_id_raw == null ? 0 : safeNumber(brand_id_raw, 0);
+    const brand_id = brand_id_num > 0 ? brand_id_num : null;
+
+    // content
+    const content = safeString(body.content ?? body.text ?? "").trim();
 
     // single media (backward compatible)
     const media_url = body.media_url ?? null;
@@ -88,21 +95,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     // If multi provided but single missing, set single = first (compat)
     const final_media_url =
-      typeof media_url === "string" && media_url.trim().length > 0
-        ? media_url
-        : (filtered_urls[0] ?? null);
+      typeof media_url === "string" && media_url.trim().length > 0 ? media_url : (filtered_urls[0] ?? null);
 
     const final_media_type =
-      typeof media_type === "string" && media_type.trim().length > 0
-        ? media_type
-        : (filtered_types[0] ?? null);
+      typeof media_type === "string" && media_type.trim().length > 0 ? media_type : (filtered_types[0] ?? null);
 
     // ✅ Required: content OR any media
     const hasSingle = typeof final_media_url === "string" && final_media_url.trim().length > 0;
     const hasMulti = filtered_urls.length > 0;
 
     if (!content && !hasSingle && !hasMulti) {
-      return json({ error: "content or media_url or media_urls is required" }, 400);
+      return json({ error: "content/text or media_url or media_urls is required" }, 400);
     }
 
     // ✅ BLOCK base64 uploads
@@ -127,13 +130,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const media_urls_json = filtered_urls.length ? JSON.stringify(filtered_urls) : null;
     const media_types_json = filtered_urls.length ? JSON.stringify(filtered_types) : null;
 
-    // ✅ Insert includes multi fields (requires columns exist in D1)
-    const result = await env.DB.prepare(
-      `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
+    // ✅ Insert includes brand_id (requires posts.brand_id column exists)
+    const result = await env.DB
+      .prepare(
+        `INSERT INTO posts (user_id, brand_id, content, media_url, media_type, media_urls, media_types, visibility)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
       .bind(
         user_id,
+        brand_id,
         content || null,
         final_media_url,
         final_media_type,
@@ -152,6 +157,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         post: {
           id: post_id,
           user_id,
+          brand_id,
           content: content || "",
           media_url: final_media_url,
           media_type: final_media_type,
@@ -189,9 +195,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 50)));
     const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
-    // NOTE: We keep shapes compatible with "posts":
-    // - includes media_url/media_type/media_urls/media_types/content/created_at/visibility/username/profile_image_url/etc
-    // - adds item_type + source so UI can branch if needed (but doesn't have to)
     const q = `
       WITH items AS (
 
@@ -202,6 +205,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
           p.id AS id,
           p.user_id AS user_id,
+          p.brand_id AS brand_id,
           p.content AS content,
 
           CASE
@@ -300,6 +304,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
           r.id AS id,
           r.user_id AS user_id,
+          NULL AS brand_id,
           NULL AS content,
 
           r.video_url AS media_url,
@@ -379,6 +384,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
           s.id AS id,
           s.uploader_id AS user_id,
+          NULL AS brand_id,
           NULL AS content,
 
           s.cover_image_url AS media_url,
@@ -462,6 +468,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
           pc.id AS id,
           pc.creator_id AS user_id,
+          NULL AS brand_id,
           NULL AS content,
 
           pc.cover_url AS media_url,
@@ -536,6 +543,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
           pr.id AS id,
           pr.seller_id AS user_id,
+          NULL AS brand_id,
           NULL AS content,
 
           NULL AS media_url,
@@ -615,7 +623,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const { results } = await env.DB.prepare(q).bind(...binds).all();
 
-    // ✅ RAW ARRAY RESPONSE
     return json(Array.isArray(results) ? results : [], 200);
   } catch (err: any) {
     return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
