@@ -1,5 +1,3 @@
-//App.tsx-
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -465,8 +463,8 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 };
 
 /**
- * Normalize raw D1 rows to UI-safe PostType shape with multi-media support
- * Parse meta field if it's a JSON string (critical for marketplace posts)
+ * ✅ FIXED: Normalize post data with brand_id support
+ * Now properly preserves brand_id from API responses
  */
 const normalizePost = (p: any): PostType => {
   const mediaUrls =
@@ -494,6 +492,7 @@ const normalizePost = (p: any): PostType => {
       ...p,
       id: resolvedId,
       user_id: safeNumber(p?.user_id),
+      brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null, // ✅ Added brand_id
       content: safeString(p?.content),
       type: 'event',
       event_id: p?.event_id || p?.meta?.event_id,
@@ -521,6 +520,7 @@ const normalizePost = (p: any): PostType => {
     ...p,
     id: resolvedId,
     user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
+    brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null, // ✅ Added brand_id
     content: safeString(p?.content),
 
     media_url: mediaUrl,
@@ -1225,6 +1225,7 @@ const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
     ...row,
     user_id: safeNumber(row?.user_id),
+    brand_id: row?.brand_id ? safeNumber(row?.brand_id) : null, // ✅ Added brand_id
     content: row?.content ?? '',
     created_at: row?.created_at,
     media_url: row?.media_url ?? null,
@@ -4817,7 +4818,7 @@ export default function App() {
                           onFollow={() => followUser(postAuthorId)}
                           followLoading={followLoading[postAuthorId] || false}
                           onViewProductFromPost={openProductFromPost}
-                          onRSVPEvent={onRSVPEvent} // Pass the unified RSVP handler to Post component
+                          onRSVPEvent={onRSVPEvent}
                         />
                       );
                     })
