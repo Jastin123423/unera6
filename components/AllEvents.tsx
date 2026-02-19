@@ -1,7 +1,6 @@
 // AllEvents.tsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { User } from "../types";
-import { useNavigate } from "react-router-dom";
 
 // ========== API HELPERS ==========
 const authHeaders = () => {
@@ -214,6 +213,7 @@ interface AllEventsProps {
   onProfileClick: (id: number) => void;
   onEventClick: (eventId: number) => void;
   onCreateEventClick?: () => void;
+  onNavigateBack?: () => void; // Added for back navigation
 }
 
 // ========== FILTER CHIP ==========
@@ -622,9 +622,8 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   onProfileClick,
   onEventClick,
   onCreateEventClick,
+  onNavigateBack, // Added for back navigation
 }) => {
-  const navigate = useNavigate();
-
   const [events, setEvents] = useState<EventFromAPI[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -856,7 +855,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => navigate(-1)}
+                onClick={onNavigateBack}
                 className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
               >
                 <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
