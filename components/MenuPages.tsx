@@ -173,49 +173,7 @@ export const BirthdaysPage: React.FC<BirthdaysPageProps> = ({
   );
 };
 
-// --- EVENTS PAGE ---
-interface EventsPageProps { 
-    events: Event[]; 
-    currentUser: User | null; 
-    onViewAllEvents: () => void; // Only navigation to AllEvents.tsx
-}
 
-export const EventsPage: React.FC<EventsPageProps> = ({ 
-    events, 
-    currentUser, 
-    onViewAllEvents 
-}) => {
-    const [selectedCategory, setSelectedCategory] = useState('All');
-    
-    const categories = ['All', 'Discover', 'Hosting', 'Upcoming'];
-
-    const filteredEvents = useMemo(() => {
-        if (selectedCategory === 'All' || selectedCategory === 'Discover') return events;
-        if (selectedCategory === 'Hosting' && currentUser) return events.filter(e => e.organizerId === currentUser.id);
-        if (selectedCategory === 'Upcoming' && currentUser) return events.filter(e => e.attendees?.includes(currentUser.id));
-        return events;
-    }, [events, selectedCategory, currentUser]);
-
-    return (
-        <div className="w-full max-w-[1000px] mx-auto p-4 font-sans pb-24 animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-[#242526] p-6 rounded-3xl border border-[#3E4042] shadow-xl">
-                <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-gradient-to-tr from-[#1877F2] to-[#00C6FF] rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3">
-                        <i className="fas fa-calendar-alt text-white text-2xl"></i>
-                    </div>
-                    <div>
-                        <h1 className="text-3xl font-black text-[#E4E6EB]">Events</h1>
-                        <p className="text-[#B0B3B8] text-lg font-medium mt-1">Discover experiences near you.</p>
-                    </div>
-                </div>
-                <button 
-                    onClick={onViewAllEvents}
-                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95"
-                >
-                    <i className="fas fa-calendar-check text-xl"></i>
-                    <span>View All Events</span>
-                </button>
-            </div>
 
             {/* Filter Tabs */}
             <div className="flex gap-2 mb-8 overflow-x-auto scrollbar-hide">
@@ -290,8 +248,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({
                                 </div>
                             </div>
                         );
-                    })}
-                    
+
                     {/* View All Events Card */}
                     <div 
                         onClick={onViewAllEvents}
