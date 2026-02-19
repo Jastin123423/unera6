@@ -326,6 +326,7 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
     const [showOptionsMenu, setShowOptionsMenu] = useState(false);
     const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Photos'>('Posts');
     const [searchQuery, setSearchQuery] = useState('');
+    const [listSection, setListSection] = useState<'all' | 'mine'>('all');
     const [isUploadingImage, setIsUploadingImage] = useState<'cover' | 'profile' | null>(null);
     const [previousImageUrl, setPreviousImageUrl] = useState<{cover?: string, profile?: string}>({});
 
@@ -436,148 +437,176 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
     };
 
     if (view === 'list' || !activeBrand) {
-        const myBrands = currentUser ? brands.filter(b => b.admin_id === currentUser.id) : [];
-        let otherBrands = currentUser ? brands.filter(b => b.admin_id !== currentUser.id) : brands;
-
-        if (searchQuery.trim()) {
-            otherBrands = otherBrands.filter(b => 
-                b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                b.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                b.location?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                b.description?.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-        }
-
         return (
-            <div className="w-full max-w-[1000px] mx-auto p-4 font-sans pb-20">
-                <div className="flex flex-col gap-4 mb-6 bg-[#242526] p-4 rounded-xl border border-[#3E4042]">
-                    <div className="flex justify-between items-center">
+            <div className="w-full max-w-[900px] mx-auto p-3 sm:p-4 font-sans pb-20">
+                {/* Header + Section Buttons */}
+                <div className="mb-3 bg-[#242526] rounded-xl border border-[#3E4042] overflow-hidden">
+                    <div className="p-4 border-b border-[#3E4042] flex items-center justify-between">
                         <div>
-                            <h2 className="text-2xl font-bold text-[#E4E6EB]">Brands & Pages</h2>
+                            <h2 className="text-xl sm:text-2xl font-bold text-[#E4E6EB]">Brands</h2>
                             <p className="text-[#B0B3B8] text-sm">Discover businesses and creators.</p>
                         </div>
-                        {currentUser && (
-                            <button 
-                                onClick={() => setShowCreateModal(true)} 
-                                className="bg-[#263951] text-[#F3425F] hover:bg-[#2A3F5A] px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
-                            >
-                                <i className="fas fa-briefcase text-lg"></i> <span>Create Brand</span>
-                            </button>
-                        )}
                     </div>
-                    <div className="relative">
-                        <input 
-                            type="text" 
-                            className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 pl-10 text-[#E4E6EB] outline-none focus:border-[#1877F2]" 
-                            placeholder="Search Brands by name, category, or location..." 
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
-                        <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
-                        {searchQuery && (
-                            <button 
-                                onClick={() => setSearchQuery('')}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
+
+                    {/* 3 buttons row (scrollable on mobile) */}
+                    <div className="px-3 pb-3 pt-3">
+                        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                            {currentUser && (
+                                <button
+                                    onClick={() => setShowCreateModal(true)}
+                                    className="shrink-0 px-4 h-10 rounded-full font-bold flex items-center gap-2
+                                             bg-[#1877F2] hover:bg-[#166FE5] text-white transition-colors"
+                                >
+                                    <i className="fas fa-plus"></i>
+                                    Create Brand
+                                </button>
+                            )}
+
+                            <button
+                                onClick={() => setListSection('all')}
+                                className={`shrink-0 px-4 h-10 rounded-full font-bold transition-colors
+                                    ${listSection === 'all'
+                                        ? 'bg-[#3A3B3C] text-[#E4E6EB] border border-[#1877F2]'
+                                        : 'bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] border border-transparent'
+                                    }`}
                             >
-                                <i className="fas fa-times"></i>
+                                All Brands
                             </button>
-                        )}
+
+                            <button
+                                onClick={() => setListSection('mine')}
+                                className={`shrink-0 px-4 h-10 rounded-full font-bold transition-colors
+                                    ${listSection === 'mine'
+                                        ? 'bg-[#3A3B3C] text-[#E4E6EB] border border-[#1877F2]'
+                                        : 'bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] border border-transparent'
+                                    }`}
+                            >
+                                Your Brands
+                            </button>
+                        </div>
+
+                        {/* Search */}
+                        <div className="mt-3 relative">
+                            <input
+                                type="text"
+                                className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl p-2.5 pl-10 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+                                placeholder="Search brands..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+                            {searchQuery && (
+                                <button
+                                    onClick={() => setSearchQuery('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
 
-                {myBrands.length > 0 && !searchQuery && (
-                    <div className="mb-8">
-                        <h3 className="text-xl font-bold text-[#E4E6EB] mb-3">Pages You Manage</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {myBrands.map(brand => (
-                                <div key={brand.id} className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer hover:shadow-lg transition-all flex flex-col group" onClick={() => handleBrandClick(brand.id)}>
-                                    <div className="h-32 bg-gray-700 relative overflow-hidden">
-                                        <img src={brand.cover_image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt="" />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                                    </div>
-                                    <div className="p-4 pt-10 relative">
-                                        <div className="absolute -top-8 left-4 rounded-full border-4 border-[#242526] overflow-hidden w-16 h-16 bg-[#3A3B3C] group-hover:scale-110 transition-transform">
-                                            <img src={brand.profile_image_url} className="w-full h-full object-cover" alt="" />
-                                        </div>
-                                        <h4 className="font-bold text-lg text-[#E4E6EB] group-hover:text-[#1877F2] transition-colors">{brand.name}</h4>
-                                        <p className="text-[#B0B3B8] text-xs">{brand.category} • {brand.followers.length} followers</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                <div>
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="text-xl font-bold text-[#E4E6EB]">
-                            {searchQuery ? `Search Results (${otherBrands.length})` : 'Suggested Pages'}
+                {/* LIST (Followed Pages style) */}
+                <div className="bg-[#242526] rounded-xl border border-[#3E4042] overflow-hidden">
+                    <div className="px-4 py-3 border-b border-[#3E4042]">
+                        <h3 className="text-[#E4E6EB] font-bold">
+                            {listSection === 'mine' ? 'Your Brands' : 'All Brands'}
                         </h3>
-                        {searchQuery && otherBrands.length > 0 && (
-                            <p className="text-[#B0B3B8] text-sm">
-                                Found {otherBrands.length} result{otherBrands.length !== 1 ? 's' : ''}
-                            </p>
-                        )}
                     </div>
-                    {otherBrands.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {otherBrands.map(brand => (
-                                <div key={brand.id} className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] flex flex-col hover:shadow-lg transition-shadow">
-                                    <div className="h-32 relative cursor-pointer overflow-hidden group" onClick={() => handleBrandClick(brand.id)}>
-                                        <img src={brand.cover_image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt="" />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                                    </div>
-                                    <div className="p-4 flex flex-col flex-1 relative">
-                                        <div 
-                                            className="absolute -top-8 left-4 rounded-full border-4 border-[#242526] overflow-hidden w-16 h-16 bg-[#3A3B3C] cursor-pointer hover:scale-110 transition-transform" 
+
+                    {(() => {
+                        const myBrands = currentUser ? brands.filter((b) => b.admin_id === currentUser.id) : [];
+                        const allBrands = brands;
+
+                        const base = listSection === 'mine' ? myBrands : allBrands;
+
+                        const filtered = searchQuery.trim()
+                            ? base.filter((b) => {
+                                const q = searchQuery.toLowerCase();
+                                return (
+                                    b.name.toLowerCase().includes(q) ||
+                                    (b.category || '').toLowerCase().includes(q) ||
+                                    (b.location || '').toLowerCase().includes(q) ||
+                                    (b.description || '').toLowerCase().includes(q)
+                                );
+                            })
+                            : base;
+
+                        if (filtered.length === 0) {
+                            return (
+                                <div className="p-8 text-center">
+                                    <i className="fas fa-search text-[#B0B3B8] text-4xl mb-4"></i>
+                                    <p className="text-[#B0B3B8] text-lg mb-1">No brands found</p>
+                                    <p className="text-[#B0B3B8] text-sm">Try a different search.</p>
+                                </div>
+                            );
+                        }
+
+                        return (
+                            <div className="divide-y divide-[#3E4042]">
+                                {filtered.map((brand) => {
+                                    const followed = !!currentUser && brand.followers.includes(currentUser.id);
+
+                                    return (
+                                        <div
+                                            key={brand.id}
                                             onClick={() => handleBrandClick(brand.id)}
+                                            className="px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[#2A2B2C] transition-colors"
                                         >
-                                            <img src={brand.profile_image_url} className="w-full h-full object-cover" alt="" />
-                                        </div>
-                                        <div className="mt-8">
-                                            <h4 
-                                                className="font-bold text-lg text-[#E4E6EB] hover:text-[#1877F2] transition-colors cursor-pointer" 
-                                                onClick={() => handleBrandClick(brand.id)}
-                                            >
-                                                {brand.name} 
-                                                {brand.is_verified && <i className="fas fa-check-circle text-[#1877F2] text-sm ml-1"></i>}
-                                            </h4>
-                                            <p className="text-[#B0B3B8] text-xs mb-1">{brand.category}</p>
-                                            {brand.location && (
-                                                <p className="text-[#B0B3B8] text-xs mb-2 flex items-center gap-1">
-                                                    <i className="fas fa-map-marker-alt text-[10px]"></i>
-                                                    {brand.location}
+                                            {/* Avatar */}
+                                            <div className="w-12 h-12 rounded-full overflow-hidden bg-[#3A3B3C] border border-[#3E4042] flex-shrink-0">
+                                                <img
+                                                    src={brand.profile_image_url}
+                                                    alt=""
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            </div>
+
+                                            {/* Text */}
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <p className="text-[#E4E6EB] font-bold truncate">
+                                                        {brand.name}
+                                                    </p>
+                                                    {brand.is_verified && (
+                                                        <i className="fas fa-check-circle text-[#1877F2] text-sm flex-shrink-0"></i>
+                                                    )}
+                                                </div>
+
+                                                <p className="text-[#B0B3B8] text-sm truncate">
+                                                    {(brand.category || 'Brand')}{brand.location ? ` • ${brand.location}` : ''} • {brand.followers.length} follows
                                                 </p>
-                                            )}
-                                            <p className="text-[#B0B3B8] text-sm line-clamp-2 mb-4">{brand.description || 'No description provided'}</p>
-                                            <button 
-                                                onClick={() => currentUser ? onFollowBrand(brand.id) : alert("Login to follow")} 
-                                                className="w-full bg-[#263951] text-[#F3425F] hover:bg-[#2A3F5A] font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                            </div>
+
+                                            {/* Follow button (blue like screenshot) */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (!currentUser) return alert('Login to follow');
+                                                    onFollowBrand(brand.id);
+                                                }}
+                                                className={`h-9 px-4 rounded-lg font-bold text-sm flex-shrink-0 transition-colors
+                                                    ${followed
+                                                        ? 'bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB]'
+                                                        : 'bg-[#1877F2] hover:bg-[#166FE5] text-white'
+                                                    }`}
                                             >
-                                                <i className={`fas ${currentUser && brand.followers.includes(currentUser.id) ? 'fa-user-check' : 'fa-user-plus'}`}></i>
-                                                {currentUser && brand.followers.includes(currentUser.id) ? 'Following' : 'Follow'}
+                                                {followed ? 'Following' : 'Follow'}
                                             </button>
                                         </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
-                            <i className="fas fa-search text-[#B0B3B8] text-4xl mb-4"></i>
-                            <p className="text-[#B0B3B8] text-lg mb-2">No brands found</p>
-                            {searchQuery && (
-                                <p className="text-[#B0B3B8] text-sm">Try different search terms</p>
-                            )}
-                        </div>
-                    )}
+                                    );
+                                })}
+                            </div>
+                        );
+                    })()}
                 </div>
 
                 {showCreateModal && currentUser && (
-                    <CreateBrandModal 
-                        currentUser={currentUser} 
-                        onClose={() => setShowCreateModal(false)} 
-                        onCreate={onCreateBrand} 
+                    <CreateBrandModal
+                        currentUser={currentUser}
+                        onClose={() => setShowCreateModal(false)}
+                        onCreate={onCreateBrand}
                     />
                 )}
             </div>
