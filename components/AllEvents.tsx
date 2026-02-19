@@ -33,7 +33,7 @@ const postJSON = async (url: string, body: any) => {
   return data;
 };
 
-// ========== RSVP HELPER (keep api/attend and api/interested) ==========
+// ========== RSVP HELPER ==========
 type RSVPStatus = "going" | "interested" | "not_going";
 
 const rsvpEventDirect = async (args: {
@@ -466,7 +466,7 @@ const EventCard: React.FC<{
           </div>
         </div>
 
-        {/* Buttons (keep api/attend + api/interested) */}
+        {/* Buttons */}
         <div className="flex gap-2">
           <button
             disabled={loading || isPast}
@@ -550,6 +550,12 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   const fetchingMoreRef = useRef(false);
   const loadingRef = useRef(false);
   const reqIdRef = useRef(0);
+  
+  // ✅ FIX 4: Add didInitRef to prevent multiple initial fetches when user state stabilizes
+  const didInitRef = useRef(false);
+  
+  // ✅ FIX 5: Track previous user ID to detect actual changes
+  const prevUserIdRef = useRef<number | undefined>(undefined);
 
   // Keep loadingRef in sync with loading state
   useEffect(() => {
@@ -570,7 +576,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
       
       // ✅ FIX 1: Lock check to prevent multiple simultaneous fetches
       if (!reset) {
-        if (fetchingMoreRef.current) return; // already loading next page
+        if (fetchingMoreRef.current) {
+          console.log("Already fetching more, skipping...");
+          return; // already loading next page
+        }
         fetchingMoreRef.current = true;
       }
 
@@ -588,9 +597,17 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         if (debouncedQ) params.set("q", debouncedQ);
         if (currentUser?.id) params.set("user_id", String(currentUser.id));
 
+        console.log(`Fetching page ${pageToLoad}, reset: ${reset}`);
+
         const res = await fetch(`/api/events_feeds?${params.toString()}`, {
           headers: { ...authHeaders(), "Content-Type": "application/json" },
         });
+
+        // ✅ FIX 4: Handle 401 properly - stop infinite scroll
+        if (res.status === 401) {
+          setHasMore(false);
+          throw new Error("Session expired. Please login again.");
+        }
 
         const data = await safeJson(res);
         if (reqId !== reqIdRef.current) return;
@@ -601,10 +618,15 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
         const newEvents: EventFromAPI[] = (data?.events || []) as any;
 
-        setEvents((prev) => (reset ? newEvents : [...prev, ...newEvents]));
+        setEvents((prev) => {
+          if (reset) return newEvents;
+          // ✅ Prevent duplicate events by using a Set based on ID
+          const existingIds = new Set(prev.map(e => e.id));
+          const uniqueNewEvents = newEvents.filter(e => !existingIds.has(e.id));
+          return [...prev, ...uniqueNewEvents];
+        });
         
-        // ✅ FIX 3: Better hasMore detection (backend should implement limit+1)
-        // For now, keep existing logic but note the recommended approach
+        // ✅ FIX 3: Better hasMore detection
         setHasMore(!!data?.has_more || newEvents.length === 12);
 
         if (data?.stats) setStats(data.stats);
@@ -613,11 +635,17 @@ export const AllEvents: React.FC<AllEventsProps> = ({
       } catch (e: any) {
         if (reqId !== reqIdRef.current) return;
         setError(e?.message || "Failed to load events");
+        console.error("Fetch error:", e);
       } finally {
         if (reqId === reqIdRef.current) {
           setLoading(false);
           // ✅ FIX 1: Release lock when done
-          if (!reset) fetchingMoreRef.current = false;
+          if (!reset) {
+            // Small delay to prevent immediate retrigger
+            setTimeout(() => {
+              fetchingMoreRef.current = false;
+            }, 100);
+          }
         }
       }
     },
@@ -637,16 +665,47 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     []
   );
 
-  // reset on changes
+  // ✅ FIX 2: Initial fetch only once when user state stabilizes
   useEffect(() => {
+    // Wait until user status is known (either logged in and has id, or definitely not logged in)
+    if (currentUser && !currentUser.id) return;
+    
+    // Check if user ID actually changed to prevent unnecessary resets
+    const currentUserId = currentUser?.id;
+    if (prevUserIdRef.current === currentUserId && didInitRef.current) {
+      return; // User ID hasn't changed, no need to re-fetch
+    }
+    
+    // Update the ref with current user ID
+    prevUserIdRef.current = currentUserId;
+    
+    // If we've already initialized and user ID is the same, don't fetch again
+    if (didInitRef.current && prevUserIdRef.current === currentUserId) {
+      return;
+    }
+
+    console.log("Initializing fetch with user:", currentUserId);
+    didInitRef.current = true;
+    setEvents([]);
+    setHasMore(true);
+    setPage(1);
+    fetchEvents(true, 1);
+  }, [currentUser?.id]); // Only depend on user ID, not the whole user object
+
+  // ✅ FIX 3: Reset on filter/sort/search changes with proper cleanup
+  useEffect(() => {
+    // Skip if we haven't initialized yet
+    if (!didInitRef.current) return;
+    
+    console.log("Filter/sort/search changed, resetting...");
     setEvents([]);
     setHasMore(true);
     setPage(1);
     fetchEvents(true, 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, sort, debouncedQ, currentUser?.id]);
+  }, [filter, sort, debouncedQ]); // Remove currentUser?.id from here
 
-  // ✅ FIX 2: Fixed observer with proper guards and rootMargin
+  // ✅ FIX 1 & 2: Fixed observer with proper guards and rootMargin
   useEffect(() => {
     if (!hasMore) return;
 
@@ -659,17 +718,26 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         if (!first?.isIntersecting) return;
 
         // ✅ Hard guards to prevent spam
-        if (loadingRef.current) return;
-        if (fetchingMoreRef.current) return;
-        if (!hasMore) return;
+        if (loadingRef.current) {
+          console.log("Observer: loading in progress");
+          return;
+        }
+        if (fetchingMoreRef.current) {
+          console.log("Observer: already fetching more");
+          return;
+        }
+        if (!hasMore) {
+          console.log("Observer: no more pages");
+          return;
+        }
 
+        console.log("Observer triggered, loading next page");
         setPage((p) => p + 1);
       },
       {
         threshold: 0.1,
-        // ✅ This helps prevent “always visible sentinel” spam
-        // Triggers before reaching bottom and reduces jitter
-        rootMargin: "300px 0px 300px 0px",
+        // ✅ Large rootMargin to trigger before reaching bottom and reduce jitter
+        rootMargin: "400px 0px 400px 0px",
       }
     );
 
@@ -677,9 +745,12 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     return () => obs.disconnect();
   }, [hasMore]); // Only recreate when hasMore changes
 
-  // load more
+  // load more pages
   useEffect(() => {
-    if (page > 1) fetchEvents(false, page);
+    if (page > 1) {
+      console.log(`Loading page ${page}`);
+      fetchEvents(false, page);
+    }
   }, [page, fetchEvents]);
 
   const filterOptions: { value: EventFilter; label: string; icon: string }[] = [
@@ -819,7 +890,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
             <p className="text-[#E4E6EB] font-bold mb-2">Failed to load events</p>
             <p className="text-[#B0B3B8] text-sm mb-4">{error}</p>
             <button
-              onClick={() => fetchEvents(true, 1)}
+              onClick={() => {
+                setError(null);
+                fetchEvents(true, 1);
+              }}
               className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors"
             >
               Try Again
