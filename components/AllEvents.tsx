@@ -1,5 +1,5 @@
-// AllEvents.tsx new
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+// AllEvents.tsx
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { User } from "../types";
 import { useNavigate } from "react-router-dom";
 
@@ -73,6 +73,8 @@ const rsvpEventDirect = async (args: {
 
 // ========== AVATAR HELPER ==========
 const avatarFrom = (u: any) => {
+  if (!u) return `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
+  
   const img = String(
     u?.profile_image_url ??
       u?.profileImage ??
@@ -112,20 +114,17 @@ const toDateSafe = (input: any): Date | null => {
   if (typeof input === "string") {
     const s = input.trim();
 
-    // "YYYY-MM-DD HH:mm:ss" -> force UTC
     if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
       const iso = s.replace(" ", "T") + "Z";
       const d = new Date(iso);
       return Number.isFinite(d.getTime()) ? d : null;
     }
 
-    // "YYYY-MM-DD" -> treat as local midnight
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
       const d = new Date(s + "T00:00:00");
       return Number.isFinite(d.getTime()) ? d : null;
     }
 
-    // "YYYY-MM-DDTHH:mm:ss" without tz -> force UTC
     if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
       const d = new Date(s + "Z");
       return Number.isFinite(d.getTime()) ? d : null;
@@ -173,22 +172,20 @@ type EventFilter = "all" | "upcoming" | "past" | "today" | "this-week" | "this-m
 type EventSort = "date" | "popular" | "trending";
 
 interface EventFromAPI {
-  event_key: string; // "event:ID"
+  event_key?: string;
   id: number;
   creator_id: number;
   title: string;
   description?: string;
-  event_date: string; // <-- your column
+  event_date: string;
   location?: string;
-  cover_url?: string; // <-- your column
+  cover_url?: string;
   visibility: "worldwide" | "targeted";
   group_id?: number | null;
   created_at: string;
-
   attendees_count: number;
   interested_count: number;
   user_rsvp_status?: "" | "going" | "interested";
-
   creator?: {
     id: number;
     name: string;
@@ -259,15 +256,21 @@ const EventCard: React.FC<{
   onProfileClick: (id: number) => void;
   onRSVPUpdate?: (eventId: number, newStatus: "" | "going" | "interested", newAtt: number, newInt: number) => void;
 }> = ({ event, currentUser, onEventClick, onProfileClick, onRSVPUpdate }) => {
-  const [rsvpStatus, setRsvpStatus] = useState<"" | "going" | "interested">(event.user_rsvp_status || "");
-  const [attendeesCount, setAttendeesCount] = useState(event.attendees_count || 0);
-  const [interestedCount, setInterestedCount] = useState(event.interested_count || 0);
+  const [rsvpStatus, setRsvpStatus] = useState<"" | "going" | "interested">(event?.user_rsvp_status || "");
+  const [attendeesCount, setAttendeesCount] = useState(event?.attendees_count || 0);
+  const [interestedCount, setInterestedCount] = useState(event?.interested_count || 0);
   const [loading, setLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  useEffect(() => setRsvpStatus(event.user_rsvp_status || ""), [event.user_rsvp_status]);
-  useEffect(() => setAttendeesCount(event.attendees_count || 0), [event.attendees_count]);
-  useEffect(() => setInterestedCount(event.interested_count || 0), [event.interested_count]);
+  useEffect(() => {
+    if (event) {
+      setRsvpStatus(event.user_rsvp_status || "");
+      setAttendeesCount(event.attendees_count || 0);
+      setInterestedCount(event.interested_count || 0);
+    }
+  }, [event]);
+
+  if (!event) return null;
 
   const dateObj = toDateSafe(event.event_date);
   const nowLocal = new Date();
@@ -275,7 +278,6 @@ const EventCard: React.FC<{
   const isPast = !!dateObj && dateObj < nowLocal;
   const isToday = !!dateObj && dateObj.toDateString() === nowLocal.toDateString();
 
-  // ✅ IMPORTANT: do not mutate dateObj
   const isTomorrow = (() => {
     if (!dateObj) return false;
     const t = new Date(dateObj.getTime());
@@ -316,7 +318,6 @@ const EventCard: React.FC<{
     const prevAtt = attendeesCount;
     const prevInt = interestedCount;
 
-    // compute deterministic next counts (so we can notify parent correctly)
     let nextAtt = prevAtt;
     let nextInt = prevInt;
 
@@ -334,7 +335,6 @@ const EventCard: React.FC<{
       } else nextInt = prevInt + 1;
     }
 
-    // optimistic UI
     setRsvpStatus(nextStatus);
     setAttendeesCount(nextAtt);
     setInterestedCount(nextInt);
@@ -349,7 +349,6 @@ const EventCard: React.FC<{
 
       onRSVPUpdate?.(event.id, nextStatus, nextAtt, nextInt);
     } catch (err) {
-      // rollback
       setRsvpStatus(prevStatus);
       setAttendeesCount(prevAtt);
       setInterestedCount(prevInt);
@@ -382,7 +381,6 @@ const EventCard: React.FC<{
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
 
-        {/* Date Badge */}
         <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/20">
           <div className="text-[#F7B928] text-[11px] font-black uppercase">
             {dateObj?.toLocaleDateString("en-US", { month: "short" })}
@@ -392,7 +390,6 @@ const EventCard: React.FC<{
           </div>
         </div>
 
-        {/* Status */}
         {isPast ? (
           <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1 border border-white/20">
             <span className="text-[#B0B3B8] text-xs font-semibold">Past Event</span>
@@ -403,7 +400,6 @@ const EventCard: React.FC<{
           </div>
         )}
 
-        {/* Going count */}
         <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1">
           <div className="flex items-center gap-2">
             <i className="fas fa-users text-[#45BD62] text-xs"></i>
@@ -414,21 +410,23 @@ const EventCard: React.FC<{
 
       {/* Details */}
       <div className="p-4">
-        {/* Creator */}
         <div
           className="flex items-center gap-2 mb-3 cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
-            if (creator.id) onProfileClick(creator.id);
+            if (creator?.id) onProfileClick(creator.id);
           }}
         >
           <img
             src={avatarFrom(creator)}
             alt=""
             className="w-6 h-6 rounded-full object-cover border border-[#3E4042]"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
+            }}
           />
           <span className="text-[#B0B3B8] text-xs hover:underline">
-            {creator.name || "Event Organizer"}
+            {creator?.name || "Event Organizer"}
           </span>
           <span className="text-[#3E4042] text-xs">•</span>
           <span className="text-[#B0B3B8] text-xs">{formatRelativeTime(event.created_at)}</span>
@@ -466,7 +464,6 @@ const EventCard: React.FC<{
           </div>
         </div>
 
-        {/* Buttons */}
         <div className="flex gap-2">
           <button
             disabled={loading || isPast}
@@ -543,26 +540,18 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
   const [stats, setStats] = useState({ total: 0, upcoming: 0, today: 0, thisWeek: 0 });
 
-  // infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ FIX 1: Add lock refs to prevent observer spam
   const fetchingMoreRef = useRef(false);
   const loadingRef = useRef(false);
   const reqIdRef = useRef(0);
-  
-  // ✅ FIX 4: Add didInitRef to prevent multiple initial fetches when user state stabilizes
   const didInitRef = useRef(false);
-  
-  // ✅ FIX 5: Track previous user ID to detect actual changes
   const prevUserIdRef = useRef<number | undefined>(undefined);
 
-  // Keep loadingRef in sync with loading state
   useEffect(() => {
     loadingRef.current = loading;
   }, [loading]);
 
-  // debounce search
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(searchQuery.trim()), 300);
     return () => clearTimeout(t);
@@ -574,12 +563,8 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
       const pageToLoad = typeof nextPage === "number" ? nextPage : reset ? 1 : page;
       
-      // ✅ FIX 1: Lock check to prevent multiple simultaneous fetches
       if (!reset) {
-        if (fetchingMoreRef.current) {
-          console.log("Already fetching more, skipping...");
-          return; // already loading next page
-        }
+        if (fetchingMoreRef.current) return;
         fetchingMoreRef.current = true;
       }
 
@@ -597,13 +582,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         if (debouncedQ) params.set("q", debouncedQ);
         if (currentUser?.id) params.set("user_id", String(currentUser.id));
 
-        console.log(`Fetching page ${pageToLoad}, reset: ${reset}`);
-
         const res = await fetch(`/api/events_feeds?${params.toString()}`, {
           headers: { ...authHeaders(), "Content-Type": "application/json" },
         });
 
-        // ✅ FIX 4: Handle 401 properly - stop infinite scroll
         if (res.status === 401) {
           setHasMore(false);
           throw new Error("Session expired. Please login again.");
@@ -620,13 +602,11 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
         setEvents((prev) => {
           if (reset) return newEvents;
-          // ✅ Prevent duplicate events by using a Set based on ID
           const existingIds = new Set(prev.map(e => e.id));
           const uniqueNewEvents = newEvents.filter(e => !existingIds.has(e.id));
           return [...prev, ...uniqueNewEvents];
         });
         
-        // ✅ FIX 3: Better hasMore detection
         setHasMore(!!data?.has_more || newEvents.length === 12);
 
         if (data?.stats) setStats(data.stats);
@@ -635,13 +615,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
       } catch (e: any) {
         if (reqId !== reqIdRef.current) return;
         setError(e?.message || "Failed to load events");
-        console.error("Fetch error:", e);
       } finally {
         if (reqId === reqIdRef.current) {
           setLoading(false);
-          // ✅ FIX 1: Release lock when done
           if (!reset) {
-            // Small delay to prevent immediate retrigger
             setTimeout(() => {
               fetchingMoreRef.current = false;
             }, 100);
@@ -665,47 +642,39 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     []
   );
 
-  // ✅ FIX 2: Initial fetch only once when user state stabilizes
+  // Initial fetch
   useEffect(() => {
-    // Wait until user status is known (either logged in and has id, or definitely not logged in)
     if (currentUser && !currentUser.id) return;
     
-    // Check if user ID actually changed to prevent unnecessary resets
     const currentUserId = currentUser?.id;
     if (prevUserIdRef.current === currentUserId && didInitRef.current) {
-      return; // User ID hasn't changed, no need to re-fetch
+      return;
     }
     
-    // Update the ref with current user ID
     prevUserIdRef.current = currentUserId;
     
-    // If we've already initialized and user ID is the same, don't fetch again
     if (didInitRef.current && prevUserIdRef.current === currentUserId) {
       return;
     }
 
-    console.log("Initializing fetch with user:", currentUserId);
     didInitRef.current = true;
     setEvents([]);
     setHasMore(true);
     setPage(1);
     fetchEvents(true, 1);
-  }, [currentUser?.id]); // Only depend on user ID, not the whole user object
+  }, [currentUser?.id, fetchEvents]);
 
-  // ✅ FIX 3: Reset on filter/sort/search changes with proper cleanup
+  // Reset on filter/sort/search changes
   useEffect(() => {
-    // Skip if we haven't initialized yet
     if (!didInitRef.current) return;
     
-    console.log("Filter/sort/search changed, resetting...");
     setEvents([]);
     setHasMore(true);
     setPage(1);
     fetchEvents(true, 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, sort, debouncedQ]); // Remove currentUser?.id from here
+  }, [filter, sort, debouncedQ, fetchEvents]);
 
-  // ✅ FIX 1 & 2: Fixed observer with proper guards and rootMargin
+  // Observer
   useEffect(() => {
     if (!hasMore) return;
 
@@ -717,38 +686,25 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         const first = entries[0];
         if (!first?.isIntersecting) return;
 
-        // ✅ Hard guards to prevent spam
-        if (loadingRef.current) {
-          console.log("Observer: loading in progress");
-          return;
-        }
-        if (fetchingMoreRef.current) {
-          console.log("Observer: already fetching more");
-          return;
-        }
-        if (!hasMore) {
-          console.log("Observer: no more pages");
-          return;
-        }
+        if (loadingRef.current) return;
+        if (fetchingMoreRef.current) return;
+        if (!hasMore) return;
 
-        console.log("Observer triggered, loading next page");
         setPage((p) => p + 1);
       },
       {
         threshold: 0.1,
-        // ✅ Large rootMargin to trigger before reaching bottom and reduce jitter
         rootMargin: "400px 0px 400px 0px",
       }
     );
 
     obs.observe(el);
     return () => obs.disconnect();
-  }, [hasMore]); // Only recreate when hasMore changes
+  }, [hasMore]);
 
-  // load more pages
+  // Load more
   useEffect(() => {
     if (page > 1) {
-      console.log(`Loading page ${page}`);
       fetchEvents(false, page);
     }
   }, [page, fetchEvents]);
@@ -939,10 +895,8 @@ export const AllEvents: React.FC<AllEventsProps> = ({
               ))}
             </div>
 
-            {/* Sentinel */}
             <div ref={sentinelRef} className="h-1" />
 
-            {/* Loading */}
             {loading && (
               <div className="flex justify-center py-8">
                 <div className="relative">
@@ -954,7 +908,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
               </div>
             )}
 
-            {/* End */}
             {!hasMore && events.length > 0 && (
               <div className="text-center py-8">
                 <div className="inline-flex items-center gap-2 bg-[#242526] px-4 py-2 rounded-full border border-[#3E4042]">
@@ -980,4 +933,5 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   );
 };
 
+// Export all components
 export { EventCard, FilterChip, StatsCard };
