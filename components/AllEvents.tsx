@@ -239,98 +239,6 @@ const FilterChip: React.FC<{
   </button>
 );
 
-// ========== STATS CARD ==========
-const StatsCard: React.FC<{
-  icon: string;
-  label: string;
-  value: number;
-  color: string;
-}> = ({ icon, label, value, color }) => (
-  <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042] hover:border-[#1877F2]/30 transition-all duration-300 group">
-    <div className="flex items-center gap-4">
-      <div
-        className="w-12 h-12 rounded-xl bg-opacity-10 flex items-center justify-center group-hover:scale-110 transition-transform"
-        style={{ backgroundColor: color + "20" }}
-      >
-        <i className={`fas fa-${icon} text-2xl`} style={{ color }}></i>
-      </div>
-      <div>
-        <div className="text-[#B0B3B8] text-sm">{label}</div>
-        <div className="text-[#E4E6EB] text-2xl font-black">{value.toLocaleString()}</div>
-      </div>
-    </div>
-  </div>
-);
-
-// ========== ATTENDEE AVATARS COMPONENT ==========
-const AttendeeAvatars: React.FC<{
-  attendees?: Attendee[];
-  friendAttendees?: Attendee[];
-  totalCount: number;
-  onProfileClick: (id: number) => void;
-  maxDisplay?: number;
-}> = ({ attendees = [], friendAttendees = [], totalCount, onProfileClick, maxDisplay = 3 }) => {
-  
-  // Use friend attendees first if available
-  const displayAttendees = friendAttendees.length > 0 ? friendAttendees : attendees;
-  const displayCount = Math.min(displayAttendees.length, maxDisplay);
-  const remainingCount = totalCount - displayCount;
-
-  if (totalCount === 0) return null;
-
-  return (
-    <div className="flex items-center gap-2">
-      {/* Avatar stack */}
-      <div className="flex -space-x-2">
-        {displayAttendees.slice(0, maxDisplay).map((attendee, index) => (
-          <button
-            key={attendee.id}
-            onClick={(e) => {
-              e.stopPropagation();
-              onProfileClick(attendee.id);
-            }}
-            className="relative hover:z-10 transition-transform hover:scale-110"
-            title={attendee.name}
-          >
-            <img
-              src={avatarFrom(attendee)}
-              alt={attendee.name}
-              className="w-8 h-8 rounded-full border-2 border-[#242526] object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                  attendee.name || "User"
-                )}&background=1877F2&color=fff&bold=true`;
-              }}
-            />
-            {attendee.is_friend && (
-              <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-[#45BD62] rounded-full border-2 border-[#242526] flex items-center justify-center">
-                <i className="fas fa-user-friends text-[8px] text-white"></i>
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Text */}
-      <div className="text-[#B0B3B8] text-xs">
-        {friendAttendees.length > 0 ? (
-          <>
-            <span className="text-[#E4E6EB] font-semibold">{friendAttendees.length}</span> friend
-            {friendAttendees.length !== 1 ? 's' : ''} going
-            {remainingCount > 0 && (
-              <> +{remainingCount} other{remainingCount !== 1 ? 's' : ''}</>
-            )}
-          </>
-        ) : (
-          <>
-            <span className="text-[#E4E6EB] font-semibold">{totalCount}</span> going
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // ========== EVENT CARD ==========
 const EventCard: React.FC<{
   event: EventFromAPI;
@@ -344,7 +252,6 @@ const EventCard: React.FC<{
   const [interestedCount, setInterestedCount] = useState(event?.interested_count || 0);
   const [loading, setLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const [showAttendees, setShowAttendees] = useState(false);
 
   useEffect(() => {
     if (event) {
@@ -515,14 +422,29 @@ const EventCard: React.FC<{
 
           {/* Attendee avatars - positioned on the right */}
           {attendeesCount > 0 && (
-            <div onClick={(e) => e.stopPropagation()}>
-              <AttendeeAvatars
-                attendees={event.attendees}
-                friendAttendees={event.friend_attendees}
-                totalCount={attendeesCount}
-                onProfileClick={onProfileClick}
-                maxDisplay={2}
-              />
+            <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1">
+              <div className="flex -space-x-2">
+                {event.friend_attendees?.slice(0, 2).map((attendee) => (
+                  <button
+                    key={attendee.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onProfileClick(attendee.id);
+                    }}
+                    className="relative hover:z-10 transition-transform hover:scale-110"
+                    title={attendee.name}
+                  >
+                    <img
+                      src={avatarFrom(attendee)}
+                      alt={attendee.name}
+                      className="w-6 h-6 rounded-full border-2 border-[#242526] object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+              <span className="text-[#B0B3B8] text-xs">
+                {attendeesCount}
+              </span>
             </div>
           )}
         </div>
@@ -598,19 +520,6 @@ const EventCard: React.FC<{
             )}
           </button>
         </div>
-
-        {/* Mobile attendee info (shown only if not shown in header) */}
-        {attendeesCount > 0 && window.innerWidth < 768 && (
-          <div className="mt-3 pt-3 border-t border-[#3E4042]" onClick={(e) => e.stopPropagation()}>
-            <AttendeeAvatars
-              attendees={event.attendees}
-              friendAttendees={event.friend_attendees}
-              totalCount={attendeesCount}
-              onProfileClick={onProfileClick}
-              maxDisplay={3}
-            />
-          </div>
-        )}
       </div>
     </div>
   );
@@ -622,7 +531,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   onProfileClick,
   onEventClick,
   onCreateEventClick,
-  onNavigateBack, // Added for back navigation
+  onNavigateBack,
 }) => {
   const [events, setEvents] = useState<EventFromAPI[]>([]);
   const [loading, setLoading] = useState(true);
@@ -634,12 +543,8 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
 
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-
-  const [stats, setStats] = useState({ total: 0, upcoming: 0, today: 0, thisWeek: 0 });
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -714,8 +619,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         
         setHasMore(!!data?.has_more || newEvents.length === 12);
 
-        if (data?.stats) setStats(data.stats);
-
         if (reset) setPage(1);
       } catch (e: any) {
         if (reqId !== reqIdRef.current) return;
@@ -744,7 +647,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
                 user_rsvp_status: newStatus, 
                 attendees_count: newAtt, 
                 interested_count: newInt,
-                // If current user is going/interested, add them to the attendees list optimistically
                 attendees: newStatus === "going" && currentUser
                   ? [
                       ...(e.attendees || []),
@@ -849,7 +751,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
   return (
     <div className="min-h-screen bg-[#18191A] font-sans">
-      {/* Header */}
+      {/* Header - Stats section completely removed */}
       <div className="sticky top-0 z-50 bg-[#242526] border-b border-[#3E4042] backdrop-blur-lg bg-opacity-90">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -872,14 +774,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
                 <span>Create Event</span>
               </button>
             )}
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-            <StatsCard icon="calendar" label="Total Events" value={stats.total} color="#1877F2" />
-            <StatsCard icon="arrow-right" label="Upcoming" value={stats.upcoming} color="#45BD62" />
-            <StatsCard icon="sun" label="Today" value={stats.today} color="#F7B928" />
-            <StatsCard icon="calendar-week" label="This Week" value={stats.thisWeek} color="#F02849" />
           </div>
         </div>
       </div>
@@ -940,29 +834,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
                 ))}
               </div>
             </div>
-
-            <div className="flex gap-1">
-              <button
-                onClick={() => setViewMode("grid")}
-                className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                  viewMode === "grid" ? "bg-[#1877F2] text-white" : "text-[#B0B3B8] hover:bg-[#3A3B3C]"
-                }`}
-              >
-                <i className="fas fa-th"></i>
-              </button>
-              <button
-                onClick={() => setViewMode("list")}
-                className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                  viewMode === "list" ? "bg-[#1877F2] text-white" : "text-[#B0B3B8] hover:bg-[#3A3B3C]"
-                }`}
-              >
-                <i className="fas fa-list"></i>
-              </button>
-            </div>
           </div>
         </div>
 
-        {/* Body */}
+        {/* Body - Grid view preserved */}
         {error ? (
           <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
             <i className="fas fa-exclamation-triangle text-[#F02849] text-4xl mb-3"></i>
@@ -998,13 +873,8 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         ) : (
           <>
-            <div
-              className={
-                viewMode === "grid"
-                  ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-                  : "space-y-4"
-              }
-            >
+            {/* Grid layout preserved */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {events.map((event) => (
                 <div key={event.event_key || `event:${event.id}`}>
                   <EventCard
@@ -1057,4 +927,4 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 };
 
 // Export all components
-export { EventCard, FilterChip, StatsCard, AttendeeAvatars };
+export { EventCard, FilterChip, AttendeeAvatars };
