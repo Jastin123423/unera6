@@ -1,504 +1,942 @@
-// EventsPage.tsx - Updated with API integration
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, Event } from '../types';
 
-// --- HELPER FUNCTIONS ---
-const linkify = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    return text.split(urlRegex).map((part, i) => {
-        if (part.match(urlRegex)) {
-            return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-[#1877F2] hover:underline" onClick={e => e.stopPropagation()}>{part}</a>;
-        }
-        return part;
-    });
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { User } from "../types";
+
+// ========== API HELPERS ==========
+const authHeaders = () => {
+  const token = localStorage.getItem("unera_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const shuffleArray = (array: any[]) => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-};
-
-// --- NORMALIZATION HELPER ---
-const safeArr = (v: any): number[] => (Array.isArray(v) ? v.map(Number) : []);
-
-const normalizeEvent = (e: any) => {
-  const dateStr = e?.event_date ?? e?.date ?? "";
-  return {
-    ...e,
-    // ID safety
-    id: Number(e?.id ?? 0),
-
-    // unify date
-    date: dateStr,
-
-    // unify image
-    image: e?.cover_url ?? e?.image ?? e?.cover_image ?? "",
-
-    // unify attendance arrays
-    attendees: safeArr(e?.attendees ?? e?.attendee_ids),
-    interestedIds: safeArr(e?.interestedIds ?? e?.interested_ids),
-
-    // unify organizer
-    organizerId: Number(e?.organizerId ?? e?.creator_id ?? e?.user_id ?? 0),
-
-    // fallback fields used in UI
-    time: e?.time ?? e?.event_time ?? "",
-    location: e?.location ?? "",
-    title: e?.title ?? "Untitled event",
-    description: e?.description ?? "",
-    visibility: e?.visibility ?? "worldwide",
-  };
-};
-
-interface EventsPageProps { 
-    events: Event[]; 
-    currentUser: User | null; 
-    onJoinEvent: (eventId: number) => Promise<void>; 
-    onInterestedEvent: (eventId: number) => Promise<void>;
-    onCreateEventClick: () => void; 
-    onProfileClick: (id: number) => void;
-    onFollow: (id: number) => Promise<void>;
-    checkIsFollowing: (id: number) => boolean;
+async function safeJson(res: Response) {
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return res.json();
+  const txt = await res.text();
+  try {
+    return JSON.parse(txt);
+  } catch {
+    return { raw: txt };
+  }
 }
 
-const CompactEventCard: React.FC<{ 
-    event: any, // Changed to any to accept normalized events
-    currentUser: User | null, 
-    onClick: () => void,
-    onJoin: (e: React.MouseEvent) => void,
-    onInterested: (e: React.MouseEvent) => void,
-    isWide?: boolean
-}> = ({ event, currentUser, onClick, onJoin, onInterested, isWide }) => {
-    // Safe date parsing
-    const date = new Date(event.date || event.event_date || event.created_at || Date.now());
-    
-    // Safe array access
-    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
-    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
-    
-    const isAttending = currentUser && attendees.includes(currentUser.id);
-    const isInterested = currentUser && interestedIds.includes(currentUser.id);
-
-    return (
-        <div 
-            onClick={onClick}
-            className={`bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] flex flex-col hover:bg-[#3A3B3C] transition-all cursor-pointer shadow-md group ${isWide ? 'w-[260px] shrink-0' : 'w-full'}`}
-        >
-            <div className="h-32 relative overflow-hidden">
-                <img src={event.image || ''} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
-                <div className="absolute top-2 left-2 bg-white/95 text-black rounded-lg px-2 py-1 text-center shadow-lg min-w-[36px]">
-                    <div className="text-[8px] font-black uppercase text-[#1877F2] leading-none">{date.toLocaleString('default', { month: 'short' })}</div>
-                    <div className="text-[14px] font-black leading-tight">{date.getDate()}</div>
-                </div>
-                {event.visibility === 'targeted' && (
-                    <div className="absolute top-2 right-2 bg-[#45BD62] text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg uppercase tracking-tighter">
-                        Local
-                    </div>
-                )}
-            </div>
-            
-            <div className="p-3 flex flex-col flex-1">
-                <h3 className="text-[14px] font-bold text-[#E4E6EB] line-clamp-1 mb-1 leading-tight group-hover:text-[#1877F2] transition-colors">{event.title}</h3>
-                <p className="text-[11px] text-[#B0B3B8] font-medium truncate mb-1">
-                    {date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} • {event.time}
-                </p>
-                <div className="flex items-center gap-1 text-[10px] font-bold text-[#B0B3B8] mb-3">
-                    <i className="fas fa-users text-[#45BD62] text-[9px]"></i>
-                    <span>{attendees.length} going • {interestedIds.length} interested</span>
-                </div>
-
-                <div className="mt-auto flex gap-1.5">
-                    <button 
-                        onClick={onInterested}
-                        disabled={!!isAttending}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1 border ${
-                            isInterested 
-                            ? 'bg-[#FAB400]/20 text-[#FAB400] border-[#FAB400]/30' 
-                            : isAttending 
-                                ? 'opacity-30 cursor-not-allowed' 
-                                : 'bg-[#3A3B3C] text-[#E4E6EB] border-transparent hover:bg-[#4E4F50]'
-                        }`}
-                    >
-                        <i className={`${isInterested ? 'fas' : 'far'} fa-star text-[9px]`}></i>
-                        <span>Interested</span>
-                    </button>
-                    <button 
-                        onClick={onJoin}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1 shadow-md ${
-                            isAttending 
-                            ? 'bg-[#45BD62] text-white' 
-                            : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                        }`}
-                    >
-                        <i className={`fas ${isAttending ? 'fa-check' : 'fa-plus'} text-[9px]`}></i>
-                        <span>{isAttending ? 'Going' : 'Going'}</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
+const postJSON = async (url: string, body: any) => {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = await safeJson(res);
+  if (!res.ok || (data && data.success === false)) {
+    throw new Error(data?.error || data?.message || `Request failed: ${url}`);
+  }
+  return data;
 };
 
-const EventDetailsModal: React.FC<{ 
-    event: any, // Changed to any to accept normalized events
-    currentUser: User | null, 
-    onClose: () => void, 
-    onJoin: () => void, 
-    onInterested: () => void,
-    onProfileClick: (id: number) => void 
-}> = ({ event, currentUser, onClose, onJoin, onInterested, onProfileClick }) => {
-    // Safe date parsing
-    const date = new Date(event.date || event.event_date || event.created_at || Date.now());
-    
-    // Safe array access
-    const attendees = Array.isArray(event.attendees) ? event.attendees : [];
-    const interestedIds = Array.isArray(event.interestedIds) ? event.interestedIds : [];
-    
-    const isAttending = currentUser && attendees.includes(currentUser.id);
-    const isInterested = currentUser && interestedIds.includes(currentUser.id);
+// ========== RSVP HELPER ==========
+type RSVPStatus = "going" | "interested" | "not_going";
 
-    return (
-        <div className="fixed inset-0 z-[600] bg-black/90 flex items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-md" onClick={onClose}>
-            <div className="bg-[#242526] w-full max-w-[700px] h-full sm:h-auto sm:max-h-[90vh] sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl border border-[#3E4042]" onClick={e => e.stopPropagation()}>
-                <div className="relative h-[250px] sm:h-[350px] shrink-0">
-                    <img src={event.image || ''} className="w-full h-full object-cover" alt="" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#242526] via-transparent to-transparent"></div>
-                    <button onClick={onClose} className="absolute top-4 right-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-all border border-white/10">
-                        <i className="fas fa-times"></i>
-                    </button>
-                </div>
-
-                <div className="p-6 overflow-y-auto flex-1">
-                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6">
-                        <div>
-                            <p className="text-[#F3425F] font-black uppercase text-sm tracking-widest mb-1">
-                                {date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                            </p>
-                            <h2 className="text-3xl font-black text-white leading-tight">{event.title}</h2>
-                            <div className="flex items-center gap-2 text-[#B0B3B8] font-bold mt-2">
-                                <i className="fas fa-location-dot text-[#1877F2]"></i>
-                                <span>{event.location}</span>
-                            </div>
-                        </div>
-                        <div className="flex gap-2 w-full sm:w-auto">
-                            <button 
-                                onClick={onInterested}
-                                disabled={!!isAttending}
-                                className={`flex-1 sm:px-6 py-2.5 rounded-xl font-black text-[15px] transition-all flex items-center justify-center gap-2 ${
-                                    isInterested 
-                                    ? 'bg-[#FAB400]/20 text-[#FAB400] border border-[#FAB400]/30' 
-                                    : isAttending ? 'opacity-30 cursor-not-allowed' : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                                }`}
-                            >
-                                <i className={`${isInterested ? 'fas' : 'far'} fa-star`}></i>
-                                <span>Interested</span>
-                            </button>
-                            <button 
-                                onClick={onJoin}
-                                className={`flex-1 sm:px-8 py-2.5 rounded-xl font-black text-[15px] transition-all flex items-center justify-center gap-2 shadow-lg ${
-                                    isAttending 
-                                    ? 'bg-[#45BD62] text-white' 
-                                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                                }`}
-                            >
-                                <i className={`fas ${isAttending ? 'fa-check' : 'fa-plus'}`}></i>
-                                <span>{isAttending ? 'Going' : 'Going'}</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="md:col-span-2 space-y-6">
-                            <div>
-                                <h3 className="text-white font-black uppercase text-xs tracking-widest mb-3 pb-2 border-b border-[#3E4042] w-fit pr-8">Description</h3>
-                                <p className="text-[#E4E6EB] text-[16px] leading-relaxed whitespace-pre-wrap">
-                                    {event.description ? linkify(event.description) : 'No description provided for this event.'}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="space-y-6">
-                            <div className="bg-[#18191A] p-4 rounded-xl border border-[#3E4042]">
-                                <h4 className="text-xs font-black text-[#B0B3B8] uppercase tracking-widest mb-4">Event Details</h4>
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-clock text-[#1877F2]"></i></div>
-                                        <div>
-                                            <p className="text-white text-sm font-bold">{event.time}</p>
-                                            <p className="text-[10px] text-[#B0B3B8] font-bold">Standard Time</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-users text-[#45BD62]"></i></div>
-                                        <div>
-                                            <p className="text-white text-sm font-bold">{attendees.length} Attendees</p>
-                                            <p className="text-[10px] text-[#B0B3B8] font-bold">{interestedIds.length} interested</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] flex items-center justify-center"><i className="fas fa-globe text-[#A033FF]"></i></div>
-                                        <div>
-                                            <p className="text-white text-sm font-bold capitalize">{event.visibility || 'Worldwide'}</p>
-                                            <p className="text-[10px] text-[#B0B3B8] font-bold">Visibility Scope</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const EventsPage: React.FC<EventsPageProps> = ({ 
-    events, 
-    currentUser, 
-    onJoinEvent, 
-    onInterestedEvent, 
-    onCreateEventClick,
-    onProfileClick,
-    onFollow,
-    checkIsFollowing 
+const rsvpEventDirect = async (args: {
+  eventId: number;
+  userId: number;
+  newStatus: RSVPStatus;
+  prevStatus?: "" | "going" | "interested";
 }) => {
-    const [selectedCategory, setSelectedCategory] = useState('All');
-    const [selectedEvent, setSelectedEvent] = useState<any | null>(null); // Changed to any
-    const [shuffledEvents, setShuffledEvents] = useState<any[]>([]); // Changed to any[]
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    
-    const categories = ['All', 'Discover', 'Hosting', 'Upcoming'];
+  const { eventId, userId, newStatus, prevStatus = "" } = args;
 
-    // Normalize events
-    const safeEvents = useMemo(() => {
-        const list = Array.isArray(events) ? events : [];
-        return list.map(normalizeEvent);
-    }, [events]);
+  const endpoint =
+    newStatus === "going"
+      ? "/api/attend"
+      : newStatus === "interested"
+        ? "/api/interested"
+        : prevStatus === "interested"
+          ? "/api/interested"
+          : "/api/attend";
 
-    // Filter logic with normalized events
-    const filteredEvents = useMemo(() => {
-        let visible = safeEvents.filter(event => {
-            if (!event.visibility || event.visibility === 'worldwide') return true;
-            if (event.visibility === 'targeted') {
-                if (!currentUser) return false;
-                const userLoc = currentUser.location?.toLowerCase() || '';
-                const eventLoc = event.location?.toLowerCase() || '';
-                const userRegion = userLoc.split(',').pop()?.trim() || userLoc;
-                const eventRegion = eventLoc.split(',').pop()?.trim() || eventLoc;
-                return userLoc.includes(eventRegion) || eventLoc.includes(userRegion) || userRegion === eventRegion;
-            }
-            return true;
+  const payloadStatus = { event_id: eventId, user_id: userId, status: newStatus };
+
+  try {
+    return await postJSON(endpoint, payloadStatus);
+  } catch (e1: any) {
+    const payloadAction = {
+      event_id: eventId,
+      user_id: userId,
+      action: newStatus === "not_going" ? "remove" : "add",
+    };
+    try {
+      return await postJSON(endpoint, payloadAction);
+    } catch (e2: any) {
+      throw new Error(e2?.message || e1?.message || "RSVP failed");
+    }
+  }
+};
+
+// ========== AVATAR HELPER ==========
+const avatarFrom = (u: any) => {
+  if (!u) return `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
+  
+  const img = String(
+    u?.profile_image_url ??
+      u?.profileImage ??
+      u?.avatar ??
+      u?.author_image ??
+      u?.authorImage ??
+      u?.image ??
+      u?.picture ??
+      ""
+  ).trim();
+
+  if (img && img !== "null" && img !== "undefined") return img;
+
+  const label =
+    String(u?.name ?? "").trim() ||
+    String(u?.username ?? "").trim() ||
+    String(u?.author_name ?? "").trim() ||
+    String(u?.author_username ?? "").trim() ||
+    "User";
+
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    label
+  )}&background=1877F2&color=fff&bold=true`;
+};
+
+// ========== DATE HELPERS ==========
+const toDateSafe = (input: any): Date | null => {
+  if (!input) return null;
+  if (input instanceof Date && Number.isFinite(input.getTime())) return input;
+
+  if (typeof input === "number") {
+    const ms = input < 1e12 ? input * 1000 : input;
+    const d = new Date(ms);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+
+  if (typeof input === "string") {
+    const s = input.trim();
+
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
+      const iso = s.replace(" ", "T") + "Z";
+      const d = new Date(iso);
+      return Number.isFinite(d.getTime()) ? d : null;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const d = new Date(s + "T00:00:00");
+      return Number.isFinite(d.getTime()) ? d : null;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
+      const d = new Date(s + "Z");
+      return Number.isFinite(d.getTime()) ? d : null;
+    }
+
+    const d = new Date(s);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+
+  return null;
+};
+
+const formatRelativeTime = (dateInput: any): string => {
+  const d = toDateSafe(dateInput);
+  if (!d) return "Just now";
+
+  const now = Date.now();
+  let diffMs = now - d.getTime();
+  if (diffMs < 0) diffMs = 0;
+
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return "Just now";
+
+  const min = Math.floor(sec / 60);
+  if (min < 60) return min === 1 ? "1 min" : `${min} mins`;
+
+  const hrs = Math.floor(min / 60);
+  if (hrs < 24) return hrs === 1 ? "1 hr" : `${hrs} hrs`;
+
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return days === 1 ? "1 day" : `${days} days`;
+
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) return weeks === 1 ? "1 week" : `${weeks} weeks`;
+
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? "1 month" : `${months} months`;
+
+  const years = Math.floor(days / 365);
+  return years === 1 ? "1 year" : `${years} years`;
+};
+
+// ========== TYPES ==========
+type EventFilter = "all" | "upcoming" | "past" | "today" | "this-week" | "this-month";
+type EventSort = "date" | "popular" | "trending";
+
+interface Attendee {
+  id: number;
+  name: string;
+  username?: string;
+  profile_image_url?: string | null;
+  is_friend?: boolean; // Whether this attendee is a friend of current user
+}
+
+interface EventFromAPI {
+  event_key?: string;
+  id: number;
+  creator_id: number;
+  title: string;
+  description?: string;
+  event_date: string;
+  location?: string;
+  cover_url?: string;
+  visibility: "worldwide" | "targeted";
+  group_id?: number | null;
+  created_at: string;
+  attendees_count: number;
+  interested_count: number;
+  user_rsvp_status?: "" | "going" | "interested";
+  
+  // New fields for attendee information
+  attendees?: Attendee[];
+  friend_attendees?: Attendee[]; // Subset of attendees that are friends
+  interested?: Attendee[];
+  
+  creator?: {
+    id: number;
+    name: string;
+    username?: string;
+    profile_image_url?: string | null;
+  };
+}
+
+interface AllEventsProps {
+  currentUser: User | null;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onEventClick: (eventId: number) => void;
+  onCreateEventClick?: () => void;
+  onNavigateBack?: () => void; // Added for back navigation
+}
+
+// ========== FILTER CHIP ==========
+const FilterChip: React.FC<{
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  icon?: string;
+}> = ({ label, active, onClick, icon }) => (
+  <button
+    onClick={onClick}
+    className={`
+      px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200
+      flex items-center gap-2 whitespace-nowrap
+      ${active
+        ? "bg-[#1877F2] text-white shadow-lg shadow-[#1877F2]/20"
+        : "bg-[#3A3B3C] text-[#B0B3B8] hover:bg-[#4E4F50] hover:text-[#E4E6EB]"
+      }
+    `}
+  >
+    {icon && <i className={`fas fa-${icon} text-sm`}></i>}
+    {label}
+  </button>
+);
+
+// ========== EVENT CARD ==========
+const EventCard: React.FC<{
+  event: EventFromAPI;
+  currentUser: User | null;
+  onEventClick: (id: number) => void;
+  onProfileClick: (id: number) => void;
+  onRSVPUpdate?: (eventId: number, newStatus: "" | "going" | "interested", newAtt: number, newInt: number) => void;
+}> = ({ event, currentUser, onEventClick, onProfileClick, onRSVPUpdate }) => {
+  const [rsvpStatus, setRsvpStatus] = useState<"" | "going" | "interested">(event?.user_rsvp_status || "");
+  const [attendeesCount, setAttendeesCount] = useState(event?.attendees_count || 0);
+  const [interestedCount, setInterestedCount] = useState(event?.interested_count || 0);
+  const [loading, setLoading] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    if (event) {
+      setRsvpStatus(event.user_rsvp_status || "");
+      setAttendeesCount(event.attendees_count || 0);
+      setInterestedCount(event.interested_count || 0);
+    }
+  }, [event]);
+
+  if (!event) return null;
+
+  const dateObj = toDateSafe(event.event_date);
+  const nowLocal = new Date();
+
+  const isPast = !!dateObj && dateObj < nowLocal;
+  const isToday = !!dateObj && dateObj.toDateString() === nowLocal.toDateString();
+
+  const isTomorrow = (() => {
+    if (!dateObj) return false;
+    const t = new Date(dateObj.getTime());
+    t.setDate(t.getDate() + 1);
+    return t.toDateString() === nowLocal.toDateString();
+  })();
+
+  const formatEventDate = () => {
+    if (!dateObj) return "Date TBD";
+    if (isToday) return "Today";
+    if (isTomorrow) return "Tomorrow";
+    return dateObj.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  };
+
+  const formatEventTime = () => {
+    if (!dateObj) return "";
+    return dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  };
+
+  const creator = event.creator || {
+    id: event.creator_id,
+    name: "Event Organizer",
+    username: "",
+    profile_image_url: null,
+  };
+
+  const handleRSVPClick = async (status: "going" | "interested") => {
+    if (!currentUser) {
+      alert("Please login to RSVP");
+      return;
+    }
+
+    setLoading(true);
+
+    const prevStatus = rsvpStatus;
+    const nextStatus: "" | "going" | "interested" = prevStatus === status ? "" : status;
+
+    const prevAtt = attendeesCount;
+    const prevInt = interestedCount;
+
+    let nextAtt = prevAtt;
+    let nextInt = prevInt;
+
+    if (status === "going") {
+      if (prevStatus === "going") nextAtt = Math.max(0, prevAtt - 1);
+      else if (prevStatus === "interested") {
+        nextAtt = prevAtt + 1;
+        nextInt = Math.max(0, prevInt - 1);
+      } else nextAtt = prevAtt + 1;
+    } else {
+      if (prevStatus === "interested") nextInt = Math.max(0, prevInt - 1);
+      else if (prevStatus === "going") {
+        nextInt = prevInt + 1;
+        nextAtt = Math.max(0, prevAtt - 1);
+      } else nextInt = prevInt + 1;
+    }
+
+    setRsvpStatus(nextStatus);
+    setAttendeesCount(nextAtt);
+    setInterestedCount(nextInt);
+
+    try {
+      await rsvpEventDirect({
+        eventId: event.id,
+        userId: currentUser.id,
+        newStatus: (nextStatus || "not_going") as RSVPStatus,
+        prevStatus: prevStatus as any,
+      });
+
+      onRSVPUpdate?.(event.id, nextStatus, nextAtt, nextInt);
+    } catch (err) {
+      setRsvpStatus(prevStatus);
+      setAttendeesCount(prevAtt);
+      setInterestedCount(prevInt);
+      console.error("RSVP failed:", err);
+      alert("Failed to RSVP. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group"
+      onClick={() => onEventClick(event.id)}
+    >
+      {/* Cover */}
+      <div className="relative h-40 overflow-hidden">
+        {event.cover_url && !imageError ? (
+          <img
+            src={event.cover_url}
+            alt={event.title}
+            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex items-center justify-center">
+            <i className="fas fa-calendar text-white/30 text-6xl"></i>
+          </div>
+        )}
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+
+        <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/20">
+          <div className="text-[#F7B928] text-[11px] font-black uppercase">
+            {dateObj?.toLocaleDateString("en-US", { month: "short" })}
+          </div>
+          <div className="text-white text-[24px] font-black leading-tight">
+            {dateObj?.getDate()}
+          </div>
+        </div>
+
+        {isPast ? (
+          <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1 border border-white/20">
+            <span className="text-[#B0B3B8] text-xs font-semibold">Past Event</span>
+          </div>
+        ) : (
+          <div className="absolute top-3 right-3 bg-[#45BD62]/90 backdrop-blur-sm rounded-full px-3 py-1">
+            <span className="text-white text-xs font-semibold">Upcoming</span>
+          </div>
+        )}
+      </div>
+
+      {/* Details */}
+      <div className="p-3">
+        {/* Creator row */}
+        <div
+          className="flex items-center justify-between mb-2"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => {
+              if (creator?.id) onProfileClick(creator.id);
+            }}
+          >
+            <img
+              src={avatarFrom(creator)}
+              alt=""
+              className="w-5 h-5 rounded-full object-cover border border-[#3E4042]"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
+              }}
+            />
+            <span className="text-[#B0B3B8] text-xs hover:underline">
+              {creator?.name || "Event Organizer"}
+            </span>
+            <span className="text-[#3E4042] text-xs">•</span>
+            <span className="text-[#B0B3B8] text-xs">{formatRelativeTime(event.created_at)}</span>
+          </div>
+
+          {/* Attendee avatars - positioned on the right */}
+          {attendeesCount > 0 && (
+            <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1">
+              <div className="flex -space-x-2">
+                {event.friend_attendees?.slice(0, 2).map((attendee) => (
+                  <button
+                    key={attendee.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onProfileClick(attendee.id);
+                    }}
+                    className="relative hover:z-10 transition-transform hover:scale-110"
+                    title={attendee.name}
+                  >
+                    <img
+                      src={avatarFrom(attendee)}
+                      alt={attendee.name}
+                      className="w-5 h-5 rounded-full border-2 border-[#242526] object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+              <span className="text-[#B0B3B8] text-xs">
+                {attendeesCount}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <h3 className="text-[#E4E6EB] font-black text-[16px] mb-1 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
+          {event.title}
+        </h3>
+
+        {event.description && (
+          <p className="text-[#B0B3B8] text-xs mb-2 line-clamp-2">{event.description}</p>
+        )}
+
+        <div className="space-y-1 mb-3">
+          <div className="flex items-center gap-2 text-[#B0B3B8] text-xs">
+            <i className={`fas fa-calendar-alt w-4 ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
+            <span>
+              {formatEventDate()}
+              {formatEventTime() && ` at ${formatEventTime()}`}
+            </span>
+          </div>
+
+          {event.location && (
+            <div className="flex items-center gap-2 text-[#B0B3B8] text-xs">
+              <i className="fas fa-map-marker-alt w-4 text-[#F02849]"></i>
+              <span className="line-clamp-1">{event.location}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-2">
+          <button
+            disabled={loading || isPast}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRSVPClick("going");
+            }}
+            className={`
+              flex-1 py-2 rounded-lg font-bold text-xs transition-all duration-200
+              ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+              ${rsvpStatus === "going"
+                ? "bg-[#45BD62] text-white hover:bg-[#3da855]"
+                : "bg-[#1877F2] text-white hover:bg-[#166FE5] hover:shadow-lg hover:shadow-[#1877F2]/20"
+              }
+            `}
+          >
+            {loading && rsvpStatus === "going" ? (
+              <i className="fas fa-spinner fa-spin"></i>
+            ) : (
+              rsvpStatus === "going" ? "✓ Going" : "Going"
+            )}
+          </button>
+
+          <button
+            disabled={loading || isPast}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRSVPClick("interested");
+            }}
+            className={`
+              flex-1 py-2 rounded-lg font-bold text-xs transition-all duration-200
+              ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+              ${rsvpStatus === "interested"
+                ? "bg-[#F7B928] text-black hover:bg-[#e5aa24]"
+                : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+              }
+            `}
+          >
+            {loading && rsvpStatus === "interested" ? (
+              <i className="fas fa-spinner fa-spin"></i>
+            ) : (
+              rsvpStatus === "interested" ? "✓ Interested" : "Interested"
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ========== MAIN PAGE ==========
+export const AllEvents: React.FC<AllEventsProps> = ({
+  currentUser,
+  onProfileClick,
+  onEventClick,
+  onCreateEventClick,
+  onNavigateBack,
+}) => {
+  const [events, setEvents] = useState<EventFromAPI[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // CHANGED: Default filter from "upcoming" to "all"
+  const [filter, setFilter] = useState<EventFilter>("all");
+  // CHANGED: Default sort from "date" to "trending" (or you can use "date" with a note)
+  const [sort, setSort] = useState<EventSort>("date");
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const fetchingMoreRef = useRef(false);
+  const loadingRef = useRef(false);
+  const reqIdRef = useRef(0);
+  const didInitRef = useRef(false);
+  const prevUserIdRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const fetchEvents = useCallback(
+    async (reset = false, nextPage?: number) => {
+      const reqId = ++reqIdRef.current;
+
+      const pageToLoad = typeof nextPage === "number" ? nextPage : reset ? 1 : page;
+      
+      if (!reset) {
+        if (fetchingMoreRef.current) return;
+        fetchingMoreRef.current = true;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const params = new URLSearchParams({
+          page: String(pageToLoad),
+          limit: "12",
+          filter,
+          sort,
         });
 
-        if (selectedCategory === 'Hosting' && currentUser) {
-            return visible.filter(e => e.organizerId === currentUser.id);
-        }
-        if (selectedCategory === 'Upcoming' && currentUser) {
-            return visible.filter(e =>
-                e.attendees.includes(currentUser.id) ||
-                e.interestedIds.includes(currentUser.id)
-            );
-        }
-        return visible;
-    }, [safeEvents, selectedCategory, currentUser]);
-
-    // Shuffle only on category change to create the "rotating" feel
-    useEffect(() => {
-        setShuffledEvents(shuffleArray(filteredEvents));
-    }, [filteredEvents]);
-
-    // Split events into chunks for alternating layout
-    const alternatingChunks = useMemo(() => {
-        const chunks = [];
-        let i = 0;
-        let isGrid = true;
+        if (debouncedQ) params.set("q", debouncedQ);
+        if (currentUser?.id) params.set("user_id", String(currentUser.id));
         
-        while (i < shuffledEvents.length) {
-            const count = isGrid ? 4 : 4;
-            chunks.push({
-                type: isGrid ? 'grid' : 'slider',
-                items: shuffledEvents.slice(i, i + count)
-            });
-            i += count;
-            isGrid = !isGrid;
-        }
-        return chunks;
-    }, [shuffledEvents]);
+        // Request attendee information
+        params.set("include_attendees", "true");
+        params.set("include_friends", "true");
 
-    const handleJoinEvent = async (e: React.MouseEvent, eventId: number) => {
-        e.stopPropagation();
-        if (!currentUser) return;
+        const res = await fetch(`/api/events_feeds?${params.toString()}`, {
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+        });
+
+        if (res.status === 401) {
+          setHasMore(false);
+          throw new Error("Session expired. Please login again.");
+        }
+
+        const data = await safeJson(res);
+        if (reqId !== reqIdRef.current) return;
+
+        if (!res.ok || data?.success === false) {
+          throw new Error(data?.error || data?.message || "Failed to fetch events");
+        }
+
+        const newEvents: EventFromAPI[] = (data?.events || []) as any;
+
+        // CHANGED: Sort events from new to old (descending by event_date)
+        const sortedEvents = [...newEvents].sort((a, b) => {
+          const dateA = toDateSafe(a.event_date);
+          const dateB = toDateSafe(b.event_date);
+          if (!dateA && !dateB) return 0;
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          return dateB.getTime() - dateA.getTime(); // Descending (newest first)
+        });
+
+        setEvents((prev) => {
+          if (reset) return sortedEvents;
+          const existingIds = new Set(prev.map(e => e.id));
+          const uniqueNewEvents = sortedEvents.filter(e => !existingIds.has(e.id));
+          return [...prev, ...uniqueNewEvents];
+        });
         
-        setLoading(true);
-        try {
-            await onJoinEvent(eventId);
-        } catch (err: any) {
-            setError(err.message || 'Failed to join event');
-        } finally {
-            setLoading(false);
+        setHasMore(!!data?.has_more || newEvents.length === 12);
+
+        if (reset) setPage(1);
+      } catch (e: any) {
+        if (reqId !== reqIdRef.current) return;
+        setError(e?.message || "Failed to load events");
+      } finally {
+        if (reqId === reqIdRef.current) {
+          setLoading(false);
+          if (!reset) {
+            setTimeout(() => {
+              fetchingMoreRef.current = false;
+            }, 100);
+          }
         }
-    };
+      }
+    },
+    [page, filter, sort, debouncedQ, currentUser?.id]
+  );
 
-    const handleInterestedEvent = async (e: React.MouseEvent, eventId: number) => {
-        e.stopPropagation();
-        if (!currentUser) return;
-        
-        setLoading(true);
-        try {
-            await onInterestedEvent(eventId);
-        } catch (err: any) {
-            setError(err.message || 'Failed to mark interest');
-        } finally {
-            setLoading(false);
-        }
-    };
+  const handleRSVPUpdate = useCallback(
+    (eventId: number, newStatus: "" | "going" | "interested", newAtt: number, newInt: number) => {
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === eventId
+            ? { 
+                ...e, 
+                user_rsvp_status: newStatus, 
+                attendees_count: newAtt, 
+                interested_count: newInt,
+                attendees: newStatus === "going" && currentUser
+                  ? [
+                      ...(e.attendees || []),
+                      {
+                        id: currentUser.id,
+                        name: currentUser.name || "You",
+                        username: currentUser.username,
+                        profile_image_url: currentUser.profile_image_url,
+                        is_friend: true
+                      }
+                    ]
+                  : e.attendees?.filter(a => a.id !== currentUser?.id)
+              }
+            : e
+        )
+      );
+    },
+    [currentUser]
+  );
 
-    return (
-        <div className="w-full max-w-[1000px] mx-auto p-4 font-sans pb-24 animate-fade-in">
-            {/* Error Display */}
-            {error && (
-                <div className="mb-4 p-3 bg-red-500/20 border border-red-500/40 rounded-lg text-red-200 text-sm">
-                    <div className="flex items-center gap-2">
-                        <i className="fas fa-exclamation-triangle"></i>
-                        <span>{error}</span>
-                        <button 
-                            onClick={() => setError('')} 
-                            className="ml-auto text-xs hover:text-white"
-                        >
-                            <i className="fas fa-times"></i>
-                        </button>
-                    </div>
-                </div>
-            )}
+  // Initial fetch
+  useEffect(() => {
+    if (currentUser && !currentUser.id) return;
+    
+    const currentUserId = currentUser?.id;
+    if (prevUserIdRef.current === currentUserId && didInitRef.current) {
+      return;
+    }
+    
+    prevUserIdRef.current = currentUserId;
+    
+    if (didInitRef.current && prevUserIdRef.current === currentUserId) {
+      return;
+    }
 
-            {/* Loading Overlay */}
-            {loading && (
-                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
-                    <div className="bg-[#242526] p-6 rounded-xl border border-[#3E4042] flex items-center gap-3">
-                        <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span className="text-white font-medium">Processing...</span>
-                    </div>
-                </div>
-            )}
+    didInitRef.current = true;
+    setEvents([]);
+    setHasMore(true);
+    setPage(1);
+    fetchEvents(true, 1);
+  }, [currentUser?.id, fetchEvents]);
 
-            {/* Minimal Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-[#242526] p-6 rounded-2xl border border-[#3E4042] shadow-xl">
-                <div>
-                    <h1 className="text-3xl font-black text-[#E4E6EB]">Events</h1>
-                    <p className="text-[#B0B3B8] text-sm font-bold uppercase tracking-widest mt-1">Happening in your community</p>
-                </div>
-                {currentUser && (
-                    <button 
-                        onClick={onCreateEventClick}
-                        disabled={loading}
-                        className="bg-[#1877F2] hover:bg-[#166FE5] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-2xl font-black flex items-center gap-3 transition-all shadow-lg active:scale-95"
-                    >
-                        <i className="fas fa-calendar-plus text-xl"></i>
-                        <span>Create Event</span>
-                    </button>
-                )}
-            </div>
+  // Reset on filter/sort/search changes
+  useEffect(() => {
+    if (!didInitRef.current) return;
+    
+    setEvents([]);
+    setHasMore(true);
+    setPage(1);
+    fetchEvents(true, 1);
+  }, [filter, sort, debouncedQ, fetchEvents]);
 
-            {/* Filter Tabs */}
-            <div className="flex gap-2 mb-10 overflow-x-auto scrollbar-hide">
-                {categories.map(cat => (
-                    <button 
-                        key={cat}
-                        onClick={() => setSelectedCategory(cat)}
-                        disabled={loading}
-                        className={`px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest border transition-all ${
-                            selectedCategory === cat 
-                            ? 'bg-[#1877F2] border-[#1877F2] text-white shadow-lg' 
-                            : 'bg-[#242526] border-[#3E4042] text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                        } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                        {cat}
-                    </button>
-                ))}
-            </div>
+  // Observer
+  useEffect(() => {
+    if (!hasMore) return;
 
-            {shuffledEvents.length > 0 ? (
-                <div className="space-y-16">
-                    {alternatingChunks.map((chunk, idx) => (
-                        <div key={idx} className="animate-fade-in">
-                            {chunk.type === 'slider' ? (
-                                <div className="relative">
-                                    <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide">
-                                        {chunk.items.map((event: any) => (
-                                            <CompactEventCard 
-                                                key={event.id}
-                                                event={event}
-                                                currentUser={currentUser}
-                                                isWide={true}
-                                                onClick={() => setSelectedEvent(event)}
-                                                onJoin={(e) => handleJoinEvent(e, event.id)}
-                                                onInterested={(e) => handleInterestedEvent(e, event.id)}
-                                            />
-                                        ))}
-                                    </div>
-                                    <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-[#242526] rounded-full flex items-center justify-center shadow-lg border border-[#3E4042] hidden md:flex opacity-50"><i className="fas fa-chevron-left text-[10px]"></i></div>
-                                    <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-[#242526] rounded-full flex items-center justify-center shadow-lg border border-[#3E4042] hidden md:flex opacity-50"><i className="fas fa-chevron-right text-[10px]"></i></div>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    {chunk.items.map((event: any) => (
-                                        <CompactEventCard 
-                                            key={event.id}
-                                            event={event}
-                                            currentUser={currentUser}
-                                            onClick={() => setSelectedEvent(event)}
-                                            onJoin={(e) => handleJoinEvent(e, event.id)}
-                                            onInterested={(e) => handleInterestedEvent(e, event.id)}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="p-20 text-center text-[#B0B3B8] bg-[#242526] rounded-3xl border border-[#3E4042] shadow-inner">
-                    <div className="w-24 h-24 bg-[#3A3B3C] rounded-full flex items-center justify-center mx-auto mb-6">
-                        <i className="fas fa-calendar-xmark text-5xl opacity-20"></i>
-                    </div>
-                    <h3 className="text-xl font-black text-[#E4E6EB] mb-2">No events found</h3>
-                    <p className="max-w-xs mx-auto font-medium">
-                        {selectedCategory === 'Hosting' 
-                            ? 'You haven\'t created any events yet.' 
-                            : selectedCategory === 'Upcoming'
-                            ? 'You\'re not attending or interested in any upcoming events.'
-                            : 'Try changing your filters or check back later for new gatherings.'}
-                    </p>
-                    {selectedCategory !== 'All' && (
-                        <button 
-                            onClick={() => setSelectedCategory('All')}
-                            className="mt-4 px-6 py-2 bg-[#1877F2] hover:bg-[#166FE5] text-white rounded-lg font-medium transition-colors"
-                        >
-                            View All Events
-                        </button>
-                    )}
-                </div>
-            )}
+    const el = sentinelRef.current;
+    if (!el) return;
 
-            {/* Event Detail Modal */}
-            {selectedEvent && (
-                <EventDetailsModal 
-                    event={selectedEvent}
-                    currentUser={currentUser}
-                    onClose={() => setSelectedEvent(null)}
-                    onJoin={() => onJoinEvent(selectedEvent.id)}
-                    onInterested={() => onInterestedEvent(selectedEvent.id)}
-                    onProfileClick={onProfileClick}
-                />
-            )}
-        </div>
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (!first?.isIntersecting) return;
+
+        if (loadingRef.current) return;
+        if (fetchingMoreRef.current) return;
+        if (!hasMore) return;
+
+        setPage((p) => p + 1);
+      },
+      {
+        threshold: 0.1,
+        rootMargin: "400px 0px 400px 0px",
+      }
     );
+
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMore]);
+
+  // Load more
+  useEffect(() => {
+    if (page > 1) {
+      fetchEvents(false, page);
+    }
+  }, [page, fetchEvents]);
+
+  const filterOptions: { value: EventFilter; label: string; icon: string }[] = [
+    { value: "all", label: "All Events", icon: "calendar" },
+    { value: "upcoming", label: "Upcoming", icon: "arrow-right" },
+    { value: "today", label: "Today", icon: "sun" },
+    { value: "this-week", label: "This Week", icon: "calendar-week" },
+    { value: "this-month", label: "This Month", icon: "calendar-alt" },
+    { value: "past", label: "Past Events", icon: "history" },
+  ];
+
+  const sortOptions: { value: EventSort; label: string }[] = [
+    { value: "date", label: "Date" },
+    { value: "popular", label: "Most Popular" },
+    { value: "trending", label: "Trending" },
+  ];
+
+  return (
+    <div className="min-h-screen bg-[#18191A] font-sans">
+      {/* Header - Stats section completely removed */}
+      <div className="sticky top-0 z-50 bg-[#242526] border-b border-[#3E4042] backdrop-blur-lg bg-opacity-90">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={onNavigateBack}
+                className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+              >
+                <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+              </button>
+              <h1 className="text-[#E4E6EB] text-[28px] font-black">Events</h1>
+            </div>
+
+            {currentUser && (
+              <button
+                onClick={onCreateEventClick}
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-[#1877F2]/20"
+              >
+                <i className="fas fa-plus"></i>
+                <span>Create Event</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Search + filters */}
+        <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042] mb-6">
+          <div className="relative mb-4">
+            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] text-sm"></i>
+            <input
+              type="text"
+              placeholder="Search events by title, location, or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#3A3B3C] text-[#E4E6EB] placeholder-[#B0B3B8] rounded-xl py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            {filterOptions.map((o) => (
+              <FilterChip
+                key={o.value}
+                label={o.label}
+                icon={o.icon}
+                active={filter === o.value}
+                onClick={() => setFilter(o.value)}
+              />
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#3E4042]">
+            <div className="flex items-center gap-2">
+              <span className="text-[#B0B3B8] text-sm">Sort by:</span>
+              <div className="flex gap-1">
+                {sortOptions.map((o) => (
+                  <button
+                    key={o.value}
+                    onClick={() => setSort(o.value)}
+                    className={`
+                      px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors
+                      ${sort === o.value
+                        ? "bg-[#1877F2] text-white"
+                        : "text-[#B0B3B8] hover:bg-[#3A3B3C] hover:text-[#E4E6EB]"
+                      }
+                    `}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Body - Grid view from old AllEvents.tsx */}
+        {error ? (
+          <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
+            <i className="fas fa-exclamation-triangle text-[#F02849] text-4xl mb-3"></i>
+            <p className="text-[#E4E6EB] font-bold mb-2">Failed to load events</p>
+            <p className="text-[#B0B3B8] text-sm mb-4">{error}</p>
+            <button
+              onClick={() => {
+                setError(null);
+                fetchEvents(true, 1);
+              }}
+              className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : events.length === 0 && !loading ? (
+          <div className="bg-[#242526] rounded-xl p-12 text-center border border-[#3E4042]">
+            <div className="w-20 h-20 bg-[#3A3B3C] rounded-full flex items-center justify-center mx-auto mb-4">
+              <i className="fas fa-calendar text-[#1877F2] text-3xl"></i>
+            </div>
+            <h3 className="text-[#E4E6EB] text-xl font-black mb-2">No events found</h3>
+            <p className="text-[#B0B3B8] mb-6">
+              {searchQuery ? `No events matching "${searchQuery}"` : "There are no events to display at the moment."}
+            </p>
+            {currentUser && (
+              <button
+                onClick={onCreateEventClick}
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors"
+              >
+                Create Your First Event
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Grid layout - copied from old AllEvents.tsx */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {events.map((event) => (
+                <div key={event.event_key || `event:${event.id}`}>
+                  <EventCard
+                    event={event}
+                    currentUser={currentUser}
+                    onEventClick={onEventClick}
+                    onProfileClick={onProfileClick}
+                    onRSVPUpdate={handleRSVPUpdate}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div ref={sentinelRef} className="h-1" />
+
+            {loading && (
+              <div className="flex justify-center py-8">
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full border-4 border-[#3A3B3C] border-t-[#1877F2] animate-spin"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-2 h-2 bg-[#1877F2] rounded-full animate-ping"></div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!hasMore && events.length > 0 && (
+              <div className="text-center py-8">
+                <div className="inline-flex items-center gap-2 bg-[#242526] px-4 py-2 rounded-full border border-[#3E4042]">
+                  <i className="fas fa-check-circle text-[#45BD62]"></i>
+                  <span className="text-[#B0B3B8] text-sm">You've seen all events</span>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* FAB */}
+      {currentUser && (
+        <button
+          onClick={onCreateEventClick}
+          className="fixed bottom-6 right-6 md:hidden w-14 h-14 bg-[#1877F2] rounded-full shadow-lg shadow-[#1877F2]/30 flex items-center justify-center hover:bg-[#166FE5] transition-all hover:scale-110 z-50"
+        >
+          <i className="fas fa-plus text-white text-xl"></i>
+        </button>
+      )}
+    </div>
+  );
 };
 
-// Export both named and default (Pattern B)
-export { EventsPage };
-export default EventsPage;
+// Export all components
+export { EventCard, FilterChip };
