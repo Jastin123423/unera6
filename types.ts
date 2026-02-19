@@ -1,5 +1,3 @@
-
-
 // =========================
 // USERS / BRANDS
 // =========================
@@ -70,6 +68,8 @@ export interface Brand {
   cover_image_url: string;
 
   admin_id: number;
+  owner_id?: number;           // ✅ For backend compatibility
+  brand_user_id?: number;       // ✅ Points to users.id for follow operations
   followers: number[];
 
   location: string;
@@ -87,6 +87,7 @@ export interface Brand {
   coverImage?: string;
   adminId?: number;
   isVerified?: boolean;
+  logo_url?: string;            // ✅ Backend uses this for profile image
 }
 
 // =========================
@@ -173,6 +174,7 @@ export interface LinkPreview {
 export interface Post {
   id: number;
   user_id: number | null;
+  brand_id?: number | null;      // ✅ ADDED: For brand posts
 
   content?: string;
 
@@ -228,8 +230,7 @@ export interface Post {
   group_id?: number;
   group_name?: string;
 
-  brand_id?: number;
-  brand_name?: string;
+  brand_name?: string;           // ✅ For display
 
   // Joined data from backend
   author_name?: string;
@@ -476,6 +477,9 @@ export interface Event {
   attendee_ids?: number[];
   interested_ids?: number[];
 
+  // Brand event support
+  brand_id?: number;            // ✅ For brand events
+
   // UI-only state
   isAttending?: boolean;
   isInterested?: boolean;
@@ -588,6 +592,7 @@ export interface Group {
   events?: Event[];
   member_posting_allowed?: boolean;
   member_count?: number;
+  is_member?: boolean;          // ✅ For membership status
 
   // aliases
   group_id?: number;
