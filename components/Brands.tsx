@@ -364,9 +364,20 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
         return checkIsFollowing(activeBrand.brand_user_id || activeBrand.id);
     }, [currentUser, activeBrand, checkIsFollowing]);
 
+    // ✅ FIXED: Added defensive check for undefined brand_id
     const brandPosts = useMemo(() => {
         if (!activeBrand) return [];
-        return posts.filter(p => p.brand_id === activeBrand.id).sort((a,b) => (new Date(b.created_at).getTime() || 0) - (new Date(a.created_at).getTime() || 0));
+        
+        // ✅ Add defensive check for undefined brand_id
+        const filtered = posts.filter(p => {
+            // Handle case where brand_id might be undefined or null
+            const postBrandId = p.brand_id || (p as any).brand_id;
+            return postBrandId === activeBrand.id;
+        });
+        
+        return filtered.sort((a,b) => 
+            (new Date(b.created_at).getTime() || 0) - (new Date(a.created_at).getTime() || 0)
+        );
     }, [posts, activeBrand]);
 
     const handleBrandClick = (brandId: number) => {
