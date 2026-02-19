@@ -4,7 +4,7 @@ import { Post, CreatePostModal } from './Feed';
 import { BRAND_CATEGORIES, LOCATIONS_DATA } from '../constants';
 import { CreateEventModal } from './Events';
 
-// --- Cloudflare R2 Upload Helper ---
+// --- Cloudflare R2 Upload Helper (UPDATED to match App.tsx) ---
 const uploadToCloudflareR2 = async (file: File): Promise<string> => {
   try {
     const formData = new FormData();
@@ -16,7 +16,8 @@ const uploadToCloudflareR2 = async (file: File): Promise<string> => {
     formData.append('folder', 'brand-images');
     formData.append('timestamp', Date.now().toString());
     
-    const response = await fetch('/api/upload', {
+    // ✅ FIXED: Use media.unera.social domain to match App.tsx
+    const response = await fetch('https://media.unera.social/api/upload', {
       method: 'POST',
       body: formData,
     });
@@ -104,6 +105,7 @@ const CreateBrandModal: React.FC<CreateBrandModalProps> = ({ currentUser, onClos
         
         setIsCreating(true);
         try {
+            // ✅ Match App.tsx expected format
             onCreate({
                 name,
                 category,
@@ -113,6 +115,7 @@ const CreateBrandModal: React.FC<CreateBrandModalProps> = ({ currentUser, onClos
                 contact_email: contactEmail,
                 contact_phone: contactPhone,
                 admin_id: currentUser.id,
+                owner_id: currentUser.id, // For backend
                 profile_image_url: `https://ui-avatars.com/api/?name=${name.replace(/\s/g, '+')}&background=random`,
                 cover_image_url: 'https://images.unsplash.com/photo-1557683316-973673baf926?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
             });
@@ -310,12 +313,14 @@ interface BrandsPageProps {
     onCreateEvent?: (brandId: number, event: Partial<Event>) => void;
     initialBrandId?: number | null;
     onPlayAudioTrack?: (track: AudioTrack) => void;
+    checkIsFollowing?: (userId: number) => boolean;
 }
 
 export const BrandsPage: React.FC<BrandsPageProps> = ({ 
     currentUser, brands, posts, users, onCreateBrand, onFollowBrand, 
     onProfileClick, onPostAsBrand, onReact, onShare, onOpenComments,
-    onUpdateBrand, onDeleteBrand, onMessage, onCreateEvent, initialBrandId, onPlayAudioTrack
+    onUpdateBrand, onDeleteBrand, onMessage, onCreateEvent, initialBrandId, onPlayAudioTrack,
+    checkIsFollowing
 }) => {
     const [view, setView] = useState<'list' | 'detail'>('list');
     const [activeBrandId, setActiveBrandId] = useState<number | null>(null);
@@ -351,7 +356,13 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
     const isOwner = currentUser && activeBrand && activeBrand.admin_id === currentUser.id;
     const isPlatformAdmin = currentUser?.role === 'admin';
     const canManage = isOwner || isPlatformAdmin;
-    const isFollowing = currentUser && activeBrand && activeBrand.followers.includes(currentUser.id);
+    
+    // ✅ FIXED: Use brand_user_id for follow checks (matches App.tsx checkIsFollowing)
+    const isFollowing = useMemo(() => {
+        if (!currentUser || !activeBrand || !checkIsFollowing) return false;
+        // Follow status is based on brand_user_id (which points to users.id)
+        return checkIsFollowing(activeBrand.brand_user_id || activeBrand.id);
+    }, [currentUser, activeBrand, checkIsFollowing]);
 
     const brandPosts = useMemo(() => {
         if (!activeBrand) return [];
@@ -367,7 +378,18 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
 
     const handleCreatePost = (text: string, file: File | null, type: any, visibility: any, location?: string, feeling?: string, taggedUsers?: number[], background?: string, linkPreview?: LinkPreview) => {
         if (!activeBrand) return;
-        onPostAsBrand(activeBrand.id, { text, file, type, visibility, location, feeling, taggedUsers, background, linkPreview });
+        // ✅ Pass data in format expected by App.tsx postAsBrand
+        onPostAsBrand(activeBrand.id, { 
+            text, 
+            file, 
+            type, 
+            visibility, 
+            location, 
+            feeling, 
+            taggedUsers, 
+            background, 
+            linkPreview 
+        });
         setShowCreatePostModal(false);
     };
 
@@ -404,7 +426,7 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
             // Show optimistic update with preview URL
             onUpdateBrand(activeBrand.id, type === 'cover' ? { cover_image_url: previewUrl } : { profile_image_url: previewUrl });
             
-            // Upload to Cloudflare R2
+            // ✅ Upload to Cloudflare R2 using the updated function (matches App.tsx)
             const permanentUrl = await uploadToCloudflareR2(file);
             
             // Update with permanent Cloudflare R2 URL
@@ -434,6 +456,12 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                 profileInputRef.current.value = '';
             }
         }
+    };
+
+    // ✅ FIXED: Helper to check if user follows a brand (using brand_user_id)
+    const isUserFollowingBrand = (brand: Brand): boolean => {
+        if (!currentUser || !checkIsFollowing) return false;
+        return checkIsFollowing(brand.brand_user_id || brand.id);
     };
 
     if (view === 'list' || !activeBrand) {
@@ -546,7 +574,8 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                         return (
                             <div className="divide-y divide-[#3E4042]">
                                 {filtered.map((brand) => {
-                                    const followed = !!currentUser && brand.followers.includes(currentUser.id);
+                                    // ✅ FIXED: Use brand_user_id for follow check
+                                    const followed = isUserFollowingBrand(brand);
 
                                     return (
                                         <div
@@ -575,16 +604,18 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                                                 </div>
 
                                                 <p className="text-[#B0B3B8] text-sm truncate">
-                                                    {(brand.category || 'Brand')}{brand.location ? ` • ${brand.location}` : ''} • {brand.followers.length} follows
+                                                    {(brand.category || 'Brand')}{brand.location ? ` • ${brand.location}` : ''} • {brand.followers.length} followers
                                                 </p>
                                             </div>
 
-                                            {/* Follow button (blue like screenshot) */}
+                                            {/* Follow button - uses brand.brand_user_id (matches App.tsx followUser) */}
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     if (!currentUser) return alert('Login to follow');
-                                                    onFollowBrand(brand.id);
+                                                    // ✅ FIXED: Pass brand_user_id to follow function (App.tsx expects users.id)
+                                                    const followId = brand.brand_user_id || brand.id;
+                                                    onFollowBrand(followId);
                                                 }}
                                                 className={`h-9 px-4 rounded-lg font-bold text-sm flex-shrink-0 transition-colors
                                                     ${followed
@@ -689,8 +720,13 @@ export const BrandsPage: React.FC<BrandsPageProps> = ({
                                     </>
                                 ) : (
                                     <>
+                                        {/* ✅ FIXED: Follow button uses brand_user_id (matches App.tsx followUser) */}
                                         <button 
-                                            onClick={() => currentUser ? onFollowBrand(activeBrand.id) : alert("Login to follow")} 
+                                            onClick={() => {
+                                                if (!currentUser) return alert("Login to follow");
+                                                const followId = activeBrand.brand_user_id || activeBrand.id;
+                                                onFollowBrand(followId);
+                                            }} 
                                             className={`${isFollowing ? 'bg-[#3A3B3C] text-[#E4E6EB]' : 'bg-[#1877F2] text-white'} px-6 py-2 rounded-lg font-bold text-base hover:opacity-90 flex-1 md:flex-none transition-colors flex items-center justify-center gap-2`}
                                         >
                                             <i className={`fas ${isFollowing ? 'fa-user-check' : 'fa-user-plus'}`}></i>
