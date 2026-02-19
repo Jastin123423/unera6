@@ -1,4 +1,5 @@
-// App.tsx-
+//App.tsx 
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -13,7 +14,7 @@ import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Stor
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
-import { AllEvents } from "./components/AllEvents"; // Updated import
+import EventsPage from "./components/EventsPage";
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
   BirthdaysPage,
@@ -812,6 +813,29 @@ const normalizeProduct = (p: any) => {
   } as any;
 };
 
+/**
+ * Normalize brand data
+ */
+const normalizeBrand = (b: any): Brand => {
+  return {
+    ...b,
+    id: safeNumber(b?.id),
+    name: safeString(b?.name, 'Unnamed Brand'),
+    description: safeString(b?.description, ''),
+    category: safeString(b?.category, 'Other'),
+    admin_id: safeNumber(b?.admin_id ?? b?.adminId ?? 0),
+    profile_image_url: safeString(b?.profile_image_url ?? b?.profileImage ?? b?.logo ?? ''),
+    cover_image_url: safeString(b?.cover_image_url ?? b?.coverImage ?? b?.cover ?? ''),
+    website: safeString(b?.website, ''),
+    location: safeString(b?.location, ''),
+    contact_email: safeString(b?.contact_email ?? b?.email, ''),
+    contact_phone: safeString(b?.contact_phone ?? b?.phone, ''),
+    followers: safeArray<number>(b?.followers ?? []),
+    is_verified: Boolean(b?.is_verified ?? false),
+    created_at: b?.created_at ?? new Date().toISOString(),
+  } as any;
+};
+
 // ============================================================================
 // 🔧 FIXED: Normalize groups with optional members and is_member support
 // ============================================================================
@@ -1506,7 +1530,6 @@ export default function App() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
-  const [activeEventId, setActiveEventId] = useState<number | null>(null); // Added for event detail modal
 
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
@@ -3024,7 +3047,7 @@ export default function App() {
 
       setProducts(prList.map(normalizeProduct));
       
-      // 🔧 FIXED: Handle groups response properly - preserve undefined members
+      // Handle groups
       const gRaw = g;
       const gList = Array.isArray(gRaw)
         ? gRaw
@@ -3032,18 +3055,12 @@ export default function App() {
         : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
         : [];
       
-      // ✅ FIXED: Merge new groups with existing ones, preserving members when backend doesn't send them
       setGroups(prev => {
         const byId = new Map(prev.map(g => [Number(g.id), g]));
         return gList.map((ng: any) => {
           const old = byId.get(Number(ng.id));
-          
-          // 🔧 CRITICAL FIX: Check if backend actually sent members
           const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
           
-          // If backend didn't send members, preserve old members (including undefined)
-          // If backend did send members, use them
-          // This prevents empty arrays from overwriting real membership data
           return normalizeGroup({
             ...old,
             ...ng,
@@ -3055,7 +3072,24 @@ export default function App() {
         });
       });
       
-      setBrands(safeArray(b));
+      // Handle brands - with proper normalization
+      const bRaw = b;
+      const bList = Array.isArray(bRaw)
+        ? bRaw
+        : Array.isArray((bRaw as any)?.brands) ? (bRaw as any).brands
+        : Array.isArray((bRaw as any)?.results) ? (bRaw as any).results
+        : [];
+      
+      setBrands(prev => {
+        const byId = new Map(prev.map(b => [Number(b.id), b]));
+        return bList.map((nb: any) => {
+          const old = byId.get(Number(nb.id));
+          return normalizeBrand({
+            ...old,
+            ...nb,
+          });
+        });
+      });
       
       const eventsData = await fetchEvents().catch(() => []);
       setEvents(eventsData);
@@ -3566,6 +3600,164 @@ export default function App() {
     } catch (error) {
       console.error('Failed to invite to group:', error);
       return { success: true, message: "Invites sent" };
+    }
+  }, [currentUser, requireAuth]);
+
+  // ============================================================================
+  // 🔧 BRAND FUNCTIONS - NEW!
+  // ============================================================================
+  
+  /** ---------- Create a new brand ---------- */
+  const createBrand = useCallback(async (brandData: Partial<Brand>) => {
+    if (!requireAuth('Creating brands')) return;
+    if (!currentUser) return;
+
+    try {
+      const payload = {
+        ...brandData,
+        admin_id: currentUser.id,
+        created_at: new Date().toISOString(),
+        followers: []
+      };
+
+      const data = await apiFetch('/api/brands', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      const newBrand = normalizeBrand(data?.brand ?? data);
+      setBrands(prev => [...safeArray(prev), newBrand]);
+      
+      return newBrand;
+    } catch (error) {
+      console.error('Failed to create brand:', error);
+      setLoginError('Failed to create brand');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- Update an existing brand ---------- */
+  const updateBrand = useCallback(async (brandId: number, data: Partial<Brand>) => {
+    if (!requireAuth('Updating brands')) return;
+    if (!currentUser) return;
+
+    try {
+      const result = await apiFetch(`/api/brands/${brandId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+
+      setBrands(prev => 
+        safeArray(prev).map(b => 
+          Number(b.id) === Number(brandId) ? normalizeBrand({ ...b, ...data }) : b
+        )
+      );
+
+      return result;
+    } catch (error) {
+      console.error('Failed to update brand:', error);
+      setLoginError('Failed to update brand');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- Delete a brand (admin only) ---------- */
+  const deleteBrand = useCallback(async (brandId: number) => {
+    if (!requireAdmin('Deleting brands')) return;
+
+    try {
+      await apiFetch(`/api/brands/${brandId}`, {
+        method: 'DELETE'
+      });
+
+      setBrands(prev => safeArray(prev).filter(b => Number(b.id) !== Number(brandId)));
+    } catch (error) {
+      console.error('Failed to delete brand:', error);
+      setLoginError('Failed to delete brand');
+      throw error;
+    }
+  }, [requireAdmin]);
+
+  /** ---------- Post as a brand ---------- */
+  const postAsBrand = useCallback(async (brandId: number, postData: any) => {
+    if (!requireAuth('Posting as brand')) return;
+    if (!currentUser) return;
+
+    try {
+      let mediaUrl = null;
+      if (postData.file) {
+        const uploadResult = await uploadToCloudflareR2(postData.file, 'brand-posts');
+        mediaUrl = uploadResult.url;
+      }
+
+      const payload = {
+        brand_id: brandId,
+        user_id: currentUser.id,
+        content: postData.text || '',
+        media_url: mediaUrl,
+        type: postData.type || 'post',
+        visibility: postData.visibility || 'public',
+        location: postData.location,
+        feeling: postData.feeling,
+        tagged_users: postData.taggedUsers,
+        background: postData.background,
+        link_preview: postData.linkPreview
+      };
+
+      const data = await apiFetch('/api/posts', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      const newPost = normalizePost(data?.post ?? data);
+      setPosts(prev => [newPost, ...safeArray(prev)]);
+      
+      return newPost;
+    } catch (error) {
+      console.error('Failed to post as brand:', error);
+      setLoginError('Failed to create post');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- Message a brand ---------- */
+  const messageBrand = useCallback((brandId: number) => {
+    if (!requireAuth('Messaging brands')) return;
+    
+    const brand = brands.find(b => Number(b.id) === Number(brandId));
+    if (brand) {
+      // Navigate to chat with this brand
+      setActiveChatUser(brand as any);
+    }
+  }, [requireAuth, brands]);
+
+  /** ---------- Create a brand event ---------- */
+  const createBrandEvent = useCallback(async (brandId: number, eventData: Partial<Event>) => {
+    if (!requireAuth('Creating events')) return;
+    if (!currentUser) return;
+
+    try {
+      const payload = {
+        ...eventData,
+        brand_id: brandId,
+        creator_id: currentUser.id,
+        creator_name: currentUser.name,
+        creator_avatar: currentUser.profile_image_url
+      };
+
+      const data = await apiFetch('/api/events', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      const newEvent = normalizeEvent(data?.event ?? data);
+      setEvents(prev => [newEvent, ...safeArray(prev)]);
+      
+      return newEvent;
+    } catch (error) {
+      console.error('Failed to create brand event:', error);
+      setLoginError('Failed to create event');
+      throw error;
     }
   }, [currentUser, requireAuth]);
 
@@ -4468,79 +4660,6 @@ export default function App() {
     setView('reels');
   }, []);
 
-  /** ---------- Event detail modal ---------- */
-  const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
-    const event = events.find(e => e.id === eventId);
-    
-    if (!event) return null;
-    
-    return (
-      <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4" onClick={onClose}>
-        <div className="bg-[#242526] rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-          <div className="relative h-64">
-            <img 
-              src={event.cover_url || DEFAULT_EVENT_COVER} 
-              alt={event.title}
-              className="w-full h-full object-cover"
-            />
-            <button 
-              onClick={onClose}
-              className="absolute top-4 right-4 w-10 h-10 bg-black/60 rounded-full flex items-center justify-center hover:bg-black/80"
-            >
-              <i className="fas fa-times text-white"></i>
-            </button>
-          </div>
-          <div className="p-6">
-            <h2 className="text-2xl font-black text-white mb-2">{event.title}</h2>
-            <p className="text-[#B0B3B8] mb-4">{event.description}</p>
-            
-            <div className="space-y-3 mb-6">
-              <div className="flex items-center gap-3 text-[#B0B3B8]">
-                <i className="fas fa-calendar-alt w-5 text-[#1877F2]"></i>
-                <span>{new Date(event.event_date).toLocaleDateString()} at {event.time}</span>
-              </div>
-              {event.location && (
-                <div className="flex items-center gap-3 text-[#B0B3B8]">
-                  <i className="fas fa-map-marker-alt w-5 text-[#F02849]"></i>
-                  <span>{event.location}</span>
-                </div>
-              )}
-            </div>
-            
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  onRSVPEvent(event.id, event.user_rsvp_status === 'going' ? 'not_going' : 'going');
-                  onClose();
-                }}
-                className={`flex-1 py-3 rounded-lg font-bold ${
-                  event.user_rsvp_status === 'going'
-                    ? 'bg-[#45BD62] text-white'
-                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                }`}
-              >
-                {event.user_rsvp_status === 'going' ? '✓ Going' : 'Going'}
-              </button>
-              <button
-                onClick={() => {
-                  onRSVPEvent(event.id, event.user_rsvp_status === 'interested' ? 'not_going' : 'interested');
-                  onClose();
-                }}
-                className={`flex-1 py-3 rounded-lg font-bold ${
-                  event.user_rsvp_status === 'interested'
-                    ? 'bg-[#F7B928] text-black'
-                    : 'bg-[#3A3B3C] text-white hover:bg-[#4E4F50]'
-                }`}
-              >
-                {event.user_rsvp_status === 'interested' ? '✓ Interested' : 'Interested'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }, [events, onRSVPEvent]);
-
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
       <Header
@@ -4778,11 +4897,11 @@ export default function App() {
               brands={brands}
               posts={posts}
               users={users}
-              onCreateBrand={() => requireAuth('Creating brands')}
+              onCreateBrand={createBrand}
               onFollowBrand={(id: number) => followUser(id)}
               onProfileClick={(id) => openProfile(id)}
-              onPostAsBrand={() => requireAuth('Posting')}
-              onReact={() => requireAuth('Reacting')}
+              onPostAsBrand={postAsBrand}
+              onReact={onReactPost}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onOpenComments={(id: any) => {
                 if (!requireAuth('Commenting')) return;
@@ -4792,10 +4911,14 @@ export default function App() {
                 const found = source.find((p: any) => Number(p.id) === pid) || null;
                 setCommentPostSnapshot(found);
               }}
-              onDeleteBrand={() => requireAuth('Deleting brands')}
+              onUpdateBrand={updateBrand}
+              onDeleteBrand={deleteBrand}
+              onMessage={messageBrand}
+              onCreateEvent={createBrandEvent}
               onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
+              initialBrandId={null}
             />
           )}
 
@@ -4832,18 +4955,18 @@ export default function App() {
 
           {view === 'events' && (
             <ErrorBoundary>
-              <AllEvents
+              <EventsPage
+                events={events}
                 currentUser={currentUser ?? null}
-                users={users}
-                onProfileClick={(id) => openProfile(id)}
-                onEventClick={(eventId) => {
-                  // Open event detail modal
-                  setActiveEventId(eventId);
-                }}
+                onJoinEvent={joinEvent}
+                onInterestedEvent={markEventInterested}
                 onCreateEventClick={() => {
                   if (!requireAuth('Creating events')) return;
                   setShowCreateEventModal(true);
                 }}
+                onProfileClick={(id) => openProfile(id)}
+                onFollow={followUser}
+                checkIsFollowing={checkIsFollowing}
               />
             </ErrorBoundary>
           )}
@@ -4974,27 +5097,11 @@ export default function App() {
         />
       )}
 
-      {activeEventId && (
-        <EventDetailModal
-          eventId={activeEventId}
-          onClose={() => setActiveEventId(null)}
-        />
-      )}
-
       {showCreateEventModal && currentUser && (
         <CreateEventModal
           currentUser={currentUser}
           onClose={() => setShowCreateEventModal(false)}
-          onCreate={async (eventData) => {
-            try {
-              const newEvent = await createEvent(eventData);
-              // The AllEvents component will automatically refresh its data
-              // because it re-fetches when the page is active
-              setShowCreateEventModal(false);
-            } catch (error) {
-              console.error('Failed to create event:', error);
-            }
-          }}
+          onCreate={createEvent}
         />
       )}
 
