@@ -25,7 +25,6 @@ const toInt = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-// e.g. "UNERA Shoes" -> "unera.shoes"
 const slugUsername = (name: string) =>
   name
     .toLowerCase()
@@ -39,41 +38,43 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const body = await request.json().catch(() => ({} as any));
 
-    // Accept multiple keys to be compatible with your current frontend
+    // compatible with frontend
     const owner_id = toInt(body.owner_id ?? body.admin_id ?? body.user_id ?? body.creator_id, 0);
     const name = safeStr(body.name);
     const description = safeStr(body.description) || null;
     const category = safeStr(body.category) || null;
 
-    // Backend column is logo_url; frontend might send profile_image_url
+    // backend uses logo_url; frontend sends profile_image_url
     const logo_url =
       safeStr(body.logo_url ?? body.profile_image_url ?? body.avatar ?? body.image) || null;
 
     if (!owner_id || !name) return json({ success: false, error: "Missing owner_id or name" }, 400);
 
-    // IMPORTANT: brands are followable via user_follows, so each brand needs a users row.
-    // Your users.email is NOT NULL, so we auto-generate a unique placeholder email.
+    // Make unique username + required email + required password_hash placeholder
     const usernameBase = slugUsername(name);
-    const suffix = Math.floor(Math.random() * 900000 + 100000); // 6 digits
+    const suffix = Math.floor(Math.random() * 900000 + 100000);
     const username = `${usernameBase}.${suffix}`;
     const brandEmail = `brand+${username}@unera.social`;
 
-    // 1) Create brand "user" row
-    // NOTE: If your users table has additional NOT NULL columns besides email,
-    // you must add them here too.
+    // Placeholder (non-empty) password hash for brand accounts
+    // This is NOT a real password; it only satisfies NOT NULL.
+    // If you later want brand login, implement a "claim brand" flow.
+    const password_hash = `BRAND_ACCOUNT_${username}_NO_PASSWORD`;
+
+    // 1) create brand user
+    // NOTE: If your users table has MORE NOT NULL columns, you must add them too.
     const userIns = await env.DB
       .prepare(
-        `INSERT INTO users (name, username, email, profile_image_url, role, created_at)
-         VALUES (?, ?, ?, ?, 'brand', CURRENT_TIMESTAMP)`
+        `INSERT INTO users (name, username, email, password_hash, profile_image_url, role, created_at)
+         VALUES (?, ?, ?, ?, ?, 'brand', CURRENT_TIMESTAMP)`
       )
-      .bind(name, username, brandEmail, logo_url)
+      .bind(name, username, brandEmail, password_hash, logo_url)
       .run();
 
     const brand_user_id = Number(userIns.meta.last_row_id);
 
-    // 2) Create brand metadata row
-    // You must add the column once:
-    // ALTER TABLE brands ADD COLUMN brand_user_id INTEGER;
+    // 2) create brand metadata row
+    // Ensure: ALTER TABLE brands ADD COLUMN brand_user_id INTEGER;
     const brandIns = await env.DB
       .prepare(
         `INSERT INTO brands (owner_id, brand_user_id, name, description, logo_url, category)
@@ -99,8 +100,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const url = new URL(request.url);
     const ownerId = toInt(url.searchParams.get("owner_id"), 0);
 
-    // LEFT JOIN so legacy brand rows (brand_user_id NULL) still show up.
-    // Followers won't work for those rows until you backfill brand_user_id.
     const baseSql = `
       SELECT
         b.id,
@@ -136,7 +135,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const { results } = await stmt.all();
 
     const brands = (results ?? []).map((r: any) => {
-      // parse followers
       let followers: number[] = [];
       try {
         const parsed = JSON.parse(r.followers_json ?? "[]");
@@ -159,8 +157,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         category: r.category ?? "",
         logo_url: r.logo_url ?? null,
 
-        // match Brands.tsx expectations
-        admin_id: Number(r.owner_id), // owner acts as admin in your UI
+        // Brands.tsx expects these
+        admin_id: Number(r.owner_id),
         profile_image_url:
           safeStr(r.profile_image_url) ||
           safeStr(r.logo_url) ||
