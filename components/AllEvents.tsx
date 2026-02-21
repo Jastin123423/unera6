@@ -166,6 +166,116 @@ const formatRelativeTime = (dateInput: any): string => {
   return years === 1 ? "1 year" : `${years} years`;
 };
 
+// ========== LOCATION UTILITIES ==========
+const extractCountry = (location: string): string | null => {
+  if (!location) return null;
+  
+  // Common Tanzanian cities
+  const tanzanianCities = [
+    'dar es salaam', 'dar', 'dsm', 'arusha', 'mwanza', 'mbeya', 'morogoro', 
+    'tanga', 'dodoma', 'zanzibar', 'kilimanjaro', 'moshi', 'iringa', 'tabora',
+    'kigoma', 'mara', 'manyara', 'ruvuma', 'rukwa', 'katavi', 'simiyu',
+    'geita', 'songwe', 'njombe', 'lindi', 'mtwara', 'pwani', 'singida'
+  ];
+  
+  const lowerLocation = location.toLowerCase();
+  
+  // Check if location contains any Tanzanian city
+  const isTanzania = tanzanianCities.some(city => lowerLocation.includes(city)) ||
+                     lowerLocation.includes('tanzania') ||
+                     lowerLocation.includes('tz');
+  
+  if (isTanzania) return 'Tanzania';
+  
+  // Add more countries as needed
+  const countryMap: { [key: string]: string } = {
+    'kenya': 'Kenya',
+    'uganda': 'Uganda',
+    'rwanda': 'Rwanda',
+    'burundi': 'Burundi',
+    'south africa': 'South Africa',
+    'nigeria': 'Nigeria',
+    'ghana': 'Ghana',
+    'egypt': 'Egypt',
+    'morocco': 'Morocco',
+    'usa': 'USA',
+    'united states': 'USA',
+    'uk': 'UK',
+    'united kingdom': 'UK',
+    'canada': 'Canada',
+    'australia': 'Australia',
+    'germany': 'Germany',
+    'france': 'France',
+    'italy': 'Italy',
+    'spain': 'Spain',
+    'portugal': 'Portugal',
+    'netherlands': 'Netherlands',
+    'belgium': 'Belgium',
+    'sweden': 'Sweden',
+    'norway': 'Norway',
+    'denmark': 'Denmark',
+    'finland': 'Finland',
+    'switzerland': 'Switzerland',
+    'austria': 'Austria',
+    'japan': 'Japan',
+    'china': 'China',
+    'india': 'India',
+    'brazil': 'Brazil',
+    'argentina': 'Argentina',
+    'mexico': 'Mexico',
+  };
+  
+  for (const [key, country] of Object.entries(countryMap)) {
+    if (lowerLocation.includes(key)) return country;
+  }
+  
+  return null;
+};
+
+const getUserCountry = (user: User | null): string | null => {
+  if (!user) return null;
+  
+  // Check user's location from profile
+  const userLocation = user.location || user.city || user.country || user.region || '';
+  if (userLocation) {
+    return extractCountry(userLocation);
+  }
+  
+  return null;
+};
+
+const isEventVisibleToUser = (event: EventFromAPI, user: User | null): boolean => {
+  if (!user) return true; // Show all events to non-logged in users
+  
+  const userCountry = getUserCountry(user);
+  const eventLocation = event.location || '';
+  const eventCountry = extractCountry(eventLocation);
+  const eventVisibility = event.visibility || 'worldwide';
+  
+  // If event is worldwide, show to everyone
+  if (eventVisibility === 'worldwide') return true;
+  
+  // If event is targeted, check if it matches user's country
+  if (eventVisibility === 'targeted') {
+    // If we can determine event country, match with user country
+    if (eventCountry && userCountry) {
+      return eventCountry === userCountry;
+    }
+    
+    // If event location contains Tanzania-related terms and user is from Tanzania
+    const isTanzaniaEvent = eventLocation.toLowerCase().includes('tanzania') ||
+                           ['dar es salaam', 'arusha', 'mwanza', 'mbeya'].some(city => 
+                             eventLocation.toLowerCase().includes(city.toLowerCase()));
+    
+    if (isTanzaniaEvent && userCountry === 'Tanzania') return true;
+    
+    // Default: show targeted events only if we can't determine country (fallback)
+    return false;
+  }
+  
+  return true;
+};
+
 // ========== TYPES ==========
 type EventFilter = "all" | "upcoming" | "past" | "today" | "this-week" | "this-month";
 type EventSort = "date" | "popular" | "trending";
@@ -492,10 +602,278 @@ const EventCard: React.FC<{
     );
   }
 
-  // Regular vertical card view (used in both middle grid and bottom horizontal scroll)
+  // Horizontal layout card (image left, content right)
+  if (layout === "horizontal") {
+    return (
+      <div
+        className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group flex h-[200px] w-[500px] flex-shrink-0"
+        onClick={() => onEventClick(event.id)}
+      >
+        {/* Cover - Left side */}
+        <div className="relative w-2/5 h-full overflow-hidden">
+          {event.cover_url && !imageError ? (
+            <img
+              src={event.cover_url}
+              alt={event.title}
+              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex items-center justify-center">
+              <i className="fas fa-calendar text-white/30 text-4xl"></i>
+            </div>
+          )}
+          
+          <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 border border-white/20">
+            <div className="text-[#F7B928] text-[9px] font-black uppercase">
+              {dateObj?.toLocaleDateString("en-US", { month: "short" })}
+            </div>
+            <div className="text-white text-[18px] font-black leading-tight">
+              {dateObj?.getDate()}
+            </div>
+          </div>
+
+          {isPast ? (
+            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 border border-white/20">
+              <span className="text-[#B0B3B8] text-[10px] font-semibold">Past</span>
+            </div>
+          ) : (
+            <div className="absolute top-2 right-2 bg-[#45BD62]/90 backdrop-blur-sm rounded-full px-2 py-0.5">
+              <span className="text-white text-[10px] font-semibold">Upcoming</span>
+            </div>
+          )}
+        </div>
+
+        {/* Details - Right side */}
+        <div className="flex-1 p-3 flex flex-col">
+          {/* Creator row */}
+          <div
+            className="flex items-center justify-between mb-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="flex items-center gap-1.5 cursor-pointer"
+              onClick={() => {
+                if (creator?.id) onProfileClick(creator.id);
+              }}
+            >
+              <img
+                src={avatarFrom(creator)}
+                alt=""
+                className="w-4 h-4 rounded-full object-cover border border-[#3E4042]"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
+                }}
+              />
+              <span className="text-[#B0B3B8] text-[10px] hover:underline truncate max-w-[80px]">
+                {creator?.name || "Organizer"}
+              </span>
+              <span className="text-[#3E4042] text-[8px]">•</span>
+              <span className="text-[#B0B3B8] text-[10px]">{formatRelativeTime(event.created_at)}</span>
+            </div>
+
+            {/* RSVP Counts */}
+            <div onClick={(e) => e.stopPropagation()}>
+              <RSVPCounts 
+                goingCount={attendeesCount}
+                interestedCount={interestedCount}
+                size="sm"
+              />
+            </div>
+          </div>
+
+          <h3 className="text-[#E4E6EB] font-black text-sm mb-1 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
+            {event.title}
+          </h3>
+
+          {event.description && (
+            <p className="text-[#B0B3B8] text-[10px] mb-2 line-clamp-2">{event.description}</p>
+          )}
+
+          <div className="space-y-1 mb-2 flex-1">
+            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[10px]">
+              <i className={`fas fa-calendar-alt w-3 ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
+              <span className="truncate">
+                {formatEventDate()}
+                {formatEventTime() && ` • ${formatEventTime()}`}
+              </span>
+            </div>
+
+            {event.location && (
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[10px]">
+                <i className="fas fa-map-marker-alt w-3 text-[#F02849]"></i>
+                <span className="line-clamp-1">{event.location}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Buttons - Compact for horizontal */}
+          <div className="flex gap-1 mt-auto">
+            <button
+              disabled={loading || isPast}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRSVPClick("going");
+              }}
+              className={`
+                flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-200
+                ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+                ${rsvpStatus === "going"
+                  ? "bg-[#45BD62] text-white"
+                  : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
+                }
+              `}
+            >
+              {loading && rsvpStatus === "going" ? (
+                <i className="fas fa-spinner fa-spin"></i>
+              ) : (
+                rsvpStatus === "going" ? "✓ Going" : "Going"
+              )}
+            </button>
+
+            <button
+              disabled={loading || isPast}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRSVPClick("interested");
+              }}
+              className={`
+                flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-200
+                ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+                ${rsvpStatus === "interested"
+                  ? "bg-[#F7B928] text-black"
+                  : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+                }
+              `}
+            >
+              {loading && rsvpStatus === "interested" ? (
+                <i className="fas fa-spinner fa-spin"></i>
+              ) : (
+                rsvpStatus === "interested" ? "✓ Interested" : "Interested"
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Compact card for auto-scroll sections
+  if (layout === "compact") {
+    return (
+      <div
+        className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group w-[280px] flex-shrink-0"
+        onClick={() => onEventClick(event.id)}
+      >
+        {/* Cover */}
+        <div className="relative h-24 overflow-hidden">
+          {event.cover_url && !imageError ? (
+            <img
+              src={event.cover_url}
+              alt={event.title}
+              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex items-center justify-center">
+              <i className="fas fa-calendar text-white/30 text-2xl"></i>
+            </div>
+          )}
+
+          <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 border border-white/20">
+            <div className="text-[#F7B928] text-[8px] font-black uppercase">
+              {dateObj?.toLocaleDateString("en-US", { month: "short" })}
+            </div>
+            <div className="text-white text-[14px] font-black leading-tight">
+              {dateObj?.getDate()}
+            </div>
+          </div>
+
+          {isPast ? (
+            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 border border-white/20">
+              <span className="text-[#B0B3B8] text-[8px] font-semibold">Past</span>
+            </div>
+          ) : (
+            <div className="absolute top-2 right-2 bg-[#45BD62]/90 backdrop-blur-sm rounded-full px-2 py-0.5">
+              <span className="text-white text-[8px] font-semibold">Upcoming</span>
+            </div>
+          )}
+        </div>
+
+        {/* Details */}
+        <div className="p-2">
+          <div className="flex items-center gap-1 mb-1">
+            <img
+              src={avatarFrom(creator)}
+              alt=""
+              className="w-4 h-4 rounded-full object-cover border border-[#3E4042]"
+            />
+            <span className="text-[#B0B3B8] text-[9px] truncate">{creator?.name || "Organizer"}</span>
+          </div>
+
+          <h3 className="text-[#E4E6EB] font-black text-xs mb-1 line-clamp-1 group-hover:text-[#1877F2] transition-colors">
+            {event.title}
+          </h3>
+
+          <div className="flex items-center gap-1 text-[#B0B3B8] text-[9px] mb-1">
+            <i className={`fas fa-calendar-alt w-3 ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
+            <span className="truncate">{formatEventDate()}</span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <RSVPCounts 
+              goingCount={attendeesCount}
+              interestedCount={interestedCount}
+              size="sm"
+            />
+            
+            <div className="flex gap-1">
+              <button
+                disabled={loading || isPast}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRSVPClick("going");
+                }}
+                className={`
+                  px-2 py-0.5 rounded-lg font-bold text-[8px] transition-all duration-200
+                  ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+                  ${rsvpStatus === "going"
+                    ? "bg-[#45BD62] text-white"
+                    : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
+                  }
+                `}
+              >
+                {rsvpStatus === "going" ? "✓" : "Going"}
+              </button>
+
+              <button
+                disabled={loading || isPast}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRSVPClick("interested");
+                }}
+                className={`
+                  px-2 py-0.5 rounded-lg font-bold text-[8px] transition-all duration-200
+                  ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+                  ${rsvpStatus === "interested"
+                    ? "bg-[#F7B928] text-black"
+                    : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+                  }
+                `}
+              >
+                {rsvpStatus === "interested" ? "✓" : "Int"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Regular vertical card view
   return (
     <div
-      className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group w-full"
+      className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group"
       onClick={() => onEventClick(event.id)}
     >
       {/* Cover */}
@@ -666,7 +1044,7 @@ const AutoScrollHorizontal: React.FC<{
   onEventClick, 
   onProfileClick, 
   onRSVPUpdate,
-  speed = 50, // Default speed: 50px per second
+  speed = 40, // Default speed: 40px per second
   direction = 'left'
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -756,14 +1134,14 @@ const AutoScrollHorizontal: React.FC<{
         onMouseLeave={handleMouseLeave}
       >
         {events.map((event) => (
-          <div key={`${title}-${event.event_key || `event:${event.id}`}`} className="w-[280px] flex-shrink-0">
+          <div key={`${title}-${event.event_key || `event:${event.id}`}`} className="flex-shrink-0">
             <EventCard
               event={event}
               currentUser={currentUser}
               onEventClick={onEventClick}
               onProfileClick={onProfileClick}
               onRSVPUpdate={onRSVPUpdate}
-              layout="vertical"
+              layout="compact"
             />
           </div>
         ))}
@@ -780,6 +1158,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   onNavigateBack,
 }) => {
   const [events, setEvents] = useState<EventFromAPI[]>([]);
+  const [filteredEvents, setFilteredEvents] = useState<EventFromAPI[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previewEventId, setPreviewEventId] = useState<number | null>(null);
@@ -794,6 +1173,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   const [hasMore, setHasMore] = useState(true);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const bottomHorizontalRef = useRef<HTMLDivElement | null>(null);
 
   const fetchingMoreRef = useRef(false);
   const loadingRef = useRef(false);
@@ -809,6 +1189,16 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     const t = setTimeout(() => setDebouncedQ(searchQuery.trim()), 300);
     return () => clearTimeout(t);
   }, [searchQuery]);
+
+  // Apply location-based filtering
+  useEffect(() => {
+    if (events.length > 0) {
+      const visibleEvents = events.filter(event => isEventVisibleToUser(event, currentUser));
+      setFilteredEvents(visibleEvents);
+    } else {
+      setFilteredEvents([]);
+    }
+  }, [events, currentUser]);
 
   const fetchEvents = useCallback(
     async (reset = false, nextPage?: number) => {
@@ -931,6 +1321,21 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     }
   };
 
+  // Scroll bottom horizontal section manually
+  const scrollBottomHorizontal = (direction: 'left' | 'right') => {
+    if (bottomHorizontalRef.current) {
+      const scrollAmount = 520; // Width of one card + gap
+      const newScrollLeft = direction === 'left' 
+        ? bottomHorizontalRef.current.scrollLeft - scrollAmount
+        : bottomHorizontalRef.current.scrollLeft + scrollAmount;
+      
+      bottomHorizontalRef.current.scrollTo({
+        left: newScrollLeft,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   // Initial fetch
   useEffect(() => {
     if (currentUser && !currentUser.id) return;
@@ -1015,14 +1420,14 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
   const previewEvent = previewEventId ? events.find(e => e.id === previewEventId) : null;
 
-  // Split events into sections
-  const getFeaturedEvents = () => events.slice(0, 8); // First 8 for top auto-scroll
-  const getMiddleEvents = () => events.slice(8, 16); // Next 8 for middle grid (no position exchange)
-  const getBottomEvents = () => events.slice(16); // Rest for bottom auto-scroll
+  // Split events into sections using filtered events
+  const getFeaturedEvents = () => filteredEvents.slice(0, 8); // First 8 for top auto-scroll
+  const getMiddleEvents = () => filteredEvents.slice(8, 16); // Next 8 for middle grid
+  const getBottomHorizontalEvents = () => filteredEvents.slice(16, 24); // Next 8 for bottom horizontal
 
   const featuredEvents = getFeaturedEvents();
   const middleEvents = getMiddleEvents();
-  const bottomEvents = getBottomEvents();
+  const bottomHorizontalEvents = getBottomHorizontalEvents();
 
   return (
     <div className="min-h-screen bg-[#18191A] font-sans">
@@ -1128,14 +1533,14 @@ export const AllEvents: React.FC<AllEventsProps> = ({
               Try Again
             </button>
           </div>
-        ) : events.length === 0 && !loading ? (
+        ) : filteredEvents.length === 0 && !loading ? (
           <div className="bg-[#242526] rounded-xl p-12 text-center border border-[#3E4042]">
             <div className="w-20 h-20 bg-[#3A3B3C] rounded-full flex items-center justify-center mx-auto mb-4">
               <i className="fas fa-calendar text-[#1877F2] text-3xl"></i>
             </div>
             <h3 className="text-[#E4E6EB] text-xl font-black mb-2">No events found</h3>
             <p className="text-[#B0B3B8] mb-6">
-              {searchQuery ? `No events matching "${searchQuery}"` : "There are no events to display at the moment."}
+              {searchQuery ? `No events matching "${searchQuery}"` : "There are no events to display in your region."}
             </p>
             {currentUser && (
               <button
@@ -1149,16 +1554,18 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         ) : (
           <>
             {/* Top Auto-Scrolling Section */}
-            <AutoScrollHorizontal
-              title="Featured Events"
-              events={featuredEvents}
-              currentUser={currentUser}
-              onEventClick={handleEventClick}
-              onProfileClick={onProfileClick}
-              onRSVPUpdate={handleRSVPUpdate}
-              speed={40}
-              direction="left"
-            />
+            {featuredEvents.length > 0 && (
+              <AutoScrollHorizontal
+                title="Featured Events"
+                events={featuredEvents}
+                currentUser={currentUser}
+                onEventClick={handleEventClick}
+                onProfileClick={onProfileClick}
+                onRSVPUpdate={handleRSVPUpdate}
+                speed={40}
+                direction="left"
+              />
+            )}
 
             {/* Middle Grid - No position exchange, original order */}
             {middleEvents.length > 0 && (
@@ -1181,17 +1588,45 @@ export const AllEvents: React.FC<AllEventsProps> = ({
               </div>
             )}
 
-            {/* Bottom Auto-Scrolling Section */}
-            <AutoScrollHorizontal
-              title="More Events"
-              events={bottomEvents}
-              currentUser={currentUser}
-              onEventClick={handleEventClick}
-              onProfileClick={onProfileClick}
-              onRSVPUpdate={handleRSVPUpdate}
-              speed={30}
-              direction="right"
-            />
+            {/* Bottom Horizontal Section - Manual scroll with image left design */}
+            {bottomHorizontalEvents.length > 0 && (
+              <div className="mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-[#E4E6EB] text-lg font-black">More Events</h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => scrollBottomHorizontal('left')}
+                      className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                    >
+                      <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
+                    </button>
+                    <button
+                      onClick={() => scrollBottomHorizontal('right')}
+                      className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                    >
+                      <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
+                    </button>
+                  </div>
+                </div>
+                <div 
+                  ref={bottomHorizontalRef}
+                  className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide scroll-smooth"
+                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                >
+                  {bottomHorizontalEvents.map((event) => (
+                    <EventCard
+                      key={`bottom-horizontal-${event.event_key || `event:${event.id}`}`}
+                      event={event}
+                      currentUser={currentUser}
+                      onEventClick={handleEventClick}
+                      onProfileClick={onProfileClick}
+                      onRSVPUpdate={handleRSVPUpdate}
+                      layout="horizontal"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div ref={sentinelRef} className="h-1" />
 
@@ -1207,7 +1642,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
               </div>
             )}
 
-            {!hasMore && events.length > 0 && (
+            {!hasMore && filteredEvents.length > 0 && (
               <div className="text-center py-8">
                 <div className="inline-flex items-center gap-2 bg-[#242526] px-4 py-2 rounded-full border border-[#3E4042]">
                   <i className="fas fa-check-circle text-[#45BD62]"></i>
