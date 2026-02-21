@@ -13,7 +13,7 @@ interface MenuOverlayProps {
 export const MenuOverlay: React.FC<MenuOverlayProps> = ({ currentUser, onClose, onNavigate, onLogout }) => {
     const menuItems = [
         { id: 'marketplace', title: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', desc: 'Buy and sell in your community.' },
-        { id: 'events', title: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', desc: 'Discover events near you.' }, // Changed from 'create_event' to 'events'
+        { id: 'events', title: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', desc: 'Discover events near you.' },
         { id: 'profiles', title: 'Profiles', icon: 'fas fa-user-friends', color: '#1877F2', desc: 'See friends and profiles.' },
         { id: 'groups', title: 'Groups', icon: 'fas fa-users', color: '#1877F2', desc: 'Connect with people who share your interests.' },
         { id: 'brands', title: 'Brands', icon: 'fas fa-award', color: '#F7B928', desc: 'Discover and create business pages.' },
@@ -162,7 +162,7 @@ interface SidebarProps {
     onReelsClick: () => void;
     onMarketplaceClick: () => void;
     onGroupsClick: () => void;
-    onEventsClick: () => void; // New prop for events navigation
+    onEventsClick: () => void; // This now navigates directly to AllEvents
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onProfileClick, onReelsClick, onMarketplaceClick, onGroupsClick, onEventsClick }) => {
@@ -173,7 +173,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onProfileClick, o
         { id: 'groups', label: 'Groups', icon: 'fas fa-users', color: '#1877F2', onClick: onGroupsClick },
         { id: 'marketplace', label: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', onClick: onMarketplaceClick },
         { id: 'reels', label: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F', onClick: onReelsClick },
-        { id: 'events', label: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', onClick: onEventsClick }, // Added onClick handler
+        { id: 'events', label: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', onClick: onEventsClick }, // Now points to AllEvents
     ];
 
     return (
