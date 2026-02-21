@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -1113,6 +1112,113 @@ const MediaGrid: React.FC<{
         className="h-[260px] w-full"
         showOverlay={extra > 0}
       />
+    </div>
+  );
+};
+
+/**
+ * =========================
+ * ✅ NEW: SCROLLABLE MEDIA CARDS WITH LIKE/COMMENT/SHARE AT THE BOTTOM
+ * =========================
+ */
+const ScrollableMediaWithActions: React.FC<{
+  media: { url: string }[];
+  postId: number;
+  currentUser: User | null;
+  reactionCount: number;
+  commentCount: number;
+  shareCount: number;
+  myReaction?: ReactionType;
+  onOpenImage: (url: string, index: number) => void;
+  onReact: (type: ReactionType) => void;
+  onOpenComments: () => void;
+  onShare: () => void;
+}> = ({
+  media,
+  postId,
+  currentUser,
+  reactionCount,
+  commentCount,
+  shareCount,
+  myReaction,
+  onOpenImage,
+  onReact,
+  onOpenComments,
+  onShare,
+}) => {
+  const formatCount = (count: number): string => {
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    return count.toString();
+  };
+
+  return (
+    <div className="w-full bg-black">
+      <div className="flex gap-[2px] overflow-x-auto scrollbar-hide snap-x snap-mandatory">
+        {media.map((m, i) => (
+          <div
+            key={m.url + i}
+            className="min-w-[85%] sm:min-w-[500px] snap-center bg-[#242526] border border-[#3E4042] overflow-hidden flex flex-col"
+          >
+            {/* Image */}
+            <div
+              className="w-full bg-black cursor-pointer flex-1"
+              onClick={() => onOpenImage(m.url, i)}
+            >
+              <img
+                src={m.url}
+                alt=""
+                className="w-full h-[320px] object-cover"
+                loading="lazy"
+              />
+            </div>
+
+            {/* Totals row */}
+            <div className="px-3 py-2 flex items-center justify-between text-[#B0B3B8] text-sm border-t border-white/10">
+              <span className="text-[#E4E6EB] font-bold">
+                {formatCount(reactionCount)} reactions
+              </span>
+              <div className="flex gap-3">
+                <span 
+                  className="hover:underline cursor-pointer" 
+                  onClick={onOpenComments}
+                >
+                  {formatCount(commentCount)} Comments
+                </span>
+                {shareCount > 0 && (
+                  <span className="hover:underline cursor-pointer" onClick={onShare}>
+                    {formatCount(shareCount)} Shares
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Actions row */}
+            <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+              <ReactionButton
+                currentUserReactions={myReaction}
+                reactionCount={reactionCount}
+                onReact={onReact}
+                isGuest={!currentUser}
+              />
+              <button
+                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
+                onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}
+              >
+                <i className="far fa-comment-alt text-[20px]"></i>
+                <span className="text-[17px] font-medium">Comment</span>
+              </button>
+              <button
+                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
+                onClick={() => (currentUser ? onShare() : alert("Please login to share posts."))}
+              >
+                <i className="fas fa-share text-[20px]"></i>
+                <span className="text-[17px] font-medium">Share</span>
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -2982,13 +3088,32 @@ export const Post: React.FC<{
             <>
               {/* Images Grid */}
               {!p.background && imageMedia.length > 0 && (
-                <MediaGrid
-                  media={imageMedia.map((m) => ({ url: m.url }))}
-                  onOpen={(url, index) => {
-                    const urls = imageMedia.map((m) => m.url);
-                    openGallery(urls, index);
-                  }}
-                />
+                imageMedia.length > 1 ? (
+                  <ScrollableMediaWithActions
+                    media={imageMedia.map(m => ({ url: m.url }))}
+                    postId={postId}
+                    currentUser={currentUser}
+                    reactionCount={finalReactionCount}
+                    commentCount={commentCount}
+                    shareCount={shareCount}
+                    myReaction={finalMyReaction}
+                    onOpenImage={(url, index) => {
+                      const urls = imageMedia.map(m => m.url);
+                      openGallery(urls, index);
+                    }}
+                    onReact={(type) => onReact(postId, type)}
+                    onOpenComments={() => onOpenComments(postId)}
+                    onShare={() => setShowShareSheet(true)}
+                  />
+                ) : (
+                  <MediaGrid
+                    media={imageMedia.map((m) => ({ url: m.url }))}
+                    onOpen={(url, index) => {
+                      const urls = imageMedia.map((m) => m.url);
+                      openGallery(urls, index);
+                    }}
+                  />
+                )
               )}
 
               {/* Video */}
@@ -3844,6 +3969,7 @@ const commentsCache = new Map<number, {
 /**
  * =========================
  * ✅ UPDATED: FULL POST VIEW WITH FULL-WIDTH MEDIA AND UNIFIED AVATAR
+ * ✅ AND THREADED COMMENTS WITH "VIEW PREVIOUS X REPLIES" (FACEBOOK STYLE)
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -3884,6 +4010,7 @@ export const CommentsSheet: React.FC<{
   const [comments, setComments] = useState<any[]>([]);
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -4028,10 +4155,9 @@ export const CommentsSheet: React.FC<{
       const viewerId = safeUserId(currentUser);
       const data = await apiFetch(`/api/posts/${postId}/comments?viewerId=${viewerId}`);
       const arr = Array.isArray(data) ? data : data?.comments || [];
-      const sorted = sortComments(arr);
       
       if (arr.length > 0) {
-        setComments(sorted);
+        setComments(arr);
         commentsCache.set(postId, { 
           data: arr, 
           timestamp: Date.now(),
@@ -4050,14 +4176,12 @@ export const CommentsSheet: React.FC<{
     const initializeComments = async () => {
       const cached = commentsCache.get(postId);
       if (cached) {
-        const sorted = sortComments(cached.data);
-        setComments(sorted);
+        setComments(cached.data);
       }
       
       const postComments = Array.isArray(p.comments) ? p.comments : [];
       if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
-        const sorted = sortComments(postComments);
-        setComments(sorted);
+        setComments(postComments);
         commentsCache.set(postId, { 
           data: postComments, 
           timestamp: Date.now(),
@@ -4079,12 +4203,17 @@ export const CommentsSheet: React.FC<{
 
   const idKey = (v: any) => String(v ?? '').trim();
 
-  const sortComments = (list: any[]) => {
-    const root = list.filter((c) => !c.parent_comment_id);
+  /**
+   * =========================
+   * ✅ NEW: Build comment threads (root + replies)
+   * =========================
+   */
+  const buildThreads = (list: any[]) => {
+    const roots = list.filter(c => !c.parent_comment_id);
     
     const repliesByParent = new Map<string, any[]>();
     
-    list.forEach((c) => {
+    list.forEach(c => {
       const pid = idKey(c.parent_comment_id);
       if (!pid) return;
       
@@ -4092,20 +4221,23 @@ export const CommentsSheet: React.FC<{
       repliesByParent.get(pid)!.push(c);
     });
     
-    repliesByParent.forEach((arr) => {
+    // Sort replies oldest first
+    repliesByParent.forEach(arr => {
       arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     });
     
-    const sorted: any[] = [];
-    root.forEach((comment) => {
-      const cid = idKey(comment.id);
-      sorted.push(comment);
-      const replies = repliesByParent.get(cid) || [];
-      sorted.push(...replies);
-    });
-    
-    return sorted;
+    return roots.map(root => ({
+      root,
+      replies: repliesByParent.get(idKey(root.id)) || [],
+    }));
   };
+
+  const toggleThread = (rootId: any, open: boolean) => {
+    const key = String(rootId);
+    setExpandedThreads(prev => ({ ...prev, [key]: open }));
+  };
+
+  const threads = useMemo(() => buildThreads(comments), [comments]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -4113,7 +4245,7 @@ export const CommentsSheet: React.FC<{
     if (!t) return;
 
     const replyDisplay = replyTo?._reply_author?.display;
-    const prefix = replyDisplay ? `${replyDisplay}: ` : '';
+    const prefix = replyDisplay ? `${replyDisplay} ` : '';
     const finalText = replyTo && !t.startsWith(prefix) ? prefix + t : t;
 
     const optimisticComment = {
@@ -4140,7 +4272,7 @@ export const CommentsSheet: React.FC<{
         timestamp: Date.now(),
         postId 
       });
-      return sortComments(next);
+      return next;
     });
 
     if (onComment) {
@@ -4186,6 +4318,96 @@ export const CommentsSheet: React.FC<{
     username: p.username,
     profile_image_url: p.profile_image_url,
     id: p.user_id || p.author_id
+  };
+
+  /**
+   * =========================
+   * ✅ NEW: Render one comment (used for both root and replies)
+   * =========================
+   */
+  const renderOneComment = (comment: any, isReply: boolean = false) => {
+    const a = resolveAuthor(comment);
+    const isCurrentUserComment = a.uid === safeUserId(currentUser);
+    const isFollowing = checkIsFollowing ? checkIsFollowing(a.uid) : false;
+    
+    return (
+      <div className={`flex gap-3 ${isReply ? 'mt-3' : ''}`}>
+        <img
+          src={a.image}
+          className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
+          alt=""
+          onClick={() => a.uid && onProfileClick(a.uid)}
+        />
+        
+        <div className="flex-1 min-w-0">
+          <div className="mb-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
+                  onClick={() => a.uid && onProfileClick(a.uid)}
+                >
+                  {a.name}
+                </span>
+                <span className="text-[#B0B3B8] text-[12px]">
+                  • {formatRelativeTime(comment.created_at || comment.createdAt || comment.timestamp)}
+                </span>
+              </div>
+              
+              {onFollow && currentUser && a.uid && !isCurrentUserComment && (
+                <button
+                  onClick={(e) => handleFollowClick(e, a.uid)}
+                  className={`px-2 py-0.5 text-xs font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                    isFollowing 
+                      ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+                      : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                  }`}
+                >
+                  {isFollowing ? 'Following' : 'Follow'}
+                </button>
+              )}
+            </div>
+          </div>
+          
+          <div className="text-[#E4E6EB] text-[18px] font-bold whitespace-pre-wrap break-words mb-2">
+            <RichText
+              text={String(comment.text || '')}
+              users={users}
+              onProfileClick={onProfileClick}
+              onHashtagClick={onHashtagClick}
+            />
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => handleLikeComment(comment)}
+              className={`text-[13px] ${comment.liked_by_me ? 'text-[#1877F2] font-semibold' : 'text-[#B0B3B8] hover:text-[#E4E6EB]'}`}
+            >
+              {comment.liked_by_me ? 'Liked' : 'Like'}
+            </button>
+            <button
+              onClick={() => {
+                const target = getReplyLabel(comment);
+                setReplyTo({
+                  ...comment,
+                  _reply_author: target,
+                });
+                inputRef.current?.focus();
+                setShowEmojiPicker(false);
+              }}
+              className="text-[13px] text-[#B0B3B8] hover:text-[#E4E6EB]"
+            >
+              Reply
+            </button>
+            {comment.likes_count > 0 && (
+              <span className="text-[13px] text-[#B0B3B8]">
+                {formatCount(comment.likes_count)} like{comment.likes_count !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -4478,97 +4700,48 @@ export const CommentsSheet: React.FC<{
             </div>
           ) : (
             <div className="space-y-6">
-              {comments.map((c) => {
-                const a = resolveAuthor(c);
-                const isReply = !!c.parent_comment_id;
-                const isCurrentUserComment = a.uid === safeUserId(currentUser);
-                const isFollowing = checkIsFollowing ? checkIsFollowing(a.uid) : false;
-                
+              {threads.map(({ root, replies }) => {
+                const rootId = String(root.id);
+                const isExpanded = !!expandedThreads[rootId];
+                const MAX_PREVIEW = 3; // Show last 3 replies when collapsed
+                const hiddenCount = Math.max(0, replies.length - MAX_PREVIEW);
+                const visibleReplies = isExpanded ? replies : replies.slice(-MAX_PREVIEW);
+
                 return (
-                  <div 
-                    key={String(c.id)} 
-                    className={`animate-fade-in ${isReply ? 'ml-12 relative' : ''}`}
-                  >
-                    {isReply && (
-                      <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
+                  <div key={rootId} className="space-y-2">
+                    {/* Root comment */}
+                    {renderOneComment(root, false)}
+
+                    {/* "View previous X replies" button */}
+                    {!isExpanded && hiddenCount > 0 && (
+                      <button
+                        type="button"
+                        className="ml-12 text-[#1877F2] font-bold text-[14px] hover:underline"
+                        onClick={() => toggleThread(rootId, true)}
+                      >
+                        View previous {hiddenCount} repl{hiddenCount === 1 ? "y" : "ies"}
+                      </button>
                     )}
-                    
-                    <div className="flex gap-3">
-                      <img
-                        src={a.image}
-                        className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
-                        alt=""
-                        onClick={() => a.uid && onProfileClick(a.uid)}
-                      />
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="mb-1">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span
-                                className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
-                                onClick={() => a.uid && onProfileClick(a.uid)}
-                              >
-                                {a.name}
-                              </span>
-                              <span className="text-[#B0B3B8] text-[12px]">
-                                • {formatRelativeTime(c.created_at || c.createdAt || c.timestamp)}
-                              </span>
-                            </div>
-                            
-                            {onFollow && currentUser && a.uid && !isCurrentUserComment && (
-                              <button
-                                onClick={(e) => handleFollowClick(e, a.uid)}
-                                className={`px-2 py-0.5 text-xs font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                                  isFollowing 
-                                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                                }`}
-                              >
-                                {isFollowing ? 'Following' : 'Follow'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="text-[#E4E6EB] text-[18px] font-bold whitespace-pre-wrap break-words mb-2">
-                          <RichText
-                            text={String(c.text || '')}
-                            users={users}
-                            onProfileClick={onProfileClick}
-                            onHashtagClick={onHashtagClick}
-                          />
-                        </div>
-                        
-                        <div className="flex items-center gap-4">
-                          <button
-                            onClick={() => handleLikeComment(c)}
-                            className={`text-[13px] ${c.liked_by_me ? 'text-[#1877F2] font-semibold' : 'text-[#B0B3B8] hover:text-[#E4E6EB]'}`}
-                          >
-                            {c.liked_by_me ? 'Liked' : 'Like'}
-                          </button>
-                          <button
-                            onClick={() => {
-                              const target = getReplyLabel(c);
-                              setReplyTo({
-                                ...c,
-                                _reply_author: target,
-                              });
-                              inputRef.current?.focus();
-                              setShowEmojiPicker(false);
-                            }}
-                            className="text-[13px] text-[#B0B3B8] hover:text-[#E4E6EB]"
-                          >
-                            Reply
-                          </button>
-                          {c.likes_count > 0 && (
-                            <span className="text-[13px] text-[#B0B3B8]">
-                              {formatCount(c.likes_count)} like{c.likes_count !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                        </div>
+
+                    {/* Replies */}
+                    {visibleReplies.map(reply => (
+                      <div key={String(reply.id)} className="ml-12 relative">
+                        {/* Vertical line connecting replies */}
+                        <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
+                        {renderOneComment(reply, true)}
                       </div>
-                    </div>
+                    ))}
+
+                    {/* "Hide replies" button */}
+                    {isExpanded && replies.length > MAX_PREVIEW && (
+                      <button
+                        type="button"
+                        className="ml-12 text-[#B0B3B8] text-[13px] hover:text-[#E4E6EB]"
+                        onClick={() => toggleThread(rootId, false)}
+                      >
+                        Hide replies
+                      </button>
+                    )}
                   </div>
                 );
               })}
