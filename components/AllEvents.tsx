@@ -492,278 +492,10 @@ const EventCard: React.FC<{
     );
   }
 
-  // Compact card for horizontal scroll (featured events)
-  if (layout === "compact") {
-    return (
-      <div
-        className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group w-[280px] flex-shrink-0"
-        onClick={() => onEventClick(event.id)}
-      >
-        {/* Cover */}
-        <div className="relative h-24 overflow-hidden">
-          {event.cover_url && !imageError ? (
-            <img
-              src={event.cover_url}
-              alt={event.title}
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex items-center justify-center">
-              <i className="fas fa-calendar text-white/30 text-2xl"></i>
-            </div>
-          )}
-
-          <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 border border-white/20">
-            <div className="text-[#F7B928] text-[8px] font-black uppercase">
-              {dateObj?.toLocaleDateString("en-US", { month: "short" })}
-            </div>
-            <div className="text-white text-[14px] font-black leading-tight">
-              {dateObj?.getDate()}
-            </div>
-          </div>
-
-          {isPast ? (
-            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 border border-white/20">
-              <span className="text-[#B0B3B8] text-[8px] font-semibold">Past</span>
-            </div>
-          ) : (
-            <div className="absolute top-2 right-2 bg-[#45BD62]/90 backdrop-blur-sm rounded-full px-2 py-0.5">
-              <span className="text-white text-[8px] font-semibold">Upcoming</span>
-            </div>
-          )}
-        </div>
-
-        {/* Details */}
-        <div className="p-2">
-          <div className="flex items-center gap-1 mb-1">
-            <img
-              src={avatarFrom(creator)}
-              alt=""
-              className="w-4 h-4 rounded-full object-cover border border-[#3E4042]"
-            />
-            <span className="text-[#B0B3B8] text-[9px] truncate">{creator?.name || "Organizer"}</span>
-          </div>
-
-          <h3 className="text-[#E4E6EB] font-black text-xs mb-1 line-clamp-1 group-hover:text-[#1877F2] transition-colors">
-            {event.title}
-          </h3>
-
-          <div className="flex items-center gap-1 text-[#B0B3B8] text-[9px] mb-1">
-            <i className={`fas fa-calendar-alt w-3 ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
-            <span className="truncate">{formatEventDate()}</span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <RSVPCounts 
-              goingCount={attendeesCount}
-              interestedCount={interestedCount}
-              size="sm"
-            />
-            
-            <div className="flex gap-1">
-              <button
-                disabled={loading || isPast}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRSVPClick("going");
-                }}
-                className={`
-                  px-2 py-0.5 rounded-lg font-bold text-[8px] transition-all duration-200
-                  ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-                  ${rsvpStatus === "going"
-                    ? "bg-[#45BD62] text-white"
-                    : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
-                  }
-                `}
-              >
-                {rsvpStatus === "going" ? "✓" : "Going"}
-              </button>
-
-              <button
-                disabled={loading || isPast}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRSVPClick("interested");
-                }}
-                className={`
-                  px-2 py-0.5 rounded-lg font-bold text-[8px] transition-all duration-200
-                  ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-                  ${rsvpStatus === "interested"
-                    ? "bg-[#F7B928] text-black"
-                    : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
-                  }
-                `}
-              >
-                {rsvpStatus === "interested" ? "✓" : "Int"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Horizontal layout card
-  if (layout === "horizontal") {
-    return (
-      <div
-        className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group flex h-[200px]"
-        onClick={() => onEventClick(event.id)}
-      >
-        {/* Cover - Left side */}
-        <div className="relative w-2/5 h-full overflow-hidden">
-          {event.cover_url && !imageError ? (
-            <img
-              src={event.cover_url}
-              alt={event.title}
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex items-center justify-center">
-              <i className="fas fa-calendar text-white/30 text-4xl"></i>
-            </div>
-          )}
-          
-          <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 border border-white/20">
-            <div className="text-[#F7B928] text-[9px] font-black uppercase">
-              {dateObj?.toLocaleDateString("en-US", { month: "short" })}
-            </div>
-            <div className="text-white text-[18px] font-black leading-tight">
-              {dateObj?.getDate()}
-            </div>
-          </div>
-
-          {isPast ? (
-            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 border border-white/20">
-              <span className="text-[#B0B3B8] text-[10px] font-semibold">Past</span>
-            </div>
-          ) : (
-            <div className="absolute top-2 right-2 bg-[#45BD62]/90 backdrop-blur-sm rounded-full px-2 py-0.5">
-              <span className="text-white text-[10px] font-semibold">Upcoming</span>
-            </div>
-          )}
-        </div>
-
-        {/* Details - Right side */}
-        <div className="flex-1 p-3 flex flex-col">
-          {/* Creator row */}
-          <div
-            className="flex items-center justify-between mb-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              className="flex items-center gap-1.5 cursor-pointer"
-              onClick={() => {
-                if (creator?.id) onProfileClick(creator.id);
-              }}
-            >
-              <img
-                src={avatarFrom(creator)}
-                alt=""
-                className="w-4 h-4 rounded-full object-cover border border-[#3E4042]"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
-                }}
-              />
-              <span className="text-[#B0B3B8] text-[10px] hover:underline truncate max-w-[80px]">
-                {creator?.name || "Organizer"}
-              </span>
-              <span className="text-[#3E4042] text-[8px]">•</span>
-              <span className="text-[#B0B3B8] text-[10px]">{formatRelativeTime(event.created_at)}</span>
-            </div>
-
-            {/* RSVP Counts */}
-            <div onClick={(e) => e.stopPropagation()}>
-              <RSVPCounts 
-                goingCount={attendeesCount}
-                interestedCount={interestedCount}
-                size="sm"
-              />
-            </div>
-          </div>
-
-          <h3 className="text-[#E4E6EB] font-black text-sm mb-1 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
-            {event.title}
-          </h3>
-
-          {event.description && (
-            <p className="text-[#B0B3B8] text-[10px] mb-2 line-clamp-2">{event.description}</p>
-          )}
-
-          <div className="space-y-1 mb-2 flex-1">
-            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[10px]">
-              <i className={`fas fa-calendar-alt w-3 ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
-              <span className="truncate">
-                {formatEventDate()}
-                {formatEventTime() && ` • ${formatEventTime()}`}
-              </span>
-            </div>
-
-            {event.location && (
-              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[10px]">
-                <i className="fas fa-map-marker-alt w-3 text-[#F02849]"></i>
-                <span className="line-clamp-1">{event.location}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Buttons - Compact for horizontal */}
-          <div className="flex gap-1 mt-auto">
-            <button
-              disabled={loading || isPast}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRSVPClick("going");
-              }}
-              className={`
-                flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-200
-                ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-                ${rsvpStatus === "going"
-                  ? "bg-[#45BD62] text-white"
-                  : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
-                }
-              `}
-            >
-              {loading && rsvpStatus === "going" ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : (
-                rsvpStatus === "going" ? "✓ Going" : "Going"
-              )}
-            </button>
-
-            <button
-              disabled={loading || isPast}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRSVPClick("interested");
-              }}
-              className={`
-                flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-200
-                ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-                ${rsvpStatus === "interested"
-                  ? "bg-[#F7B928] text-black"
-                  : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
-                }
-              `}
-            >
-              {loading && rsvpStatus === "interested" ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : (
-                rsvpStatus === "interested" ? "✓ Interested" : "Interested"
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Regular vertical card view
+  // Regular vertical card view (used in both middle grid and bottom horizontal scroll)
   return (
     <div
-      className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group"
+      className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group w-full"
       onClick={() => onEventClick(event.id)}
     >
       {/* Cover */}
@@ -917,6 +649,129 @@ const EventCard: React.FC<{
   );
 };
 
+// ========== AUTO SCROLLING HORIZONTAL SECTION ==========
+const AutoScrollHorizontal: React.FC<{
+  title: string;
+  events: EventFromAPI[];
+  currentUser: User | null;
+  onEventClick: (id: number) => void;
+  onProfileClick: (id: number) => void;
+  onRSVPUpdate?: (eventId: number, newStatus: "" | "going" | "interested", newAtt: number, newInt: number) => void;
+  speed?: number; // pixels per second
+  direction?: 'left' | 'right';
+}> = ({ 
+  title, 
+  events, 
+  currentUser, 
+  onEventClick, 
+  onProfileClick, 
+  onRSVPUpdate,
+  speed = 50, // Default speed: 50px per second
+  direction = 'left'
+}) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const animationRef = useRef<number>();
+  const scrollPositionRef = useRef(0);
+
+  const startScrolling = useCallback(() => {
+    if (!scrollRef.current || isPaused) return;
+
+    const scroll = () => {
+      if (!scrollRef.current || isPaused) return;
+
+      const container = scrollRef.current;
+      const maxScroll = container.scrollWidth - container.clientWidth;
+      
+      if (direction === 'left') {
+        scrollPositionRef.current += speed / 60; // 60fps
+        if (scrollPositionRef.current >= maxScroll) {
+          scrollPositionRef.current = 0; // Reset to beginning
+        }
+      } else {
+        scrollPositionRef.current -= speed / 60;
+        if (scrollPositionRef.current <= 0) {
+          scrollPositionRef.current = maxScroll; // Reset to end
+        }
+      }
+
+      container.scrollLeft = scrollPositionRef.current;
+      animationRef.current = requestAnimationFrame(scroll);
+    };
+
+    animationRef.current = requestAnimationFrame(scroll);
+  }, [speed, direction, isPaused]);
+
+  useEffect(() => {
+    if (!isPaused) {
+      startScrolling();
+    }
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [startScrolling, isPaused]);
+
+  // Prevent user scrolling
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault();
+  };
+
+  // Pause on hover
+  const handleMouseEnter = () => {
+    setIsPaused(true);
+  };
+
+  const handleMouseLeave = () => {
+    setIsPaused(false);
+  };
+
+  if (events.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[#E4E6EB] text-lg font-black">{title}</h2>
+        <div className="flex gap-2">
+          <div className="w-2 h-2 rounded-full bg-[#45BD62] animate-pulse"></div>
+          <span className="text-[#B0B3B8] text-xs">Auto-scrolling</span>
+        </div>
+      </div>
+      <div 
+        ref={scrollRef}
+        className="flex gap-4 overflow-x-auto scrollbar-hide cursor-default"
+        style={{ 
+          scrollbarWidth: 'none', 
+          msOverflowStyle: 'none',
+          WebkitOverflowScrolling: 'touch',
+        }}
+        onWheel={handleWheel}
+        onTouchMove={handleTouchMove}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        {events.map((event) => (
+          <div key={`${title}-${event.event_key || `event:${event.id}`}`} className="w-[280px] flex-shrink-0">
+            <EventCard
+              event={event}
+              currentUser={currentUser}
+              onEventClick={onEventClick}
+              onProfileClick={onProfileClick}
+              onRSVPUpdate={onRSVPUpdate}
+              layout="vertical"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // ========== MAIN PAGE ==========
 export const AllEvents: React.FC<AllEventsProps> = ({
   currentUser,
@@ -939,7 +794,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   const [hasMore, setHasMore] = useState(true);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
 
   const fetchingMoreRef = useRef(false);
   const loadingRef = useRef(false);
@@ -1077,21 +931,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     }
   };
 
-  // Scroll horizontal section
-  const scrollHorizontal = (direction: 'left' | 'right') => {
-    if (horizontalScrollRef.current) {
-      const scrollAmount = 300;
-      const newScrollLeft = direction === 'left' 
-        ? horizontalScrollRef.current.scrollLeft - scrollAmount
-        : horizontalScrollRef.current.scrollLeft + scrollAmount;
-      
-      horizontalScrollRef.current.scrollTo({
-        left: newScrollLeft,
-        behavior: 'smooth'
-      });
-    }
-  };
-
   // Initial fetch
   useEffect(() => {
     if (currentUser && !currentUser.id) return;
@@ -1176,49 +1015,14 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
   const previewEvent = previewEventId ? events.find(e => e.id === previewEventId) : null;
 
-  // Function to shuffle array (Fisher-Yates algorithm)
-  const shuffleArray = <T,>(array: T[]): T[] => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  };
+  // Split events into sections
+  const getFeaturedEvents = () => events.slice(0, 8); // First 8 for top auto-scroll
+  const getMiddleEvents = () => events.slice(8, 16); // Next 8 for middle grid (no position exchange)
+  const getBottomEvents = () => events.slice(16); // Rest for bottom auto-scroll
 
-  // Create mixed layout grid with shuffled positions
-  const createMixedGrid = (events: EventFromAPI[]) => {
-    if (events.length === 0) return [];
-    
-    // Shuffle events to mix them up
-    const shuffledEvents = shuffleArray(events);
-    
-    const gridItems: { event: EventFromAPI; layout: EventLayout; colSpan?: number }[] = [];
-    
-    for (let i = 0; i < shuffledEvents.length; i++) {
-      const event = shuffledEvents[i];
-      
-      // Pattern: 2 vertical, 1 horizontal, 2 vertical, 1 horizontal, etc.
-      // This creates a nice mixed rhythm
-      if (i % 3 === 2) {
-        // Every 3rd item is horizontal
-        gridItems.push({ event, layout: "horizontal", colSpan: 2 }); // Horizontal cards span 2 columns
-      } else {
-        // Other items are vertical
-        gridItems.push({ event, layout: "vertical", colSpan: 1 });
-      }
-    }
-    
-    return gridItems;
-  };
-
-  // Get featured events for horizontal scroll (first 8 events or all if less)
-  const getFeaturedEvents = () => {
-    return events.slice(0, Math.min(8, events.length));
-  };
-
-  const gridItems = createMixedGrid(events.slice(8)); // Skip first 8 for grid
   const featuredEvents = getFeaturedEvents();
+  const middleEvents = getMiddleEvents();
+  const bottomEvents = getBottomEvents();
 
   return (
     <div className="min-h-screen bg-[#18191A] font-sans">
@@ -1344,64 +1148,50 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         ) : (
           <>
-            {/* Featured Events - Horizontal Scroll Section */}
-            {featuredEvents.length > 0 && (
+            {/* Top Auto-Scrolling Section */}
+            <AutoScrollHorizontal
+              title="Featured Events"
+              events={featuredEvents}
+              currentUser={currentUser}
+              onEventClick={handleEventClick}
+              onProfileClick={onProfileClick}
+              onRSVPUpdate={handleRSVPUpdate}
+              speed={40}
+              direction="left"
+            />
+
+            {/* Middle Grid - No position exchange, original order */}
+            {middleEvents.length > 0 && (
               <div className="mb-8">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-[#E4E6EB] text-lg font-black">Featured Events</h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => scrollHorizontal('left')}
-                      className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
-                    >
-                      <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
-                    </button>
-                    <button
-                      onClick={() => scrollHorizontal('right')}
-                      className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
-                    >
-                      <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
-                    </button>
-                  </div>
-                </div>
-                <div 
-                  ref={horizontalScrollRef}
-                  className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide scroll-smooth"
-                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                >
-                  {featuredEvents.map((event) => (
-                    <EventCard
-                      key={`featured-${event.event_key || `event:${event.id}`}`}
-                      event={event}
-                      currentUser={currentUser}
-                      onEventClick={handleEventClick}
-                      onProfileClick={onProfileClick}
-                      onRSVPUpdate={handleRSVPUpdate}
-                      layout="compact"
-                    />
+                <h2 className="text-[#E4E6EB] text-lg font-black mb-4">Upcoming Events</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {middleEvents.map((event) => (
+                    <div key={`middle-${event.event_key || `event:${event.id}`}`}>
+                      <EventCard
+                        event={event}
+                        currentUser={currentUser}
+                        onEventClick={handleEventClick}
+                        onProfileClick={onProfileClick}
+                        onRSVPUpdate={handleRSVPUpdate}
+                        layout="vertical"
+                      />
+                    </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Mixed Grid layout - Facebook style */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-min">
-              {gridItems.map((item, index) => (
-                <div 
-                  key={`grid-${item.event.event_key || `event:${item.event.id}`}-${index}`}
-                  className={item.colSpan === 2 ? "md:col-span-2 lg:col-span-2" : ""}
-                >
-                  <EventCard
-                    event={item.event}
-                    currentUser={currentUser}
-                    onEventClick={handleEventClick}
-                    onProfileClick={onProfileClick}
-                    onRSVPUpdate={handleRSVPUpdate}
-                    layout={item.layout}
-                  />
-                </div>
-              ))}
-            </div>
+            {/* Bottom Auto-Scrolling Section */}
+            <AutoScrollHorizontal
+              title="More Events"
+              events={bottomEvents}
+              currentUser={currentUser}
+              onEventClick={handleEventClick}
+              onProfileClick={onProfileClick}
+              onRSVPUpdate={handleRSVPUpdate}
+              speed={30}
+              direction="right"
+            />
 
             <div ref={sentinelRef} className="h-1" />
 
