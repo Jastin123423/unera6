@@ -1,4 +1,4 @@
-Remove everything about MenuPages.tsx and I want when users click Events it open AllEvents.tsx 
+
 
 // AllEvents.tsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
