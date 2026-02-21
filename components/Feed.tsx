@@ -13,36 +13,48 @@ import {
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
-import { CreateEventModal } from './Events';
+import { CreateEventModal, EventCard } from './Events'; // Added EventCard import
 
 /**
  * =========================
- * ✅ RSVP HELPER - Works directly with backend (updated)
+ * ✅ RSVP HELPER - MATCHES ALLEVENTS.TSX EXACTLY
  * =========================
  */
-type RSVPStatus = "going" | "interested" | "";  // "" means not_going/removed
+type RSVPStatus = "going" | "interested" | "not_going";
 
 const rsvpEventDirect = async (args: {
   eventId: number;
   userId: number;
-  nextStatus: RSVPStatus;           // "" means remove
-  previousStatus: RSVPStatus;       // "" | going | interested
+  newStatus: RSVPStatus;
+  prevStatus?: "" | "going" | "interested";
 }) => {
-  const { eventId, userId, nextStatus, previousStatus } = args;
+  const { eventId, userId, newStatus, prevStatus = "" } = args;
 
-  // choose endpoint based on which bucket we’re changing
   const endpoint =
-    nextStatus === "going" || previousStatus === "going"
+    newStatus === "going"
       ? "/api/attend"
-      : "/api/interested";
+      : newStatus === "interested"
+        ? "/api/interested"
+        : prevStatus === "interested"
+          ? "/api/interested"
+          : "/api/attend";
 
-  const action = nextStatus === "" ? "remove" : "add";
+  const payloadStatus = { event_id: eventId, user_id: userId, status: newStatus };
 
-  return await postJSON(endpoint, {
-    event_id: eventId,
-    user_id: userId,
-    action, // ✅ add | remove (matches your backend)
-  });
+  try {
+    return await postJSON(endpoint, payloadStatus);
+  } catch (e1: any) {
+    const payloadAction = {
+      event_id: eventId,
+      user_id: userId,
+      action: newStatus === "not_going" ? "remove" : "add",
+    };
+    try {
+      return await postJSON(endpoint, payloadAction);
+    } catch (e2: any) {
+      throw new Error(e2?.message || e1?.message || "RSVP failed");
+    }
+  }
 };
 
 /**
@@ -1737,9 +1749,9 @@ const normalizeEventFromFeed = (item: any) => {
     id,
     title: String(item?.content ?? meta?.title ?? "Event"),
     description: String(item?.event_description ?? meta?.description ?? ""),
-    cover_image: String(cover || ""),
+    cover_url: String(cover || ""),
     location: String(item?.location ?? meta?.location ?? ""),
-    start_time: String(item?.event_date ?? meta?.event_date ?? meta?.start_time ?? ""),
+    event_date: String(item?.event_date ?? meta?.event_date ?? meta?.start_time ?? ""),
     created_at: String(item?.created_at ?? meta?.created_at ?? ""),
     // counts from feeds (what you added in feeds.ts)
     attendees_count: Number(item?.attending_count ?? meta?.attending_count ?? 0),
@@ -1747,12 +1759,19 @@ const normalizeEventFromFeed = (item: any) => {
     // rsvp status from feeds
     user_rsvp_status: String(item?.my_rsvp_status ?? meta?.my_rsvp_status ?? ""),
     creator_id: Number(item?.user_id ?? meta?.creator_id ?? 0),
+    // Creator info
+    creator: {
+      id: Number(item?.user_id ?? meta?.creator_id ?? 0),
+      name: String(item?.name ?? meta?.creator_name ?? "Event Organizer"),
+      username: String(item?.username ?? meta?.creator_username ?? ""),
+      profile_image_url: String(item?.profile_image_url ?? meta?.creator_image ?? "")
+    }
   };
 };
 
 /**
  * =========================
- * ✅ EVENT POST COMPONENT - FIXED IMAGE AND RSVP BUTTONS
+ * ✅ UPDATED: EVENT POST COMPONENT - MATCHES ALLEVENTS.TSX EXACTLY
  * =========================
  */
 export const EventPost: React.FC<{
@@ -1771,6 +1790,7 @@ export const EventPost: React.FC<{
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
+  onEventClick?: (eventId: number) => void; // Added for preview modal
 }> = ({ 
   event, 
   author, 
@@ -1787,27 +1807,43 @@ export const EventPost: React.FC<{
   groups = [],
   brands = [],
   chats = [],
+  onEventClick, // Added for preview modal
 }) => {
   const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
-  const [busy, setBusy] = useState(false);
+  const [attendeesCount, setAttendeesCount] = useState(event.attendees_count || 0);
+  const [interestedCount, setInterestedCount] = useState(event.interested_count || 0);
+  const [loading, setLoading] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
   
-  const creator = author || users?.find(u => Number(u.id) === Number(event.creator_id)) || null;
+  const creator = author || users?.find(u => Number(u.id) === Number(event.creator_id)) || event.creator || {
+    id: event.creator_id,
+    name: "Event Organizer",
+    username: "",
+    profile_image_url: null,
+  };
   
-  const dateObj = event.start_time ? new Date(event.start_time) : null;
-  const day = dateObj && Number.isFinite(dateObj.getTime()) ? dateObj.getDate() : '';
-  const month = dateObj && Number.isFinite(dateObj.getTime())
-    ? dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
-    : '';
-  const year = dateObj && Number.isFinite(dateObj.getTime())
-    ? dateObj.getFullYear()
-    : '';
-  const timeLabel = dateObj && Number.isFinite(dateObj.getTime())
-    ? dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    : '';
+  const dateObj = event.event_date ? toDateSafe(event.event_date) : null;
+  const nowLocal = new Date();
+  const isPast = !!dateObj && dateObj < nowLocal;
+  
+  const formatEventDate = () => {
+    if (!dateObj) return "Date TBD";
+    if (dateObj.toDateString() === nowLocal.toDateString()) return "Today";
+    
+    const tomorrow = new Date(nowLocal);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (dateObj.toDateString() === tomorrow.toDateString()) return "Tomorrow";
+    
+    return dateObj.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  };
+
+  const formatEventTime = () => {
+    if (!dateObj) return "";
+    return dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  };
 
   /**
-   * ✅ FIXED: RSVP handler that uses the new transition logic
+   * ✅ FIXED: RSVP handler that matches AllEvents.tsx exactly
    */
   const handleRSVPClick = async (target: 'going' | 'interested') => {
     if (!currentUser) {
@@ -1816,52 +1852,71 @@ export const EventPost: React.FC<{
     }
     if (!event.id) return;
 
-    setBusy(true);
-    
-    const previousStatus = (rsvpStatus || '') as '' | 'going' | 'interested';
-    const nextStatus: '' | 'going' | 'interested' =
-      previousStatus === target ? '' : target;
+    setLoading(true);
+
+    const prevStatus = rsvpStatus;
+    const nextStatus: "" | "going" | "interested" = prevStatus === target ? "" : target;
+
+    const prevAtt = attendeesCount;
+    const prevInt = interestedCount;
+
+    let nextAtt = prevAtt;
+    let nextInt = prevInt;
+
+    if (target === "going") {
+      if (prevStatus === "going") nextAtt = Math.max(0, prevAtt - 1);
+      else if (prevStatus === "interested") {
+        nextAtt = prevAtt + 1;
+        nextInt = Math.max(0, prevInt - 1);
+      } else nextAtt = prevAtt + 1;
+    } else {
+      if (prevStatus === "interested") nextInt = Math.max(0, prevInt - 1);
+      else if (prevStatus === "going") {
+        nextInt = prevInt + 1;
+        nextAtt = Math.max(0, prevAtt - 1);
+      } else nextInt = prevInt + 1;
+    }
 
     // Optimistic UI update
     setRsvpStatus(nextStatus);
-    
-    // Save previous counts for rollback
-    const prevAtt = Number(event.attendees_count ?? 0);
-    const prevInt = Number(event.interested_count ?? 0);
+    setAttendeesCount(nextAtt);
+    setInterestedCount(nextInt);
 
     try {
       let res;
       if (onRSVP) {
-        // Parent handler expects "not_going" for removal
-        await onRSVP(event.id, nextStatus || 'not_going');
-        // We don't have response data, so we assume success and will rely on next feed refresh
+        await onRSVP(event.id, (nextStatus || 'not_going') as any);
         res = { success: true };
       } else {
         res = await rsvpEventDirect({
           eventId: event.id,
           userId: safeUserId(currentUser),
-          nextStatus,
-          previousStatus,
+          newStatus: (nextStatus || "not_going") as any,
+          prevStatus: prevStatus as any,
         });
       }
 
-      // ✅ Overwrite with backend truth if available
-      if (res?.success && res.attending_count !== undefined && res.interested_count !== undefined) {
-        event.attendees_count = Number(res.attending_count);
-        event.interested_count = Number(res.interested_count);
+      // Overwrite with backend truth if available
+      if (res?.success) {
+        if (res.attending_count !== undefined) {
+          setAttendeesCount(Number(res.attending_count));
+        }
+        if (res.interested_count !== undefined) {
+          setInterestedCount(Number(res.interested_count));
+        }
         if (res.my_status !== undefined) {
           setRsvpStatus(res.my_status);
         }
       }
     } catch (error) {
       // Rollback on failure
-      setRsvpStatus(previousStatus);
-      event.attendees_count = prevAtt;
-      event.interested_count = prevInt;
+      setRsvpStatus(prevStatus);
+      setAttendeesCount(prevAtt);
+      setInterestedCount(prevInt);
       console.error('RSVP failed:', error);
       alert('Failed to RSVP. Please try again.');
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   };
 
@@ -1901,15 +1956,28 @@ export const EventPost: React.FC<{
     }
   };
 
+  // Handle card click to open preview modal
+  const handleCardClick = () => {
+    if (onEventClick && event.id) {
+      onEventClick(event.id);
+    }
+  };
+
   return (
     <>
       <div className="w-full">
-        <div className="bg-[#242526] w-full overflow-hidden">
+        <div 
+          className="bg-[#242526] w-full overflow-hidden cursor-pointer"
+          onClick={handleCardClick}
+        >
           {/* Header */}
-          <div className="p-3 md:p-4 flex items-center justify-between">
+          <div className="p-3 md:p-4 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
             <div
               className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-              onClick={() => creator?.id && onProfileClick(Number(creator.id))}
+              onClick={(e) => {
+                e.stopPropagation();
+                creator?.id && onProfileClick(Number(creator.id));
+              }}
             >
               <img
                 src={avatarFrom(creator)}
@@ -1953,18 +2021,17 @@ export const EventPost: React.FC<{
           </div>
 
           {/* EVENT BODY - FIXED: Image now shows on top */}
-          <div className="pb-4">
+          <div className="pb-4" onClick={(e) => e.stopPropagation()}>
             <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
-              {/* Cover Image - FIXED: Now properly displays the event cover */}
-              {event.cover_image ? (
+              {/* Cover Image */}
+              {event.cover_url ? (
                 <div className="h-48 bg-[#18191A] overflow-hidden relative">
                   <img
-                    src={event.cover_image}
+                    src={event.cover_url}
                     alt={event.title}
                     className="w-full h-full object-cover"
                     loading="lazy"
                     onError={(e) => {
-                      // Fallback if image fails to load
                       (e.currentTarget as HTMLImageElement).style.display = 'none';
                       const parent = e.currentTarget.parentElement;
                       if (parent) {
@@ -1976,22 +2043,28 @@ export const EventPost: React.FC<{
                     }}
                   />
                   {/* Date Badge */}
-                  {month && day && (
+                  {dateObj && (
                     <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                      <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
-                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
-                      {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
+                      <div className="text-[#B0B3B8] text-[11px] font-black">
+                        {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                      </div>
+                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">
+                        {dateObj.getDate()}
+                      </div>
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="h-32 bg-[#1f2a37] flex items-center justify-center relative">
                   <i className="fas fa-calendar text-white/30 text-5xl"></i>
-                  {month && day && (
+                  {dateObj && (
                     <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                      <div className="text-[#B0B3B8] text-[11px] font-black">{month}</div>
-                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">{day}</div>
-                      {year && <div className="text-[#B0B3B8] text-[9px] font-semibold">{year}</div>}
+                      <div className="text-[#B0B3B8] text-[11px] font-black">
+                        {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                      </div>
+                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">
+                        {dateObj.getDate()}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2010,11 +2083,11 @@ export const EventPost: React.FC<{
                 )}
 
                 <div className="mt-3 space-y-2">
-                  {event.start_time && (
+                  {event.event_date && (
                     <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
-                      <i className="fas fa-clock text-[#1877F2] w-4"></i>
+                      <i className={`fas fa-calendar-alt ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"} w-4`}></i>
                       <span>
-                        {dateObj?.toLocaleDateString()} at {timeLabel}
+                        {formatEventDate()} at {formatEventTime()}
                       </span>
                     </div>
                   )}
@@ -2026,47 +2099,51 @@ export const EventPost: React.FC<{
                   )}
                   <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
                     <i className="fas fa-users text-[#45BD62] w-4"></i>
-                    <span>{event.attendees_count || 0} attending • {event.interested_count || 0} interested</span>
+                    <span>{attendeesCount} attending • {interestedCount} interested</span>
                   </div>
                 </div>
 
-                {/* RSVP Buttons - FIXED: Now actually work */}
+                {/* RSVP Buttons - Matches AllEvents.tsx exactly */}
                 <div className="mt-4 flex gap-2">
                   <button
-                    disabled={busy}
+                    disabled={loading || isPast}
                     onClick={(e) => { 
                       e.stopPropagation(); 
                       handleRSVPClick('going'); 
                     }}
                     className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
+                      isPast ? "opacity-50 cursor-not-allowed" : ""
+                    } ${
                       rsvpStatus === 'going'
                         ? 'bg-[#45BD62] text-white'
                         : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
                     } disabled:opacity-60`}
                   >
-                    {busy && rsvpStatus === 'going' ? (
+                    {loading && rsvpStatus === 'going' ? (
                       <i className="fas fa-spinner fa-spin"></i>
                     ) : (
-                      rsvpStatus === 'going' ? 'Going' : 'Going'
+                      rsvpStatus === 'going' ? '✓ Going' : 'Going'
                     )}
                   </button>
 
                   <button
-                    disabled={busy}
+                    disabled={loading || isPast}
                     onClick={(e) => { 
                       e.stopPropagation(); 
                       handleRSVPClick('interested'); 
                     }}
                     className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
+                      isPast ? "opacity-50 cursor-not-allowed" : ""
+                    } ${
                       rsvpStatus === 'interested'
                         ? 'bg-[#F7B928] text-black'
                         : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                     } disabled:opacity-60`}
                   >
-                    {busy && rsvpStatus === 'interested' ? (
+                    {loading && rsvpStatus === 'interested' ? (
                       <i className="fas fa-spinner fa-spin"></i>
                     ) : (
-                      'Interested'
+                      rsvpStatus === 'interested' ? '✓ Interested' : 'Interested'
                     )}
                   </button>
                 </div>
@@ -2075,7 +2152,7 @@ export const EventPost: React.FC<{
           </div>
 
           {/* Action row - NOW ENABLED AND WORKING for events */}
-          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
             {/* Like/React Button */}
             <div className="flex-1">
               <ReactionButton
@@ -2119,7 +2196,7 @@ export const EventPost: React.FC<{
             author: creator,
             content: event.title,
             description: event.description,
-            media_url: event.cover_image,
+            media_url: event.cover_url,
             created_at: event.created_at
           }}
           currentUser={currentUser}
@@ -2168,7 +2245,8 @@ export const EventFeedCard: React.FC<{
   onProfileClick: (id: number) => void;
   onUpdateItem: (patch: Partial<FeedEventItem>) => void;
   onRSVPEvent?: (eventId: number, status: "going" | "interested" | "not_going") => Promise<any>;
-}> = ({ item, currentUser, onProfileClick, onUpdateItem, onRSVPEvent }) => {
+  onEventClick?: (eventId: number) => void; // Added for preview modal
+}> = ({ item, currentUser, onProfileClick, onUpdateItem, onRSVPEvent, onEventClick }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -2184,8 +2262,12 @@ export const EventFeedCard: React.FC<{
     });
   }, [item.event_date]);
 
+  const dateObj = item.event_date ? toDateSafe(item.event_date) : null;
+  const nowLocal = new Date();
+  const isPast = !!dateObj && dateObj < nowLocal;
+
   /**
-   * ✅ FIXED: RSVP function now accepts only "going"|"interested" and uses transition logic
+   * ✅ FIXED: RSVP function now matches AllEvents.tsx logic
    */
   const rsvp = async (target: "going" | "interested") => {
     if (!currentUser) {
@@ -2197,30 +2279,48 @@ export const EventFeedCard: React.FC<{
     setError(null);
     
     const eventId = item.event_id || item.id;
-    const previousStatus = (item.my_rsvp_status || '') as '' | 'going' | 'interested';
-    const nextStatus: '' | 'going' | 'interested' =
-      previousStatus === target ? '' : target;
+    const prevStatus = (item.my_rsvp_status || '') as '' | 'going' | 'interested';
+    const nextStatus: '' | 'going' | 'interested' = prevStatus === target ? '' : target;
 
     // Save previous counts for rollback
     const prevAtt = Number(item.attending_count ?? 0);
     const prevInt = Number(item.interested_count ?? 0);
 
+    let nextAtt = prevAtt;
+    let nextInt = prevInt;
+
+    if (target === "going") {
+      if (prevStatus === "going") nextAtt = Math.max(0, prevAtt - 1);
+      else if (prevStatus === "interested") {
+        nextAtt = prevAtt + 1;
+        nextInt = Math.max(0, prevInt - 1);
+      } else nextAtt = prevAtt + 1;
+    } else {
+      if (prevStatus === "interested") nextInt = Math.max(0, prevInt - 1);
+      else if (prevStatus === "going") {
+        nextInt = prevInt + 1;
+        nextAtt = Math.max(0, prevAtt - 1);
+      } else nextInt = prevInt + 1;
+    }
+
     // Optimistic UI update
-    onUpdateItem({ my_rsvp_status: nextStatus as any });
+    onUpdateItem({ 
+      my_rsvp_status: nextStatus as any,
+      attending_count: nextAtt,
+      interested_count: nextInt
+    });
     
     try {
       let res;
       if (onRSVPEvent) {
-        // Parent handler expects "not_going" for removal
-        await onRSVPEvent(eventId, nextStatus || 'not_going');
-        // No response data, so we keep optimistic counts and rely on next feed refresh
+        await onRSVPEvent(eventId, (nextStatus || 'not_going') as any);
         res = { success: true };
       } else {
         res = await rsvpEventDirect({
           eventId,
           userId: currentUser.id,
-          nextStatus,
-          previousStatus,
+          newStatus: (nextStatus || "not_going") as any,
+          prevStatus,
         });
       }
 
@@ -2241,7 +2341,7 @@ export const EventFeedCard: React.FC<{
     } catch (e: any) {
       // rollback counts/status
       onUpdateItem({
-        my_rsvp_status: previousStatus as any,
+        my_rsvp_status: prevStatus as any,
         attending_count: prevAtt,
         interested_count: prevInt,
       });
@@ -2255,16 +2355,30 @@ export const EventFeedCard: React.FC<{
   const attending = Number(item.attending_count ?? 0);
   const interested = Number(item.interested_count ?? 0);
 
+  // Handle card click to open preview modal
+  const handleCardClick = () => {
+    if (onEventClick) {
+      const eventId = item.event_id || item.id;
+      onEventClick(eventId);
+    }
+  };
+
   return (
-    <div className="w-full">
+    <div 
+      className="w-full cursor-pointer"
+      onClick={handleCardClick}
+    >
       <div className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042]">
         {/* Header */}
-        <div className="flex items-center gap-3 p-3">
+        <div className="flex items-center gap-3 p-3" onClick={(e) => e.stopPropagation()}>
           <img
             src={item.profile_image_url || "https://via.placeholder.com/40"}
             className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
             alt=""
-            onClick={() => onProfileClick(item.user_id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onProfileClick(item.user_id);
+            }}
           />
           <div className="min-w-0">
             <div className="text-[#E4E6EB] font-bold truncate">{item.name}</div>
@@ -2276,7 +2390,7 @@ export const EventFeedCard: React.FC<{
 
         {/* Cover image */}
         {item.media_url ? (
-          <div className="w-full h-56 bg-black overflow-hidden">
+          <div className="w-full h-56 bg-black overflow-hidden relative">
             <img 
               src={item.media_url} 
               className="w-full h-full object-cover" 
@@ -2292,15 +2406,36 @@ export const EventFeedCard: React.FC<{
                 }
               }}
             />
+            {/* Date Badge */}
+            {dateObj && (
+              <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                <div className="text-[#B0B3B8] text-[11px] font-black">
+                  {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                </div>
+                <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">
+                  {dateObj.getDate()}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
-          <div className="w-full h-40 bg-[#1B1C1D] flex items-center justify-center">
+          <div className="w-full h-40 bg-[#1B1C1D] flex items-center justify-center relative">
             <i className="fas fa-calendar text-[#1877F2] text-4xl opacity-60"></i>
+            {dateObj && (
+              <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                <div className="text-[#B0B3B8] text-[11px] font-black">
+                  {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                </div>
+                <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">
+                  {dateObj.getDate()}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {/* Content */}
-        <div className="p-4">
+        <div className="p-4" onClick={(e) => e.stopPropagation()}>
           <div className="text-[#E4E6EB] font-black text-xl leading-tight">
             {item.content}
           </div>
@@ -2314,7 +2449,7 @@ export const EventFeedCard: React.FC<{
           <div className="mt-3 space-y-2 text-[#B0B3B8] text-sm">
             {whenText ? (
               <div className="flex items-center gap-2">
-                <i className="fas fa-clock text-[#1877F2] w-5"></i>
+                <i className={`fas fa-clock ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"} w-5`}></i>
                 <span>{whenText}</span>
               </div>
             ) : null}
@@ -2339,15 +2474,17 @@ export const EventFeedCard: React.FC<{
             </div>
           )}
 
-          {/* RSVP Buttons */}
+          {/* RSVP Buttons - Matches AllEvents.tsx */}
           <div className="mt-4 flex gap-2">
             <button
-              disabled={loading}
+              disabled={loading || isPast}
               onClick={(e) => {
                 e.stopPropagation();
                 rsvp("going");
               }}
               className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
+                isPast ? "opacity-50 cursor-not-allowed" : ""
+              } ${
                 my === "going"
                   ? "bg-[#45BD62] text-white hover:bg-[#3da855]"
                   : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
@@ -2356,17 +2493,19 @@ export const EventFeedCard: React.FC<{
               {loading && my === "going" ? (
                 <i className="fas fa-spinner fa-spin"></i>
               ) : (
-                my === "going" ? "Going" : "Going"
+                my === "going" ? "✓ Going" : "Going"
               )}
             </button>
 
             <button
-              disabled={loading}
+              disabled={loading || isPast}
               onClick={(e) => {
                 e.stopPropagation();
                 rsvp("interested");
               }}
               className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
+                isPast ? "opacity-50 cursor-not-allowed" : ""
+              } ${
                 my === "interested"
                   ? "bg-[#F7B928] text-black hover:bg-[#e5aa24]"
                   : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
@@ -2375,7 +2514,7 @@ export const EventFeedCard: React.FC<{
               {loading && my === "interested" ? (
                 <i className="fas fa-spinner fa-spin"></i>
               ) : (
-                "Interested"
+                my === "interested" ? "✓ Interested" : "Interested"
               )}
             </button>
           </div>
@@ -2417,6 +2556,7 @@ export const Post: React.FC<{
   isFollowing?: boolean;
   onFollow?: (id: number) => void;
   followLoading?: boolean;
+  onEventClick?: (eventId: number) => void; // Added for preview modal
 }> = ({
   post,
   author,
@@ -2441,6 +2581,7 @@ export const Post: React.FC<{
   isFollowing = false,
   onFollow,
   followLoading = false,
+  onEventClick, // Added for preview modal
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -2492,6 +2633,7 @@ export const Post: React.FC<{
         groups={groups}
         brands={brands}
         chats={chats}
+        onEventClick={onEventClick} // Pass through
       />
     );
   }
