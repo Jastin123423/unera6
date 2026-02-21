@@ -1,5 +1,3 @@
-
-
 // AllEvents.tsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { User } from "../types";
@@ -177,7 +175,7 @@ interface Attendee {
   name: string;
   username?: string;
   profile_image_url?: string | null;
-  is_friend?: boolean; // Whether this attendee is a friend of current user
+  is_friend?: boolean;
 }
 
 interface EventFromAPI {
@@ -196,9 +194,8 @@ interface EventFromAPI {
   interested_count: number;
   user_rsvp_status?: "" | "going" | "interested";
   
-  // New fields for attendee information
   attendees?: Attendee[];
-  friend_attendees?: Attendee[]; // Subset of attendees that are friends
+  friend_attendees?: Attendee[];
   interested?: Attendee[];
   
   creator?: {
@@ -213,9 +210,8 @@ interface AllEventsProps {
   currentUser: User | null;
   users?: User[];
   onProfileClick: (id: number) => void;
-  onEventClick: (eventId: number) => void;
   onCreateEventClick?: () => void;
-  onNavigateBack?: () => void; // Added for back navigation
+  onNavigateBack?: () => void;
 }
 
 // ========== FILTER CHIP ==========
@@ -241,6 +237,46 @@ const FilterChip: React.FC<{
   </button>
 );
 
+// ========== RSVP COUNTS COMPONENT ==========
+const RSVPCounts: React.FC<{
+  goingCount: number;
+  interestedCount: number;
+  onGoingClick?: () => void;
+  onInterestedClick?: () => void;
+  className?: string;
+  size?: "sm" | "md";
+}> = ({ goingCount, interestedCount, onGoingClick, onInterestedClick, className = "", size = "md" }) => {
+  const isSmall = size === "sm";
+  
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      {/* Going count with green button color */}
+      <button
+        onClick={onGoingClick}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#45BD62]/10 hover:bg-[#45BD62]/20 transition-colors"
+      >
+        <div className={`${isSmall ? 'w-4 h-4' : 'w-5 h-5'} rounded-full bg-[#45BD62] flex items-center justify-center`}>
+          <i className={`fas fa-user-friends text-white ${isSmall ? 'text-[8px]' : 'text-[10px]'}`}></i>
+        </div>
+        <span className={`text-[#E4E6EB] font-semibold ${isSmall ? 'text-xs' : 'text-sm'}`}>{goingCount}</span>
+        {!isSmall && <span className="text-[#B0B3B8] text-xs">Going</span>}
+      </button>
+
+      {/* Interested count with interested button color */}
+      <button
+        onClick={onInterestedClick}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#F7B928]/10 hover:bg-[#F7B928]/20 transition-colors"
+      >
+        <div className={`${isSmall ? 'w-4 h-4' : 'w-5 h-5'} rounded-full bg-[#F7B928] flex items-center justify-center`}>
+          <i className={`fas fa-user-friends text-black ${isSmall ? 'text-[8px]' : 'text-[10px]'}`}></i>
+        </div>
+        <span className={`text-[#E4E6EB] font-semibold ${isSmall ? 'text-xs' : 'text-sm'}`}>{interestedCount}</span>
+        {!isSmall && <span className="text-[#B0B3B8] text-xs">Interested</span>}
+      </button>
+    </div>
+  );
+};
+
 // ========== EVENT CARD ==========
 const EventCard: React.FC<{
   event: EventFromAPI;
@@ -248,7 +284,8 @@ const EventCard: React.FC<{
   onEventClick: (id: number) => void;
   onProfileClick: (id: number) => void;
   onRSVPUpdate?: (eventId: number, newStatus: "" | "going" | "interested", newAtt: number, newInt: number) => void;
-}> = ({ event, currentUser, onEventClick, onProfileClick, onRSVPUpdate }) => {
+  isPreview?: boolean;
+}> = ({ event, currentUser, onEventClick, onProfileClick, onRSVPUpdate, isPreview = false }) => {
   const [rsvpStatus, setRsvpStatus] = useState<"" | "going" | "interested">(event?.user_rsvp_status || "");
   const [attendeesCount, setAttendeesCount] = useState(event?.attendees_count || 0);
   const [interestedCount, setInterestedCount] = useState(event?.interested_count || 0);
@@ -352,6 +389,108 @@ const EventCard: React.FC<{
     }
   };
 
+  // Preview mode (full screen)
+  if (isPreview) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-[#18191A] overflow-y-auto">
+        {/* Close button */}
+        <button
+          onClick={() => onEventClick(0)}
+          className="fixed top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition-colors"
+        >
+          <i className="fas fa-times text-white text-xl"></i>
+        </button>
+
+        {/* Cover Image */}
+        <div className="relative h-[40vh] min-h-[300px] w-full">
+          {event.cover_url && !imageError ? (
+            <img
+              src={event.cover_url}
+              alt={event.title}
+              className="w-full h-full object-cover"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex items-center justify-center">
+              <i className="fas fa-calendar text-white/30 text-8xl"></i>
+            </div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+        </div>
+
+        {/* Event Details */}
+        <div className="max-w-4xl mx-auto px-4 py-6 -mt-20 relative z-10">
+          <div className="bg-[#242526] rounded-xl p-6 border border-[#3E4042]">
+            {/* Title and Date */}
+            <h1 className="text-[#E4E6EB] text-3xl font-black mb-4">{event.title}</h1>
+            
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center gap-3 text-[#B0B3B8]">
+                <div className="w-8 h-8 rounded-full bg-[#3A3B3C] flex items-center justify-center">
+                  <i className={`fas fa-calendar-alt ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
+                </div>
+                <div>
+                  <div className="text-[#E4E6EB] font-semibold">
+                    {formatEventDate()}
+                  </div>
+                  <div className="text-sm">
+                    {formatEventTime() || "Time TBD"}
+                  </div>
+                </div>
+              </div>
+
+              {event.location && (
+                <div className="flex items-center gap-3 text-[#B0B3B8]">
+                  <div className="w-8 h-8 rounded-full bg-[#3A3B3C] flex items-center justify-center">
+                    <i className="fas fa-map-marker-alt text-[#F02849]"></i>
+                  </div>
+                  <div>
+                    <div className="text-[#E4E6EB] font-semibold">Location</div>
+                    <div className="text-sm">{event.location}</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 text-[#B0B3B8]">
+                <div className="w-8 h-8 rounded-full bg-[#3A3B3C] flex items-center justify-center">
+                  <i className="fas fa-user text-[#1877F2]"></i>
+                </div>
+                <div>
+                  <div className="text-[#E4E6EB] font-semibold">Hosted by</div>
+                  <button
+                    onClick={() => onProfileClick(creator.id)}
+                    className="text-sm hover:underline text-[#1877F2]"
+                  >
+                    {creator.name}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* RSVP Counts - Show in preview */}
+            <div className="mb-6 pt-4 border-t border-[#3E4042]">
+              <RSVPCounts 
+                goingCount={attendeesCount}
+                interestedCount={interestedCount}
+                onGoingClick={() => {}} // Optional: show attendees list
+                onInterestedClick={() => {}} // Optional: show interested list
+              />
+            </div>
+
+            {/* Description */}
+            {event.description && (
+              <div className="pt-4 border-t border-[#3E4042]">
+                <h3 className="text-[#E4E6EB] font-bold mb-2">About this event</h3>
+                <p className="text-[#B0B3B8] whitespace-pre-wrap">{event.description}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Regular card view
   return (
     <div
       className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group"
@@ -422,33 +561,14 @@ const EventCard: React.FC<{
             <span className="text-[#B0B3B8] text-xs">{formatRelativeTime(event.created_at)}</span>
           </div>
 
-          {/* Attendee avatars - positioned on the right */}
-          {attendeesCount > 0 && (
-            <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1">
-              <div className="flex -space-x-2">
-                {event.friend_attendees?.slice(0, 2).map((attendee) => (
-                  <button
-                    key={attendee.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onProfileClick(attendee.id);
-                    }}
-                    className="relative hover:z-10 transition-transform hover:scale-110"
-                    title={attendee.name}
-                  >
-                    <img
-                      src={avatarFrom(attendee)}
-                      alt={attendee.name}
-                      className="w-5 h-5 rounded-full border-2 border-[#242526] object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-              <span className="text-[#B0B3B8] text-xs">
-                {attendeesCount}
-              </span>
-            </div>
-          )}
+          {/* RSVP Counts - Now showing on card! */}
+          <div onClick={(e) => e.stopPropagation()}>
+            <RSVPCounts 
+              goingCount={attendeesCount}
+              interestedCount={interestedCount}
+              size="sm"
+            />
+          </div>
         </div>
 
         <h3 className="text-[#E4E6EB] font-black text-[16px] mb-1 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
@@ -531,17 +651,15 @@ const EventCard: React.FC<{
 export const AllEvents: React.FC<AllEventsProps> = ({
   currentUser,
   onProfileClick,
-  onEventClick,
   onCreateEventClick,
   onNavigateBack,
 }) => {
   const [events, setEvents] = useState<EventFromAPI[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [previewEventId, setPreviewEventId] = useState<number | null>(null);
 
-  // CHANGED: Default filter from "upcoming" to "all"
   const [filter, setFilter] = useState<EventFilter>("all");
-  // CHANGED: Default sort from "date" to "trending" (or you can use "date" with a note)
   const [sort, setSort] = useState<EventSort>("date");
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -592,7 +710,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         if (debouncedQ) params.set("q", debouncedQ);
         if (currentUser?.id) params.set("user_id", String(currentUser.id));
         
-        // Request attendee information
         params.set("include_attendees", "true");
         params.set("include_friends", "true");
 
@@ -614,14 +731,13 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
         const newEvents: EventFromAPI[] = (data?.events || []) as any;
 
-        // CHANGED: Sort events from new to old (descending by event_date)
         const sortedEvents = [...newEvents].sort((a, b) => {
           const dateA = toDateSafe(a.event_date);
           const dateB = toDateSafe(b.event_date);
           if (!dateA && !dateB) return 0;
           if (!dateA) return 1;
           if (!dateB) return -1;
-          return dateB.getTime() - dateA.getTime(); // Descending (newest first)
+          return dateB.getTime() - dateA.getTime();
         });
 
         setEvents((prev) => {
@@ -680,6 +796,16 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     },
     [currentUser]
   );
+
+  // Handle event click for preview - REPLACES old preview
+  const handleEventClick = (eventId: number) => {
+    if (eventId === 0) {
+      setPreviewEventId(null); // Close preview
+    } else {
+      setPreviewEventId(eventId); // Open preview
+      // OLD PREVIEW IS REMOVED - no call to onEventClick
+    }
+  };
 
   // Initial fetch
   useEffect(() => {
@@ -763,9 +889,11 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     { value: "trending", label: "Trending" },
   ];
 
+  const previewEvent = previewEventId ? events.find(e => e.id === previewEventId) : null;
+
   return (
     <div className="min-h-screen bg-[#18191A] font-sans">
-      {/* Header - Stats section completely removed */}
+      {/* Header */}
       <div className="sticky top-0 z-50 bg-[#242526] border-b border-[#3E4042] backdrop-blur-lg bg-opacity-90">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -851,7 +979,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         </div>
 
-        {/* Body - Grid view from old AllEvents.tsx */}
+        {/* Body */}
         {error ? (
           <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
             <i className="fas fa-exclamation-triangle text-[#F02849] text-4xl mb-3"></i>
@@ -887,14 +1015,14 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         ) : (
           <>
-            {/* Grid layout - copied from old AllEvents.tsx */}
+            {/* Grid layout */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {events.map((event) => (
                 <div key={event.event_key || `event:${event.id}`}>
                   <EventCard
                     event={event}
                     currentUser={currentUser}
-                    onEventClick={onEventClick}
+                    onEventClick={handleEventClick}
                     onProfileClick={onProfileClick}
                     onRSVPUpdate={handleRSVPUpdate}
                   />
@@ -927,6 +1055,18 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         )}
       </div>
 
+      {/* Preview Modal - Replaces old preview system */}
+      {previewEvent && (
+        <EventCard
+          event={previewEvent}
+          currentUser={currentUser}
+          onEventClick={handleEventClick}
+          onProfileClick={onProfileClick}
+          onRSVPUpdate={handleRSVPUpdate}
+          isPreview={true}
+        />
+      )}
+
       {/* FAB */}
       {currentUser && (
         <button
@@ -941,4 +1081,4 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 };
 
 // Export all components
-export { EventCard, FilterChip };
+export { EventCard, FilterChip, RSVPCounts };
