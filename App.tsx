@@ -4986,25 +4986,12 @@ export default function App() {
               followLoading={followLoading}
             />
           )}
-
           {view === 'events' && (
             <ErrorBoundary>
-              <EventsPage
-                events={events}
-                currentUser={currentUser ?? null}
-                onJoinEvent={joinEvent}
-                onInterestedEvent={markEventInterested}
-                onCreateEventClick={() => {
-                  if (!requireAuth('Creating events')) return;
-                  setShowCreateEventModal(true);
-                }}
-                onProfileClick={(id) => openProfile(id)}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-              />
-            </ErrorBoundary>
-          )}
-
+             <AllEvents />
+      </ErrorBoundary>
+    )}
+          
           {view === 'birthdays' && (
             <BirthdaysPage
               currentUser={currentUser as any}
