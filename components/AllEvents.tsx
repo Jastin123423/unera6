@@ -1173,7 +1173,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   const [hasMore, setHasMore] = useState(true);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const bottomHorizontalRef = useRef<HTMLDivElement | null>(null);
+  const horizontalScrollRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const fetchingMoreRef = useRef(false);
   const loadingRef = useRef(false);
@@ -1217,7 +1217,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
       try {
         const params = new URLSearchParams({
           page: String(pageToLoad),
-          limit: "12",
+          limit: "24", // Increased limit to have more events for alternating sections
           filter,
           sort,
         });
@@ -1262,7 +1262,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           return [...prev, ...uniqueNewEvents];
         });
         
-        setHasMore(!!data?.has_more || newEvents.length === 12);
+        setHasMore(!!data?.has_more || newEvents.length === 24);
 
         if (reset) setPage(1);
       } catch (e: any) {
@@ -1321,15 +1321,16 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     }
   };
 
-  // Scroll bottom horizontal section manually
-  const scrollBottomHorizontal = (direction: 'left' | 'right') => {
-    if (bottomHorizontalRef.current) {
+  // Scroll horizontal section manually
+  const scrollHorizontal = (sectionId: string, direction: 'left' | 'right') => {
+    const ref = horizontalScrollRefs.current[sectionId];
+    if (ref) {
       const scrollAmount = 520; // Width of one card + gap
       const newScrollLeft = direction === 'left' 
-        ? bottomHorizontalRef.current.scrollLeft - scrollAmount
-        : bottomHorizontalRef.current.scrollLeft + scrollAmount;
+        ? ref.scrollLeft - scrollAmount
+        : ref.scrollLeft + scrollAmount;
       
-      bottomHorizontalRef.current.scrollTo({
+      ref.scrollTo({
         left: newScrollLeft,
         behavior: 'smooth'
       });
@@ -1368,7 +1369,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     fetchEvents(true, 1);
   }, [filter, sort, debouncedQ, fetchEvents]);
 
-  // Observer
+  // Observer for infinite scroll
   useEffect(() => {
     if (!hasMore) return;
 
@@ -1420,14 +1421,114 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
   const previewEvent = previewEventId ? events.find(e => e.id === previewEventId) : null;
 
-  // Split events into sections using filtered events
-  const getFeaturedEvents = () => filteredEvents.slice(0, 8); // First 8 for top auto-scroll
-  const getMiddleEvents = () => filteredEvents.slice(8, 16); // Next 8 for middle grid
-  const getBottomHorizontalEvents = () => filteredEvents.slice(16, 24); // Next 8 for bottom horizontal
-
-  const featuredEvents = getFeaturedEvents();
-  const middleEvents = getMiddleEvents();
-  const bottomHorizontalEvents = getBottomHorizontalEvents();
+  // Generate alternating sections
+  const generateSections = () => {
+    const sections: JSX.Element[] = [];
+    const eventsPerGrid = 6; // Number of events per grid section
+    const eventsPerHorizontal = 8; // Number of events per horizontal section
+    
+    let eventIndex = 0;
+    let sectionIndex = 0;
+    
+    // First section is always auto-scrolling featured
+    if (filteredEvents.length > 0) {
+      const featuredEvents = filteredEvents.slice(0, 8);
+      if (featuredEvents.length > 0) {
+        sections.push(
+          <AutoScrollHorizontal
+            key={`featured-${sectionIndex}`}
+            title="Featured Events"
+            events={featuredEvents}
+            currentUser={currentUser}
+            onEventClick={handleEventClick}
+            onProfileClick={onProfileClick}
+            onRSVPUpdate={handleRSVPUpdate}
+            speed={40}
+            direction="left"
+          />
+        );
+        eventIndex += featuredEvents.length;
+        sectionIndex++;
+      }
+    }
+    
+    // Alternate between grid and horizontal sections
+    while (eventIndex < filteredEvents.length) {
+      // Grid section (vertical cards)
+      const gridEvents = filteredEvents.slice(eventIndex, eventIndex + eventsPerGrid);
+      if (gridEvents.length > 0) {
+        sections.push(
+          <div key={`grid-${sectionIndex}`} className="mb-8">
+            <h2 className="text-[#E4E6EB] text-lg font-black mb-4">Upcoming Events</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {gridEvents.map((event) => (
+                <div key={`grid-${event.event_key || `event:${event.id}`}`}>
+                  <EventCard
+                    event={event}
+                    currentUser={currentUser}
+                    onEventClick={handleEventClick}
+                    onProfileClick={onProfileClick}
+                    onRSVPUpdate={handleRSVPUpdate}
+                    layout="vertical"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+        eventIndex += gridEvents.length;
+        sectionIndex++;
+      }
+      
+      // Horizontal section (image-left cards) - manual scroll
+      const horizontalEvents = filteredEvents.slice(eventIndex, eventIndex + eventsPerHorizontal);
+      if (horizontalEvents.length > 0) {
+        const sectionId = `horizontal-${sectionIndex}`;
+        sections.push(
+          <div key={`horizontal-${sectionIndex}`} className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[#E4E6EB] text-lg font-black">More Events</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => scrollHorizontal(sectionId, 'left')}
+                  className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
+                </button>
+                <button
+                  onClick={() => scrollHorizontal(sectionId, 'right')}
+                  className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
+                </button>
+              </div>
+            </div>
+            <div 
+              ref={el => horizontalScrollRefs.current[sectionId] = el}
+              className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide scroll-smooth"
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+              {horizontalEvents.map((event) => (
+                <EventCard
+                  key={`horizontal-${event.event_key || `event:${event.id}`}`}
+                  event={event}
+                  currentUser={currentUser}
+                  onEventClick={handleEventClick}
+                  onProfileClick={onProfileClick}
+                  onRSVPUpdate={handleRSVPUpdate}
+                  layout="horizontal"
+                />
+              ))}
+            </div>
+          </div>
+        );
+        eventIndex += horizontalEvents.length;
+        sectionIndex++;
+      }
+    }
+    
+    return sections;
+  };
 
   return (
     <div className="min-h-screen bg-[#18191A] font-sans">
@@ -1553,81 +1654,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         ) : (
           <>
-            {/* Top Auto-Scrolling Section */}
-            {featuredEvents.length > 0 && (
-              <AutoScrollHorizontal
-                title="Featured Events"
-                events={featuredEvents}
-                currentUser={currentUser}
-                onEventClick={handleEventClick}
-                onProfileClick={onProfileClick}
-                onRSVPUpdate={handleRSVPUpdate}
-                speed={40}
-                direction="left"
-              />
-            )}
+            {/* Dynamic alternating sections */}
+            {generateSections()}
 
-            {/* Middle Grid - No position exchange, original order */}
-            {middleEvents.length > 0 && (
-              <div className="mb-8">
-                <h2 className="text-[#E4E6EB] text-lg font-black mb-4">Upcoming Events</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {middleEvents.map((event) => (
-                    <div key={`middle-${event.event_key || `event:${event.id}`}`}>
-                      <EventCard
-                        event={event}
-                        currentUser={currentUser}
-                        onEventClick={handleEventClick}
-                        onProfileClick={onProfileClick}
-                        onRSVPUpdate={handleRSVPUpdate}
-                        layout="vertical"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Bottom Horizontal Section - Manual scroll with image left design */}
-            {bottomHorizontalEvents.length > 0 && (
-              <div className="mb-8">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-[#E4E6EB] text-lg font-black">More Events</h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => scrollBottomHorizontal('left')}
-                      className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
-                    >
-                      <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
-                    </button>
-                    <button
-                      onClick={() => scrollBottomHorizontal('right')}
-                      className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
-                    >
-                      <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
-                    </button>
-                  </div>
-                </div>
-                <div 
-                  ref={bottomHorizontalRef}
-                  className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide scroll-smooth"
-                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                >
-                  {bottomHorizontalEvents.map((event) => (
-                    <EventCard
-                      key={`bottom-horizontal-${event.event_key || `event:${event.id}`}`}
-                      event={event}
-                      currentUser={currentUser}
-                      onEventClick={handleEventClick}
-                      onProfileClick={onProfileClick}
-                      onRSVPUpdate={handleRSVPUpdate}
-                      layout="horizontal"
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
+            {/* Sentinel for infinite scroll */}
             <div ref={sentinelRef} className="h-1" />
 
             {loading && (
