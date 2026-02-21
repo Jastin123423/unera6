@@ -4986,12 +4986,33 @@ export default function App() {
               followLoading={followLoading}
             />
           )}
-          {view === 'events' && (
-            <ErrorBoundary>
-             <AllEvents />
-      </ErrorBoundary>
-    )}
           
+          {view === 'events' && (
+  <ErrorBoundary>
+    <AllEvents
+      currentUser={currentUser}
+      users={users}
+      onProfileClick={(id) => openProfile(id)}
+      onEventClick={(eventId) => {
+        // You can handle this however you want:
+        // Option 1: Navigate to a dedicated event detail page
+        setSelectedEventId(eventId);
+        setView('event-detail');
+        
+        // Option 2: Open a modal
+        // openEventModal(eventId);
+        
+        // Option 3: For now, just console.log
+        // console.log('Event clicked:', eventId);
+      }}
+      onCreateEventClick={() => {
+        if (!requireAuth('Creating events')) return;
+        setShowCreateEventModal(true);
+      }}
+      onNavigateBack={() => setView('home')}
+    />
+  </ErrorBoundary>
+)}
           {view === 'birthdays' && (
             <BirthdaysPage
               currentUser={currentUser as any}
