@@ -1,5 +1,3 @@
-
-// AllEvents.tsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { User } from "../types";
 
@@ -176,7 +174,7 @@ interface Attendee {
   name: string;
   username?: string;
   profile_image_url?: string | null;
-  is_friend?: boolean; // Whether this attendee is a friend of current user
+  is_friend?: boolean;
 }
 
 interface EventFromAPI {
@@ -195,9 +193,8 @@ interface EventFromAPI {
   interested_count: number;
   user_rsvp_status?: "" | "going" | "interested";
   
-  // New fields for attendee information
   attendees?: Attendee[];
-  friend_attendees?: Attendee[]; // Subset of attendees that are friends
+  friend_attendees?: Attendee[];
   interested?: Attendee[];
   
   creator?: {
@@ -206,15 +203,6 @@ interface EventFromAPI {
     username?: string;
     profile_image_url?: string | null;
   };
-}
-
-interface AllEventsProps {
-  currentUser: User | null;
-  users?: User[];
-  onProfileClick: (id: number) => void;
-  onEventClick: (eventId: number) => void;
-  onCreateEventClick?: () => void;
-  onNavigateBack?: () => void; // Added for back navigation
 }
 
 // ========== FILTER CHIP ==========
@@ -421,7 +409,7 @@ const EventCard: React.FC<{
             <span className="text-[#B0B3B8] text-xs">{formatRelativeTime(event.created_at)}</span>
           </div>
 
-          {/* Attendee avatars - positioned on the right */}
+          {/* Attendee avatars */}
           {attendeesCount > 0 && (
             <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1">
               <div className="flex -space-x-2">
@@ -527,20 +515,13 @@ const EventCard: React.FC<{
 };
 
 // ========== MAIN PAGE ==========
-export const AllEvents: React.FC<AllEventsProps> = ({
-  currentUser,
-  onProfileClick,
-  onEventClick,
-  onCreateEventClick,
-  onNavigateBack,
-}) => {
+export const AllEvents: React.FC = () => {
   const [events, setEvents] = useState<EventFromAPI[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  // CHANGED: Default filter from "upcoming" to "all"
   const [filter, setFilter] = useState<EventFilter>("all");
-  // CHANGED: Default sort from "date" to "trending" (or you can use "date" with a note)
   const [sort, setSort] = useState<EventSort>("date");
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -555,7 +536,25 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   const loadingRef = useRef(false);
   const reqIdRef = useRef(0);
   const didInitRef = useRef(false);
-  const prevUserIdRef = useRef<number | undefined>(undefined);
+
+  // Fetch current user on mount
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const res = await fetch('/api/me', {
+          headers: authHeaders()
+        });
+        if (res.ok) {
+          const userData = await res.json();
+          setCurrentUser(userData);
+        }
+      } catch (err) {
+        console.error('Failed to fetch current user:', err);
+      }
+    };
+    
+    fetchCurrentUser();
+  }, []);
 
   useEffect(() => {
     loadingRef.current = loading;
@@ -591,7 +590,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         if (debouncedQ) params.set("q", debouncedQ);
         if (currentUser?.id) params.set("user_id", String(currentUser.id));
         
-        // Request attendee information
         params.set("include_attendees", "true");
         params.set("include_friends", "true");
 
@@ -613,14 +611,13 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
         const newEvents: EventFromAPI[] = (data?.events || []) as any;
 
-        // CHANGED: Sort events from new to old (descending by event_date)
         const sortedEvents = [...newEvents].sort((a, b) => {
           const dateA = toDateSafe(a.event_date);
           const dateB = toDateSafe(b.event_date);
           if (!dateA && !dateB) return 0;
           if (!dateA) return 1;
           if (!dateB) return -1;
-          return dateB.getTime() - dateA.getTime(); // Descending (newest first)
+          return dateB.getTime() - dateA.getTime();
         });
 
         setEvents((prev) => {
@@ -680,26 +677,31 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     [currentUser]
   );
 
+  const handleProfileClick = (userId: number) => {
+    window.location.href = `/profile/${userId}`;
+  };
+
+  const handleEventClick = (eventId: number) => {
+    window.location.href = `/event/${eventId}`;
+  };
+
+  const handleCreateEventClick = () => {
+    window.location.href = '/create-event';
+  };
+
+  const handleNavigateBack = () => {
+    window.location.href = '/';
+  };
+
   // Initial fetch
   useEffect(() => {
-    if (currentUser && !currentUser.id) return;
-    
-    const currentUserId = currentUser?.id;
-    if (prevUserIdRef.current === currentUserId && didInitRef.current) {
-      return;
+    if (!didInitRef.current) {
+      didInitRef.current = true;
+      setEvents([]);
+      setHasMore(true);
+      setPage(1);
+      fetchEvents(true, 1);
     }
-    
-    prevUserIdRef.current = currentUserId;
-    
-    if (didInitRef.current && prevUserIdRef.current === currentUserId) {
-      return;
-    }
-
-    didInitRef.current = true;
-    setEvents([]);
-    setHasMore(true);
-    setPage(1);
-    fetchEvents(true, 1);
   }, [currentUser?.id, fetchEvents]);
 
   // Reset on filter/sort/search changes
@@ -764,13 +766,13 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
   return (
     <div className="min-h-screen bg-[#18191A] font-sans">
-      {/* Header - Stats section completely removed */}
+      {/* Header */}
       <div className="sticky top-0 z-50 bg-[#242526] border-b border-[#3E4042] backdrop-blur-lg bg-opacity-90">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
-                onClick={onNavigateBack}
+                onClick={handleNavigateBack}
                 className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
               >
                 <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
@@ -780,7 +782,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
             {currentUser && (
               <button
-                onClick={onCreateEventClick}
+                onClick={handleCreateEventClick}
                 className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-[#1877F2]/20"
               >
                 <i className="fas fa-plus"></i>
@@ -850,7 +852,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         </div>
 
-        {/* Body - Grid view from old AllEvents.tsx */}
+        {/* Body */}
         {error ? (
           <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
             <i className="fas fa-exclamation-triangle text-[#F02849] text-4xl mb-3"></i>
@@ -877,7 +879,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
             </p>
             {currentUser && (
               <button
-                onClick={onCreateEventClick}
+                onClick={handleCreateEventClick}
                 className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors"
               >
                 Create Your First Event
@@ -886,15 +888,15 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         ) : (
           <>
-            {/* Grid layout - copied from old AllEvents.tsx */}
+            {/* Grid layout */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {events.map((event) => (
                 <div key={event.event_key || `event:${event.id}`}>
                   <EventCard
                     event={event}
                     currentUser={currentUser}
-                    onEventClick={onEventClick}
-                    onProfileClick={onProfileClick}
+                    onEventClick={handleEventClick}
+                    onProfileClick={handleProfileClick}
                     onRSVPUpdate={handleRSVPUpdate}
                   />
                 </div>
@@ -929,7 +931,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
       {/* FAB */}
       {currentUser && (
         <button
-          onClick={onCreateEventClick}
+          onClick={handleCreateEventClick}
           className="fixed bottom-6 right-6 md:hidden w-14 h-14 bg-[#1877F2] rounded-full shadow-lg shadow-[#1877F2]/30 flex items-center justify-center hover:bg-[#166FE5] transition-all hover:scale-110 z-50"
         >
           <i className="fas fa-plus text-white text-xl"></i>
