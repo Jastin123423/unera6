@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -1007,24 +1008,15 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
   return out.filter((x) => x.url);
 };
 
-// Interface for image comments
-interface ImageComment {
-  imageUrl: string;
-  count: number;
-  comments?: any[];
-}
-
 /**
  * =========================
- * ✅ UPDATED: MediaGrid Component with per-image comment functionality
+ * ✅ FIXED: MediaGrid Component - Full Width with Gallery Support
  * =========================
  */
 const MediaGrid: React.FC<{
   media: { url: string }[];
   onOpen: (url: string, index: number) => void;
-  imageComments?: Map<string, number>;
-  onCommentClick?: (url: string, index: number) => void;
-}> = ({ media, onOpen, imageComments = new Map(), onCommentClick }) => {
+}> = ({ media, onOpen }) => {
   const total = media.length;
   const show = total <= 4 ? media : media.slice(0, 4);
   const extra = total - 4;
@@ -1039,72 +1031,44 @@ const MediaGrid: React.FC<{
     index: number;
     className: string;
     showOverlay?: boolean;
-  }) => {
-    const commentCount = imageComments.get(url) || 0;
-    
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpen(url, index);
+  }) => (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(url, index);
+      }}
+      className={`relative overflow-hidden ${className}`}
+      style={{ borderRadius: 0 }}
+    >
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        className="w-full h-full object-cover"
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.display = 'none';
         }}
-        className={`relative overflow-hidden group ${className}`}
-        style={{ borderRadius: 0 }}
-      >
-        <img
-          src={url}
-          alt=""
-          loading="lazy"
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = 'none';
-          }}
-        />
+      />
 
-        {/* Comment badge overlay */}
-        {commentCount > 0 && (
-          <div className="absolute bottom-2 left-2 bg-[#1877F2] text-white px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg">
-            <i className="fas fa-comment-alt text-[10px]"></i>
-            <span>{commentCount}</span>
-          </div>
-        )}
-
-        {/* Comment button on hover */}
-        {onCommentClick && (
-          <div 
-            className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCommentClick(url, index);
-            }}
-          >
-            <div className="bg-[#1877F2] text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2">
-              <i className="fas fa-comment-alt"></i>
-              <span>Comment{commentCount > 0 ? ` (${commentCount})` : ''}</span>
-            </div>
-          </div>
-        )}
-
-        {showOverlay && extra > 0 && (
-          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-            <span className="text-white font-black text-3xl">+{extra}</span>
-          </div>
-        )}
-      </button>
-    );
-  };
+      {showOverlay && extra > 0 && (
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+          <span className="text-white font-black text-3xl">+{extra}</span>
+        </div>
+      )}
+    </button>
+  );
 
   if (total === 1) {
     return (
-      <div className="w-full bg-black relative">
+      <div className="w-full bg-black">
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             onOpen(show[0].url, 0);
           }}
-          className="w-full block group relative"
+          className="w-full block"
         >
           <img
             src={show[0].url}
@@ -1112,30 +1076,6 @@ const MediaGrid: React.FC<{
             loading="lazy"
             className="w-full h-auto max-h-[650px] object-contain"
           />
-          
-          {/* Comment badge for single image */}
-          {imageComments.get(show[0].url) && (
-            <div className="absolute bottom-4 left-4 bg-[#1877F2] text-white px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-2 shadow-lg">
-              <i className="fas fa-comment-alt"></i>
-              <span>{imageComments.get(show[0].url)} comments</span>
-            </div>
-          )}
-          
-          {/* Comment button on hover */}
-          {onCommentClick && (
-            <div 
-              className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCommentClick(show[0].url, 0);
-              }}
-            >
-              <div className="bg-[#1877F2] text-white px-6 py-3 rounded-full text-lg font-bold flex items-center gap-2">
-                <i className="fas fa-comment-alt"></i>
-                <span>Comment on this image</span>
-              </div>
-            </div>
-          )}
         </button>
       </div>
     );
@@ -2618,7 +2558,6 @@ export const Post: React.FC<{
   onFollow?: (id: number) => void;
   followLoading?: boolean;
   onEventClick?: (eventId: number) => void; // Added for preview modal
-  onImageComment?: (postId: number, imageUrl: string, comment: string) => void; // Add this prop
 }> = ({
   post,
   author,
@@ -2644,7 +2583,6 @@ export const Post: React.FC<{
   onFollow,
   followLoading = false,
   onEventClick, // Added for preview modal
-  onImageComment, // Add this prop
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -2712,53 +2650,6 @@ export const Post: React.FC<{
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
-  // ========== IMAGE COMMENTS STATE ==========
-  const [imageComments, setImageComments] = useState<Map<string, number>>(new Map());
-  const [totalComments, setTotalComments] = useState(0);
-
-  // Update total comments whenever imageComments changes
-  useEffect(() => {
-    const total = Array.from(imageComments.values()).reduce((sum, count) => sum + count, 0);
-    setTotalComments(total);
-  }, [imageComments]);
-
-  // Function to update comment count for a specific image
-  const updateImageCommentCount = useCallback((imageUrl: string, increment: boolean = true) => {
-    setImageComments(prev => {
-      const newMap = new Map(prev);
-      const currentCount = newMap.get(imageUrl) || 0;
-      const newCount = increment ? currentCount + 1 : Math.max(0, currentCount - 1);
-      
-      if (newCount === 0) {
-        newMap.delete(imageUrl);
-      } else {
-        newMap.set(imageUrl, newCount);
-      }
-      
-      return newMap;
-    });
-  }, []);
-
-  // Handle comment on specific image
-  const handleImageComment = useCallback((imageUrl: string, comment: string) => {
-    if (!currentUser || !comment.trim()) return;
-    
-    // Update local state
-    updateImageCommentCount(imageUrl, true);
-    
-    // Call parent handler if provided
-    if (onImageComment && p.id) {
-      onImageComment(p.id, imageUrl, comment);
-    }
-    
-    // TODO: API call to save comment for specific image
-    // You would need to implement an API endpoint for image-specific comments
-    // Example: apiFetch(`/api/posts/${p.id}/image-comment`, {
-    //   method: 'POST',
-    //   body: JSON.stringify({ imageUrl, text: comment })
-    // });
-  }, [currentUser, p.id, onImageComment, updateImageCommentCount]);
-
   const openGallery = (urls: string[], index: number) => {
     setGalleryUrls(urls);
     setGalleryIndex(index);
@@ -2803,8 +2694,6 @@ export const Post: React.FC<{
   });
 
   const [showShareSheet, setShowShareSheet] = useState(false);
-  const [showImageCommentSheet, setShowImageCommentSheet] = useState(false);
-  const [selectedImageForComment, setSelectedImageForComment] = useState<{url: string, index: number} | null>(null);
 
   const createdAtLabel = formatRelativeTime(p.created_at);
   const postId = safePostId(p);
@@ -2871,12 +2760,6 @@ export const Post: React.FC<{
   // Split media by type for rendering
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
-
-  // Handle comment button click on image
-  const handleImageCommentClick = (url: string, index: number) => {
-    setSelectedImageForComment({url, index});
-    setShowImageCommentSheet(true);
-  };
 
   // ========== REGULAR POST RENDERING ==========
   return (
@@ -3091,15 +2974,13 @@ export const Post: React.FC<{
                     onOpen={(url, index) => {
                       openGallery(mpImages, index);
                     }}
-                    imageComments={imageComments}
-                    onCommentClick={handleImageCommentClick}
                   />
                 </div>
               </div>
             ) : null
           ) : (
             <>
-              {/* Images Grid with comment functionality */}
+              {/* Images Grid */}
               {!p.background && imageMedia.length > 0 && (
                 <MediaGrid
                   media={imageMedia.map((m) => ({ url: m.url }))}
@@ -3107,8 +2988,6 @@ export const Post: React.FC<{
                     const urls = imageMedia.map((m) => m.url);
                     openGallery(urls, index);
                   }}
-                  imageComments={imageComments}
-                  onCommentClick={handleImageCommentClick}
                 />
               )}
 
@@ -3288,12 +3167,11 @@ export const Post: React.FC<{
             </div>
 
             <div className="flex gap-4">
-              {/* Total comments across all images + post comments */}
               <span
                 className="hover:underline cursor-pointer"
                 onClick={() => onOpenComments(Number(postId))}
               >
-                {formatCount(commentCount + totalComments)} Comments
+                {formatCount(commentCount)} Comments
               </span>
               {shareCount > 0 && (
                 <span className="hover:underline">
@@ -3338,7 +3216,6 @@ export const Post: React.FC<{
         <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
       </div>
 
-      {/* Share Bottom Sheet */}
       <ShareBottomSheet
         isOpen={showShareSheet}
         onClose={() => setShowShareSheet(false)}
@@ -3351,25 +3228,6 @@ export const Post: React.FC<{
         onShareComplete={handleShareComplete}
       />
 
-      {/* Image Comment Sheet */}
-      {selectedImageForComment && (
-        <ImageCommentSheet
-          isOpen={showImageCommentSheet}
-          onClose={() => {
-            setShowImageCommentSheet(false);
-            setSelectedImageForComment(null);
-          }}
-          imageUrl={selectedImageForComment.url}
-          currentUser={currentUser}
-          users={users}
-          onProfileClick={onProfileClick}
-          onHashtagClick={onHashtagClick}
-          onCommentSubmit={(comment) => {
-            handleImageComment(selectedImageForComment.url, comment);
-          }}
-        />
-      )}
-
       {/* Gallery Viewer for multi-image swiping */}
       <GalleryViewer
         isOpen={galleryOpen}
@@ -3378,196 +3236,6 @@ export const Post: React.FC<{
         onClose={() => setGalleryOpen(false)}
       />
     </>
-  );
-};
-
-/**
- * =========================
- * ✅ Image Comment Sheet Component
- * =========================
- */
-const ImageCommentSheet: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  imageUrl: string;
-  currentUser: User | null;
-  users?: User[];
-  onProfileClick: (id: number) => void;
-  onHashtagClick?: (tag: string) => void;
-  onCommentSubmit: (comment: string) => void;
-}> = ({ isOpen, onClose, imageUrl, currentUser, users = [], onProfileClick, onHashtagClick, onCommentSubmit }) => {
-  const [comment, setComment] = useState('');
-  const [comments, setComments] = useState<any[]>([]);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      // Fetch comments for this image
-      // You would need an API endpoint for this
-    } else {
-      document.body.style.overflow = '';
-    }
-
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = comment.trim();
-    if (!text || !currentUser) return;
-
-    // Add optimistic comment
-    const optimisticComment = {
-      id: `tmp-${Date.now()}`,
-      user_id: currentUser.id,
-      text: text,
-      created_at: new Date().toISOString(),
-      likes_count: 0,
-      liked_by_me: false,
-    };
-
-    setComments(prev => [...prev, optimisticComment]);
-    onCommentSubmit(text);
-    setComment('');
-  };
-
-  const addEmoji = (emoji: string) => {
-    setComment(prev => prev + emoji);
-    setShowEmojiPicker(false);
-    inputRef.current?.focus();
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[600] bg-[#18191A] flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526]">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
-            onClick={onClose}
-            aria-label="Back"
-          >
-            <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
-          </button>
-          <div className="text-[#E4E6EB] font-bold text-[20px]">Comment on Image</div>
-        </div>
-      </div>
-
-      {/* Image preview */}
-      <div className="p-4 border-b border-[#3E4042] bg-black flex justify-center">
-        <img 
-          src={imageUrl} 
-          alt="" 
-          className="max-h-[300px] object-contain"
-        />
-      </div>
-
-      {/* Comments list */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {comments.length === 0 ? (
-          <div className="text-center py-10">
-            <div className="text-[#B0B3B8] text-lg mb-2">No comments yet</div>
-            <p className="text-[#B0B3B8] text-sm">Be the first to comment on this image!</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {comments.map((c) => {
-              const author = users.find(u => u.id === c.user_id) || {
-                name: 'User',
-                username: '',
-                profile_image_url: null
-              };
-              
-              return (
-                <div key={c.id} className="flex gap-3">
-                  <img
-                    src={avatarFrom(author)}
-                    className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
-                    alt=""
-                    onClick={() => author.id && onProfileClick(author.id)}
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span
-                        className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
-                        onClick={() => author.id && onProfileClick(author.id)}
-                      >
-                        {author.name || author.username || 'User'}
-                      </span>
-                      <span className="text-[#B0B3B8] text-[12px]">
-                        • {formatRelativeTime(c.created_at)}
-                      </span>
-                    </div>
-                    <div className="text-[#E4E6EB] text-[15px] whitespace-pre-wrap break-words">
-                      <RichText
-                        text={c.text}
-                        users={users}
-                        onProfileClick={onProfileClick}
-                        onHashtagClick={onHashtagClick}
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Comment input */}
-      <div className="p-4 border-t border-[#3E4042] bg-[#242526]">
-        {showEmojiPicker && (
-          <div className="mb-4 p-3 border border-[#3E4042] rounded-lg">
-            <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
-              {QUICK_EMOJIS.map(emoji => (
-                <button
-                  key={emoji}
-                  onClick={() => addEmoji(emoji)}
-                  className="text-2xl hover:scale-125 transition-transform p-1"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
-          <button
-            type="button"
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="text-[#B0B3B8] hover:text-[#E4E6EB] text-2xl p-1 transition-colors"
-          >
-            😀
-          </button>
-          <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="text"
-              className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[15px]"
-              placeholder="Write a comment on this image..."
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <button 
-            type="submit" 
-            className="text-[#1877F2] font-bold text-[15px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
-            disabled={!comment.trim() || !currentUser}
-          >
-            Post
-          </button>
-        </form>
-      </div>
-    </div>
   );
 };
 
