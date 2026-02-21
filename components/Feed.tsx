@@ -13,7 +13,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
-import { CreateEventModal, EventCard } from './Events'; // Added EventCard import
+import { CreateEventModal, EventCard } from './Events';
 
 /**
  * =========================
@@ -1009,7 +1009,7 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
 
 /**
  * =========================
- * ✅ FIXED: MediaGrid Component - Full Width with Gallery Support
+ * ✅ FIXED: MediaGrid Component - Full Width with Gallery Support (KEEP AS IS)
  * =========================
  */
 const MediaGrid: React.FC<{
@@ -1118,114 +1118,7 @@ const MediaGrid: React.FC<{
 
 /**
  * =========================
- * ✅ NEW: SCROLLABLE MEDIA CARDS WITH LIKE/COMMENT/SHARE AT THE BOTTOM
- * =========================
- */
-const ScrollableMediaWithActions: React.FC<{
-  media: { url: string }[];
-  postId: number;
-  currentUser: User | null;
-  reactionCount: number;
-  commentCount: number;
-  shareCount: number;
-  myReaction?: ReactionType;
-  onOpenImage: (url: string, index: number) => void;
-  onReact: (type: ReactionType) => void;
-  onOpenComments: () => void;
-  onShare: () => void;
-}> = ({
-  media,
-  postId,
-  currentUser,
-  reactionCount,
-  commentCount,
-  shareCount,
-  myReaction,
-  onOpenImage,
-  onReact,
-  onOpenComments,
-  onShare,
-}) => {
-  const formatCount = (count: number): string => {
-    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-    return count.toString();
-  };
-
-  return (
-    <div className="w-full bg-black">
-      <div className="flex gap-[2px] overflow-x-auto scrollbar-hide snap-x snap-mandatory">
-        {media.map((m, i) => (
-          <div
-            key={m.url + i}
-            className="min-w-[85%] sm:min-w-[500px] snap-center bg-[#242526] border border-[#3E4042] overflow-hidden flex flex-col"
-          >
-            {/* Image */}
-            <div
-              className="w-full bg-black cursor-pointer flex-1"
-              onClick={() => onOpenImage(m.url, i)}
-            >
-              <img
-                src={m.url}
-                alt=""
-                className="w-full h-[320px] object-cover"
-                loading="lazy"
-              />
-            </div>
-
-            {/* Totals row */}
-            <div className="px-3 py-2 flex items-center justify-between text-[#B0B3B8] text-sm border-t border-white/10">
-              <span className="text-[#E4E6EB] font-bold">
-                {formatCount(reactionCount)} reactions
-              </span>
-              <div className="flex gap-3">
-                <span 
-                  className="hover:underline cursor-pointer" 
-                  onClick={onOpenComments}
-                >
-                  {formatCount(commentCount)} Comments
-                </span>
-                {shareCount > 0 && (
-                  <span className="hover:underline cursor-pointer" onClick={onShare}>
-                    {formatCount(shareCount)} Shares
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Actions row */}
-            <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-              <ReactionButton
-                currentUserReactions={myReaction}
-                reactionCount={reactionCount}
-                onReact={onReact}
-                isGuest={!currentUser}
-              />
-              <button
-                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
-                onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}
-              >
-                <i className="far fa-comment-alt text-[20px]"></i>
-                <span className="text-[17px] font-medium">Comment</span>
-              </button>
-              <button
-                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
-                onClick={() => (currentUser ? onShare() : alert("Please login to share posts."))}
-              >
-                <i className="fas fa-share text-[20px]"></i>
-                <span className="text-[17px] font-medium">Share</span>
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-/**
- * =========================
- * ✅ GALLERY VIEWER COMPONENT
+ * ✅ FIXED: GALLERY VIEWER WITH LIKE/COMMENT/SHARE AT THE BOTTOM
  * =========================
  */
 const GalleryViewer: React.FC<{
@@ -1233,12 +1126,38 @@ const GalleryViewer: React.FC<{
   urls: string[];
   startIndex: number;
   onClose: () => void;
-}> = ({ isOpen, urls, startIndex, onClose }) => {
+  // Action props
+  postId: number;
+  currentUser: User | null;
+  reactionCount: number;
+  commentCount: number;
+  shareCount: number;
+  myReaction?: ReactionType;
+  onReact: (type: ReactionType) => void;
+  onOpenComments: () => void;
+  onShare: () => void;
+}> = ({ 
+  isOpen, 
+  urls, 
+  startIndex, 
+  onClose,
+  postId,
+  currentUser,
+  reactionCount,
+  commentCount,
+  shareCount,
+  myReaction,
+  onReact,
+  onOpenComments,
+  onShare
+}) => {
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const [currentIndex, setCurrentIndex] = useState(startIndex);
 
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = 'hidden';
+    setCurrentIndex(startIndex);
 
     requestAnimationFrame(() => {
       const el = scrollerRef.current;
@@ -1252,22 +1171,39 @@ const GalleryViewer: React.FC<{
     };
   }, [isOpen, startIndex]);
 
+  const handleScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const scrollLeft = el.scrollLeft;
+    const width = el.clientWidth || window.innerWidth;
+    const newIndex = Math.round(scrollLeft / width);
+    if (newIndex !== currentIndex) {
+      setCurrentIndex(newIndex);
+    }
+  };
+
+  const formatCount = (count: number): string => {
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    return count.toString();
+  };
+
   if (!isOpen) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-black"
+      className="fixed inset-0 z-[9999] bg-black flex flex-col"
       onClick={(e) => {
         e.stopPropagation();
-        onClose();
       }}
     >
+      {/* Header */}
       <div
         className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3 bg-black/40"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-white text-sm font-semibold">
-          {startIndex + 1}/{urls.length}
+          {currentIndex + 1}/{urls.length}
         </div>
         <button
           className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center"
@@ -1278,11 +1214,13 @@ const GalleryViewer: React.FC<{
         </button>
       </div>
 
+      {/* Images */}
       <div
         ref={scrollerRef}
-        className="h-full w-full overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scroll-smooth"
+        className="flex-1 w-full overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scroll-smooth"
         style={{ WebkitOverflowScrolling: 'touch' }}
         onClick={(e) => e.stopPropagation()}
+        onScroll={handleScroll}
       >
         {urls.map((url, i) => (
           <div
@@ -1298,6 +1236,56 @@ const GalleryViewer: React.FC<{
             />
           </div>
         ))}
+      </div>
+
+      {/* Action Buttons - Fixed at bottom */}
+      <div 
+        className="bg-black/80 backdrop-blur-sm border-t border-white/10 px-4 py-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Totals row */}
+        <div className="flex items-center justify-between text-[#B0B3B8] text-sm mb-2 px-2">
+          <span className="text-[#E4E6EB] font-bold">
+            {formatCount(reactionCount)} reactions
+          </span>
+          <div className="flex gap-3">
+            <span 
+              className="hover:underline cursor-pointer" 
+              onClick={onOpenComments}
+            >
+              {formatCount(commentCount)} Comments
+            </span>
+            {shareCount > 0 && (
+              <span className="hover:underline cursor-pointer" onClick={onShare}>
+                {formatCount(shareCount)} Shares
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions row */}
+        <div className="flex items-center justify-between">
+          <ReactionButton
+            currentUserReactions={myReaction}
+            reactionCount={reactionCount}
+            onReact={onReact}
+            isGuest={!currentUser}
+          />
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
+            onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}
+          >
+            <i className="far fa-comment-alt text-[20px]"></i>
+            <span className="text-[17px] font-medium">Comment</span>
+          </button>
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
+            onClick={() => (currentUser ? onShare() : alert("Please login to share posts."))}
+          >
+            <i className="fas fa-share text-[20px]"></i>
+            <span className="text-[17px] font-medium">Share</span>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1897,7 +1885,7 @@ export const EventPost: React.FC<{
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
-  onEventClick?: (eventId: number) => void; // Added for preview modal
+  onEventClick?: (eventId: number) => void;
 }> = ({ 
   event, 
   author, 
@@ -1914,7 +1902,7 @@ export const EventPost: React.FC<{
   groups = [],
   brands = [],
   chats = [],
-  onEventClick, // Added for preview modal
+  onEventClick,
 }) => {
   const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
   const [attendeesCount, setAttendeesCount] = useState(event.attendees_count || 0);
@@ -2352,7 +2340,7 @@ export const EventFeedCard: React.FC<{
   onProfileClick: (id: number) => void;
   onUpdateItem: (patch: Partial<FeedEventItem>) => void;
   onRSVPEvent?: (eventId: number, status: "going" | "interested" | "not_going") => Promise<any>;
-  onEventClick?: (eventId: number) => void; // Added for preview modal
+  onEventClick?: (eventId: number) => void;
 }> = ({ item, currentUser, onProfileClick, onUpdateItem, onRSVPEvent, onEventClick }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2663,7 +2651,7 @@ export const Post: React.FC<{
   isFollowing?: boolean;
   onFollow?: (id: number) => void;
   followLoading?: boolean;
-  onEventClick?: (eventId: number) => void; // Added for preview modal
+  onEventClick?: (eventId: number) => void;
 }> = ({
   post,
   author,
@@ -2688,7 +2676,7 @@ export const Post: React.FC<{
   isFollowing = false,
   onFollow,
   followLoading = false,
-  onEventClick, // Added for preview modal
+  onEventClick,
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -2740,7 +2728,7 @@ export const Post: React.FC<{
         groups={groups}
         brands={brands}
         chats={chats}
-        onEventClick={onEventClick} // Pass through
+        onEventClick={onEventClick}
       />
     );
   }
@@ -3086,34 +3074,15 @@ export const Post: React.FC<{
             ) : null
           ) : (
             <>
-              {/* Images Grid */}
+              {/* Images Grid - KEEP AS IS */}
               {!p.background && imageMedia.length > 0 && (
-                imageMedia.length > 1 ? (
-                  <ScrollableMediaWithActions
-                    media={imageMedia.map(m => ({ url: m.url }))}
-                    postId={postId}
-                    currentUser={currentUser}
-                    reactionCount={finalReactionCount}
-                    commentCount={commentCount}
-                    shareCount={shareCount}
-                    myReaction={finalMyReaction}
-                    onOpenImage={(url, index) => {
-                      const urls = imageMedia.map(m => m.url);
-                      openGallery(urls, index);
-                    }}
-                    onReact={(type) => onReact(postId, type)}
-                    onOpenComments={() => onOpenComments(postId)}
-                    onShare={() => setShowShareSheet(true)}
-                  />
-                ) : (
-                  <MediaGrid
-                    media={imageMedia.map((m) => ({ url: m.url }))}
-                    onOpen={(url, index) => {
-                      const urls = imageMedia.map((m) => m.url);
-                      openGallery(urls, index);
-                    }}
-                  />
-                )
+                <MediaGrid
+                  media={imageMedia.map((m) => ({ url: m.url }))}
+                  onOpen={(url, index) => {
+                    const urls = imageMedia.map((m) => m.url);
+                    openGallery(urls, index);
+                  }}
+                />
               )}
 
               {/* Video */}
@@ -3353,12 +3322,21 @@ export const Post: React.FC<{
         onShareComplete={handleShareComplete}
       />
 
-      {/* Gallery Viewer for multi-image swiping */}
+      {/* Gallery Viewer for multi-image swiping - WITH ACTIONS */}
       <GalleryViewer
         isOpen={galleryOpen}
         urls={galleryUrls}
         startIndex={galleryIndex}
         onClose={() => setGalleryOpen(false)}
+        postId={postId}
+        currentUser={currentUser}
+        reactionCount={finalReactionCount}
+        commentCount={commentCount}
+        shareCount={shareCount}
+        myReaction={finalMyReaction}
+        onReact={(type) => onReact(postId, type)}
+        onOpenComments={() => onOpenComments(postId)}
+        onShare={() => setShowShareSheet(true)}
       />
     </>
   );
@@ -3968,8 +3946,8 @@ const commentsCache = new Map<number, {
 
 /**
  * =========================
- * ✅ UPDATED: FULL POST VIEW WITH FULL-WIDTH MEDIA AND UNIFIED AVATAR
- * ✅ AND THREADED COMMENTS WITH "VIEW PREVIOUS X REPLIES" (FACEBOOK STYLE)
+ * ✅ UPDATED: FULL POST VIEW WITH THREADED COMMENTS
+ * ✅ SHOW ONLY 1 REPLY WHEN COLLAPSED + "VIEW PREVIOUS X REPLIES" BUTTON
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -4205,7 +4183,7 @@ export const CommentsSheet: React.FC<{
 
   /**
    * =========================
-   * ✅ NEW: Build comment threads (root + replies)
+   * ✅ Build comment threads (root + replies)
    * =========================
    */
   const buildThreads = (list: any[]) => {
@@ -4322,7 +4300,7 @@ export const CommentsSheet: React.FC<{
 
   /**
    * =========================
-   * ✅ NEW: Render one comment (used for both root and replies)
+   * ✅ Render one comment (used for both root and replies)
    * =========================
    */
   const renderOneComment = (comment: any, isReply: boolean = false) => {
@@ -4481,7 +4459,7 @@ export const CommentsSheet: React.FC<{
             </div>
           </div>
 
-          {/* ===== TEXT PREVIEW - ALWAYS SHOW FOR TEXT POSTS ===== */}
+          {/* ===== TEXT PREVIEW ===== */}
           {!p.background && textPreview && (
             <div className="mb-4">
               <ExpandableRichText
@@ -4703,7 +4681,7 @@ export const CommentsSheet: React.FC<{
               {threads.map(({ root, replies }) => {
                 const rootId = String(root.id);
                 const isExpanded = !!expandedThreads[rootId];
-                const MAX_PREVIEW = 3; // Show last 3 replies when collapsed
+                const MAX_PREVIEW = 1; // ✅ Show only 1 reply when collapsed
                 const hiddenCount = Math.max(0, replies.length - MAX_PREVIEW);
                 const visibleReplies = isExpanded ? replies : replies.slice(-MAX_PREVIEW);
 
