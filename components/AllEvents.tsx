@@ -169,7 +169,7 @@ const formatRelativeTime = (dateInput: any): string => {
 // ========== TYPES ==========
 type EventFilter = "all" | "upcoming" | "past" | "today" | "this-week" | "this-month";
 type EventSort = "date" | "popular" | "trending";
-type EventLayout = "vertical" | "horizontal";
+type EventLayout = "vertical" | "horizontal" | "compact";
 
 interface Attendee {
   id: number;
@@ -486,6 +486,118 @@ const EventCard: React.FC<{
                 <p className="text-[#B0B3B8] whitespace-pre-wrap">{event.description}</p>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Compact card for horizontal scroll (featured events)
+  if (layout === "compact") {
+    return (
+      <div
+        className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group w-[280px] flex-shrink-0"
+        onClick={() => onEventClick(event.id)}
+      >
+        {/* Cover */}
+        <div className="relative h-24 overflow-hidden">
+          {event.cover_url && !imageError ? (
+            <img
+              src={event.cover_url}
+              alt={event.title}
+              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex items-center justify-center">
+              <i className="fas fa-calendar text-white/30 text-2xl"></i>
+            </div>
+          )}
+
+          <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 border border-white/20">
+            <div className="text-[#F7B928] text-[8px] font-black uppercase">
+              {dateObj?.toLocaleDateString("en-US", { month: "short" })}
+            </div>
+            <div className="text-white text-[14px] font-black leading-tight">
+              {dateObj?.getDate()}
+            </div>
+          </div>
+
+          {isPast ? (
+            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 border border-white/20">
+              <span className="text-[#B0B3B8] text-[8px] font-semibold">Past</span>
+            </div>
+          ) : (
+            <div className="absolute top-2 right-2 bg-[#45BD62]/90 backdrop-blur-sm rounded-full px-2 py-0.5">
+              <span className="text-white text-[8px] font-semibold">Upcoming</span>
+            </div>
+          )}
+        </div>
+
+        {/* Details */}
+        <div className="p-2">
+          <div className="flex items-center gap-1 mb-1">
+            <img
+              src={avatarFrom(creator)}
+              alt=""
+              className="w-4 h-4 rounded-full object-cover border border-[#3E4042]"
+            />
+            <span className="text-[#B0B3B8] text-[9px] truncate">{creator?.name || "Organizer"}</span>
+          </div>
+
+          <h3 className="text-[#E4E6EB] font-black text-xs mb-1 line-clamp-1 group-hover:text-[#1877F2] transition-colors">
+            {event.title}
+          </h3>
+
+          <div className="flex items-center gap-1 text-[#B0B3B8] text-[9px] mb-1">
+            <i className={`fas fa-calendar-alt w-3 ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
+            <span className="truncate">{formatEventDate()}</span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <RSVPCounts 
+              goingCount={attendeesCount}
+              interestedCount={interestedCount}
+              size="sm"
+            />
+            
+            <div className="flex gap-1">
+              <button
+                disabled={loading || isPast}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRSVPClick("going");
+                }}
+                className={`
+                  px-2 py-0.5 rounded-lg font-bold text-[8px] transition-all duration-200
+                  ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+                  ${rsvpStatus === "going"
+                    ? "bg-[#45BD62] text-white"
+                    : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
+                  }
+                `}
+              >
+                {rsvpStatus === "going" ? "✓" : "Going"}
+              </button>
+
+              <button
+                disabled={loading || isPast}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRSVPClick("interested");
+                }}
+                className={`
+                  px-2 py-0.5 rounded-lg font-bold text-[8px] transition-all duration-200
+                  ${isPast ? "opacity-50 cursor-not-allowed" : ""}
+                  ${rsvpStatus === "interested"
+                    ? "bg-[#F7B928] text-black"
+                    : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+                  }
+                `}
+              >
+                {rsvpStatus === "interested" ? "✓" : "Int"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -827,6 +939,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   const [hasMore, setHasMore] = useState(true);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
 
   const fetchingMoreRef = useRef(false);
   const loadingRef = useRef(false);
@@ -964,6 +1077,21 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     }
   };
 
+  // Scroll horizontal section
+  const scrollHorizontal = (direction: 'left' | 'right') => {
+    if (horizontalScrollRef.current) {
+      const scrollAmount = 300;
+      const newScrollLeft = direction === 'left' 
+        ? horizontalScrollRef.current.scrollLeft - scrollAmount
+        : horizontalScrollRef.current.scrollLeft + scrollAmount;
+      
+      horizontalScrollRef.current.scrollTo({
+        left: newScrollLeft,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   // Initial fetch
   useEffect(() => {
     if (currentUser && !currentUser.id) return;
@@ -1084,7 +1212,13 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     return gridItems;
   };
 
-  const gridItems = createMixedGrid(events);
+  // Get featured events for horizontal scroll (first 8 events or all if less)
+  const getFeaturedEvents = () => {
+    return events.slice(0, Math.min(8, events.length));
+  };
+
+  const gridItems = createMixedGrid(events.slice(8)); // Skip first 8 for grid
+  const featuredEvents = getFeaturedEvents();
 
   return (
     <div className="min-h-screen bg-[#18191A] font-sans">
@@ -1210,11 +1344,51 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         ) : (
           <>
+            {/* Featured Events - Horizontal Scroll Section */}
+            {featuredEvents.length > 0 && (
+              <div className="mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-[#E4E6EB] text-lg font-black">Featured Events</h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => scrollHorizontal('left')}
+                      className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                    >
+                      <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
+                    </button>
+                    <button
+                      onClick={() => scrollHorizontal('right')}
+                      className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                    >
+                      <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
+                    </button>
+                  </div>
+                </div>
+                <div 
+                  ref={horizontalScrollRef}
+                  className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide scroll-smooth"
+                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                >
+                  {featuredEvents.map((event) => (
+                    <EventCard
+                      key={`featured-${event.event_key || `event:${event.id}`}`}
+                      event={event}
+                      currentUser={currentUser}
+                      onEventClick={handleEventClick}
+                      onProfileClick={onProfileClick}
+                      onRSVPUpdate={handleRSVPUpdate}
+                      layout="compact"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Mixed Grid layout - Facebook style */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-min">
               {gridItems.map((item, index) => (
                 <div 
-                  key={`${item.event.event_key || `event:${item.event.id}`}-${index}`}
+                  key={`grid-${item.event.event_key || `event:${item.event.id}`}-${index}`}
                   className={item.colSpan === 2 ? "md:col-span-2 lg:col-span-2" : ""}
                 >
                   <EventCard
@@ -1234,9 +1408,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
             {loading && (
               <div className="flex justify-center py-8">
                 <div className="relative">
-                  <div className="w-12 h-12 rounded-full border-4 border-[#3A3B3C] border-t-[#1877F2] animate-spin"></div>
+                  {/* Professional slow spinner */}
+                  <div className="w-12 h-12 rounded-full border-2 border-[#3A3B3C] border-t-[#1877F2] animate-spin-slow"></div>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-2 h-2 bg-[#1877F2] rounded-full animate-ping"></div>
+                    <div className="w-2 h-2 bg-[#1877F2] rounded-full opacity-0"></div>
                   </div>
                 </div>
               </div>
@@ -1275,6 +1450,24 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           <i className="fas fa-plus text-white text-xl"></i>
         </button>
       )}
+
+      {/* Add custom CSS for slow spinner */}
+      <style jsx>{`
+        @keyframes spin-slow {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        .animate-spin-slow {
+          animation: spin-slow 1.5s linear infinite;
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
     </div>
   );
 };
