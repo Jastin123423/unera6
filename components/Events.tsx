@@ -1,4 +1,4 @@
-// Events.tsx - Updated with all fixes and App.tsx compatibility improvements
+// Events.tsx - Updated with all fixes and App.tsx compatibility improvements-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { User, Event } from '../types';
 
