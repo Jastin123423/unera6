@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
 
@@ -1513,7 +1511,7 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   );
 };
 
-// ==================== ENHANCED REELS FEED - FACEBOOK LARGE SCREEN STYLE ====================
+// ==================== ENHANCED REELS FEED - FACEBOOK STYLE WITH BOTTOM ACTIONS ====================
 interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
@@ -1607,13 +1605,15 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     });
   }, [initialReelId]);
 
-  // Facebook-style intersection observer for auto-play - FIXED with playingReelIdRef
+  // Facebook-style intersection observer for auto-play - FIXED with activeReelId update
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           const reelId = Number(entry.target.getAttribute('data-reel-id'));
           if (entry.isIntersecting) {
+            // ✅ FIX: Set BOTH active and playing
+            setActiveReelId(reelId);
             setPlayingReelId(reelId);
             setIsVideoPlaying(prev => ({ ...prev, [reelId]: true }));
           } else {
@@ -1636,55 +1636,50 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return () => observerRef.current?.disconnect();
   }, [reels]); // Only reels as dependency, not playingReelId
 
-  // Handle video/audio playback based on playingReelId
+  // Handle video/audio playback based on playingReelId - FIXED cleanup
   useEffect(() => {
-    // Stop all audio first
     stopAllAudio();
-    
-    // Play the active reel
-    Object.keys(videoRefs.current).forEach((key) => {
-      const id = Number(key);
-      const video = videoRefs.current[id];
-      const audio = audioRefs.current[id];
-      const reel = reels.find((r: Reel) => r.id === id);
 
-      if (video) {
-        if (id === playingReelId) {
-          video.play().catch(() => {});
-          video.muted = false;
-          
-          if (audio && reel) {
-            const start = reel.audioStart || (reel as any).audio_start || 0;
-            const end = reel.audioEnd || (reel as any).audio_end || 1000000;
-            
-            const handleAudioSync = () => {
-              if (!audio || !video) return;
-              
-              const expectedAudioTime = video.currentTime + start;
-              
-              if (audio.currentTime >= end || expectedAudioTime >= end) {
-                audio.currentTime = start;
-                video.currentTime = 0;
-                return;
-              }
-              
-              const drift = Math.abs(audio.currentTime - expectedAudioTime);
-              if (drift > 0.5) {
-                audio.currentTime = expectedAudioTime;
-              }
-            };
+    if (!playingReelId) return;
 
-            audio.addEventListener('timeupdate', handleAudioSync);
-            audio.play().catch(() => {});
-            
-            return () => audio.removeEventListener('timeupdate', handleAudioSync);
-          }
-        } else {
-          video.pause();
-          if (audio) audio.pause();
-        }
+    const reel = reels.find(r => r.id === playingReelId);
+    const video = videoRefs.current[playingReelId];
+    const audio = audioRefs.current[playingReelId];
+
+    if (!video) return;
+
+    video.muted = false;
+    video.play().catch(() => {});
+
+    if (!audio || !reel) return;
+
+    const start = reel.audioStart || (reel as any).audio_start || 0;
+    const end = reel.audioEnd || (reel as any).audio_end || 1000000;
+
+    const sync = () => {
+      if (!audio || !video) return;
+      const expected = video.currentTime + start;
+
+      if (expected >= end) {
+        video.currentTime = 0;
+        audio.currentTime = start;
+        return;
       }
-    });
+
+      if (Math.abs(audio.currentTime - expected) > 0.5) {
+        audio.currentTime = expected;
+      }
+    };
+
+    audio.currentTime = start;
+    audio.play().catch(() => {});
+    video.addEventListener("timeupdate", sync);
+
+    return () => {
+      video.removeEventListener("timeupdate", sync);
+      try { audio.pause(); } catch {}
+      try { video.pause(); } catch {}
+    };
   }, [playingReelId, reels, stopAllAudio]);
 
   const extractSoundFromReel = useCallback((reel: Reel): Sound => {
@@ -1786,8 +1781,28 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
   return (
     <div className="w-full h-[calc(100vh-56px)] bg-black overflow-hidden font-sans relative">
+      {/* Facebook-style top bar */}
+      <div className="absolute top-0 left-0 right-0 z-30 h-14 px-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent">
+        <button
+          onClick={() => window.history.back()}
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center"
+        >
+          <i className="fas fa-arrow-left text-white text-sm" />
+        </button>
+
+        <div className="text-white font-black text-[12px] tracking-widest uppercase">
+          Videos
+        </div>
+
+        <button
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center"
+        >
+          <i className="fas fa-ellipsis-h text-white text-sm" />
+        </button>
+      </div>
+
       {/* Facebook-style centered feed */}
-      <div className="w-full h-full flex justify-center">
+      <div className="w-full h-full flex justify-center pt-14">
         <div className="w-full max-w-[600px] lg:max-w-[800px] xl:max-w-[1000px] h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-black">
           {reels.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-white p-8">
@@ -1830,14 +1845,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                   data-reel-id={reel.id} 
                   className="reel-container w-full h-screen snap-start relative bg-black flex items-center justify-center"
                 >
-                  {/* Facebook-style video container */}
-                  <div className="relative w-full h-full flex items-center justify-center bg-black">
-                    {/* Video player */}
-                    <div className="relative max-h-full max-w-full">
+                  {/* Facebook-style video container - centered player */}
+                  <div className="w-full h-full flex items-center justify-center bg-black">
+                    <div className="w-full h-full max-w-[520px] sm:max-w-[720px] relative">
                       <video 
                         ref={el => { if (el) videoRefs.current[reel.id] = el; }} 
                         src={reel.videoUrl || (reel as any).video_url} 
-                        className="max-h-full max-w-full object-contain"
+                        className="w-full h-full object-contain"
                         loop 
                         playsInline 
                         onClick={() => handleVideoClick(reel.id)}
@@ -1854,117 +1868,104 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                           </div>
                         </div>
                       )}
-                    </div>
 
-                    {reel.audioUrl && (
-                      <audio 
-                        ref={el => { if (el) audioRefs.current[reel.id] = el; }} 
-                        src={reel.audioUrl || (reel as any).audio_url} 
-                        loop={false} 
-                      />
-                    )}
+                      {reel.audioUrl && (
+                        <audio 
+                          ref={el => { if (el) audioRefs.current[reel.id] = el; }} 
+                          src={reel.audioUrl || (reel as any).audio_url} 
+                          loop={false} 
+                        />
+                      )}
 
-                    {/* Facebook-style right sidebar with interactions */}
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col items-center gap-6 z-20">
-                      {/* Like button */}
-                      <div className="flex flex-col items-center gap-1">
-                        <button
-                          onClick={() => onReact(reel.id, 'like')}
-                          className="w-12 h-12 rounded-full bg-[#F0F2F5] hover:bg-[#E4E6E9] flex items-center justify-center transition-all group"
-                        >
-                          <i className={`fas fa-thumbs-up text-xl ${hasLiked ? 'text-[#1877F2]' : 'text-[#1C1E21]'}`}></i>
-                        </button>
-                        <span className="text-white text-sm font-semibold">
-                          {formatCount(reel.reactions?.length || 0)}
-                        </span>
+                      {/* ✅ Facebook-style bottom actions bar */}
+                      <div className="absolute bottom-0 left-0 right-0 z-20 bg-black/70 backdrop-blur-md border-t border-white/10">
+                        <div className="flex items-center justify-around px-4 py-3">
+                          <button
+                            onClick={() => onReact(reel.id, "like")}
+                            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 active:scale-95"
+                          >
+                            <i className={`fas fa-thumbs-up ${hasLiked ? "text-[#1877F2]" : "text-white"}`} />
+                            <span className="text-white text-sm font-bold">{formatCount(reel.reactions?.length || 0)}</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setActiveReelId(reel.id);
+                              setShowComments(true);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 active:scale-95"
+                          >
+                            <i className="fas fa-comment text-white" />
+                            <span className="text-white text-sm font-bold">{formatCount(reel.comments?.length || 0)}</span>
+                          </button>
+
+                          <button
+                            onClick={() => onShare(reel.id, "feed")}
+                            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 active:scale-95"
+                          >
+                            <i className="fas fa-share text-white" />
+                            <span className="text-white text-sm font-bold">{formatCount(reel.shares || 0)}</span>
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Comment button */}
-                      <div className="flex flex-col items-center gap-1">
-                        <button
-                          onClick={() => setShowComments(true)}
-                          className="w-12 h-12 rounded-full bg-[#F0F2F5] hover:bg-[#E4E6E9] flex items-center justify-center transition-all"
-                        >
-                          <i className="fas fa-comment text-xl text-[#1C1E21]"></i>
-                        </button>
-                        <span className="text-white text-sm font-semibold">
-                          {formatCount(reel.comments?.length || 0)}
-                        </span>
-                      </div>
-
-                      {/* Share button */}
-                      <div className="flex flex-col items-center gap-1">
-                        <button
-                          onClick={() => onShare(reel.id, 'feed')}
-                          className="w-12 h-12 rounded-full bg-[#F0F2F5] hover:bg-[#E4E6E9] flex items-center justify-center transition-all"
-                        >
-                          <i className="fas fa-share text-xl text-[#1C1E21]"></i>
-                        </button>
-                        <span className="text-white text-sm font-semibold">
-                          {formatCount(reel.shares || 0)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Facebook-style bottom overlay with metadata */}
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-6 z-10">
-                      <div className="flex items-center gap-4 mb-4">
-                        {/* Profile image */}
-                        <div className="relative">
+                      {/* Facebook-style bottom overlay with metadata - adjusted padding for bottom bar */}
+                      <div className="absolute bottom-20 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pt-10 pb-6 z-10">
+                        <div className="flex items-center gap-3">
                           <img 
                             src={author.profile_image_url || author.profileImage} 
-                            className="w-12 h-12 rounded-full border-2 border-white/50 object-cover cursor-pointer" 
+                            className="w-10 h-10 rounded-full border border-white/20 object-cover cursor-pointer" 
                             alt="" 
                             onClick={() => onProfileClick(author.id)} 
                           />
-                        </div>
-                        
-                        {/* Username and follow button */}
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3">
-                            <span 
-                              className="text-white font-bold text-[15px] cursor-pointer hover:underline" 
-                              onClick={() => onProfileClick(author.id)}
-                            >
-                              {author.name}
-                            </span>
-                            {author.is_verified && (
-                              <i className="fas fa-check-circle text-[12px] text-[#1877F2]"></i>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span 
+                                className="text-white font-bold text-sm truncate cursor-pointer hover:underline" 
+                                onClick={() => onProfileClick(author.id)}
+                              >
+                                {author.name}
+                              </span>
+                              {author.is_verified && (
+                                <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>
+                              )}
+                            </div>
+                            
+                            {/* Follow button - Facebook style */}
+                            {currentUser?.id !== author.id && (
+                              <button 
+                                onClick={() => onFollow(author.id)} 
+                                disabled={isLoadingFollow}
+                                className="mt-1 text-xs font-bold text-[#1877F2] bg-white/10 px-3 py-1 rounded-full border border-white/10"
+                              >
+                                {isLoadingFollow ? 'Please wait...' : (isFollowing ? 'Following' : 'Follow')}
+                              </button>
                             )}
                           </div>
-                          
-                          {/* Follow button - Facebook style */}
-                          {currentUser?.id !== author.id && (
-                            <button 
-                              onClick={() => onFollow(author.id)} 
-                              disabled={isLoadingFollow}
-                              className="mt-1 bg-[#1877F2] text-white text-xs font-semibold px-4 py-1.5 rounded-full hover:bg-[#166FE5] transition-colors disabled:opacity-50"
-                            >
-                              {isLoadingFollow ? 'Following...' : 'Follow'}
-                            </button>
+                        </div>
+
+                        {/* Caption */}
+                        {!!reel.caption && (
+                          <p className="mt-3 text-white text-sm leading-snug line-clamp-2 max-w-[80%]">
+                            {reel.caption}
+                          </p>
+                        )}
+
+                        {/* Sound info - Facebook style */}
+                        <div 
+                          className="mt-3 flex items-center gap-2 text-white/90 text-sm cursor-pointer w-fit"
+                          onClick={() => handleSoundClick(reel)}
+                        >
+                          <i className="fas fa-music text-[#1877F2]" />
+                          <span className="font-semibold truncate max-w-[260px]">
+                            {reel.songName || (reel as any).song_name || 'Original Sound'}
+                          </span>
+                          {sound.creationCount && sound.creationCount > 0 && (
+                            <span className="text-[#45BD62] text-xs">
+                              • {sound.creationCount} uses
+                            </span>
                           )}
                         </div>
-                      </div>
-
-                      {/* Caption */}
-                      <p className="text-white text-[15px] mb-4 line-clamp-2 max-w-[70%]">
-                        {reel.caption}
-                      </p>
-
-                      {/* Sound info - Facebook style */}
-                      <div 
-                        className="flex items-center gap-3 text-white/90 text-sm cursor-pointer hover:text-white transition-colors w-fit"
-                        onClick={() => handleSoundClick(reel)}
-                      >
-                        <i className="fas fa-music text-[#1877F2]"></i>
-                        <span className="font-semibold truncate max-w-[300px]">
-                          {reel.songName || (reel as any).song_name || 'Original Sound'}
-                        </span>
-                        {sound.creationCount && sound.creationCount > 0 && (
-                          <span className="text-[#45BD62] text-xs">
-                            • {sound.creationCount} uses
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -2965,12 +2966,16 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleSheet);
 }
 
-export default {
+// Fix exports - use named exports
+export {
   CreateReelModal,
   ReelsFeed,
   CameraStudio,
   AudioTrimmer,
   SoundDetailView,
   UploadLoader,
-  useAudioFocus
+  useAudioFocus,
 };
+
+// Also keep default export as ReelsFeed for backward compatibility
+export default ReelsFeed;
