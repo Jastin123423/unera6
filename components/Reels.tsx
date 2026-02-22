@@ -2966,16 +2966,8 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleSheet);
 }
 
-// Fix exports - use named exports
-export {
-  CreateReelModal,
-  ReelsFeed,
-  CameraStudio,
-  AudioTrimmer,
-  SoundDetailView,
-  UploadLoader,
-  useAudioFocus,
-};
+// Export only the components that are already exported with 'export' keyword
+// No need for additional export block since we're using 'export' on each component
 
-// Also keep default export as ReelsFeed for backward compatibility
+// For backward compatibility, provide a default export of ReelsFeed
 export default ReelsFeed;
