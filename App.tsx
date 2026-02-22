@@ -1,5 +1,3 @@
-//App.tsx 
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -14,7 +12,6 @@ import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Stor
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
-import EventsPage from "./components/EventsPage";
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
   BirthdaysPage,
@@ -28,6 +25,7 @@ import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
+import { AllEvents } from './components/AllEvents';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
 import { TermsOfServicePage } from './components/TermsOfService';
 import { useLanguage } from './contexts/LanguageContext';
@@ -465,8 +463,8 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 };
 
 /**
- * Normalize raw D1 rows to UI-safe PostType shape with multi-media support
- * Parse meta field if it's a JSON string (critical for marketplace posts)
+ * ✅ FIXED: Normalize post data with brand_id support
+ * Now properly preserves brand_id from API responses
  */
 const normalizePost = (p: any): PostType => {
   const mediaUrls =
@@ -494,6 +492,7 @@ const normalizePost = (p: any): PostType => {
       ...p,
       id: resolvedId,
       user_id: safeNumber(p?.user_id),
+      brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null, // ✅ Added brand_id
       content: safeString(p?.content),
       type: 'event',
       event_id: p?.event_id || p?.meta?.event_id,
@@ -521,6 +520,7 @@ const normalizePost = (p: any): PostType => {
     ...p,
     id: resolvedId,
     user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
+    brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null, // ✅ Added brand_id
     content: safeString(p?.content),
 
     media_url: mediaUrl,
@@ -813,6 +813,53 @@ const normalizeProduct = (p: any) => {
   } as any;
 };
 
+/**
+ * ✅ FIXED: Normalize brand data with backend field mapping
+ * Supports owner_id, brand_user_id, logo_url from backend
+ * Always ensures followers is an array (never undefined)
+ */
+const normalizeBrand = (b: any): Brand => {
+  const name = safeString(b?.name, "Unnamed Brand");
+
+  return {
+    ...b,
+
+    // ids
+    id: safeNumber(b?.id),
+    owner_id: safeNumber(b?.owner_id ?? b?.admin_id ?? b?.adminId ?? 0),
+    brand_user_id: safeNumber(b?.brand_user_id ?? b?.brandUserId ?? b?.user_id ?? 0),
+
+    // keep Brands.tsx compatibility: admin_id is the owner
+    admin_id: safeNumber(b?.owner_id ?? b?.admin_id ?? b?.adminId ?? 0),
+
+    name,
+    description: safeString(b?.description, ""),
+    category: safeString(b?.category, "Other"),
+
+    // images: backend uses logo_url; UI uses profile_image_url
+    profile_image_url: safeString(
+      b?.profile_image_url ?? b?.profileImage ?? b?.logo_url ?? b?.logo ?? "",
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
+    ),
+
+    cover_image_url: safeString(
+      b?.cover_image_url ?? b?.coverImage ?? b?.cover ?? "",
+      "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=1500&q=80"
+    ),
+
+    website: safeString(b?.website, ""),
+    location: safeString(b?.location, ""),
+    contact_email: safeString(b?.contact_email ?? b?.email, ""),
+    contact_phone: safeString(b?.contact_phone ?? b?.phone, ""),
+
+    // IMPORTANT: followers must always be an array
+    followers: safeArray<number>(b?.followers ?? []),
+    is_verified: Boolean(b?.is_verified ?? false),
+
+    created_at: b?.created_at ?? new Date().toISOString(),
+  } as any;
+};
+
 // ============================================================================
 // 🔧 FIXED: Normalize groups with optional members and is_member support
 // ============================================================================
@@ -1056,6 +1103,9 @@ const fetchUserFollowData = async (userId: number): Promise<{ followers: number[
   }
 };
 
+/**
+ * ✅ FIXED: Upload to media.unera.social instead of localhost
+ */
 const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
   try {
     const formData = new FormData();
@@ -1065,7 +1115,8 @@ const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url
     formData.append('folder', folder);
     formData.append('timestamp', Date.now().toString());
 
-    const response = await fetch('/api/upload', {
+    // ✅ FIXED: Use media.unera.social domain
+    const response = await fetch('https://media.unera.social/api/upload', {
       method: 'POST',
       body: formData,
     });
@@ -1174,6 +1225,7 @@ const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
     ...row,
     user_id: safeNumber(row?.user_id),
+    brand_id: row?.brand_id ? safeNumber(row?.brand_id) : null, // ✅ Added brand_id
     content: row?.content ?? '',
     created_at: row?.created_at,
     media_url: row?.media_url ?? null,
@@ -3024,7 +3076,7 @@ export default function App() {
 
       setProducts(prList.map(normalizeProduct));
       
-      // 🔧 FIXED: Handle groups response properly - preserve undefined members
+      // Handle groups
       const gRaw = g;
       const gList = Array.isArray(gRaw)
         ? gRaw
@@ -3032,18 +3084,12 @@ export default function App() {
         : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
         : [];
       
-      // ✅ FIXED: Merge new groups with existing ones, preserving members when backend doesn't send them
       setGroups(prev => {
         const byId = new Map(prev.map(g => [Number(g.id), g]));
         return gList.map((ng: any) => {
           const old = byId.get(Number(ng.id));
-          
-          // 🔧 CRITICAL FIX: Check if backend actually sent members
           const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
           
-          // If backend didn't send members, preserve old members (including undefined)
-          // If backend did send members, use them
-          // This prevents empty arrays from overwriting real membership data
           return normalizeGroup({
             ...old,
             ...ng,
@@ -3055,7 +3101,24 @@ export default function App() {
         });
       });
       
-      setBrands(safeArray(b));
+      // ✅ Handle brands - with proper normalization
+      const bRaw = b;
+      const bList = Array.isArray(bRaw)
+        ? bRaw
+        : Array.isArray((bRaw as any)?.brands) ? (bRaw as any).brands
+        : Array.isArray((bRaw as any)?.results) ? (bRaw as any).results
+        : [];
+      
+      setBrands(prev => {
+        const byId = new Map(prev.map(b => [Number(b.id), b]));
+        return bList.map((nb: any) => {
+          const old = byId.get(Number(nb.id));
+          return normalizeBrand({
+            ...old,
+            ...nb,
+          });
+        });
+      });
       
       const eventsData = await fetchEvents().catch(() => []);
       setEvents(eventsData);
@@ -3566,6 +3629,169 @@ export default function App() {
     } catch (error) {
       console.error('Failed to invite to group:', error);
       return { success: true, message: "Invites sent" };
+    }
+  }, [currentUser, requireAuth]);
+
+  // ============================================================================
+  // 🔧 BRAND FUNCTIONS - UPDATED with backend field mapping
+  // ============================================================================
+  
+  /** ---------- ✅ FIXED: Create a new brand with backend field mapping ---------- */
+  const createBrand = useCallback(async (brandData: Partial<Brand>) => {
+    if (!requireAuth('Creating brands')) return;
+    if (!currentUser) return;
+
+    try {
+      // ✅ FIXED: Map frontend fields to backend expectations
+      const payload = {
+        ...brandData,
+        // backend expects owner_id, not admin_id
+        owner_id: currentUser.id,
+        // map logo_url if profile_image_url is provided
+        logo_url: (brandData as any)?.logo_url ?? (brandData as any)?.profile_image_url ?? null,
+        // ensure followers is empty initially
+        followers: [],
+        created_at: new Date().toISOString(),
+      };
+
+      const data = await apiFetch('/api/brands', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      const newBrand = normalizeBrand(data?.brand ?? data);
+      setBrands(prev => [...safeArray(prev), newBrand]);
+      
+      return newBrand;
+    } catch (error) {
+      console.error('Failed to create brand:', error);
+      setLoginError('Failed to create brand');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- Update an existing brand ---------- */
+  const updateBrand = useCallback(async (brandId: number, data: Partial<Brand>) => {
+    if (!requireAuth('Updating brands')) return;
+    if (!currentUser) return;
+
+    try {
+      const result = await apiFetch(`/api/brands/${brandId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+
+      setBrands(prev => 
+        safeArray(prev).map(b => 
+          Number(b.id) === Number(brandId) ? normalizeBrand({ ...b, ...data }) : b
+        )
+      );
+
+      return result;
+    } catch (error) {
+      console.error('Failed to update brand:', error);
+      setLoginError('Failed to update brand');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- Delete a brand (admin only) ---------- */
+  const deleteBrand = useCallback(async (brandId: number) => {
+    if (!requireAdmin('Deleting brands')) return;
+
+    try {
+      await apiFetch(`/api/brands/${brandId}`, {
+        method: 'DELETE'
+      });
+
+      setBrands(prev => safeArray(prev).filter(b => Number(b.id) !== Number(brandId)));
+    } catch (error) {
+      console.error('Failed to delete brand:', error);
+      setLoginError('Failed to delete brand');
+      throw error;
+    }
+  }, [requireAdmin]);
+
+  /** ---------- Post as a brand ---------- */
+  const postAsBrand = useCallback(async (brandId: number, postData: any) => {
+    if (!requireAuth('Posting as brand')) return;
+    if (!currentUser) return;
+
+    try {
+      let mediaUrl = null;
+      if (postData.file) {
+        const uploadResult = await uploadToCloudflareR2(postData.file, 'brand-posts');
+        mediaUrl = uploadResult.url;
+      }
+
+      const payload = {
+        brand_id: brandId,
+        user_id: currentUser.id,
+        content: postData.text || '',
+        media_url: mediaUrl,
+        type: postData.type || 'post',
+        visibility: postData.visibility || 'public',
+        location: postData.location,
+        feeling: postData.feeling,
+        tagged_users: postData.taggedUsers,
+        background: postData.background,
+        link_preview: postData.linkPreview
+      };
+
+      const data = await apiFetch('/api/posts', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      const newPost = normalizePost(data?.post ?? data);
+      setPosts(prev => [newPost, ...safeArray(prev)]);
+      
+      return newPost;
+    } catch (error) {
+      console.error('Failed to post as brand:', error);
+      setLoginError('Failed to create post');
+      throw error;
+    }
+  }, [currentUser, requireAuth]);
+
+  /** ---------- Message a brand ---------- */
+  const messageBrand = useCallback((brandId: number) => {
+    if (!requireAuth('Messaging brands')) return;
+    
+    const brand = brands.find(b => Number(b.id) === Number(brandId));
+    if (brand) {
+      // Navigate to chat with this brand
+      setActiveChatUser(brand as any);
+    }
+  }, [requireAuth, brands]);
+
+  /** ---------- Create a brand event ---------- */
+  const createBrandEvent = useCallback(async (brandId: number, eventData: Partial<Event>) => {
+    if (!requireAuth('Creating events')) return;
+    if (!currentUser) return;
+
+    try {
+      const payload = {
+        ...eventData,
+        brand_id: brandId,
+        creator_id: currentUser.id,
+        creator_name: currentUser.name,
+        creator_avatar: currentUser.profile_image_url
+      };
+
+      const data = await apiFetch('/api/events', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      const newEvent = normalizeEvent(data?.event ?? data);
+      setEvents(prev => [newEvent, ...safeArray(prev)]);
+      
+      return newEvent;
+    } catch (error) {
+      console.error('Failed to create brand event:', error);
+      setLoginError('Failed to create event');
+      throw error;
     }
   }, [currentUser, requireAuth]);
 
@@ -4592,7 +4818,7 @@ export default function App() {
                           onFollow={() => followUser(postAuthorId)}
                           followLoading={followLoading[postAuthorId] || false}
                           onViewProductFromPost={openProductFromPost}
-                          onRSVPEvent={onRSVPEvent} // Pass the unified RSVP handler to Post component
+                          onRSVPEvent={onRSVPEvent}
                         />
                       );
                     })
@@ -4705,11 +4931,11 @@ export default function App() {
               brands={brands}
               posts={posts}
               users={users}
-              onCreateBrand={() => requireAuth('Creating brands')}
+              onCreateBrand={createBrand}
               onFollowBrand={(id: number) => followUser(id)}
               onProfileClick={(id) => openProfile(id)}
-              onPostAsBrand={() => requireAuth('Posting')}
-              onReact={() => requireAuth('Reacting')}
+              onPostAsBrand={postAsBrand}
+              onReact={onReactPost}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onOpenComments={(id: any) => {
                 if (!requireAuth('Commenting')) return;
@@ -4719,10 +4945,14 @@ export default function App() {
                 const found = source.find((p: any) => Number(p.id) === pid) || null;
                 setCommentPostSnapshot(found);
               }}
-              onDeleteBrand={() => requireAuth('Deleting brands')}
+              onUpdateBrand={updateBrand}
+              onDeleteBrand={deleteBrand}
+              onMessage={messageBrand}
+              onCreateEvent={createBrandEvent}
               onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
+              initialBrandId={null}
             />
           )}
 
