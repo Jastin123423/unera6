@@ -39,7 +39,7 @@ interface SoundUsage {
   };
 }
 
-// Simple Comments Sheet component (since it was missing)
+// Simple Comments Sheet component
 const ReelCommentsSheet: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -243,7 +243,7 @@ const useAudioFocus = () => {
   return { stopAllAudio };
 };
 
-// ==================== ENHANCED AUDIO TRIMMER (ORIGINAL DESIGN) ====================
+// ==================== ENHANCED AUDIO TRIMMER ====================
 const AudioTrimmer: React.FC<{ 
   url: string, 
   onClose: () => void, 
@@ -572,7 +572,6 @@ const AudioTrimmer: React.FC<{
           </button>
         </div>
 
-        {/* ✅ ORIGINAL AUDIO PREVIEW DESIGN - Restored */}
         <div className="flex items-center justify-center gap-4 mb-8">
           <button 
             onClick={togglePlay}
@@ -769,7 +768,6 @@ export const CreateReelModal: React.FC<{
       setAudioStart(selectedSound.audioStart || 0);
       setAudioEnd(selectedSound.audioEnd || 0);
       
-      // ✅ Auto-start studio when sound is selected from Reuse
       if (!mediaPreview) {
         setIsStudioPlaying(true);
       }
@@ -1238,7 +1236,7 @@ export const CreateReelModal: React.FC<{
   );
 };
 
-// ==================== TIKTOK-STYLE SOUND DETAIL VIEW ====================
+// ==================== SOUND DETAIL VIEW ====================
 interface SoundDetailViewProps {
   sound: Sound;
   onClose: () => void;
@@ -1511,7 +1509,7 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   );
 };
 
-// ==================== ENHANCED REELS FEED - FACEBOOK STYLE WITH BOTTOM ACTIONS ====================
+// ==================== ENHANCED REELS FEED - FACEBOOK STYLE WITH FIXED BOTTOM BAR ====================
 interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
@@ -1562,35 +1560,32 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [soundDetailLoading, setSoundDetailLoading] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState<{[key: number]: boolean}>({});
   
-  // Add refs for video and audio elements
+  // Refs for video, audio, and scroll container
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   
-  // Add ref to track playingReelId to avoid stale closures
+  // Track playingReelId to avoid stale closures
   const playingReelIdRef = useRef<number | null>(null);
 
-  // Update playingReelIdRef whenever playingReelId changes
   useEffect(() => {
     playingReelIdRef.current = playingReelId;
   }, [playingReelId]);
 
-  // FIX 1: Scroll to and play initial reel when initialReelId changes
+  // Scroll to and play initial reel
   useEffect(() => {
     if (!initialReelId) return;
 
-    // Set state first
     setActiveReelId(initialReelId);
     setPlayingReelId(initialReelId);
     setIsVideoPlaying(prev => ({ ...prev, [initialReelId]: true }));
 
-    // Then scroll to the element
     requestAnimationFrame(() => {
       const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
       if (el) {
         el.scrollIntoView({ behavior: 'instant', block: 'start' });
         
-        // Also ensure video plays immediately
         const video = videoRefs.current[initialReelId];
         if (video) {
           video.play().catch(() => {});
@@ -1605,40 +1600,71 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     });
   }, [initialReelId]);
 
-  // Facebook-style intersection observer for auto-play - FIXED with activeReelId update
+  // Intersection Observer - Only ONE video plays at a time
   useEffect(() => {
+    const rootEl = scrollerRef.current;
+    if (!rootEl) return;
+
+    observerRef.current?.disconnect();
+
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
-          const reelId = Number(entry.target.getAttribute('data-reel-id'));
-          if (entry.isIntersecting) {
-            // ✅ FIX: Set BOTH active and playing
-            setActiveReelId(reelId);
-            setPlayingReelId(reelId);
-            setIsVideoPlaying(prev => ({ ...prev, [reelId]: true }));
-          } else {
-            // Use the ref to check current playingReelId
-            if (playingReelIdRef.current === reelId) {
-              setPlayingReelId(null);
-            }
-            setIsVideoPlaying(prev => ({ ...prev, [reelId]: false }));
+        let bestId: number | null = null;
+        let bestRatio = 0;
+
+        for (const entry of entries) {
+          const reelId = Number((entry.target as HTMLElement).dataset.reelId);
+          const ratio = entry.intersectionRatio;
+
+          // Pick the most visible reel
+          if (ratio > bestRatio) {
+            bestRatio = ratio;
+            bestId = reelId;
           }
-        });
+        }
+
+        if (bestId && bestRatio >= 0.6) {
+          setActiveReelId(bestId);
+          setPlayingReelId(bestId);
+
+          // Pause all other videos + audios immediately
+          Object.entries(videoRefs.current).forEach(([id, v]) => {
+            const rid = Number(id);
+            if (!v) return;
+            if (rid !== bestId) {
+              try { v.pause(); v.currentTime = 0; } catch {}
+            }
+          });
+
+          Object.entries(audioRefs.current).forEach(([id, a]) => {
+            const rid = Number(id);
+            if (!a) return;
+            if (rid !== bestId) {
+              try { a.pause(); a.currentTime = 0; } catch {}
+            }
+          });
+        }
       },
-      { threshold: 0.7 }
+      { root: rootEl, threshold: [0.2, 0.4, 0.6, 0.8, 0.95] }
     );
 
-    // Observe all reel containers
-    document.querySelectorAll('[data-reel-id]').forEach((el) => {
-      observerRef.current?.observe(el);
-    });
+    const els = rootEl.querySelectorAll('[data-reel-id]');
+    els.forEach((el) => observerRef.current?.observe(el));
 
     return () => observerRef.current?.disconnect();
-  }, [reels]); // Only reels as dependency, not playingReelId
+  }, [reels]);
 
-  // Handle video/audio playback based on playingReelId - FIXED cleanup
+  // Handle video/audio playback - Hard stop previous, play only current
   useEffect(() => {
-    stopAllAudio();
+    // Hard stop everything first
+    Object.values(videoRefs.current).forEach(v => {
+      if (!v) return;
+      try { v.pause(); v.currentTime = 0; v.muted = true; } catch {}
+    });
+    Object.values(audioRefs.current).forEach(a => {
+      if (!a) return;
+      try { a.pause(); a.currentTime = 0; } catch {}
+    });
 
     if (!playingReelId) return;
 
@@ -1677,10 +1703,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
     return () => {
       video.removeEventListener("timeupdate", sync);
-      try { audio.pause(); } catch {}
-      try { video.pause(); } catch {}
     };
-  }, [playingReelId, reels, stopAllAudio]);
+  }, [playingReelId, reels]);
 
   const extractSoundFromReel = useCallback((reel: Reel): Sound => {
     const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
@@ -1803,7 +1827,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
       {/* Facebook-style centered feed */}
       <div className="w-full h-full flex justify-center pt-14">
-        <div className="w-full max-w-[600px] lg:max-w-[800px] xl:max-w-[1000px] h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-black">
+        <div
+          ref={scrollerRef}
+          className="w-full max-w-[600px] lg:max-w-[800px] xl:max-w-[1000px] h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-black"
+        >
           {reels.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-white p-8">
               <div className="w-24 h-24 rounded-full bg-[#1877F2]/10 flex items-center justify-center mb-6">
@@ -1843,7 +1870,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                   key={reel.id} 
                   id={`reel-${reel.id}`}
                   data-reel-id={reel.id} 
-                  className="reel-container w-full h-screen snap-start relative bg-black flex items-center justify-center"
+                  className="reel-container w-full h-[calc(100vh-56px)] snap-start relative bg-black overflow-hidden flex items-center justify-center"
                 >
                   {/* Facebook-style video container - centered player */}
                   <div className="w-full h-full flex items-center justify-center bg-black">
@@ -1855,6 +1882,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         loop 
                         playsInline 
                         onClick={() => handleVideoClick(reel.id)}
+                        preload="none"
                       />
                       
                       {/* Small play icon overlay (Facebook style) */}
@@ -1877,8 +1905,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         />
                       )}
 
-                      {/* ✅ Facebook-style bottom actions bar */}
-                      <div className="absolute bottom-0 left-0 right-0 z-20 bg-black/70 backdrop-blur-md border-t border-white/10">
+                      {/* ✅ Facebook-style bottom actions bar - FIXED at bottom */}
+                      <div className="absolute left-0 right-0 bottom-0 z-30 bg-black/75 backdrop-blur-md border-t border-white/10 pb-[env(safe-area-inset-bottom)]">
                         <div className="flex items-center justify-around px-4 py-3">
                           <button
                             onClick={() => onReact(reel.id, "like")}
@@ -1909,8 +1937,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         </div>
                       </div>
 
-                      {/* Facebook-style bottom overlay with metadata - adjusted padding for bottom bar */}
-                      <div className="absolute bottom-20 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pt-10 pb-6 z-10">
+                      {/* Metadata overlay sits ABOVE bottom bar */}
+                      <div className="absolute left-0 right-0 bottom-[76px] bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pt-10 pb-6 z-10">
                         <div className="flex items-center gap-3">
                           <img 
                             src={author.profile_image_url || author.profileImage} 
@@ -2966,8 +2994,5 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleSheet);
 }
 
-// Export only the components that are already exported with 'export' keyword
-// No need for additional export block since we're using 'export' on each component
-
-// For backward compatibility, provide a default export of ReelsFeed
+// Export components
 export default ReelsFeed;
