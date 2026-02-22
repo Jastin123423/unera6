@@ -1500,7 +1500,7 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   );
 };
 
-// ==================== ENHANCED REELS FEED - TIKTOK STYLE WITH MOBILE FIXES ====================
+// ==================== ENHANCED REELS FEED - PROFESSIONAL TIKTOK/FACEBOOK STYLE ====================
 interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
@@ -1549,11 +1549,27 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [soundDetailLoading, setSoundDetailLoading] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState<{[key: number]: boolean}>({});
   
-  // User interaction tracking for autoplay policies
+  // Refs for video, audio, and scroll container
+  const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
+  const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  
+  // Track active ID to avoid repeated calls
+  const activeIdRef = useRef<number | null>(null);
+  
+  // Track user interaction for audio autoplay
   const userInteractedRef = useRef(false);
 
   useEffect(() => {
-    const markInteraction = () => { userInteractedRef.current = true; };
+    activeIdRef.current = playingReelId;
+  }, [playingReelId]);
+
+  // Mark user interaction for audio autoplay
+  useEffect(() => {
+    const markInteraction = () => { 
+      userInteractedRef.current = true; 
+    };
     window.addEventListener("touchstart", markInteraction, { passive: true, once: true });
     window.addEventListener("click", markInteraction, { passive: true, once: true });
     return () => {
@@ -1561,42 +1577,122 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       window.removeEventListener("click", markInteraction);
     };
   }, []);
-  
-  // Refs for video, audio, and scroll container
-  const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
-  const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
-  const srcMapRef = useRef<Record<number, string>>({});
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  
-  // Track active ID to avoid repeated calls
-  const activeIdRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    activeIdRef.current = playingReelId;
-  }, [playingReelId]);
-
-  // Hard stop video function - kills decoder on mobile
-  const hardStopVideo = useCallback((v: HTMLVideoElement) => {
+  // Soft stop video (pause + reset, but keep src)
+  const softStopVideo = useCallback((v: HTMLVideoElement) => {
     try { v.pause(); } catch {}
-    try { v.removeAttribute('src'); } catch {}
-    try { v.load(); } catch {} // forces decoder stop on mobile
     try { v.currentTime = 0; } catch {}
-    v.muted = true;
+    // DO NOT remove src - keeps playback reliable
   }, []);
 
-  // Play only one reel - hard stops all others
+  // Start audio for a reel (only if video is playing and user has interacted)
+  const startAudioForReel = useCallback((id: number) => {
+    const reel = reels.find(r => r.id === id);
+    const a = audioRefs.current[id];
+    const v = videoRefs.current[id];
+    if (!reel || !a || !v) return;
+
+    // Only play audio if video is actually playing
+    if (v.paused) return;
+
+    // Autoplay policies: sound only after first user gesture
+    if (!userInteractedRef.current) return;
+
+    const start = reel.audioStart || (reel as any).audio_start || 0;
+    try { a.currentTime = start; } catch {}
+    a.play().catch(() => {});
+  }, [reels]);
+
+  // Stop audio for a reel
+  const stopAudioForReel = useCallback((id: number) => {
+    const a = audioRefs.current[id];
+    if (!a) return;
+    try { a.pause(); a.currentTime = 0; } catch {}
+  }, []);
+
+  // Bind audio to video events for the active reel
+  useEffect(() => {
+    if (!playingReelId) return;
+
+    const v = videoRefs.current[playingReelId];
+    if (!v) return;
+
+    const onPlaying = () => startAudioForReel(playingReelId);
+    const onPause = () => stopAudioForReel(playingReelId);
+    const onEnded = () => stopAudioForReel(playingReelId);
+    const onSeeking = () => {
+      // Keep audio in sync while seeking
+      const reel = reels.find(r => r.id === playingReelId);
+      const a = audioRefs.current[playingReelId];
+      if (!reel || !a) return;
+      const start = reel.audioStart || (reel as any).audio_start || 0;
+      const target = v.currentTime + start;
+      try { a.currentTime = target; } catch {}
+    };
+
+    v.addEventListener("playing", onPlaying);
+    v.addEventListener("pause", onPause);
+    v.addEventListener("ended", onEnded);
+    v.addEventListener("seeking", onSeeking);
+
+    return () => {
+      v.removeEventListener("playing", onPlaying);
+      v.removeEventListener("pause", onPause);
+      v.removeEventListener("ended", onEnded);
+      v.removeEventListener("seeking", onSeeking);
+    };
+  }, [playingReelId, reels, startAudioForReel, stopAudioForReel]);
+
+  // Audio sync effect (only runs when video is playing)
+  useEffect(() => {
+    if (!playingReelId) return;
+    
+    const v = videoRefs.current[playingReelId];
+    const a = audioRefs.current[playingReelId];
+    const reel = reels.find(r => r.id === playingReelId);
+    if (!v || !a || !reel) return;
+
+    const start = reel.audioStart || (reel as any).audio_start || 0;
+    const end = reel.audioEnd || (reel as any).audio_end || 1e9;
+
+    const sync = () => {
+      if (v.paused) return; // Only sync when video plays
+      if (!userInteractedRef.current) return;
+
+      const expected = v.currentTime + start;
+      if (expected >= end) {
+        v.currentTime = 0;
+        try { a.currentTime = start; } catch {}
+        return;
+      }
+      if (Math.abs(a.currentTime - expected) > 0.35) {
+        try { a.currentTime = expected; } catch {}
+      }
+    };
+
+    v.addEventListener("timeupdate", sync);
+    return () => v.removeEventListener("timeupdate", sync);
+  }, [playingReelId, reels]);
+
+  // Play only one reel - professional TikTok/Facebook style
   const playOnly = useCallback(async (id: number) => {
-    // Stop all videos hard
-    Object.entries(videoRefs.current).forEach(([key, v]) => {
+    // Pause all other reels (soft stop, keep src)
+    Object.entries(videoRefs.current).forEach(([k, v]) => {
       if (!v) return;
-      hardStopVideo(v);
+      const rid = Number(k);
+      if (rid !== id) {
+        softStopVideo(v);
+        try { v.muted = true; } catch {}
+      }
     });
 
-    // Stop all audios
-    Object.entries(audioRefs.current).forEach(([key, a]) => {
+    // Stop all other audio
+    Object.entries(audioRefs.current).forEach(([k, a]) => {
       if (!a) return;
-      try { a.pause(); a.currentTime = 0; } catch {}
+      const rid = Number(k);
+      if (rid !== id) {
+        try { a.pause(); a.currentTime = 0; } catch {}
+      }
     });
 
     setActiveReelId(id);
@@ -1606,42 +1702,17 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     const v = videoRefs.current[id];
     if (!v) return;
 
-    // Get src reliably from data-src
-    const src = v.getAttribute("data-src") || srcMapRef.current[id] || "";
-
-    if (!src) return;
-
-    // Attach src if missing or changed
-    if (v.src !== src) {
-      v.src = src;
-      try { v.load(); } catch {}
-    }
-
-    // Start muted (works on mobile)
-    v.muted = true;
+    // Mute until user interaction
+    v.muted = !userInteractedRef.current;
 
     try {
       await v.play();
+      // Audio will start via the "playing" event listener
     } catch {
-      // If autoplay fails, keep paused
+      // If autoplay blocked: keep paused, user tap will start it
       setIsVideoPlaying(prev => ({ ...prev, [id]: false }));
-      return;
     }
-
-    // Start audio ONLY after video is actually playing and user has interacted
-    const reel = reels.find(r => r.id === id);
-    const a = audioRefs.current[id];
-
-    if (reel && a && (reel.audioUrl || (reel as any).audio_url) && userInteractedRef.current) {
-      const start = reel.audioStart || (reel as any).audio_start || 0;
-      try {
-        a.currentTime = start;
-        await a.play();
-      } catch {
-        // Ignore (browser may block until user gesture)
-      }
-    }
-  }, [reels, hardStopVideo]);
+  }, [softStopVideo]);
 
   // Scroll to and play initial reel
   useEffect(() => {
@@ -1694,46 +1765,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
     return () => observerRef.current?.disconnect();
   }, [reels, playOnly]);
-
-  // Handle audio sync - only runs after video is playing and user interacted
-  useEffect(() => {
-    if (!playingReelId) return;
-
-    const reel = reels.find(r => r.id === playingReelId);
-    const video = videoRefs.current[playingReelId];
-    const audio = audioRefs.current[playingReelId];
-
-    // Don't start audio if video is not actually playing or user hasn't interacted
-    if (!video || !audio || !reel) return;
-    if (video.paused) return;
-    if (!userInteractedRef.current) return;
-
-    const start = reel.audioStart || (reel as any).audio_start || 0;
-    const end = reel.audioEnd || (reel as any).audio_end || 1000000;
-
-    const sync = () => {
-      if (!audio || !video) return;
-      const expected = video.currentTime + start;
-
-      if (expected >= end) {
-        video.currentTime = 0;
-        audio.currentTime = start;
-        return;
-      }
-
-      if (Math.abs(audio.currentTime - expected) > 0.5) {
-        audio.currentTime = expected;
-      }
-    };
-
-    audio.currentTime = start;
-    audio.play().catch(() => {});
-    video.addEventListener("timeupdate", sync);
-
-    return () => {
-      video.removeEventListener("timeupdate", sync);
-    };
-  }, [playingReelId, reels]);
 
   const extractSoundFromReel = useCallback((reel: Reel): Sound => {
     const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
@@ -1808,23 +1839,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     const v = videoRefs.current[reelId];
     if (!v) return;
 
-    // Mark user interaction
-    userInteractedRef.current = true;
-
     // If tapping current reel -> toggle pause/play
     if (activeIdRef.current === reelId) {
       if (v.paused) {
         v.play().catch(() => {});
         setIsVideoPlaying(prev => ({ ...prev, [reelId]: true }));
-        
-        // Try to start audio after user interaction
-        const a = audioRefs.current[reelId];
-        const reel = reels.find(r => r.id === reelId);
-        if (a && reel && (reel.audioUrl || (reel as any).audio_url)) {
-          const start = reel.audioStart || (reel as any).audio_start || 0;
-          a.currentTime = start;
-          a.play().catch(() => {});
-        }
       } else {
         v.pause();
         setIsVideoPlaying(prev => ({ ...prev, [reelId]: false }));
@@ -1832,9 +1851,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       return;
     }
 
-    // If tapping different reel -> playOnly (hard stop others)
+    // If tapping different reel -> playOnly (soft stop others)
     playOnly(reelId);
-  }, [playOnly, reels]);
+  }, [playOnly]);
 
   const formatCount = (num: number): string => {
     if (!num && num !== 0) return '0';
@@ -1844,7 +1863,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   };
 
   return (
-    <div className="w-full h-[calc(100dvh-56px)] bg-black overflow-hidden font-sans relative">
+    <div className="w-full h-[calc(100vh-56px)] bg-black overflow-hidden font-sans relative">
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 z-30 h-14 px-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent">
         <button
@@ -1905,24 +1924,20 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               const sound = extractSoundFromReel(reel);
               const isPlaying = isVideoPlaying[reel.id] || false;
               const realSrc = reel.videoUrl || (reel as any).video_url || '';
-              
-              // Store src in map for later use
-              srcMapRef.current[reel.id] = realSrc;
 
               return (
                 <div 
                   key={reel.id} 
                   id={`reel-${reel.id}`}
                   data-reel-id={reel.id} 
-                  className="reel-container w-full h-[calc(100dvh-56px)] snap-start relative bg-black overflow-hidden flex items-center justify-center"
+                  className="reel-container w-full h-[calc(100vh-56px)] snap-start relative bg-black overflow-hidden flex items-center justify-center"
                 >
                   {/* TikTok-style fullscreen video container */}
                   <div className="w-full h-full relative bg-black">
                     <video 
                       ref={el => { if (el) videoRefs.current[reel.id] = el; }}
-                      data-vid={reel.id}
-                      data-src={realSrc}
-                      preload="metadata"
+                      src={realSrc}
+                      preload="auto"
                       playsInline
                       loop
                       muted
@@ -1952,11 +1967,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       />
                     )}
 
-                    {/* Bottom actions bar - lifted higher on mobile */}
-                    <div 
-                      className="absolute left-0 right-0 z-30 bg-black/75 backdrop-blur-md border-t border-white/10 pb-[env(safe-area-inset-bottom)]"
-                      style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + clamp(70px, 10vh, 120px))` }}
-                    >
+                    {/* Bottom actions bar */}
+                    <div className="absolute left-0 right-0 bottom-0 z-30 bg-black/75 backdrop-blur-md border-t border-white/10 pb-[env(safe-area-inset-bottom)]">
                       <div className="flex items-center justify-around px-4 py-3">
                         <button
                           onClick={() => onReact(reel.id, "like")}
@@ -1988,10 +2000,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                     </div>
 
                     {/* Metadata overlay sits ABOVE bottom bar */}
-                    <div 
-                      className="absolute left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pt-10 pb-6 z-10"
-                      style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + clamp(120px, 15vh, 180px))` }}
-                    >
+                    <div className="absolute left-0 right-0 bottom-[76px] bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pt-10 pb-6 z-10">
                       <div className="flex items-center gap-3">
                         <img 
                           src={author.profile_image_url || author.profileImage} 
