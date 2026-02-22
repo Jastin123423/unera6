@@ -30,6 +30,10 @@ interface Sound {
   originalUrl?: string;
 }
 
+// Constants for bottom bar positioning
+const REEL_BAR_HEIGHT = 64;  // visual height of actions bar
+const REEL_BAR_GAP = 10;      // space above phone bottom UI
+
 // Simple Comments Sheet component
 const ReelCommentsSheet: React.FC<{
   isOpen: boolean;
@@ -1500,7 +1504,7 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   );
 };
 
-// ==================== ENHANCED REELS FEED - TIKTOK STYLE WITH HARD STOP CONTROLLER ====================
+// ==================== ENHANCED REELS FEED - TIKTOK STYLE WITH LIFTED BOTTOM BAR ====================
 interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
@@ -1662,14 +1666,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return () => observerRef.current?.disconnect();
   }, [reels, playOnly]);
 
-  // Handle video/audio playback - now only handles audio sync for active reel
+  // Handle audio sync for active reel
   useEffect(() => {
     if (!playingReelId) return;
 
     const reel = reels.find(r => r.id === playingReelId);
     const video = videoRefs.current[playingReelId];
     const audio = audioRefs.current[playingReelId];
-
     if (!video || !audio || !reel) return;
 
     const start = reel.audioStart || (reel as any).audio_start || 0;
@@ -1690,12 +1693,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       }
     };
 
-    audio.currentTime = start;
+    // Start clean
+    try { audio.pause(); } catch {}
+    try { audio.currentTime = start; } catch {}
     audio.play().catch(() => {});
     video.addEventListener("timeupdate", sync);
 
     return () => {
       video.removeEventListener("timeupdate", sync);
+      // Stop this reel's audio when leaving
+      try { audio.pause(); } catch {}
     };
   }, [playingReelId, reels]);
 
@@ -1903,40 +1910,52 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       />
                     )}
 
-                    {/* Bottom actions bar */}
-                    <div className="absolute left-0 right-0 bottom-0 z-30 bg-black/75 backdrop-blur-md border-t border-white/10 pb-[env(safe-area-inset-bottom)]">
-                      <div className="flex items-center justify-around px-4 py-3">
-                        <button
-                          onClick={() => onReact(reel.id, "like")}
-                          className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 active:scale-95"
-                        >
-                          <i className={`fas fa-thumbs-up ${hasLiked ? "text-[#1877F2]" : "text-white"}`} />
-                          <span className="text-white text-sm font-bold">{formatCount(reel.reactions?.length || 0)}</span>
-                        </button>
+                    {/* Bottom actions bar (lifted up) */}
+                    <div
+                      className="absolute left-0 right-0 z-30"
+                      style={{
+                        bottom: `calc(env(safe-area-inset-bottom, 0px) + ${REEL_BAR_GAP}px)`,
+                      }}
+                    >
+                      <div className="mx-3 rounded-2xl bg-black/75 backdrop-blur-md border border-white/10 shadow-2xl">
+                        <div className="flex items-center justify-around px-4 py-3">
+                          <button
+                            onClick={() => onReact(reel.id, "like")}
+                            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 active:scale-95"
+                          >
+                            <i className={`fas fa-thumbs-up ${hasLiked ? "text-[#1877F2]" : "text-white"}`} />
+                            <span className="text-white text-sm font-bold">{formatCount(reel.reactions?.length || 0)}</span>
+                          </button>
 
-                        <button
-                          onClick={() => {
-                            setActiveReelId(reel.id);
-                            setShowComments(true);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 active:scale-95"
-                        >
-                          <i className="fas fa-comment text-white" />
-                          <span className="text-white text-sm font-bold">{formatCount(reel.comments?.length || 0)}</span>
-                        </button>
+                          <button
+                            onClick={() => {
+                              setActiveReelId(reel.id);
+                              setShowComments(true);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 active:scale-95"
+                          >
+                            <i className="fas fa-comment text-white" />
+                            <span className="text-white text-sm font-bold">{formatCount(reel.comments?.length || 0)}</span>
+                          </button>
 
-                        <button
-                          onClick={() => onShare(reel.id, "feed")}
-                          className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 active:scale-95"
-                        >
-                          <i className="fas fa-share text-white" />
-                          <span className="text-white text-sm font-bold">{formatCount(reel.shares || 0)}</span>
-                        </button>
+                          <button
+                            onClick={() => onShare(reel.id, "feed")}
+                            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 active:scale-95"
+                          >
+                            <i className="fas fa-share text-white" />
+                            <span className="text-white text-sm font-bold">{formatCount(reel.shares || 0)}</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Metadata overlay sits ABOVE bottom bar */}
-                    <div className="absolute left-0 right-0 bottom-[76px] bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pt-10 pb-6 z-10">
+                    {/* Metadata overlay sits ABOVE the lifted bottom bar */}
+                    <div
+                      className="absolute left-0 right-0 px-4 pt-10 pb-6 z-10 bg-gradient-to-t from-black/90 via-black/50 to-transparent"
+                      style={{
+                        bottom: `calc(env(safe-area-inset-bottom, 0px) + ${REEL_BAR_GAP}px + ${REEL_BAR_HEIGHT}px)`,
+                      }}
+                    >
                       <div className="flex items-center gap-3">
                         <img 
                           src={author.profile_image_url || author.profileImage} 
@@ -2983,9 +3002,10 @@ const styles = `
 }
 `;
 
-// Add styles to document
-if (typeof document !== 'undefined') {
+// Add styles to document with guard to prevent duplicates
+if (typeof document !== 'undefined' && !document.getElementById('unera-reels-styles')) {
   const styleSheet = document.createElement("style");
+  styleSheet.id = 'unera-reels-styles';
   styleSheet.innerText = styles;
   document.head.appendChild(styleSheet);
 }
