@@ -12,6 +12,7 @@ import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Stor
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
+import EventsPage from "./components/EventsPage";
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
   BirthdaysPage,
@@ -25,7 +26,6 @@ import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
-import { AllEvents } from './components/AllEvents';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
 import { TermsOfServicePage } from './components/TermsOfService';
 import { useLanguage } from './contexts/LanguageContext';
