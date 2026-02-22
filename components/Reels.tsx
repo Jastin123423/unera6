@@ -2792,96 +2792,93 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       onClick={() => handleVideoClick(reel.id)}
                     />
 
-                    {/* RIGHT SIDE ACTION BUTTONS - ABSTRACTED +1 UP WHERE LIKE, COMMENT, SHARE ARE */}
-                    <div className="absolute right-4 bottom-32 z-20 flex flex-col items-center gap-6">
-                      {/* Like button */}
-                      <button 
-                        onClick={() => onReact(reel.id, "like")}
-                        className="flex flex-col items-center gap-1 group"
-                      >
-                        <div className="w-14 h-14 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                          <i className={`fas fa-thumbs-up text-2xl ${hasLiked ? "text-[#1877F2]" : "text-white"}`} />
-                        </div>
-                        <span className="text-white text-xs font-bold">{formatCount(reel.reactions?.length || 0)}</span>
-                      </button>
-
-                      {/* Comment button */}
-                      <button 
-                        onClick={() => {
-                          setActiveReelId(reel.id);
-                          setShowComments(true);
-                        }}
-                        className="flex flex-col items-center gap-1 group"
-                      >
-                        <div className="w-14 h-14 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                          <i className="fas fa-comment text-2xl text-white" />
-                        </div>
-                        <span className="text-white text-xs font-bold">{formatCount(reel.comments?.length || 0)}</span>
-                      </button>
-
-                      {/* Share button */}
-                      <button 
-                        onClick={() => onShare(reel.id, "feed")}
-                        className="flex flex-col items-center gap-1 group"
-                      >
-                        <div className="w-14 h-14 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                          <i className="fas fa-share text-2xl text-white" />
-                        </div>
-                        <span className="text-white text-xs font-bold">{formatCount(reel.shares || 0)}</span>
-                      </button>
-                    </div>
-
-                    {/* LEFT SIDE - PROFILE AND CAPTION */}
-                    <div className="absolute left-4 bottom-32 right-20 z-20">
-                      <div className="flex items-center gap-3 mb-3">
-                        <img 
-                          src={author.profile_image_url || author.profileImage} 
-                          className="w-12 h-12 rounded-full border-2 border-white/30 object-cover cursor-pointer" 
-                          alt="" 
-                          onClick={() => onProfileClick(author.id)} 
-                        />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span 
-                              className="text-white font-bold text-base cursor-pointer hover:underline" 
-                              onClick={() => onProfileClick(author.id)}
-                            >
-                              {author.name}
-                            </span>
-                            {author.is_verified && (
-                              <i className="fas fa-check-circle text-[#1877F2] text-sm"></i>
+                    {/* BOTTOM ACTION BAR - Like, Comment, Share at the bottom */}
+                    <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4">
+                      {/* Profile and caption section */}
+                      <div className="mb-4">
+                        <div className="flex items-center gap-3 mb-2">
+                          <img 
+                            src={author.profile_image_url || author.profileImage} 
+                            className="w-10 h-10 rounded-full border-2 border-white/30 object-cover cursor-pointer" 
+                            alt="" 
+                            onClick={() => onProfileClick(author.id)} 
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span 
+                                className="text-white font-bold text-sm cursor-pointer hover:underline" 
+                                onClick={() => onProfileClick(author.id)}
+                              >
+                                {author.name}
+                              </span>
+                              {author.is_verified && (
+                                <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>
+                              )}
+                            </div>
+                            
+                            {/* Follow button */}
+                            {currentUser?.id !== author.id && (
+                              <button 
+                                onClick={() => onFollow(author.id)} 
+                                disabled={isLoadingFollow}
+                                className="mt-1 text-xs font-bold text-white bg-white/20 px-3 py-0.5 rounded-full"
+                              >
+                                {isLoadingFollow ? '...' : (isFollowing ? 'Following' : 'Follow')}
+                              </button>
                             )}
                           </div>
-                          
-                          {/* Follow button */}
-                          {currentUser?.id !== author.id && (
-                            <button 
-                              onClick={() => onFollow(author.id)} 
-                              disabled={isLoadingFollow}
-                              className="mt-1 text-xs font-bold text-white bg-white/20 px-4 py-1.5 rounded-full"
-                            >
-                              {isLoadingFollow ? '...' : (isFollowing ? 'Following' : 'Follow')}
-                            </button>
-                          )}
+                        </div>
+
+                        {/* Caption */}
+                        {!!reel.caption && (
+                          <p className="text-white text-sm leading-snug line-clamp-2 mb-2">
+                            {reel.caption}
+                          </p>
+                        )}
+
+                        {/* Sound info */}
+                        <div 
+                          className="flex items-center gap-2 text-white/90 text-sm cursor-pointer w-fit"
+                          onClick={() => handleSoundClick(reel)}
+                        >
+                          <i className="fas fa-music text-[#1877F2]" />
+                          <span className="font-semibold truncate max-w-[200px]">
+                            {reel.songName || (reel as any).song_name || 'Original Sound'}
+                          </span>
                         </div>
                       </div>
 
-                      {/* Caption */}
-                      {!!reel.caption && (
-                        <p className="text-white text-sm leading-snug line-clamp-2 mb-2">
-                          {reel.caption}
-                        </p>
-                      )}
+                      {/* Action buttons - horizontal layout at bottom */}
+                      <div className="flex items-center justify-around py-2">
+                        {/* Like button */}
+                        <button 
+                          onClick={() => onReact(reel.id, "like")}
+                          className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
+                        >
+                          <i className={`fas fa-thumbs-up text-lg ${hasLiked ? "text-[#1877F2]" : "text-white"}`} />
+                          <span className="text-white text-sm font-bold">{formatCount(reel.reactions?.length || 0)}</span>
+                        </button>
 
-                      {/* Sound info */}
-                      <div 
-                        className="flex items-center gap-2 text-white/90 text-sm cursor-pointer w-fit"
-                        onClick={() => handleSoundClick(reel)}
-                      >
-                        <i className="fas fa-music text-[#1877F2]" />
-                        <span className="font-semibold truncate max-w-[200px]">
-                          {reel.songName || (reel as any).song_name || 'Original Sound'}
-                        </span>
+                        {/* Comment button */}
+                        <button 
+                          onClick={() => {
+                            setActiveReelId(reel.id);
+                            setShowComments(true);
+                          }}
+                          className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
+                        >
+                          <i className="fas fa-comment text-lg text-white" />
+                          <span className="text-white text-sm font-bold">{formatCount(reel.comments?.length || 0)}</span>
+                        </button>
+
+                        {/* Share button */}
+                        <button 
+                          onClick={() => onShare(reel.id, "feed")}
+                          className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
+                        >
+                          <i className="fas fa-share text-lg text-white" />
+                          <span className="text-white text-sm font-bold">{formatCount(reel.shares || 0)}</span>
+                        </button>
                       </div>
                     </div>
 
