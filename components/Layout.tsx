@@ -220,7 +220,7 @@ export const Header: React.FC<HeaderProps> = ({
               src={uneraIconUrl}
               alt="UNERA"
               className="
-                w-[46px] h-[46px]
+                w-[56px] h-[56px]
                 sm:w-[44px] sm:h-[44px]
                 object-contain
                 animate-[spin_7s_linear_infinite]
