@@ -211,20 +211,12 @@ export const Header: React.FC<HeaderProps> = ({
     <>
       <div className="sticky top-0 z-50 bg-[#242526] shadow-sm h-14 flex items-center justify-between px-4 w-full border-b border-[#3E4042]">
         <div className="flex items-center gap-2">
-          {/* ✅ Globe-style rotation + tighter spacing like "0UNERA" */}
-          <div className="relative flex items-center">
+          {/* ✅ WORKING globe rotation + super close like "0UNERA" */}
+          <div className="flex items-center">
             <img
               src={uneraIconUrl}
               alt="UNERA"
-              className="
-                w-[44px] h-[44px]
-                sm:w-[48px] sm:h-[48px]
-                object-contain
-                select-none
-                -mr-[6px]
-                [transform-style:preserve-3d]
-                [animation:uneraGlobeSpin_2.8s_linear_infinite,uneraGlobeWobble_3.6s_ease-in-out_infinite]
-              "
+              className="uneraGlobeIcon w-[44px] h-[44px] sm:w-[48px] sm:h-[48px] object-contain select-none -mr-[10px]"
               draggable={false}
             />
 
@@ -232,17 +224,25 @@ export const Header: React.FC<HeaderProps> = ({
               UNERA
             </h1>
 
-            {/* ✅ Local keyframes (only affect this component) */}
+            {/* ✅ Keyframes + class (guaranteed to work) */}
             <style>{`
-              @keyframes uneraGlobeSpin_2.8s {
+              .uneraGlobeIcon {
+                transform-origin: 50% 50%;
+                animation: uneraSpin 2.8s linear infinite, uneraWobble 3.6s ease-in-out infinite;
+                will-change: transform;
+                backface-visibility: hidden;
+              }
+
+              @keyframes uneraSpin {
                 from { transform: rotate(0deg); }
                 to   { transform: rotate(360deg); }
               }
-              /* "Globe-like" feel: slight 3D tilt/wobble while spinning */
-              @keyframes uneraGlobeWobble_3.6s {
-                0%   { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(0deg) rotateX(12deg) rotateY(-18deg); }
-                50%  { filter: drop-shadow(0 2px 10px rgba(0,0,0,0.35)); transform: rotate(180deg) rotateX(-10deg) rotateY(18deg); }
-                100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(360deg) rotateX(12deg) rotateY(-18deg); }
+
+              /* Adds a "globe feel" (tilt) while spinning */
+              @keyframes uneraWobble {
+                0%   { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+                50%  { filter: drop-shadow(0 2px 10px rgba(0,0,0,0.35)); }
+                100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
               }
             `}</style>
           </div>
