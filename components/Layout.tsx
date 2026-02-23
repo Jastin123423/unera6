@@ -216,26 +216,25 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onHomeClick}
           >
             
-        {/* ✅ Globe-style rotation + tighter spacing like "0UNERA" */}
-<div className="relative flex items-center">
-  <img
-    src={uneraIconUrl}
-    alt="UNERA"
-    className="
-      w-[44px] h-[44px]
-      sm:w-[48px] sm:h-[48px]
-      object-contain
-      select-none
-      -mr-[6px]
-      [transform-style:preserve-3d]
-      [animation:uneraGlobeSpin_2.8s_linear_infinite,uneraGlobeWobble_3.6s_ease-in-out_infinite]
-    "
-    draggable={false}
-  />
+        {/* ✅ Bigger icon and closer to text */}
+            <img
+              src={uneraIconUrl}
+              alt="UNERA"
+              className="
+                w-[56px] h-[56px]
+                sm:w-[44px] sm:h-[44px]
+                object-contain
+                animate-[spin_7s_linear_infinite]
+                -mr-1
+                select-none
+              "
+              draggable={false}
+            />
 
-  <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
-    UNERA
-  </h1>
+            <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
+              UNERA
+            </h1>
+          </div>
 
   {/* ✅ Local keyframes (only affect this component) */}
   <style>{`
