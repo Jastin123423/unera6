@@ -204,7 +204,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const globeUrl =
-    'https://pub-71f20b7e692d481a8486f90d3e574be7.r2.dev/task_01kj5a49ygezma423j48pdwb01_1771852424_img_1-removebg-preview.png';
+    'https://pub-71f20b7e692d481a8486f90d3e574be7.r2.dev/task_01kj5y9gc6ey5rdbgt7qkymnvk_1771873623_img_0.webp';
 
   return (
     <>
