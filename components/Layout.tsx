@@ -215,26 +215,42 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center cursor-pointer mr-2"
             onClick={onHomeClick}
           >
-            {/* ✅ Bigger icon and closer to text */}
-            <img
-              src={uneraIconUrl}
-              alt="UNERA"
-              className="
-                w-[56px] h-[56px]
-                sm:w-[44px] sm:h-[44px]
-                object-contain
-                animate-[spin_7s_linear_infinite]
-                -mr-1
-                select-none
-              "
-              draggable={false}
-            />
+            
+        {/* ✅ Globe-style rotation + tighter spacing like "0UNERA" */}
+<div className="relative flex items-center">
+  <img
+    src={uneraIconUrl}
+    alt="UNERA"
+    className="
+      w-[44px] h-[44px]
+      sm:w-[48px] sm:h-[48px]
+      object-contain
+      select-none
+      -mr-[6px]
+      [transform-style:preserve-3d]
+      [animation:uneraGlobeSpin_2.8s_linear_infinite,uneraGlobeWobble_3.6s_ease-in-out_infinite]
+    "
+    draggable={false}
+  />
 
-            <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
-              UNERA
-            </h1>
-          </div>
-        </div>
+  <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
+    UNERA
+  </h1>
+
+  {/* ✅ Local keyframes (only affect this component) */}
+  <style>{`
+    @keyframes uneraGlobeSpin_2.8s {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+    /* "Globe-like" feel: slight 3D tilt/wobble while spinning */
+    @keyframes uneraGlobeWobble_3.6s {
+      0%   { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(0deg) rotateX(12deg) rotateY(-18deg); }
+      50%  { filter: drop-shadow(0 2px 10px rgba(0,0,0,0.35)); transform: rotate(180deg) rotateX(-10deg) rotateY(18deg); }
+      100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(360deg) rotateX(12deg) rotateY(-18deg); }
+    }
+  `}</style>
+</div>
 
         <div className="flex-1 max-w-[600px] h-full hidden md:flex items-center justify-center gap-1">
           <div
