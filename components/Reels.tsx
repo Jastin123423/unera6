@@ -30,14 +30,143 @@ interface Sound {
   originalUrl?: string;
 }
 
-interface SoundUsage {
-  [soundId: string]: {
-    reels: Reel[];
-    count: number;
-    sound: Sound;
-    totalViews: number;
+// ==================== HALF-SCREEN COMMENTS SHEET ====================
+const ReelCommentsSheet: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  comments: any[];
+  users: User[];
+  currentUser: User | null;
+  onAddComment: (text: string) => void;
+}> = ({ isOpen, onClose, comments, users, currentUser, onAddComment }) => {
+  const [text, setText] = useState('');
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const startYRef = useRef<number>(0);
+  const [translateY, setTranslateY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTranslateY(0);
+    }
+  }, [isOpen]);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startYRef.current = e.touches[0].clientY;
+    setIsDragging(true);
   };
-}
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || !sheetRef.current) return;
+    
+    const deltaY = e.touches[0].clientY - startYRef.current;
+    if (deltaY > 0) {
+      setTranslateY(deltaY);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    
+    if (translateY > 150) {
+      onClose();
+    } else {
+      setTranslateY(0);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 z-[400] bg-black/50 font-sans backdrop-blur-sm transition-opacity"
+      style={{ opacity: 1 - (translateY / 500) }}
+      onClick={onClose}
+    >
+      <div 
+        ref={sheetRef}
+        className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto h-[70vh] bg-[#121212] rounded-t-[40px] flex flex-col border-t border-white/10 shadow-2xl transition-transform duration-200 ease-out"
+        style={{ transform: `translateY(${translateY}px)` }}
+        onClick={e => e.stopPropagation()}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Drag handle */}
+        <div className="pt-3 pb-2 flex justify-center">
+          <div className="w-12 h-1.5 bg-white/30 rounded-full"></div>
+        </div>
+        
+        <div className="px-5 pb-5 border-b border-white/5 flex justify-between items-center bg-[#181818] rounded-t-[40px]">
+          <span className="text-white font-black text-[13px] ml-4 uppercase tracking-[3px]">
+            {comments.length} Comments
+          </span>
+          <button 
+            onClick={onClose} 
+            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white active:scale-90 transition-all"
+          >
+            <i className="fas fa-times text-xs"></i>
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {comments.map((c: any) => {
+            const author = users.find((u: any) => u.id === c.userId || u.id === c.user_id);
+            return (
+              <div key={c.id} className="flex gap-4">
+                <img 
+                  src={author?.profile_image_url || author?.profileImage} 
+                  className="w-10 h-10 rounded-full object-cover border-2 border-white/5" 
+                  alt="" 
+                />
+                <div className="flex-1">
+                  <p className="text-[#1877F2] font-black text-[11px] uppercase tracking-tighter mb-0.5">
+                    {author?.name || 'User'}
+                  </p>
+                  <p className="text-[#E4E6EB] text-[15px] leading-snug font-medium">
+                    {c.text}
+                  </p>
+                </div>
+                <i className="far fa-heart text-[#B0B3B8] text-sm mt-1"></i>
+              </div>
+            );
+          })}
+        </div>
+        
+        <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
+          <div className="flex gap-3">
+            <input 
+              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all" 
+              placeholder="Add a comment..." 
+              value={text} 
+              onChange={e => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
+                  e.preventDefault();
+                  onAddComment(text.trim());
+                  setText('');
+                }
+              }}
+            />
+            <button 
+              onClick={() => { 
+                const trimmedText = text.trim();
+                if (trimmedText) { 
+                  onAddComment(trimmedText); 
+                  setText(''); 
+                }
+              }} 
+              className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
+              disabled={!text.trim()}
+            >
+              <i className="fas fa-paper-plane text-xs"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ==================== AUDIO TRIMMING UTILITIES ====================
 async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
@@ -150,7 +279,7 @@ const useAudioFocus = () => {
   return { stopAllAudio };
 };
 
-// ==================== ENHANCED AUDIO TRIMMER (ORIGINAL DESIGN) ====================
+// ==================== ENHANCED AUDIO TRIMMER ====================
 const AudioTrimmer: React.FC<{ 
   url: string, 
   onClose: () => void, 
@@ -479,7 +608,6 @@ const AudioTrimmer: React.FC<{
           </button>
         </div>
 
-        {/* ✅ ORIGINAL AUDIO PREVIEW DESIGN - Restored */}
         <div className="flex items-center justify-center gap-4 mb-8">
           <button 
             onClick={togglePlay}
@@ -676,7 +804,6 @@ export const CreateReelModal: React.FC<{
       setAudioStart(selectedSound.audioStart || 0);
       setAudioEnd(selectedSound.audioEnd || 0);
       
-      // ✅ Auto-start studio when sound is selected from Reuse
       if (!mediaPreview) {
         setIsStudioPlaying(true);
       }
@@ -1145,7 +1272,7 @@ export const CreateReelModal: React.FC<{
   );
 };
 
-// ==================== TIKTOK-STYLE SOUND DETAIL VIEW ====================
+// ==================== SOUND DETAIL VIEW ====================
 interface SoundDetailViewProps {
   sound: Sound;
   onClose: () => void;
@@ -1269,7 +1396,7 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
     if (!num && num !== 0) return '0';
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toLocaleString();
+    return num.toString();
   };
 
   return (
@@ -1418,435 +1545,6 @@ const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   );
 };
 
-// ==================== ENHANCED REELS FEED ====================
-interface ReelsFeedProps {
-  reels: Reel[];
-  users: User[];
-  currentUser: User | null;
-  songs: Song[];
-  selectedSound: ReelSound | null;
-  onPickSound: (s: ReelSound | null) => void;
-  onProfileClick: (id: number) => void;
-  onCreateReelClick: () => void;
-  onReact: (reelId: number, type?: ReactionType) => void;
-  onComment: (reelId: number, text: string) => void;
-  onShare: (reelId: number, type: 'feed' | 'copy') => void;
-  onFollow: (targetUserId: number) => void;
-  onUseSound: (sound: any) => void;
-  checkIsFollowing: (targetUserId: number) => boolean;
-  followLoading: { [key: number]: boolean };
-  initialReelId?: number | null;
-}
-
-export const ReelsFeed: React.FC<ReelsFeedProps> = ({ 
-  reels, 
-  users, 
-  currentUser, 
-  songs,
-  selectedSound,
-  onPickSound,
-  onProfileClick, 
-  onCreateReelClick, 
-  onReact, 
-  onComment, 
-  onShare, 
-  onFollow, 
-  onUseSound, 
-  checkIsFollowing,
-  followLoading = {},
-  initialReelId,
-}) => {
-  const { stopAllAudio } = useAudioFocus();
-  
-  const [activeReelId, setActiveReelId] = useState<number | null>(
-    initialReelId || (reels[0]?.id || null)
-  );
-  const [playingReelId, setPlayingReelId] = useState<number | null>(null); 
-  const [showComments, setShowComments] = useState(false);
-  const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
-  const [soundDetailLoading, setSoundDetailLoading] = useState(false);
-  
-  const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
-  const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({});
-
-  const extractSoundFromReel = useCallback((reel: Reel): Sound => {
-    const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
-    const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
-    
-    const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
-    const songName = reel.songName || (reel as any).song_name || 'Original Sound';
-    const audioStart = reel.audioStart || (reel as any).audio_start || 0;
-    const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
-    const songId = reel.songId || (reel as any).song_id || null;
-    
-    return {
-      id: soundKey,
-      name: songName,
-      url: audioUrl,
-      originalUrl: audioUrl,
-      start: audioStart,
-      end: audioEnd,
-      creator: author,
-      creationCount: 0,
-      isOriginal: soundKey.startsWith('original:'),
-      soundKey: soundKey
-    };
-  }, [users]);
-
-  const handleSoundClick = useCallback(async (reel: Reel) => {
-    stopAllAudio();
-    const sound = extractSoundFromReel(reel);
-    
-    setSoundDetailLoading(true);
-    try {
-      const response = await fetch(`/api/sounds/detail?sound_key=${encodeURIComponent(String(sound.id))}`);
-      const data = await response.json();
-      
-      if (data?.sound) {
-        const detailedSound: Sound = {
-          ...sound,
-          ...data.sound,
-          playCount: data.sound.playCount || 0,
-          viewCount: data.sound.viewCount || 0,
-          duration: data.sound.duration || 30
-        };
-        setSelectedSoundData(detailedSound);
-      } else {
-        setSelectedSoundData(sound);
-      }
-    } catch (error) {
-      console.error('Failed to fetch sound details:', error);
-      setSelectedSoundData(sound);
-    } finally {
-      setSoundDetailLoading(false);
-    }
-  }, [extractSoundFromReel, stopAllAudio]);
-
-  const handleUseSound = useCallback((sound: Sound) => {
-    // ✅ STOP all audio first
-    stopAllAudio();
-    
-    // ✅ Set the sound data first
-    onPickSound({
-      songName: sound.name,
-      audioUrl: sound.url,
-      originalUrl: sound.originalUrl || sound.url,
-      audioStart: sound.start || 0,
-      audioEnd: sound.end || 0,
-      songId: sound.id?.toString().startsWith('song:') ? 
-        sound.id.toString().split(':')[1] : undefined,
-      soundKey: String(sound.id)
-    });
-    
-    // ✅ CRITICAL FIX: Ensure we also call onUseSound for App.tsx to handle
-    onUseSound(sound);
-    
-    // ✅ THEN open the create reel modal
-    onCreateReelClick();
-    
-    // ✅ Close the sound detail view
-    setSelectedSoundData(null);
-  }, [stopAllAudio, onPickSound, onUseSound, onCreateReelClick]);
-
-  useEffect(() => {
-    Object.keys(videoRefs.current).forEach((key) => {
-      const id = Number(key);
-      const video = videoRefs.current[id];
-      const audio = audioRefs.current[id];
-      const reel = reels.find((r: Reel) => r.id === id);
-
-      if (video) {
-        if (id === playingReelId) {
-          if (video.paused) video.play().catch(() => {});
-          
-          if (audio && reel) {
-            video.muted = true;
-            const start = reel.audioStart || (reel as any).audio_start || 0;
-            const end = reel.audioEnd || (reel as any).audio_end || 1000000;
-            
-            const handleAudioSync = () => {
-              if (!audio || !video) return;
-              
-              const expectedAudioTime = video.currentTime + start;
-              
-              if (audio.currentTime >= end || expectedAudioTime >= end) {
-                audio.currentTime = start;
-                video.currentTime = 0;
-                return;
-              }
-              
-              const drift = Math.abs(audio.currentTime - expectedAudioTime);
-              if (drift > 0.5) {
-                audio.currentTime = expectedAudioTime;
-              }
-            };
-
-            audio.addEventListener('timeupdate', handleAudioSync);
-            if (audio.paused) audio.play().catch(() => {});
-            
-            return () => audio.removeEventListener('timeupdate', handleAudioSync);
-          } else {
-            video.muted = false;
-          }
-        } else {
-          video.pause();
-          if (audio) audio.pause();
-        }
-      }
-    });
-  }, [playingReelId, reels]);
-
-  const formatCount = (num: number): string => {
-    if (!num && num !== 0) return '0';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
-  };
-
-  return (
-    <div className="w-full h-[calc(100vh-56px)] flex justify-center bg-black overflow-hidden font-sans relative">
-      <div className="w-full max-w-[450px] h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide">
-        {reels.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-white p-8">
-            <div className="w-24 h-24 rounded-full bg-[#1877F2]/10 flex items-center justify-center mb-6">
-              <i className="fas fa-video text-3xl text-[#1877F2]"></i>
-            </div>
-            <h3 className="text-xl font-black mb-2">No Reels Yet</h3>
-            <p className="text-[#B0B3B8] text-sm mb-8 text-center">
-              Be the first to create a viral moment!
-            </p>
-            {currentUser && (
-              <button 
-                onClick={onCreateReelClick}
-                className="bg-[#1877F2] text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2"
-              >
-                <i className="fas fa-plus"></i>
-                Create Your First Reel
-              </button>
-            )}
-          </div>
-        ) : (
-          reels.map((reel: Reel) => {
-            const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
-            if (!author) return null;
-            
-            const isFollowing = checkIsFollowing(Number(author.id));
-            const isLoadingFollow = !!followLoading[Number(author.id)];
-            
-            const hasLiked = reel.reactions.some(r => 
-              Number(r.userId ?? r.user_id) === Number(currentUser?.id)
-            );
-
-            const sound = extractSoundFromReel(reel);
-
-            return (
-              <div 
-                key={reel.id} 
-                id={`reel-${reel.id}`}
-                data-reel-id={reel.id} 
-                className="reel-container w-full h-full snap-start relative bg-black flex items-center justify-center overflow-hidden"
-              >
-                <video 
-                  ref={el => { if (el) videoRefs.current[reel.id] = el; }} 
-                  src={reel.videoUrl || (reel as any).video_url} 
-                  className="w-full h-full object-cover" 
-                  loop 
-                  playsInline 
-                  onClick={() => {
-                    stopAllAudio();
-                    setPlayingReelId(playingReelId === reel.id ? null : reel.id);
-                  }}
-                />
-                {reel.audioUrl && (
-                  <audio 
-                    ref={el => { if (el) audioRefs.current[reel.id] = el; }} 
-                    src={reel.audioUrl || (reel as any).audio_url} 
-                    loop={false} 
-                  />
-                )}
-
-                {playingReelId !== reel.id && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-20 h-20 bg-black/40 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20">
-                      <i className="fas fa-play text-white text-3xl ml-1"></i>
-                    </div>
-                  </div>
-                )}
-
-                <div className="absolute bottom-0 left-0 w-full p-4 z-20 pb-12 bg-gradient-to-t from-black/95 via-transparent to-transparent">
-                  <div className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between w-full">
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <img 
-                            src={author.profile_image_url || author.profileImage} 
-                            className="w-11 h-11 rounded-full border-2 border-white/50 object-cover cursor-pointer" 
-                            alt="" 
-                            onClick={() => onProfileClick(author.id)} 
-                          />
-                          {currentUser?.id !== author.id && !isFollowing && (
-                            <div 
-                              onClick={() => onFollow(author.id)} 
-                              className="absolute -bottom-1 -right-1 w-4.5 h-4.5 bg-[#1877F2] rounded-full flex items-center justify-center border-2 border-black text-white cursor-pointer hover:scale-110 transition-transform"
-                            >
-                              <i className="fas fa-plus text-[8px]"></i>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
-                            <span 
-                              className="text-white font-black text-[16px] drop-shadow-xl cursor-pointer hover:underline" 
-                              onClick={() => onProfileClick(author.id)}
-                            >
-                              {author.name}
-                            </span>
-                            {author.is_verified && (
-                              <i className="fas fa-check-circle text-[11px] text-[#1877F2]"></i>
-                            )}
-                            {!isFollowing && currentUser?.id !== author.id && (
-                              <button 
-                                onClick={(e) => { 
-                                  e.stopPropagation(); 
-                                  onFollow(author.id); 
-                                }} 
-                                disabled={isLoadingFollow}
-                                className="ml-2 bg-[#1877F2] text-white text-[11px] font-black px-3 py-1 rounded-md shadow-lg active:scale-95 transition-all border-none disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {isLoadingFollow ? 'Following...' : 'Follow'}
-                              </button>
-                            )}
-                          </div>
-                          {sound.creationCount && sound.creationCount > 0 && (
-                            <span className="text-[#45BD62] text-[10px] font-bold uppercase tracking-wider mt-0.5">
-                              {sound.creationCount.toLocaleString()} uses
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-5 px-1">
-                        <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => onReact(reel.id, 'love')}>
-                          <i className={`fas fa-heart text-[24px] transition-transform active:scale-150 ${hasLiked ? 'text-[#F3425F]' : 'text-white'}`}></i>
-                          <span className="text-white text-[11px] font-black">
-                            {formatCount(reel.reactions?.length || 0)}
-                          </span>
-                        </div>
-                        <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => setShowComments(true)}>
-                          <i className="fas fa-comment-dots text-[24px] text-white"></i>
-                          <span className="text-white text-[11px] font-black">
-                            {formatCount(reel.comments?.length || 0)}
-                          </span>
-                        </div>
-                        <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => onShare(reel.id, 'feed')}>
-                          <i className="fas fa-share text-[24px] text-white"></i>
-                          <span className="text-white text-[11px] font-black">
-                            {formatCount(reel.shares || 0)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <p className="text-white text-[15px] font-medium leading-snug drop-shadow-xl line-clamp-2 max-w-[85%]">
-                      {reel.caption}
-                    </p>
-                    
-                    <div className="flex items-center justify-between w-full mt-2">
-                      <div 
-                        className="flex items-center gap-3 text-white/90 text-sm w-48 bg-white/10 backdrop-blur-xl px-4 py-2 rounded-2xl border border-white/10 cursor-pointer overflow-hidden active:scale-95 transition-all group" 
-                        onClick={() => handleSoundClick(reel)}
-                      >
-                        <i className="fas fa-music text-[10px] animate-pulse text-[#1877F2]"></i>
-                        <div className="relative flex-1 overflow-hidden whitespace-nowrap">
-                          <div className="inline-block animate-marquee-slow font-black text-[12px] tracking-tight uppercase">
-                            {reel.songName || (reel as any).song_name || 'Original Sound'} — {author.name} Original
-                            {sound.creationCount && sound.creationCount > 0 && (
-                              <span className="text-[#45BD62] ml-2">• {sound.creationCount} uses</span>
-                            )}
-                          </div>
-                        </div>
-                        <i className="fas fa-external-link-alt text-[8px] text-white/40 group-hover:text-[#1877F2] transition-colors"></i>
-                      </div>
-
-                      <div 
-                        className={`w-11 h-11 rounded-full bg-gradient-to-tr from-gray-900 to-black flex items-center justify-center border-2 border-white/20 shadow-2xl cursor-pointer ${playingReelId === reel.id ? 'animate-spin-slow' : ''} hover:scale-110 transition-transform`} 
-                        onClick={() => handleSoundClick(reel)}
-                      >
-                        <div className="w-6 h-6 rounded-full border border-white/10 flex items-center justify-center bg-gray-800">
-                          <i className="fas fa-compact-disc text-[10px] text-white/80"></i>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {activeReelId && (
-        <ReelCommentsSheet 
-          isOpen={showComments} 
-          onClose={() => setShowComments(false)} 
-          comments={reels.find((r: any) => r.id === activeReelId)?.comments || []} 
-          users={users} 
-          currentUser={currentUser} 
-          onAddComment={(text: string) => onComment(activeReelId, text)} 
-        />
-      )}
-      
-      {soundDetailLoading && (
-        <div className="fixed inset-0 z-[599] bg-black/80 flex items-center justify-center">
-          <div className="w-16 h-16 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
-        </div>
-      )}
-      
-      {selectedSoundData && !soundDetailLoading && (
-        <SoundDetailView 
-          sound={selectedSoundData} 
-          onClose={() => setSelectedSoundData(null)}
-          onUseSound={handleUseSound}
-          onReelClick={(rid) => { 
-            const el = document.getElementById(`reel-${rid}`);
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth' });
-              setActiveReelId(rid);
-              setPlayingReelId(rid);
-            }
-            setSelectedSoundData(null);
-          }}
-        />
-      )}
-
-      {currentUser && (
-        <div className="absolute bottom-24 right-6 flex flex-col gap-3 z-40">
-          {selectedSound?.audioUrl && (
-            <div className="bg-black/80 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 max-w-[200px]">
-              <p className="text-white text-xs font-semibold truncate">
-                Using: <span className="text-[#1877F2]">{selectedSound.songName}</span>
-              </p>
-              <button 
-                onClick={onCreateReelClick}
-                className="mt-2 bg-[#1877F2] text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-[#166FE5] transition-colors w-full"
-              >
-                Create Reel with This Sound
-              </button>
-            </div>
-          )}
-          
-          <button
-            onClick={onCreateReelClick}
-            className="w-16 h-16 bg-[#1877F2] rounded-full flex items-center justify-center text-white shadow-2xl hover:scale-105 active:scale-95 transition-all z-40 border-4 border-black"
-          >
-            <i className="fas fa-plus text-3xl"></i>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ==================== REEL THUMBNAIL COMPONENT ====================
 const ReelThumbnail: React.FC<{
   reel: Reel;
@@ -1878,99 +1576,6 @@ const ReelThumbnail: React.FC<{
       <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <div className="w-8 h-8 bg-black/60 rounded-full flex items-center justify-center">
           <i className="fas fa-play text-white text-xs"></i>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ==================== COMMENTS SHEET ====================
-const ReelCommentsSheet: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  comments: any[];
-  users: User[];
-  currentUser: User | null;
-  onAddComment: (text: string) => void;
-}> = ({ isOpen, onClose, comments, users, currentUser, onAddComment }) => {
-  const [text, setText] = useState('');
-  
-  if (!isOpen) return null;
-
-  return (
-    <div 
-      className="fixed inset-0 z-[400] flex items-end justify-center bg-black/70 font-sans backdrop-blur-sm" 
-      onClick={onClose}
-    >
-      <div 
-        className="w-full max-w-[450px] h-[70vh] bg-[#121212] rounded-t-[40px] flex flex-col animate-slide-up border-t border-white/10 shadow-2xl" 
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="p-5 border-b border-white/5 flex justify-between items-center bg-[#181818] rounded-t-[40px]">
-          <span className="text-white font-black text-[13px] ml-4 uppercase tracking-[3px]">
-            {comments.length} Comments
-          </span>
-          <button 
-            onClick={onClose} 
-            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white active:scale-90 transition-all"
-          >
-            <i className="fas fa-times text-xs"></i>
-          </button>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {comments.map((c: any) => {
-            const author = users.find((u: any) => u.id === c.userId || u.id === c.user_id);
-            return (
-              <div key={c.id} className="flex gap-4">
-                <img 
-                  src={author?.profile_image_url || author?.profileImage} 
-                  className="w-10 h-10 rounded-full object-cover border-2 border-white/5" 
-                  alt="" 
-                />
-                <div className="flex-1">
-                  <p className="text-[#1877F2] font-black text-[11px] uppercase tracking-tighter mb-0.5">
-                    {author?.name || 'User'}
-                  </p>
-                  <p className="text-[#E4E6EB] text-[15px] leading-snug font-medium">
-                    {c.text}
-                  </p>
-                </div>
-                <i className="far fa-heart text-[#B0B3B8] text-sm mt-1"></i>
-              </div>
-            );
-          })}
-        </div>
-        
-        <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
-          <div className="flex gap-3">
-            <input 
-              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all" 
-              placeholder="Add a professional comment..." 
-              value={text} 
-              onChange={e => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
-                  e.preventDefault();
-                  onAddComment(text.trim());
-                  setText('');
-                }
-              }}
-            />
-            <button 
-              onClick={() => { 
-                const trimmedText = text.trim();
-                if (trimmedText) { 
-                  onAddComment(trimmedText); 
-                  setText(''); 
-                }
-              }} 
-              className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
-              disabled={!text.trim()}
-            >
-              <i className="fas fa-paper-plane text-xs"></i>
-            </button>
-          </div>
         </div>
       </div>
     </div>
@@ -2808,23 +2413,550 @@ const CameraStudio: React.FC<{
   );
 };
 
-// ==================== STYLES ====================
-const styles = `
-@keyframes equalizer {
-  0%, 100% { height: 4px; }
-  50% { height: 16px; }
-}
-.animate-equalizer {
-  animation: equalizer 0.5s ease-in-out infinite;
+// ==================== ENHANCED REELS FEED - PROFESSIONAL TIKTOK/FACEBOOK STYLE ====================
+interface ReelsFeedProps {
+  reels: Reel[];
+  users: User[];
+  currentUser: User | null;
+  songs: Song[];
+  selectedSound: ReelSound | null;
+  onPickSound: (s: ReelSound | null) => void;
+  onProfileClick: (id: number) => void;
+  onCreateReelClick: () => void;
+  onReact: (reelId: number, type?: ReactionType) => void;
+  onComment: (reelId: number, text: string) => void;
+  onShare: (reelId: number, type: 'feed' | 'copy') => void;
+  onFollow: (targetUserId: number) => void;
+  onUseSound: (sound: any) => void;
+  checkIsFollowing: (targetUserId: number) => boolean;
+  followLoading: { [key: number]: boolean };
+  initialReelId?: number | null;
 }
 
-@keyframes marquee-slow {
-  0% { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
+export const ReelsFeed: React.FC<ReelsFeedProps> = ({ 
+  reels, 
+  users, 
+  currentUser, 
+  songs,
+  selectedSound,
+  onPickSound,
+  onProfileClick, 
+  onCreateReelClick, 
+  onReact, 
+  onComment, 
+  onShare, 
+  onFollow, 
+  onUseSound, 
+  checkIsFollowing,
+  followLoading = {},
+  initialReelId,
+}) => {
+  // Single global audio reference - ONE AUDIO ELEMENT TO RULE THEM ALL
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  
+  const [activeReelId, setActiveReelId] = useState<number | null>(
+    initialReelId || (reels[0]?.id || null)
+  );
+  const [playingReelId, setPlayingReelId] = useState<number | null>(
+    initialReelId || (reels[0]?.id || null)
+  ); 
+  const [showComments, setShowComments] = useState(false);
+  const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
+  const [soundDetailLoading, setSoundDetailLoading] = useState(false);
+  
+  // Refs
+  const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const activeIdRef = useRef<number | null>(null);
+  const userInteractedRef = useRef(false);
+
+  useEffect(() => {
+    activeIdRef.current = playingReelId;
+  }, [playingReelId]);
+
+  // Mark user interaction for audio autoplay - UNLOCK AUDIO ON FIRST TAP
+  useEffect(() => {
+    const unlock = () => {
+      userInteractedRef.current = true;
+
+      const id = activeIdRef.current;
+      if (!id) return;
+
+      const video = videoRefs.current[id];
+      if (video) {
+        video.muted = false;
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+      }
+
+      startAudioForReel(id);
+    };
+
+    window.addEventListener("click", unlock, { once: true });
+    window.addEventListener("touchstart", unlock, { once: true });
+
+    return () => {
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+  }, []);
+
+  // Start audio for a reel (only if video is playing and user has interacted)
+  const startAudioForReel = useCallback((id: number) => {
+    const reel = reels.find(r => r.id === id);
+    const video = videoRefs.current[id];
+    const audio = globalAudioRef.current;
+
+    if (!reel || !video || !audio) return;
+    if (video.paused) return;
+    if (!userInteractedRef.current) return;
+
+    const url = reel.audioUrl || (reel as any).audio_url;
+    if (!url) return;
+
+    if (audio.src !== url) {
+      audio.src = url;
+    }
+
+    const start = reel.audioStart || (reel as any).audio_start || 0;
+    const end = reel.audioEnd || (reel as any).audio_end || Infinity;
+
+    // Sync audio with video position
+    const syncAudio = () => {
+      if (video.paused || !userInteractedRef.current) return;
+      
+      const expectedTime = video.currentTime + start;
+      
+      if (expectedTime >= end) {
+        video.currentTime = 0;
+        audio.currentTime = start;
+      } else if (Math.abs(audio.currentTime - expectedTime) > 0.3) {
+        audio.currentTime = expectedTime;
+      }
+
+      if (audio.paused) {
+        audio.play().catch(() => {});
+      }
+    };
+
+    video.addEventListener('timeupdate', syncAudio);
+    
+    audio.currentTime = start;
+    audio.play().catch(() => {});
+
+    return () => {
+      video.removeEventListener('timeupdate', syncAudio);
+    };
+  }, [reels]);
+
+  // Stop audio
+  const stopAudio = useCallback(() => {
+    const audio = globalAudioRef.current;
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+  }, []);
+
+  // CLEAN PLAY ONLY CONTROLLER - ONE FUNCTION TO RULE THEM ALL
+  const playOnly = useCallback(async (id: number) => {
+    // Stop all other videos
+    Object.entries(videoRefs.current).forEach(([key, video]) => {
+      if (!video) return;
+      const rid = Number(key);
+
+      if (rid !== id) {
+        video.pause();
+        video.currentTime = 0;
+        video.muted = true;
+      }
+    });
+
+    // Stop global audio
+    stopAudio();
+
+    const video = videoRefs.current[id];
+    if (!video) return;
+
+    setActiveReelId(id);
+    setPlayingReelId(id);
+
+    // Mute until user interaction
+    video.muted = !userInteractedRef.current;
+
+    try {
+      await video.play();
+
+      if (userInteractedRef.current) {
+        startAudioForReel(id);
+      }
+
+    } catch {
+      // Autoplay blocked - will play on user interaction
+    }
+  }, [stopAudio, startAudioForReel]);
+
+  // Scroll to and play initial reel
+  useEffect(() => {
+    if (!initialReelId) return;
+    playOnly(initialReelId);
+
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'instant', block: 'start' });
+      }
+    });
+  }, [initialReelId, playOnly]);
+
+  // INTERSECTION OBSERVER - ONLY CALLS playOnly()
+  useEffect(() => {
+    const rootEl = scrollerRef.current;
+    if (!rootEl) return;
+
+    observerRef.current?.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        let best: { id: number; ratio: number } | null = null;
+
+        entries.forEach(entry => {
+          const id = Number(entry.target.getAttribute("data-reel-id"));
+          if (!best || entry.intersectionRatio > best.ratio) {
+            best = { id, ratio: entry.intersectionRatio };
+          }
+        });
+
+        if (best && best.ratio > 0.6) {
+          // Avoid repeated calls if already active
+          if (activeIdRef.current !== best.id) {
+            playOnly(best.id);
+          }
+        }
+      },
+      {
+        root: rootEl,
+        threshold: [0.4, 0.6, 0.8]
+      }
+    );
+
+    const els = rootEl.querySelectorAll('[data-reel-id]');
+    els.forEach((el) => observerRef.current?.observe(el));
+
+    return () => observerRef.current?.disconnect();
+  }, [reels, playOnly]);
+
+  const extractSoundFromReel = useCallback((reel: Reel): Sound => {
+    const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
+    const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
+    
+    const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
+    const songName = reel.songName || (reel as any).song_name || 'Original Sound';
+    const audioStart = reel.audioStart || (reel as any).audio_start || 0;
+    const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
+    const songId = reel.songId || (reel as any).song_id || null;
+    
+    return {
+      id: soundKey,
+      name: songName,
+      url: audioUrl,
+      originalUrl: audioUrl,
+      start: audioStart,
+      end: audioEnd,
+      creator: author,
+      creationCount: 0,
+      isOriginal: soundKey.startsWith('original:'),
+      soundKey: soundKey
+    };
+  }, [users]);
+
+  const handleSoundClick = useCallback(async (reel: Reel) => {
+    const sound = extractSoundFromReel(reel);
+    setSelectedSoundData(sound);
+  }, [extractSoundFromReel]);
+
+  const handleVideoClick = useCallback((reelId: number) => {
+    const video = videoRefs.current[reelId];
+    if (!video) return;
+
+    // If tapping current reel -> toggle pause/play
+    if (activeIdRef.current === reelId) {
+      if (video.paused) {
+        video.play().catch(() => {});
+        if (userInteractedRef.current) {
+          startAudioForReel(reelId);
+        }
+      } else {
+        video.pause();
+        stopAudio();
+      }
+      return;
+    }
+
+    // If tapping different reel -> playOnly
+    playOnly(reelId);
+  }, [playOnly, startAudioForReel, stopAudio]);
+
+  const formatCount = (num: number): string => {
+    if (!num && num !== 0) return '0';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  };
+
+  return (
+    <div className="w-full h-[calc(100dvh-56px)] bg-black overflow-hidden font-sans relative">
+      {/* Single global audio element */}
+      <audio ref={globalAudioRef} hidden playsInline />
+
+      {/* Top bar */}
+      <div className="absolute top-0 left-0 right-0 z-30 h-14 px-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent">
+        <button
+          onClick={() => window.history.back()}
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center"
+        >
+          <i className="fas fa-arrow-left text-white text-sm" />
+        </button>
+
+        <div className="text-white font-black text-[12px] tracking-widest uppercase">
+          Reels
+        </div>
+
+        <button
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center"
+        >
+          <i className="fas fa-ellipsis-h text-white text-sm" />
+        </button>
+      </div>
+
+      {/* TikTok-style fullscreen feed */}
+      <div className="w-full h-full flex justify-center pt-14">
+        <div
+          ref={scrollerRef}
+          className="w-full max-w-[600px] lg:max-w-[800px] xl:max-w-[1000px] h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-black"
+        >
+          {reels.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-white p-8">
+              <div className="w-24 h-24 rounded-full bg-[#1877F2]/10 flex items-center justify-center mb-6">
+                <i className="fas fa-video text-3xl text-[#1877F2]"></i>
+              </div>
+              <h3 className="text-xl font-black mb-2">No Reels Yet</h3>
+              <p className="text-[#B0B3B8] text-sm mb-8 text-center">
+                Be the first to create a viral moment!
+              </p>
+              {currentUser && (
+                <button 
+                  onClick={onCreateReelClick}
+                  className="bg-[#1877F2] text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2"
+                >
+                  <i className="fas fa-plus"></i>
+                  Create Your First Reel
+                </button>
+              )}
+            </div>
+          ) : (
+            reels.map((reel: Reel) => {
+              const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
+              if (!author) return null;
+              
+              const isFollowing = checkIsFollowing(Number(author.id));
+              const isLoadingFollow = !!followLoading[Number(author.id)];
+              
+              const hasLiked = reel.reactions.some(r => 
+                Number(r.userId ?? r.user_id) === Number(currentUser?.id)
+              );
+
+              const sound = extractSoundFromReel(reel);
+              const videoUrl = reel.videoUrl || (reel as any).video_url || '';
+
+              return (
+                <div 
+                  key={reel.id} 
+                  id={`reel-${reel.id}`}
+                  data-reel-id={reel.id} 
+                  className="reel-container w-full h-[calc(100dvh-56px)] snap-start relative bg-black overflow-hidden flex items-center justify-center"
+                >
+                  {/* TikTok-style fullscreen video container */}
+                  <div className="w-full h-full relative bg-black">
+                    <video 
+                      ref={el => { if (el) videoRefs.current[reel.id] = el; }}
+                      src={videoUrl}
+                      preload="metadata"
+                      playsInline
+                      loop
+                      controls={false}
+                      disablePictureInPicture
+                      className="w-full h-full object-cover"
+                      muted={playingReelId !== reel.id || !userInteractedRef.current}
+                      onClick={() => handleVideoClick(reel.id)}
+                    />
+
+                    {/* BOTTOM ACTION BAR - Like, Comment, Share at the bottom */}
+                    <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4">
+                      {/* Profile and caption section */}
+                      <div className="mb-4">
+                        <div className="flex items-center gap-3 mb-2">
+                          <img 
+                            src={author.profile_image_url || author.profileImage} 
+                            className="w-10 h-10 rounded-full border-2 border-white/30 object-cover cursor-pointer" 
+                            alt="" 
+                            onClick={() => onProfileClick(author.id)} 
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span 
+                                className="text-white font-bold text-sm cursor-pointer hover:underline" 
+                                onClick={() => onProfileClick(author.id)}
+                              >
+                                {author.name}
+                              </span>
+                              {author.is_verified && (
+                                <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>
+                              )}
+                            </div>
+                            
+                            {/* Follow button */}
+                            {currentUser?.id !== author.id && (
+                              <button 
+                                onClick={() => onFollow(author.id)} 
+                                disabled={isLoadingFollow}
+                                className="mt-1 text-xs font-bold text-white bg-white/20 px-3 py-0.5 rounded-full"
+                              >
+                                {isLoadingFollow ? '...' : (isFollowing ? 'Following' : 'Follow')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Caption */}
+                        {!!reel.caption && (
+                          <p className="text-white text-sm leading-snug line-clamp-2 mb-2">
+                            {reel.caption}
+                          </p>
+                        )}
+
+                        {/* Sound info */}
+                        <div 
+                          className="flex items-center gap-2 text-white/90 text-sm cursor-pointer w-fit"
+                          onClick={() => handleSoundClick(reel)}
+                        >
+                          <i className="fas fa-music text-[#1877F2]" />
+                          <span className="font-semibold truncate max-w-[200px]">
+                            {reel.songName || (reel as any).song_name || 'Original Sound'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Action buttons - horizontal layout at bottom */}
+                      <div className="flex items-center justify-around py-2">
+                        {/* Like button */}
+                        <button 
+                          onClick={() => onReact(reel.id, "like")}
+                          className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
+                        >
+                          <i className={`fas fa-thumbs-up text-lg ${hasLiked ? "text-[#1877F2]" : "text-white"}`} />
+                          <span className="text-white text-sm font-bold">{formatCount(reel.reactions?.length || 0)}</span>
+                        </button>
+
+                        {/* Comment button */}
+                        <button 
+                          onClick={() => {
+                            setActiveReelId(reel.id);
+                            setShowComments(true);
+                          }}
+                          className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
+                        >
+                          <i className="fas fa-comment text-lg text-white" />
+                          <span className="text-white text-sm font-bold">{formatCount(reel.comments?.length || 0)}</span>
+                        </button>
+
+                        {/* Share button */}
+                        <button 
+                          onClick={() => onShare(reel.id, "feed")}
+                          className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
+                        >
+                          <i className="fas fa-share text-lg text-white" />
+                          <span className="text-white text-sm font-bold">{formatCount(reel.shares || 0)}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Small play icon overlay when paused */}
+                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
+                      <div 
+                        className="absolute inset-0 flex items-center justify-center cursor-pointer"
+                        onClick={() => handleVideoClick(reel.id)}
+                      >
+                        <div className="w-16 h-16 bg-black/60 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20">
+                          <i className="fas fa-play text-white text-2xl ml-1"></i>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {activeReelId && (
+        <ReelCommentsSheet 
+          isOpen={showComments} 
+          onClose={() => setShowComments(false)} 
+          comments={reels.find((r: any) => r.id === activeReelId)?.comments || []} 
+          users={users} 
+          currentUser={currentUser} 
+          onAddComment={(text: string) => onComment(activeReelId, text)} 
+        />
+      )}
+      
+      {/* Create reel button */}
+      {currentUser && (
+        <div className="absolute bottom-24 right-8 z-40">
+          {selectedSound?.audioUrl && (
+            <div className="mb-4 bg-[#242526] rounded-lg p-3 shadow-xl border border-[#3A3B3C]">
+              <p className="text-white text-xs font-medium mb-2">
+                Using: {selectedSound.songName}
+              </p>
+              <button 
+                onClick={onCreateReelClick}
+                className="w-full bg-[#1877F2] text-white px-4 py-2 rounded-md text-xs font-semibold hover:bg-[#166FE5] transition-colors"
+              >
+                Create Reel
+              </button>
+            </div>
+          )}
+          
+          <button
+            onClick={onCreateReelClick}
+            className="w-14 h-14 bg-[#1877F2] rounded-full flex items-center justify-center text-white shadow-lg hover:scale-105 active:scale-95 transition-all border-4 border-[#242526]"
+          >
+            <i className="fas fa-plus text-2xl"></i>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==================== STYLES ====================
+const styles = `
+@keyframes slide-up {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
 }
-.animate-marquee-slow {
-  animation: marquee-slow 15s linear infinite;
-  padding-left: 100%;
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+@keyframes fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
 }
 
 @keyframes scale-in {
@@ -2843,20 +2975,21 @@ const styles = `
   animation: spin-slow 20s linear infinite;
 }
 
-@keyframes slide-up {
-  0% { transform: translateY(100%); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
+@keyframes equalizer {
+  0%, 100% { height: 4px; }
+  50% { height: 16px; }
 }
-.animate-slide-up {
-  animation: slide-up 0.3s ease-out;
+.animate-equalizer {
+  animation: equalizer 0.5s ease-in-out infinite;
 }
 
-@keyframes fade-in {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
+/* Hide scrollbar */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out;
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 `;
 
@@ -2867,12 +3000,5 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleSheet);
 }
 
-export default {
-  CreateReelModal,
-  ReelsFeed,
-  CameraStudio,
-  AudioTrimmer,
-  SoundDetailView,
-  UploadLoader,
-  useAudioFocus
-};
+// Export components
+export default ReelsFeed;⁶
