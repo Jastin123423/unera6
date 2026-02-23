@@ -3001,4 +3001,4 @@ if (typeof document !== 'undefined') {
 }
 
 // Export components
-export default ReelsFeed;⁶
+export default ReelsFeed;
