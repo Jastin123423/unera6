@@ -203,19 +203,30 @@ export const Header: React.FC<HeaderProps> = ({
     setSearchResults(scoredUsers);
   };
 
-  const globeUrl =
+  // ✅ NEW icon (bigger than "U" and closer to UNERA)
+  const uneraIconUrl =
     'https://pub-71f20b7e692d481a8486f90d3e574be7.r2.dev/task_01kj5y9gc6ey5rdbgt7qkymnvk_1771873623_img_0.webp';
 
   return (
     <>
       <div className="sticky top-0 z-50 bg-[#242526] shadow-sm h-14 flex items-center justify-between px-4 w-full border-b border-[#3E4042]">
         <div className="flex items-center gap-2">
-          <div className="flex items-center cursor-pointer gap-2 mr-2" onClick={onHomeClick}>
-            {/* ✅ UPDATED: Rotating globe icon (same size/position as old FA icon) */}
+          <div
+            className="flex items-center cursor-pointer mr-2"
+            onClick={onHomeClick}
+          >
+            {/* ✅ Bigger icon and closer to text */}
             <img
-              src={globeUrl}
+              src={uneraIconUrl}
               alt="UNERA"
-              className="w-[28px] h-[28px] sm:w-[32px] sm:h-[32px] object-contain animate-[spin_6s_linear_infinite]"
+              className="
+                w-[36px] h-[36px]
+                sm:w-[44px] sm:h-[44px]
+                object-contain
+                animate-[spin_7s_linear_infinite]
+                -mr-1
+                select-none
+              "
               draggable={false}
             />
 
@@ -357,7 +368,11 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
 
-              <div className="relative cursor-pointer" onClick={() => setShowProfileMenu(!showProfileMenu)} ref={profileRef}>
+              <div
+                className="relative cursor-pointer"
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                ref={profileRef}
+              >
                 <img
                   src={currentUser.profile_image_url}
                   alt="Profile"
@@ -370,17 +385,28 @@ export const Header: React.FC<HeaderProps> = ({
                       className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-2"
                       onClick={() => onProfileClick(currentUser.id)}
                     >
-                      <img src={currentUser.profile_image_url} alt="" className="w-10 h-10 rounded-full object-cover" />
-                      <span className="font-semibold text-[17px] text-[#E4E6EB]">{currentUser.name}</span>
+                      <img
+                        src={currentUser.profile_image_url}
+                        alt=""
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
+                      <span className="font-semibold text-[17px] text-[#E4E6EB]">
+                        {currentUser.name}
+                      </span>
                     </div>
 
                     <div className="border-b border-[#3E4042] my-1"></div>
 
-                    <div className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer" onClick={onLogout}>
+                    <div
+                      className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
+                      onClick={onLogout}
+                    >
                       <div className="w-9 h-9 bg-[#3A3B3C] rounded-full flex items-center justify-center">
                         <i className="fas fa-sign-out-alt text-[#E4E6EB]"></i>
                       </div>
-                      <span className="font-medium text-[15px] text-[#E4E6EB]">Log Out</span>
+                      <span className="font-medium text-[15px] text-[#E4E6EB]">
+                        Log Out
+                      </span>
                     </div>
                   </div>
                 )}
@@ -440,7 +466,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {items.map((item) => (
-        <div key={item.id} className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-1" onClick={item.onClick}>
+        <div
+          key={item.id}
+          className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-1"
+          onClick={item.onClick}
+        >
           <div className="w-9 h-9 flex items-center justify-center">
             <i className={`${item.icon} text-[22px]`} style={{ color: item.color }}></i>
           </div>
@@ -474,7 +504,11 @@ export const RightSidebar: React.FC<{ contacts: User[]; onProfileClick: (id: num
             onClick={() => onProfileClick(user.id)}
           >
             <div className="relative">
-              <img src={user.profile_image_url} alt="" className="w-9 h-9 rounded-full object-cover border border-[#3E4042]" />
+              <img
+                src={user.profile_image_url}
+                alt=""
+                className="w-9 h-9 rounded-full object-cover border border-[#3E4042]"
+              />
               {user.is_online && (
                 <div className="absolute bottom-0 right-0 w-3 h-3 bg-[#31A24C] rounded-full border-2 border-[#18191A]"></div>
               )}
