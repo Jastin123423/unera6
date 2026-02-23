@@ -203,7 +203,7 @@ export const Header: React.FC<HeaderProps> = ({
     setSearchResults(scoredUsers);
   };
 
-  // ✅ NEW icon (bigger than "U" and closer to UNERA)
+  // ✅ NEW icon URL
   const uneraIconUrl =
     'https://pub-71f20b7e692d481a8486f90d3e574be7.r2.dev/task_01kj5y9gc6ey5rdbgt7qkymnvk_1771873623_img_0.webp';
 
@@ -211,22 +211,19 @@ export const Header: React.FC<HeaderProps> = ({
     <>
       <div className="sticky top-0 z-50 bg-[#242526] shadow-sm h-14 flex items-center justify-between px-4 w-full border-b border-[#3E4042]">
         <div className="flex items-center gap-2">
-          <div
-            className="flex items-center cursor-pointer mr-2"
-            onClick={onHomeClick}
-          >
-            
-        {/* ✅ Bigger icon and closer to text */}
+          {/* ✅ Globe-style rotation + tighter spacing like "0UNERA" */}
+          <div className="relative flex items-center">
             <img
               src={uneraIconUrl}
               alt="UNERA"
               className="
-                w-[56px] h-[56px]
-                sm:w-[44px] sm:h-[44px]
+                w-[44px] h-[44px]
+                sm:w-[48px] sm:h-[48px]
                 object-contain
-                animate-[spin_7s_linear_infinite]
-                -mr-1
                 select-none
+                -mr-[6px]
+                [transform-style:preserve-3d]
+                [animation:uneraGlobeSpin_2.8s_linear_infinite,uneraGlobeWobble_3.6s_ease-in-out_infinite]
               "
               draggable={false}
             />
@@ -234,22 +231,22 @@ export const Header: React.FC<HeaderProps> = ({
             <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
               UNERA
             </h1>
-          </div>
 
-  {/* ✅ Local keyframes (only affect this component) */}
-  <style>{`
-    @keyframes uneraGlobeSpin_2.8s {
-      from { transform: rotate(0deg); }
-      to   { transform: rotate(360deg); }
-    }
-    /* "Globe-like" feel: slight 3D tilt/wobble while spinning */
-    @keyframes uneraGlobeWobble_3.6s {
-      0%   { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(0deg) rotateX(12deg) rotateY(-18deg); }
-      50%  { filter: drop-shadow(0 2px 10px rgba(0,0,0,0.35)); transform: rotate(180deg) rotateX(-10deg) rotateY(18deg); }
-      100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(360deg) rotateX(12deg) rotateY(-18deg); }
-    }
-  `}</style>
-</div>
+            {/* ✅ Local keyframes (only affect this component) */}
+            <style>{`
+              @keyframes uneraGlobeSpin_2.8s {
+                from { transform: rotate(0deg); }
+                to   { transform: rotate(360deg); }
+              }
+              /* "Globe-like" feel: slight 3D tilt/wobble while spinning */
+              @keyframes uneraGlobeWobble_3.6s {
+                0%   { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(0deg) rotateX(12deg) rotateY(-18deg); }
+                50%  { filter: drop-shadow(0 2px 10px rgba(0,0,0,0.35)); transform: rotate(180deg) rotateX(-10deg) rotateY(18deg); }
+                100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(360deg) rotateX(12deg) rotateY(-18deg); }
+              }
+            `}</style>
+          </div>
+        </div>
 
         <div className="flex-1 max-w-[600px] h-full hidden md:flex items-center justify-center gap-1">
           <div
