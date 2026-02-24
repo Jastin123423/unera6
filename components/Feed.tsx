@@ -3126,22 +3126,33 @@ export const Post: React.FC<{
   const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
   const group = p?.group || groups?.find(g => g.id === groupId);
 
+  // ========== REACTION DATA WITH FALLBACKS ==========
   const myReaction = p.myReaction ?? p.my_reaction ?? null;
+
+  // Count from various possible fields
   const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
-  const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
-  
+
+  // ✅ IMPORTANT: never make it null; fallback to preview list if available
+  const reactionsArr: any[] = Array.isArray(p.reactions)
+    ? p.reactions
+    : Array.isArray(p.reactions_preview)
+      ? p.reactions_preview
+      : [];
+
+  // ✅ Optional name provided by backend (we'll use this when reactions array is missing)
+  const reactorNameFromApi = String(
+    p.reactor_name ?? p.reactorName ?? ""
+  ).trim();
+
+  // Final values used in the component
   const finalMyReaction: ReactionType | undefined =
     myReaction ||
-    (currentUser && reactionsArr
+    (currentUser && reactionsArr.length
       ? (reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type as ReactionType)
       : undefined);
 
   const finalReactionCount =
-    likesCount > 0
-      ? likesCount
-      : reactionsArr
-        ? reactionsArr.length
-        : 0;
+    likesCount > 0 ? likesCount : reactionsArr.length;
   
   const [commentCount, setCommentCount] = useState(() => {
     if (typeof p.comment_count === 'number') return p.comment_count;
@@ -3175,18 +3186,39 @@ export const Post: React.FC<{
 
   // Facebook-style reaction emojis
   const emojiList = useMemo(() => {
-    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
+    if (reactionsArr.length > 0) {
       const em = topReactionEmojis(reactionsArr, 2);
       return em.length ? em : ['👍'];
     }
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
 
-  // Stable reactor name (no flicker) - VISIBLE ON ALL DEVICES
+  // ✅ STABLE REACTOR NAME WITH BACKEND FALLBACK - VISIBLE ON ALL DEVICES
   const reactorName = useMemo(() => {
-    if (!finalReactionCount || !reactionsArr?.length) return "";
-    return pickStableReactorName(postId, reactionsArr, users);
-  }, [postId, finalReactionCount, reactionsArr, users]);
+    if (!finalReactionCount) return "";
+
+    // If we have an array (best), resolve name from it
+    if (reactionsArr.length) {
+      const name = pickStableReactorName(postId, reactionsArr, users);
+      return String(name || "").trim();
+    }
+
+    // If no array (common case), use backend-provided name
+    return reactorNameFromApi;
+  }, [postId, finalReactionCount, reactionsArr, users, reactorNameFromApi]);
+
+  // Debug log to verify data
+  useEffect(() => {
+    console.log('🔍 Reaction debug:', {
+      postId,
+      finalReactionCount,
+      reactionsArrLength: reactionsArr.length,
+      reactorNameFromApi,
+      reactorName,
+      hasReactionsArray: Array.isArray(p.reactions),
+      hasReactionsPreview: Array.isArray(p.reactions_preview)
+    });
+  }, [postId, finalReactionCount, reactionsArr.length, reactorNameFromApi, reactorName, p.reactions, p.reactions_preview]);
 
   useEffect(() => {
     const newCommentCount = typeof p.comment_count === 'number' 
@@ -3625,6 +3657,7 @@ export const Post: React.FC<{
                     }
                   }}
                 >
+                  {/* Reaction emojis - shows top 2 emojis stacked */}
                   <div className="flex -space-x-2">
                     {emojiList.slice(0, 2).map((e, i) => (
                       <span
@@ -3636,11 +3669,13 @@ export const Post: React.FC<{
                       </span>
                     ))}
                   </div>
+                  
+                  {/* Formatted reaction count (e.g., 1.2K) */}
                   <span className="text-[#E4E6EB] font-bold text-[16px]">
                     {fmtCount(finalReactionCount)}
                   </span>
                   
-                  {/* Stable reactor name in blue - VISIBLE ON ALL DEVICES (removed hidden sm:inline) */}
+                  {/* STABLE REACTOR NAME IN BLUE - VISIBLE ON ALL DEVICES */}
                   {finalReactionCount > 0 && reactorName && (
                     <span className="text-[15px] inline">
                       <span className="text-[#1877F2] font-semibold">{reactorName}</span>
@@ -3651,6 +3686,7 @@ export const Post: React.FC<{
               )}
             </div>
 
+            {/* Comments and Shares counts */}
             <div className="flex gap-4">
               <span
                 className="hover:underline cursor-pointer"
