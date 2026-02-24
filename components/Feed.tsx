@@ -455,18 +455,24 @@ const fmtCount = (n: number) => {
 
 /**
  * =========================
- * ✅ PICK RANDOM REACTOR NAME
+ * ✅ PICK REACTOR NAME (FIRST REACTOR FOR FACEBOOK STYLE)
  * =========================
  */
-const pickRandomReactorName = (reactions: any[], users?: any[]) => {
-  if (!reactions?.length) return "";
-  const randomIndex = Math.floor(Math.random() * reactions.length);
-  const randomReaction = reactions[randomIndex];
-  const name =
-    randomReaction?.name ||
-    randomReaction?.user?.name ||
-    users?.find((u) => Number(u.id) === Number(randomReaction.user_id))?.name ||
+const pickReactorName = (reactions: any[], users?: any[]) => {
+  const first = reactions?.[0];
+  if (!first) return "";
+  
+  // Try multiple ways to get the name
+  const name = 
+    first?.name ||
+    first?.user?.name ||
+    first?.author?.name ||
+    first?.username ||
+    first?.user?.username ||
+    first?.author?.username ||
+    users?.find((u) => Number(u.id) === Number(first.user_id || first.user?.id || first.author?.id))?.name ||
     "";
+    
   return String(name || "").trim();
 };
 
@@ -1539,6 +1545,28 @@ const GalleryViewer: React.FC<{
         className="bg-black/80 backdrop-blur-sm border-t border-white/10 px-4 py-3"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Facebook-style reactions summary row */}
+        {reactionCount > 0 && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onOpenReactions) onOpenReactions();
+            }}
+            className="w-full flex items-center justify-between px-2 py-2 hover:bg-[#3A3B3C] rounded-lg mb-2 transition-colors"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-1">
+                <span className="text-[18px]">{reactionEmoji("love")}</span>
+                <span className="-ml-1 text-[18px]">{reactionEmoji("like")}</span>
+              </div>
+              <span className="text-[15px] text-[#B0B3B8] font-medium">
+                {fmtCount(reactionCount)}
+              </span>
+            </div>
+            <i className="fas fa-chevron-right text-[#B0B3B8] text-[12px]" />
+          </button>
+        )}
+
         {/* Totals row */}
         <div className="flex items-center justify-between text-[#B0B3B8] text-sm mb-2 px-2">
           <div className="flex items-center gap-2">
@@ -1560,7 +1588,6 @@ const GalleryViewer: React.FC<{
                       </span>
                     ))}
                 </div>
-                {fmtCount(reactionCount)}
               </span>
             )}
           </div>
@@ -2941,7 +2968,6 @@ export const EventFeedCard: React.FC<{
 /**
  * =========================
  * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
- * AND RANDOM REACTOR NAME IN EXISTING REACTION SUMMARY
  * =========================
  */
 export const Post: React.FC<{
@@ -3064,9 +3090,6 @@ export const Post: React.FC<{
   // Reactions sheet state
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
 
-  // Random reactor name state
-  const [randomReactorName, setRandomReactorName] = useState("");
-
   const openGallery = (urls: string[], index: number) => {
     setGalleryUrls(urls);
     setGalleryIndex(index);
@@ -3141,13 +3164,10 @@ export const Post: React.FC<{
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
 
-  // Update random reactor name when reactions change
-  useEffect(() => {
-    if (reactionsArr?.length) {
-      setRandomReactorName(pickRandomReactorName(reactionsArr, users));
-    } else {
-      setRandomReactorName("");
-    }
+  // Get first reactor name for Facebook-style summary
+  const firstReactorName = useMemo(() => {
+    if (!reactionsArr?.length) return "";
+    return pickReactorName(reactionsArr, users);
   }, [reactionsArr, users]);
 
   useEffect(() => {
@@ -3566,17 +3586,45 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== REACTION SUMMARY WITH RANDOM REACTOR NAME ===== */}
+          {/* ===== FACEBOOK-STYLE REACTIONS SUMMARY ROW ===== */}
+          {finalReactionCount > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowReactionsSheet(true);
+              }}
+              className="w-full flex items-center justify-between px-3 py-2 hover:bg-[#3A3B3C] rounded-lg transition-colors"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {/* Emoji stack - always show love + like for Facebook style */}
+                <div className="flex items-center gap-1">
+                  <span className="text-[18px]">{reactionEmoji("love")}</span>
+                  <span className="-ml-1 text-[18px]">{reactionEmoji("like")}</span>
+                </div>
+
+                {/* Count */}
+                <span className="text-[15px] text-[#B0B3B8] font-medium">
+                  {fmtCount(finalReactionCount)}
+                </span>
+
+                {/* Name + "and others" - Always visible on all devices */}
+                {firstReactorName && (
+                  <span className="text-[15px] truncate">
+                    <span className="text-[#1877F2] font-semibold">{firstReactorName}</span>
+                    <span className="text-[#B0B3B8]"> and others</span>
+                  </span>
+                )}
+              </div>
+
+              <i className="fas fa-chevron-right text-[#B0B3B8] text-[12px]" />
+            </button>
+          )}
+
+          {/* ===== REACTION SUMMARY ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {finalReactionCount > 0 && (
-                <div
-                  className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowReactionsSheet(true);
-                  }}
-                >
+                <div className="flex items-center gap-2">
                   <div className="flex -space-x-2">
                     {emojiList.slice(0, 2).map((e, i) => (
                       <span
@@ -3588,17 +3636,6 @@ export const Post: React.FC<{
                       </span>
                     ))}
                   </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {fmtCount(finalReactionCount)}
-                  </span>
-                  
-                  {/* Random reactor name in blue */}
-                  {finalReactionCount > 0 && randomReactorName && (
-                    <span className="text-[15px] hidden sm:inline">
-                      <span className="text-[#1877F2] font-semibold">{randomReactorName}</span>
-                      <span className="text-[#B0B3B8]"> and others</span>
-                    </span>
-                  )}
                 </div>
               )}
             </div>
