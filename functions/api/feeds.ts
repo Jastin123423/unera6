@@ -74,7 +74,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const exploreCount = Math.max(0, limit - freshCount);
 
     // ============================================================
-    // 1) POSTS  ✅ now excludes "product posts" stored in posts table
+    // 1) POSTS ✅ excludes "product posts" stored in posts table
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -83,8 +83,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
 
-    // ✅ BLOCK product-posts that were stored in posts table (no extra DB column required)
-    // This assumes your marketplace/product posts include some JSON-ish markers in p.content
+    // ✅ BLOCK product-posts stored in posts table (no extra DB column required)
     wherePosts.push(`(p.content IS NULL OR (
       p.content NOT LIKE '%"post_type":"product"%'
       AND p.content NOT LIKE '%"kind":"product"%'
@@ -125,7 +124,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         p.user_id AS user_id,
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -165,6 +164,30 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
         (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
 
+        -- ✅ NEW: latest reactor name (for Feed.tsx summary)
+        (
+          SELECT u2.name
+          FROM post_reactions pr2
+          JOIN users u2 ON u2.id = pr2.user_id
+          WHERE pr2.post_id = p.id
+          ORDER BY pr2.created_at DESC, pr2.id DESC
+          LIMIT 1
+        ) AS reactor_name,
+
+        -- ✅ NEW: small preview list for emojis (NOT full list)
+        (
+          SELECT json_group_array(
+            json_object('user_id', pr3.user_id, 'type', pr3.type)
+          )
+          FROM (
+            SELECT user_id, type
+            FROM post_reactions
+            WHERE post_id = p.id
+            ORDER BY created_at DESC, id DESC
+            LIMIT 30
+          ) pr3
+        ) AS reactions_preview,
+
         NULL AS video_url,
         NULL AS caption,
         NULL AS song_name,
@@ -194,7 +217,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        -- group fields (not for normal posts)
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_profile_image_url,
+        NULL AS group_cover_image_url
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
     `;
@@ -241,7 +270,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         r.user_id AS user_id,
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -262,6 +291,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
         (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
+
+        -- optional (blank for now)
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
 
         r.video_url AS video_url,
         r.caption AS caption,
@@ -291,7 +324,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_profile_image_url,
+        NULL AS group_cover_image_url
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
     `;
@@ -334,7 +372,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         s.uploader_id AS user_id,
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -373,6 +411,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS reactions_count,
         (SELECT 'like' FROM song_likes sl WHERE sl.song_id = s.id AND sl.user_id = ? LIMIT 1) AS my_reaction,
 
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+
         NULL AS video_url,
         NULL AS caption,
         NULL AS song_name,
@@ -406,7 +447,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_profile_image_url,
+        NULL AS group_cover_image_url
       FROM songs s
       LEFT JOIN users u ON u.id = s.uploader_id
     `;
@@ -449,7 +495,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         pc.creator_id AS user_id,
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -482,6 +528,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS reactions_count,
         NULL AS my_reaction,
 
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+
         NULL AS video_url,
         NULL AS caption,
         NULL AS song_name,
@@ -510,14 +559,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_profile_image_url,
+        NULL AS group_cover_image_url
       FROM podcasts pc
       LEFT JOIN users u ON u.id = pc.creator_id
     `;
 
     // ============================================================
-    // 5) EVENTS ✅ FIXED FOR YOUR SCHEMA (event_date, description)
-    // + counts + my_rsvp_status
+    // 5) EVENTS ✅ FIXED FOR YOUR SCHEMA + counts + my_rsvp_status
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -556,7 +609,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         e.creator_id AS user_id,
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -595,6 +648,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         0 AS reactions_count,
         NULL AS my_reaction,
+
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
 
         NULL AS video_url,
         NULL AS caption,
@@ -637,13 +693,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
-        NULL AS meta
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_profile_image_url,
+        NULL AS group_cover_image_url
       FROM events e
       LEFT JOIN users u ON u.id = e.creator_id
     `;
 
     // ============================================================
-    // 6) GROUP POSTS
+    // 6) GROUP POSTS ✅ NOW RETURNS GROUP INFO + reactor_name
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -682,7 +743,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         gp.user_id AS user_id,
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -690,6 +751,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         END AS profile_image_url,
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
+
+        -- ✅ group identity for header UI
+        gp.group_id AS group_id,
+        COALESCE(g.name, '') AS group_name,
+        CASE
+          WHEN g.profile_image LIKE 'data:%' THEN NULL
+          WHEN length(g.profile_image) > 300 THEN NULL
+          ELSE g.profile_image
+        END AS group_profile_image_url,
+        CASE
+          WHEN g.cover_image LIKE 'data:%' THEN NULL
+          WHEN length(g.cover_image) > 300 THEN NULL
+          ELSE g.cover_image
+        END AS group_cover_image_url,
 
         gp.content AS content,
         'public' AS visibility,
@@ -732,6 +807,30 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         (SELECT COUNT(*) FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id) AS reactions_count,
         (SELECT 'like' FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id AND gpl.user_id = ? LIMIT 1) AS my_reaction,
 
+        -- ✅ NEW: latest liker name for summary
+        (
+          SELECT u2.name
+          FROM group_post_likes gpl2
+          JOIN users u2 ON u2.id = gpl2.user_id
+          WHERE gpl2.group_post_id = gp.id
+          ORDER BY gpl2.created_at DESC
+          LIMIT 1
+        ) AS reactor_name,
+
+        -- ✅ NEW: preview list (like only, unless you add types later)
+        (
+          SELECT json_group_array(
+            json_object('user_id', gpl3.user_id, 'type', 'like')
+          )
+          FROM (
+            SELECT user_id
+            FROM group_post_likes
+            WHERE group_post_id = gp.id
+            ORDER BY created_at DESC
+            LIMIT 30
+          ) gpl3
+        ) AS reactions_preview,
+
         CASE
           WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN gp.media_url
           ELSE NULL
@@ -767,6 +866,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS meta
       FROM group_posts gp
       LEFT JOIN users u ON u.id = gp.user_id
+      LEFT JOIN groups g ON g.id = gp.group_id
     `;
 
     // ============================================================
@@ -785,9 +885,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsProductsFeed.push(...seen);
     }
 
-    const whereProductsFeedSql = whereProductsFeed.length
-      ? `WHERE ${whereProductsFeed.join(" AND ")}`
-      : "";
+    const whereProductsFeedSql = whereProductsFeed.length ? `WHERE ${whereProductsFeed.join(" AND ")}` : "";
 
     const baseSelectProductsFeed = `
       SELECT
@@ -809,7 +907,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         pr.seller_id AS user_id,
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -831,6 +929,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         0 AS reactions_count,
         NULL AS my_reaction,
+
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
 
         NULL AS video_url,
         NULL AS caption,
@@ -867,7 +968,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'type','product',
           'product_id', pr.id,
           'marketplace', json_object('id', pr.id)
-        ) AS meta
+        ) AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_profile_image_url,
+        NULL AS group_cover_image_url
       FROM products pr
       LEFT JOIN users u ON u.id = pr.seller_id
     `;
@@ -917,47 +1023,43 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const freshPostsRes = await env.DB.prepare(
       `${baseSelectPosts} ${wherePostsSql} ORDER BY p.created_at DESC LIMIT ?`
     ).bind(reactionUserId, ...bindsPosts, freshCount).all();
-    const freshPosts = Array.isArray(freshPostsRes?.results) ? freshPostsRes.results : [];
+    const freshPosts = Array.isArray((freshPostsRes as any)?.results) ? (freshPostsRes as any).results : [];
 
     const freshReelsRes = await env.DB.prepare(
       `${baseSelectReels} ${whereReelsSql} ORDER BY r.created_at DESC LIMIT ?`
     ).bind(reactionUserId, ...bindsReels, freshCount).all();
-    const freshReels = Array.isArray(freshReelsRes?.results) ? freshReelsRes.results : [];
+    const freshReels = Array.isArray((freshReelsRes as any)?.results) ? (freshReelsRes as any).results : [];
 
     const freshSongsRes = await env.DB.prepare(
       `${baseSelectSongs} ${whereSongsSql} ORDER BY s.created_at DESC LIMIT ?`
     ).bind(reactionUserId, ...bindsSongs, freshCount).all();
-    const freshSongs = Array.isArray(freshSongsRes?.results) ? freshSongsRes.results : [];
+    const freshSongs = Array.isArray((freshSongsRes as any)?.results) ? (freshSongsRes as any).results : [];
 
     const freshPodcastsRes = await env.DB.prepare(
       `${baseSelectPodcasts} ${wherePodcastsSql} ORDER BY pc.created_at DESC LIMIT ?`
     ).bind(...bindsPodcasts, freshCount).all();
-    const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
+    const freshPodcasts = Array.isArray((freshPodcastsRes as any)?.results) ? (freshPodcastsRes as any).results : [];
 
     // ✅ IMPORTANT: bind reactionUserId twice for my_rsvp_status
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
     ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
-    const freshEvents = Array.isArray(freshEventsRes?.results) ? freshEventsRes.results : [];
+    const freshEvents = Array.isArray((freshEventsRes as any)?.results) ? (freshEventsRes as any).results : [];
 
     const freshGroupPostsRes = await env.DB.prepare(
       `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY gp.created_at DESC LIMIT ?`
     ).bind(reactionUserId, ...bindsGroupPosts, freshCount).all();
-    const freshGroupPosts = Array.isArray(freshGroupPostsRes?.results)
-      ? freshGroupPostsRes.results
-      : [];
+    const freshGroupPosts = Array.isArray((freshGroupPostsRes as any)?.results) ? (freshGroupPostsRes as any).results : [];
 
     const freshProductsFeedRes = await env.DB.prepare(
       `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY pr.created_at DESC LIMIT ?`
     ).bind(...bindsProductsFeed, freshCount).all();
-    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results)
-      ? freshProductsFeedRes.results
-      : [];
+    const freshProductsFeed = Array.isArray((freshProductsFeedRes as any)?.results) ? (freshProductsFeedRes as any).results : [];
 
     const freshProductsRes = await env.DB.prepare(selectProducts)
       .bind(...bindsProducts, freshCount)
       .all();
-    const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
+    const freshProducts = Array.isArray((freshProductsRes as any)?.results) ? (freshProductsRes as any).results : [];
 
     // ============================================================
     // RUN QUERIES (Explore)
@@ -975,41 +1077,37 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       const explorePostsRes = await env.DB.prepare(
         `${baseSelectPosts} ${wherePostsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, ...bindsPosts, exploreCount).all();
-      explorePosts = Array.isArray(explorePostsRes?.results) ? explorePostsRes.results : [];
+      explorePosts = Array.isArray((explorePostsRes as any)?.results) ? (explorePostsRes as any).results : [];
 
       const exploreReelsRes = await env.DB.prepare(
         `${baseSelectReels} ${whereReelsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, ...bindsReels, exploreCount).all();
-      exploreReels = Array.isArray(exploreReelsRes?.results) ? exploreReelsRes.results : [];
+      exploreReels = Array.isArray((exploreReelsRes as any)?.results) ? (exploreReelsRes as any).results : [];
 
       const exploreSongsRes = await env.DB.prepare(
         `${baseSelectSongs} ${whereSongsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, ...bindsSongs, exploreCount).all();
-      exploreSongs = Array.isArray(exploreSongsRes?.results) ? exploreSongsRes.results : [];
+      exploreSongs = Array.isArray((exploreSongsRes as any)?.results) ? (exploreSongsRes as any).results : [];
 
       const explorePodcastsRes = await env.DB.prepare(
         `${baseSelectPodcasts} ${wherePodcastsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(...bindsPodcasts, exploreCount).all();
-      explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
+      explorePodcasts = Array.isArray((explorePodcastsRes as any)?.results) ? (explorePodcastsRes as any).results : [];
 
       const exploreEventsRes = await env.DB.prepare(
         `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount).all();
-      exploreEvents = Array.isArray(exploreEventsRes?.results) ? exploreEventsRes.results : [];
+      exploreEvents = Array.isArray((exploreEventsRes as any)?.results) ? (exploreEventsRes as any).results : [];
 
       const exploreGroupPostsRes = await env.DB.prepare(
         `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(reactionUserId, ...bindsGroupPosts, exploreCount).all();
-      exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results)
-        ? exploreGroupPostsRes.results
-        : [];
+      exploreGroupPosts = Array.isArray((exploreGroupPostsRes as any)?.results) ? (exploreGroupPostsRes as any).results : [];
 
       const exploreProductsFeedRes = await env.DB.prepare(
         `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
       ).bind(...bindsProductsFeed, exploreCount).all();
-      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results)
-        ? exploreProductsFeedRes.results
-        : [];
+      exploreProductsFeed = Array.isArray((exploreProductsFeedRes as any)?.results) ? (exploreProductsFeedRes as any).results : [];
 
       const exploreProductsRes = await env.DB.prepare(
         `
@@ -1022,7 +1120,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           LIMIT ?
         `
       ).bind(...bindsProducts, exploreCount).all();
-      exploreProducts = Array.isArray(exploreProductsRes?.results) ? exploreProductsRes.results : [];
+      exploreProducts = Array.isArray((exploreProductsRes as any)?.results) ? (exploreProductsRes as any).results : [];
     }
 
     // ============================================================
