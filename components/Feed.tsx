@@ -2989,7 +2989,7 @@ export const EventFeedCard: React.FC<{
 /**
  * =========================
  * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
- * AND STABLE REACTOR NAME (KEPT FOR REGULAR POSTS)
+ * AND STABLE REACTOR NAME (VISIBLE ON ALL DEVICES)
  * =========================
  */
 export const Post: React.FC<{
@@ -3182,7 +3182,7 @@ export const Post: React.FC<{
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
 
-  // Stable reactor name (no flicker) - KEPT FOR REGULAR POSTS
+  // Stable reactor name (no flicker) - VISIBLE ON ALL DEVICES
   const reactorName = useMemo(() => {
     if (!finalReactionCount || !reactionsArr?.length) return "";
     return pickStableReactorName(postId, reactionsArr, users);
@@ -3610,7 +3610,7 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== REACTION SUMMARY WITH STABLE REACTOR NAME (KEPT FOR REGULAR POSTS) ===== */}
+          {/* ===== REACTION SUMMARY WITH STABLE REACTOR NAME - VISIBLE ON ALL DEVICES ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {finalReactionCount > 0 && (
@@ -3640,9 +3640,9 @@ export const Post: React.FC<{
                     {fmtCount(finalReactionCount)}
                   </span>
                   
-                  {/* Stable reactor name in blue (no flicker) - ONLY FOR REGULAR POSTS */}
+                  {/* Stable reactor name in blue - VISIBLE ON ALL DEVICES (removed hidden sm:inline) */}
                   {finalReactionCount > 0 && reactorName && (
-                    <span className="text-[15px] sm:inline hidden">
+                    <span className="text-[15px] inline">
                       <span className="text-[#1877F2] font-semibold">{reactorName}</span>
                       <span className="text-[#B0B3B8]"> and others</span>
                     </span>
