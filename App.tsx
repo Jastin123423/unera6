@@ -1,4 +1,4 @@
-// App.tsx
+// App.tsx-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -13,7 +13,7 @@ import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Stor
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
-import { AllEvents } from "./components/AllEvents";
+import { AllEvents } from "./components/AllEvents"; // Updated import
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
   BirthdaysPage,
@@ -95,6 +95,7 @@ const VIEWERS_TTL = 2 * 60_000;
 const resolveVideoId = (item: any): number | null => {
   if (!item) return null;
   
+  // Check all possible ID fields in order of preference
   const possibleIds = [
     item?.post_id,
     item?.postId,
@@ -119,6 +120,7 @@ const getStableItemKey = (item: any, prefix = 'item'): string => {
   const id = resolveVideoId(item);
   if (id) return `${prefix}-${id}`;
   
+  // Fallback to a combination of fields if no ID
   const fallbackParts = [
     item?.user_id,
     item?.userId,
@@ -461,60 +463,9 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
   )}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
 };
 
-// ============================================================================
-// BRANDS INTEGRATION - COMPLETE IMPLEMENTATION matching Brands.tsx
-// ============================================================================
-
 /**
- * ✅ FIXED: Normalize brand data with backend field mapping
- * Supports owner_id, brand_user_id, logo_url from backend
- * Always ensures followers is an array (never undefined)
- */
-const normalizeBrand = (b: any): Brand => {
-  const name = safeString(b?.name, "Unnamed Brand");
-
-  return {
-    ...b,
-
-    // ids
-    id: safeNumber(b?.id),
-    owner_id: safeNumber(b?.owner_id ?? b?.admin_id ?? b?.adminId ?? 0),
-    brand_user_id: safeNumber(b?.brand_user_id ?? b?.brandUserId ?? b?.user_id ?? 0),
-
-    // keep Brands.tsx compatibility: admin_id is the owner
-    admin_id: safeNumber(b?.owner_id ?? b?.admin_id ?? b?.adminId ?? 0),
-
-    name,
-    description: safeString(b?.description, ""),
-    category: safeString(b?.category, "Other"),
-
-    // images: backend uses logo_url; UI uses profile_image_url
-    profile_image_url: safeString(
-      b?.profile_image_url ?? b?.profileImage ?? b?.logo_url ?? b?.logo ?? "",
-      `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
-    ),
-
-    cover_image_url: safeString(
-      b?.cover_image_url ?? b?.coverImage ?? b?.cover ?? "",
-      "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=1500&q=80"
-    ),
-
-    website: safeString(b?.website, ""),
-    location: safeString(b?.location, ""),
-    contact_email: safeString(b?.contact_email ?? b?.email, ""),
-    contact_phone: safeString(b?.contact_phone ?? b?.phone, ""),
-
-    // IMPORTANT: followers must always be an array
-    followers: safeArray<number>(b?.followers ?? []),
-    is_verified: Boolean(b?.is_verified ?? false),
-
-    created_at: b?.created_at ?? new Date().toISOString(),
-  } as any;
-};
-
-/**
- * Normalize post data with brand_id support
- * Now properly preserves brand_id from API responses
+ * Normalize raw D1 rows to UI-safe PostType shape with multi-media support
+ * Parse meta field if it's a JSON string (critical for marketplace posts)
  */
 const normalizePost = (p: any): PostType => {
   const mediaUrls =
@@ -542,7 +493,6 @@ const normalizePost = (p: any): PostType => {
       ...p,
       id: resolvedId,
       user_id: safeNumber(p?.user_id),
-      brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null,
       content: safeString(p?.content),
       type: 'event',
       event_id: p?.event_id || p?.meta?.event_id,
@@ -570,7 +520,6 @@ const normalizePost = (p: any): PostType => {
     ...p,
     id: resolvedId,
     user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
-    brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null,
     content: safeString(p?.content),
 
     media_url: mediaUrl,
@@ -607,7 +556,7 @@ const normalizePost = (p: any): PostType => {
   } as any;
 };
 
-/** Event normalization helpers */
+/** Event normalization helpers from App.tsx 1 */
 const toISO = (d: any) => {
   const dt = new Date(d);
   return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
@@ -683,12 +632,11 @@ const normalizeEvent = (e: any): Event => {
     
     // Group event specific fields
     group_id: e?.group_id ? safeNumber(e.group_id) : null,
-    brand_id: e?.brand_id ? safeNumber(e.brand_id) : null,
     user_rsvp_status: e?.user_rsvp_status ?? null,
   } as any;
 };
 
-/** Normalize story data */
+/** Normalize story data with backend field matching */
 const normalizeStory = (s: any, existingUser?: User): Story => {
   const resolvedId = safeNumber(s?.id ?? s?.story_id ?? 0);
   const userId = safeNumber(s?.user_id ?? s?.userId ?? 0);
@@ -724,7 +672,7 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
 };
 
 /**
- * Normalize user data
+ * Normalize user data with UNERA-style profile pictures
  */
 const normalizeUser = (u: any): User => {
   const resolvedId = safeNumber(u?.id ?? u?.user_id ?? u?.userId);
@@ -779,7 +727,7 @@ const normalizeUser = (u: any): User => {
   } as any;
 };
 
-/** Normalize reel data */
+/** Normalize reel data with trimmed audio support */
 const normalizeReel = (r: any): Reel => {
   const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
   const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
@@ -817,7 +765,7 @@ const normalizeReel = (r: any): Reel => {
   } as any;
 };
 
-/** Normalize song data */
+/** Normalize song data for UNERA Music with audio_fetch_url support */
 const normalizeSong = (s: any): Song => {
   return {
     ...s,
@@ -835,7 +783,7 @@ const normalizeSong = (s: any): Song => {
 };
 
 /**
- * Normalize product data
+ * Normalize product data for consistency
  */
 const normalizeProduct = (p: any) => {
   let imgs: string[] = [];
@@ -864,15 +812,18 @@ const normalizeProduct = (p: any) => {
   } as any;
 };
 
-/**
- * Normalize groups
- */
+// ============================================================================
+// 🔧 FIXED: Normalize groups with optional members and is_member support
+// ============================================================================
+/** Normalize groups to prevent crashes and handle membership correctly */
 const normalizeGroup = (g: any): Group => {
   const id = safeNumber(g?.id ?? g?.group_id ?? g?.groupId);
   const name = safeString(g?.name, "Untitled Group");
   const description = safeString(g?.description, "");
   const type = String(g?.type || "public").toLowerCase() === "private" ? "private" : "public";
   
+  // 🔧 FIXED: Handle members properly - preserve undefined if not provided
+  // This prevents empty arrays from being treated as "no members"
   const members =
     g?.members === undefined || g?.members === null
       ? undefined
@@ -888,18 +839,19 @@ const normalizeGroup = (g: any): Group => {
     cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
     profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
     created_at: g?.created_at ?? new Date().toISOString(),
-    members,
+    members, // 👈 Now properly preserves undefined
     posts: safeArray(g?.posts),
     events: safeArray(g?.events),
     member_posting_allowed: Boolean(g?.member_posting_allowed ?? true),
     members_count: safeNumber(g?.members_count ?? members?.length ?? 0),
+    // 🔧 ADDED: Support is_member flag from backend
     is_member: g?.is_member === true ? true : 
                g?.is_member === false ? false : 
                undefined,
   } as any;
 };
 
-/** ---------- Marketplace Context ---------- */
+/** ---------- ✅ ADDED: Marketplace Context for Post.tsx ---------- */
 export const MarketplaceContext = React.createContext<{
   onViewProduct: (productId: number) => void;
   getProductData: (productId: number) => { 
@@ -1103,11 +1055,7 @@ const fetchUserFollowData = async (userId: number): Promise<{ followers: number[
   }
 };
 
-/**
- * ✅ FIXED: Upload helper matching Brands.tsx
- * Uses media.unera.social domain
- */
-const uploadToCloudflareR2 = async (file: File, folder = 'brand-images'): Promise<string> => {
+const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
   try {
     const formData = new FormData();
     formData.append('file', file);
@@ -1116,7 +1064,7 @@ const uploadToCloudflareR2 = async (file: File, folder = 'brand-images'): Promis
     formData.append('folder', folder);
     formData.append('timestamp', Date.now().toString());
 
-    const response = await fetch('https://media.unera.social/api/upload', {
+    const response = await fetch('/api/upload', {
       method: 'POST',
       body: formData,
     });
@@ -1129,7 +1077,7 @@ const uploadToCloudflareR2 = async (file: File, folder = 'brand-images'): Promis
     const result = await response.json();
     if (!result.url) throw new Error('No URL returned from upload');
 
-    return result.url;
+    return { url: result.url, type: file.type, filename: file.name };
   } catch (error) {
     console.error('Upload failed:', error);
     throw error;
@@ -1225,7 +1173,6 @@ const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
     ...row,
     user_id: safeNumber(row?.user_id),
-    brand_id: row?.brand_id ? safeNumber(row?.brand_id) : null,
     content: row?.content ?? '',
     created_at: row?.created_at,
     media_url: row?.media_url ?? null,
@@ -1559,7 +1506,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
-  const [activeEventId, setActiveEventId] = useState<number | null>(null);
+  const [activeEventId, setActiveEventId] = useState<number | null>(null); // Added for event detail modal
 
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
@@ -2193,7 +2140,7 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
-  /** ---------- Helper to create marketplace posts ---------- */
+  /** ---------- ✅ FIXED: Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
   const createMarketplacePost = useCallback(
     async (product: any) => {
       if (!currentUser) return;
@@ -2202,27 +2149,32 @@ export default function App() {
       const media_url = images[0] || '';
       const media_type = media_url ? 'image' : null;
 
+      // ✅ CRITICAL: Payload structure that Feed.tsx expects for marketplace posts
       const payload = {
         user_id: currentUser.id,
         
+        // Basic post fields
         content: product.title || '',
         visibility: 'public',
         
-        type: "marketplace",
-        post_type: "product",
-        product_id: product.id,
+        // ✅ Feed.tsx checks these exact fields
+        type: "marketplace",        // Main type indicator
+        post_type: "product",       // Feed.tsx checks this
+        product_id: product.id,     // Feed.tsx checks this directly
         
+        // Media fields
         media_url,
         media_type,
         media_urls: images,
         media_types: images.map(() => 'image'),
         
+        // ✅ Meta object with ALL the fields Feed.tsx looks for
         meta: {
-          kind: "product",
-          product_id: product.id,
+          kind: "product",                    // Feed.tsx checks meta.kind === 'product'
+          product_id: product.id,            // Feed.tsx checks meta.product_id
           marketplace: {
-            id: product.id,
-            product_id: product.id,
+            id: product.id,                 // ✅ Feed.tsx prefers mp.id (NOT mp.product_id!)
+            product_id: product.id,         // extra safe
             price: product.discount_price ?? product.main_price ?? null,
             currency: product.currency_symbol || 'TZS',
             location: product.address || '',
@@ -2282,6 +2234,7 @@ export default function App() {
         return [createdProduct, ...filtered];
       });
 
+      // ✅ Create marketplace post with the fixed payload
       await createMarketplacePost(createdProduct);
       
       return createdProduct;
@@ -2291,230 +2244,6 @@ export default function App() {
       throw e;
     }
   }, [currentUser, requireAuth, createMarketplacePost]);
-
-  // ============================================================================
-  // BRAND OPERATIONS - Matching Brands.tsx requirements
-  // ============================================================================
-
-  /** ---------- Create a new brand ---------- */
-  const createBrand = useCallback(async (brandData: Partial<Brand>) => {
-    if (!requireAuth('Creating brands')) return;
-    if (!currentUser) return;
-
-    try {
-      const payload = {
-        ...brandData,
-        owner_id: currentUser.id,
-        logo_url: (brandData as any)?.logo_url ?? (brandData as any)?.profile_image_url ?? null,
-        followers: [],
-        created_at: new Date().toISOString(),
-      };
-
-      const data = await apiFetch('/api/brands', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-
-      const newBrand = normalizeBrand(data?.brand ?? data);
-      setBrands(prev => [...safeArray(prev), newBrand]);
-      
-      return newBrand;
-    } catch (error) {
-      console.error('Failed to create brand:', error);
-      setLoginError('Failed to create brand');
-      throw error;
-    }
-  }, [currentUser, requireAuth]);
-
-  /** ---------- Update an existing brand ---------- */
-  const updateBrand = useCallback(async (brandId: number, data: Partial<Brand>) => {
-    if (!requireAuth('Updating brands')) return;
-    if (!currentUser) return;
-
-    try {
-      const result = await apiFetch(`/api/brands/${brandId}`, {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      });
-
-      // Optimistic update
-      setBrands(prev => 
-        safeArray(prev).map(b => 
-          Number(b.id) === Number(brandId) ? normalizeBrand({ ...b, ...data }) : b
-        )
-      );
-
-      return result;
-    } catch (error) {
-      console.error('Failed to update brand:', error);
-      setLoginError('Failed to update brand');
-      throw error;
-    }
-  }, [currentUser, requireAuth]);
-
-  /** ---------- Delete a brand (admin only) ---------- */
-  const deleteBrand = useCallback(async (brandId: number) => {
-    if (!requireAdmin('Deleting brands')) return;
-
-    try {
-      await apiFetch(`/api/brands/${brandId}`, {
-        method: 'DELETE'
-      });
-
-      // Optimistic update
-      setBrands(prev => safeArray(prev).filter(b => Number(b.id) !== Number(brandId)));
-    } catch (error) {
-      console.error('Failed to delete brand:', error);
-      setLoginError('Failed to delete brand');
-      throw error;
-    }
-  }, [requireAdmin]);
-
-  /** ---------- Post as a brand ---------- */
-  const postAsBrand = useCallback(async (brandId: number, postData: any) => {
-    if (!requireAuth('Posting as brand')) return;
-    if (!currentUser) return;
-
-    try {
-      let mediaUrl = null;
-      if (postData.file) {
-        const uploadResult = await uploadToCloudflareR2(postData.file, 'brand-posts');
-        mediaUrl = uploadResult;
-      }
-
-      const payload = {
-        brand_id: brandId,
-        user_id: currentUser.id,
-        content: postData.text || '',
-        media_url: mediaUrl,
-        type: postData.type || 'post',
-        visibility: postData.visibility || 'public',
-        location: postData.location,
-        feeling: postData.feeling,
-        tagged_users: postData.taggedUsers,
-        background: postData.background,
-        link_preview: postData.linkPreview
-      };
-
-      const data = await apiFetch('/api/posts', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-
-      const newPost = normalizePost(data?.post ?? data);
-      
-      setPosts(prev => {
-        const next = [newPost, ...safeArray(prev)];
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
-
-      if (selectedUserId === currentUser.id) {
-        setProfilePosts(prev => [newPost, ...safeArray(prev)]);
-      }
-
-      pushSeenIds([Number(newPost.id)]);
-      scheduleSilentRefresh();
-      
-      return newPost;
-    } catch (error) {
-      console.error('Failed to post as brand:', error);
-      setLoginError('Failed to create post');
-      throw error;
-    }
-  }, [currentUser, requireAuth, selectedUserId, scheduleSilentRefresh]);
-
-  /** ---------- Create a brand event ---------- */
-  const createBrandEvent = useCallback(async (brandId: number, eventData: Partial<Event>) => {
-    if (!requireAuth('Creating events')) return;
-    if (!currentUser) return;
-
-    try {
-      const payload = {
-        ...eventData,
-        brand_id: brandId,
-        creator_id: currentUser.id,
-        creator_name: currentUser.name,
-        creator_avatar: currentUser.profile_image_url
-      };
-
-      const data = await apiFetch('/api/events', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-
-      const newEvent = normalizeEvent(data?.event ?? data);
-      setEvents(prev => [newEvent, ...safeArray(prev)]);
-      
-      // Create a feed post for this event
-      try {
-        const eventPostPayload = {
-          user_id: currentUser.id,
-          brand_id: brandId,
-          content: `🎉 Check out new event from our brand: ${newEvent.title}`,
-          type: "event",
-          event_id: newEvent.id,
-          visibility: 'public',
-          meta: {
-            kind: "event",
-            event_id: newEvent.id,
-            event: {
-              id: newEvent.id,
-              title: newEvent.title,
-              description: newEvent.description,
-              date: newEvent.date,
-              time: newEvent.time,
-              location: newEvent.location,
-              cover_url: newEvent.cover_url,
-              attendees: newEvent.attendees || [],
-              interested: newEvent.interestedIds || [],
-            }
-          }
-        };
-
-        const postRes = await apiFetch('/api/posts', { 
-          method: 'POST', 
-          body: JSON.stringify(eventPostPayload) 
-        });
-        
-        const newPost = normalizePost(postRes?.post ?? postRes);
-        
-        setPosts(prev => {
-          const next = [newPost, ...safeArray(prev)];
-          lastGoodPostsRef.current = next;
-          stableFeedRef.current = next;
-          return next;
-        });
-
-        pushSeenIds([Number(newPost.id)]);
-      } catch (error) {
-        console.error('Failed to create event post:', error);
-      }
-      
-      return newEvent;
-    } catch (error) {
-      console.error('Failed to create brand event:', error);
-      setLoginError('Failed to create event');
-      throw error;
-    }
-  }, [currentUser, requireAuth]);
-
-  /** ---------- Message a brand ---------- */
-  const messageBrand = useCallback((brandId: number) => {
-    if (!requireAuth('Messaging brands')) return;
-    
-    const brand = brands.find(b => Number(b.id) === Number(brandId));
-    if (brand) {
-      // Navigate to chat with this brand
-      setActiveChatUser(brand as any);
-      setView('home');
-    }
-  }, [requireAuth, brands]);
-
-  // ============================================================================
-  // END BRAND OPERATIONS
-  // ============================================================================
 
   const roleOf = (u: any) => String(u?.role || '').trim().toLowerCase();
   const isAdmin = (u: any) => roleOf(u) === 'admin';
@@ -3017,7 +2746,7 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-  /** ---------- Event Functions ---------- */
+  /** ---------- Event Functions from App.tsx 1 ---------- */
   const fetchEvents = useCallback(async (): Promise<Event[]> => {
     try {
       const data = await apiFetch('/api/events');
@@ -3030,7 +2759,10 @@ export default function App() {
   }, []);
 
   /**
-   * RSVP handler for events
+   * ✅ FIXED: RSVP handler using CORRECT endpoints:
+   * - /api/attend (for going)
+   * - /api/interested (for interested)
+   * - Both support "add"/"remove" actions
    */
   const onRSVPEvent = useCallback(
     async (eventId: number, status: "going" | "interested" | "not_going") => {
@@ -3041,6 +2773,7 @@ export default function App() {
       const id = Number(eventId);
       if (!id) return;
 
+      // ✅ Optimistic UI update (works instantly)
       setEvents(prev =>
         safeArray(prev).map(ev => {
           const e: any = normalizeEvent(ev);
@@ -3056,6 +2789,7 @@ export default function App() {
             interested.add(meId);
             attendees.delete(meId);
           } else {
+            // not_going: remove from both
             attendees.delete(meId);
             interested.delete(meId);
           }
@@ -3070,13 +2804,16 @@ export default function App() {
       );
 
       try {
+        // ✅ Use the CORRECT endpoints - /api/attend and /api/interested
         if (status === "going") {
+          // Add to attendees
           await postJSON("/api/attend", { 
             event_id: id, 
             user_id: meId, 
             action: "add" 
           });
           
+          // Remove from interested (silently fail if not there)
           await postJSON("/api/interested", { 
             event_id: id, 
             user_id: meId, 
@@ -3084,12 +2821,14 @@ export default function App() {
           }).catch(() => {});
         } 
         else if (status === "interested") {
+          // Add to interested
           await postJSON("/api/interested", { 
             event_id: id, 
             user_id: meId, 
             action: "add" 
           });
           
+          // Remove from attendees (silently fail if not there)
           await postJSON("/api/attend", { 
             event_id: id, 
             user_id: meId, 
@@ -3097,6 +2836,7 @@ export default function App() {
           }).catch(() => {});
         } 
         else if (status === "not_going") {
+          // Remove from both
           await postJSON("/api/attend", { 
             event_id: id, 
             user_id: meId, 
@@ -3110,11 +2850,13 @@ export default function App() {
           }).catch(() => {});
         }
 
+        // Optional: refresh events to ensure consistency
         const fresh = await fetchEvents().catch(() => []);
         setEvents(fresh);
 
         return { success: true };
       } catch (err: any) {
+        // Rollback by refreshing
         console.error('RSVP failed:', err);
         const fresh = await fetchEvents().catch(() => []);
         setEvents(fresh);
@@ -3125,21 +2867,21 @@ export default function App() {
   );
 
   /**
-   * Legacy joinEvent
+   * Legacy joinEvent - now uses onRSVPEvent
    */
   const joinEvent = useCallback(async (eventId: number) => {
     return onRSVPEvent(eventId, 'going');
   }, [onRSVPEvent]);
 
   /**
-   * Legacy markEventInterested
+   * Legacy markEventInterested - now uses onRSVPEvent
    */
   const markEventInterested = useCallback(async (eventId: number) => {
     return onRSVPEvent(eventId, 'interested');
   }, [onRSVPEvent]);
 
   /**
-   * Create event
+   * ✅ MODIFIED: createEvent now creates a feed post when event is created
    */
   const createEvent = useCallback(async (eventData: any) => {
     if (!requireAuth('Creating events')) return;
@@ -3170,18 +2912,19 @@ export default function App() {
       creator_name: safeString(currentUser.name),
       creator_avatar: safeString(currentUser.profile_image_url),
       group_id: eventData?.group_id ? Number(eventData.group_id) : null,
-      brand_id: eventData?.brand_id ? Number(eventData.brand_id) : null,
     };
 
+    // Create the event
     const res = await apiFetch('/api/events', { method: 'POST', body: JSON.stringify(payload) });
     const newEvent = normalizeEvent(res?.event ?? res);
     
+    // Update events state
     setEvents((prev: any) => [newEvent, ...safeArray(prev)]);
 
+    // ✅ Also create a feed post for this event
     try {
       const eventPostPayload = {
         user_id: currentUser.id,
-        brand_id: eventData?.brand_id ? Number(eventData.brand_id) : null,
         content: `🎉 Check out my new event: ${newEvent.title}`,
         type: "event",
         event_id: newEvent.id,
@@ -3210,6 +2953,7 @@ export default function App() {
       
       const newPost = normalizePost(postRes?.post ?? postRes);
       
+      // Add to feed immediately (optimistic update)
       setPosts(prev => {
         const next = [newPost, ...safeArray(prev)];
         lastGoodPostsRef.current = next;
@@ -3217,6 +2961,7 @@ export default function App() {
         return next;
       });
 
+      // Also add to profile posts if it's the current user's profile
       if (selectedUserId === currentUser.id) {
         setProfilePosts(prev => [newPost, ...safeArray(prev)]);
       }
@@ -3224,12 +2969,14 @@ export default function App() {
       pushSeenIds([Number(newPost.id)]);
     } catch (error) {
       console.error('Failed to create event post:', error);
+      // Don't throw - event was created successfully, just the post failed
     }
 
     scheduleSilentRefresh();
     return newEvent;
   }, [currentUser, requireAuth, selectedUserId]);
 
+  /** ---------- ✅ FIXED: Refresh group members helper ---------- */
   const refreshGroupMembers = useCallback(async (groupId: number) => {
     try {
       const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
@@ -3251,7 +2998,7 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // fetchOtherData with BRANDS integration
+  // 🔧 FIXED: fetchOtherData with proper group merging
   // ============================================================================
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
@@ -3261,7 +3008,7 @@ export default function App() {
       const [pr, g, b, c] = await Promise.all([
         apiFetch('/api/products').catch(() => []),
         apiFetch('/api/groups').catch(() => []),
-        apiFetch('/api/brands').catch(() => []), // Fetch brands from API
+        apiFetch('/api/brands').catch(() => []),
         apiFetch('/api/chats').catch(() => []),
       ]);
 
@@ -3277,7 +3024,7 @@ export default function App() {
 
       setProducts(prList.map(normalizeProduct));
       
-      // Handle groups
+      // 🔧 FIXED: Handle groups response properly - preserve undefined members
       const gRaw = g;
       const gList = Array.isArray(gRaw)
         ? gRaw
@@ -3285,12 +3032,18 @@ export default function App() {
         : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
         : [];
       
+      // ✅ FIXED: Merge new groups with existing ones, preserving members when backend doesn't send them
       setGroups(prev => {
         const byId = new Map(prev.map(g => [Number(g.id), g]));
         return gList.map((ng: any) => {
           const old = byId.get(Number(ng.id));
+          
+          // 🔧 CRITICAL FIX: Check if backend actually sent members
           const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
           
+          // If backend didn't send members, preserve old members (including undefined)
+          // If backend did send members, use them
+          // This prevents empty arrays from overwriting real membership data
           return normalizeGroup({
             ...old,
             ...ng,
@@ -3302,24 +3055,7 @@ export default function App() {
         });
       });
       
-      // ✅ Handle brands with proper normalization
-      const bRaw = b;
-      const bList = Array.isArray(bRaw)
-        ? bRaw
-        : Array.isArray((bRaw as any)?.brands) ? (bRaw as any).brands
-        : Array.isArray((bRaw as any)?.results) ? (bRaw as any).results
-        : [];
-      
-      setBrands(prev => {
-        const byId = new Map(prev.map(b => [Number(b.id), b]));
-        return bList.map((nb: any) => {
-          const old = byId.get(Number(nb.id));
-          return normalizeBrand({
-            ...old,
-            ...nb,
-          });
-        });
-      });
+      setBrands(safeArray(b));
       
       const eventsData = await fetchEvents().catch(() => []);
       setEvents(eventsData);
@@ -3332,29 +3068,37 @@ export default function App() {
     }
   }, [fetchEvents]);
 
+  // ============================================================================
+  // 🔧 Helper function to check group membership
+  // ============================================================================
   const isGroupMember = useCallback((group: Group): boolean => {
     if (!currentUser) return false;
     
     const meId = Number(currentUser.id);
     
+    // Check if user is admin
     if (group.admin_id === meId) return true;
     
+    // Check is_member flag from backend (most reliable)
     if (group.is_member === true) return true;
     if (group.is_member === false) return false;
     
+    // Fallback to checking members array (if available)
     return Array.isArray(group.members) && group.members.includes(meId);
   }, [currentUser]);
 
+  /** ---------- ✅ FIXED: fetchGroupPosts always returns array ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
     try {
       const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
       const res = await apiFetch(`/api/group-posts?group_id=${groupId}&viewerId=${viewerId}`);
       
+      // ✅ Always return an array
       const posts = safeArray((res as any)?.posts ?? res);
       return posts.map(normalizePost);
     } catch (error) {
       console.error('Failed to fetch group posts:', error);
-      return [];
+      return []; // Always return array on error
     }
   }, [currentUser]);
 
@@ -3415,17 +3159,21 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
+  /** ---------- ✅ FIXED: joinGroup with optimistic update and is_member support ---------- */
   const joinGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Joining groups")) return;
     if (!currentUser) return;
 
     const meId = Number(currentUser.id);
 
+    // ✅ OPTIMISTIC UPDATE: Update UI immediately using is_member flag
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
         
+        // Update both members array and is_member flag
         const currentMembers = Array.isArray(g.members) ? g.members : [];
+        // Don't add if already a member
         if (currentMembers.includes(meId)) return g;
         
         const nextMembers = [...currentMembers, meId];
@@ -3434,7 +3182,7 @@ export default function App() {
           ...g,
           members: nextMembers,
           members_count: nextMembers.length,
-          is_member: true,
+          is_member: true, // 🔧 Set is_member flag
         };
       })
     );
@@ -3445,10 +3193,12 @@ export default function App() {
         body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
       });
 
+      // ✅ Then refresh just this group's members to ensure consistency
       await refreshGroupMembers(groupId);
       
       return result;
     } catch (error) {
+      // Revert on error
       console.error('Failed to join group:', error);
       setGroups(prev =>
         prev.map(g => {
@@ -3461,7 +3211,7 @@ export default function App() {
             ...g,
             members: nextMembers,
             members_count: nextMembers.length,
-            is_member: false,
+            is_member: false, // 🔧 Revert is_member flag
           };
         })
       );
@@ -3470,12 +3220,14 @@ export default function App() {
     }
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
+  /** ---------- ✅ FIXED: leaveGroup with optimistic update and is_member support ---------- */
   const leaveGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Leaving groups")) return;
     if (!currentUser) return;
 
     const meId = Number(currentUser.id);
 
+    // ✅ OPTIMISTIC UPDATE: Update UI immediately using is_member flag
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
@@ -3487,7 +3239,7 @@ export default function App() {
           ...g,
           members: nextMembers,
           members_count: nextMembers.length,
-          is_member: false,
+          is_member: false, // 🔧 Set is_member flag
         };
       })
     );
@@ -3498,16 +3250,19 @@ export default function App() {
         { method: "DELETE" }
       );
 
+      // ✅ Then refresh just this group's members to ensure consistency
       await refreshGroupMembers(groupId);
       
       return result;
     } catch (error) {
+      // Revert on error
       console.error('Failed to leave group:', error);
       setGroups(prev =>
         prev.map(g => {
           if (Number(g.id) !== Number(groupId)) return g;
           
           const currentMembers = Array.isArray(g.members) ? g.members : [];
+          // Don't add if already a member
           if (currentMembers.includes(meId)) return g;
           
           const nextMembers = [...currentMembers, meId];
@@ -3516,7 +3271,7 @@ export default function App() {
             ...g,
             members: nextMembers,
             members_count: nextMembers.length,
-            is_member: true,
+            is_member: true, // 🔧 Revert is_member flag
           };
         })
       );
@@ -3532,7 +3287,7 @@ export default function App() {
     let media_url: string | null = null;
     if (file) {
       const up = await uploadToCloudflareR2(file, "group-posts");
-      media_url = up;
+      media_url = up.url;
     }
 
     try {
@@ -3625,29 +3380,35 @@ export default function App() {
     }
   }, []);
 
+  /** ---------- ✅ FIXED: fetchGroupEvents always returns array ---------- */
   const fetchGroupEvents = useCallback(async (groupId: number): Promise<Event[]> => {
     try {
       const data = await apiFetch(`/api/groups/${groupId}/events?viewerId=${currentUser?.id || 0}`);
       
+      // ✅ Always return an array
       const events = safeArray(data?.events ?? data);
       return events.map(normalizeEvent);
     } catch (error) {
       console.error('Failed to fetch group events:', error);
-      return [];
+      return []; // Always return array on error
     }
   }, [currentUser]);
 
+  /** ---------- ✅ FIXED: Create group event with correct field mapping ---------- */
   const createGroupEvent = useCallback(async (groupId: number, eventData: Partial<Event>): Promise<Event> => {
     if (!requireAuth('Creating events')) throw new Error('Authentication required');
     if (!currentUser) throw new Error('User not authenticated');
 
+    // Map from Groups.tsx format to backend format
     const title = String(eventData.title || "").trim();
     const description = String(eventData.description || "").trim();
     
+    // Handle date - Groups.tsx sends start_time
     const event_date = eventData.start_time || eventData.event_date || eventData.date || new Date().toISOString();
     
     const location = String(eventData.location || "").trim();
     
+    // Handle cover image - Groups.tsx sends cover_image
     const cover_url = String(
       eventData.cover_url || 
       eventData.cover_image || 
@@ -3660,14 +3421,14 @@ export default function App() {
 
     const payload = {
       group_id: Number(groupId),
-      creator_id: Number(currentUser.id),
+      creator_id: Number(currentUser.id), // ✅ Use creator_id not created_by
       creator_name: currentUser.name,
       creator_avatar: currentUser.profile_image_url,
       title,
       description,
-      event_date,
+      event_date, // ✅ Use event_date not start_time
       location,
-      cover_url,
+      cover_url, // ✅ Use cover_url not cover_image
       visibility: String(eventData.visibility || "worldwide"),
     };
 
@@ -3679,6 +3440,7 @@ export default function App() {
 
       const newEvent = normalizeEvent(data?.event ?? data);
       
+      // Update events state if needed
       setEvents(prev => [newEvent, ...safeArray(prev)]);
       
       return newEvent;
@@ -3688,10 +3450,12 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
+  /** ---------- ✅ FIXED: Event RSVP function with proper endpoints ---------- */
   const handleEventRSVP = useCallback(async (eventId: number, status: string): Promise<any> => {
     if (!requireAuth('RSVP to events')) return;
     if (!currentUser) return;
 
+    // Map status to the format expected by onRSVPEvent
     let mappedStatus: "going" | "interested" | "not_going";
     
     if (status === 'going') {
@@ -3705,6 +3469,7 @@ export default function App() {
     return onRSVPEvent(eventId, mappedStatus);
   }, [currentUser, requireAuth, onRSVPEvent]);
 
+  /** ---------- ✅ FIXED: Edit group post function with proper auth and user_id ---------- */
   const editGroupPost = useCallback(async (postId: number, content: string) => {
     if (!requireAuth('Editing group posts')) return;
 
@@ -3723,6 +3488,7 @@ export default function App() {
     return res;
   }, [currentUser, requireAuth]);
 
+  /** ---------- ✅ FIXED: Delete group post function with user_id ---------- */
   const deleteGroupPost = useCallback(async (groupId: number, postId: number) => {
     if (!requireAuth("Deleting group posts")) return;
 
@@ -3758,7 +3524,7 @@ export default function App() {
 
     try {
       const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
-      const imageUrl = uploadResult;
+      const imageUrl = uploadResult.url;
 
       const field = type === 'cover' ? 'cover_image' : 'profile_image';
       await updateGroupSettings(groupId, { [field]: imageUrl } as any);
@@ -3769,6 +3535,7 @@ export default function App() {
     }
   }, [requireAuth, updateGroupSettings]);
 
+  /** ---------- ✅ FIXED: Like comment function (needed for CommentsSheet) ---------- */
   const handleLikeComment = useCallback(async (commentId: number): Promise<any> => {
     if (!requireAuth('Liking comments')) return;
     if (!currentUser) return;
@@ -4265,7 +4032,6 @@ export default function App() {
     setSelectedReelSound(null);
     setSongs([]);
     setEvents([]);
-    setBrands([]);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -4288,7 +4054,7 @@ export default function App() {
 
     setView(target);
 
-    if (['home', 'reels', 'marketplace', 'groups', 'brands'].includes(target)) {
+    if (['home', 'reels', 'marketplace', 'groups'].includes(target)) {
       setActiveTab(target as any);
     }
     window.scrollTo(0, 0);
@@ -4306,7 +4072,6 @@ export default function App() {
         taggedUsers?: number[];
         background?: string;
         linkPreview?: any;
-        brand_id?: number;
       }
     ) => {
       if (!requireAuth('Creating posts')) return;
@@ -4322,8 +4087,8 @@ export default function App() {
       if (list.length) {
         try {
           const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
-          media_urls = ups.map((u) => u).filter(Boolean);
-          media_types = list.map((f) => f.type).filter(Boolean);
+          media_urls = ups.map((u) => u.url).filter(Boolean);
+          media_types = ups.map((u) => u.type).filter(Boolean);
         } catch (error: any) {
           setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
           return;
@@ -4335,7 +4100,6 @@ export default function App() {
 
       const payload: any = {
         user_id: currentUser!.id,
-        brand_id: meta?.brand_id || null,
         content: trimmed,
 
         media_url,
@@ -4614,7 +4378,7 @@ export default function App() {
 
       try {
         const uploadResult = await uploadToCloudflareR2(file, 'profiles');
-        await updateUserDetails({ profile_image_url: uploadResult } as any);
+        await updateUserDetails({ profile_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload profile image: ${error.message}`);
       }
@@ -4634,7 +4398,7 @@ export default function App() {
 
       try {
         const uploadResult = await uploadToCloudflareR2(file, 'covers');
-        await updateUserDetails({ cover_image_url: uploadResult } as any);
+        await updateUserDetails({ cover_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload cover image: ${error.message}`);
       }
@@ -4644,31 +4408,11 @@ export default function App() {
 
   const getPostAuthor = useCallback(
     (post: PostType) => {
-      // If post has a brand_id, check if it's a brand post
-      if ((post as any).brand_id) {
-        const brand = brands.find(b => Number(b.id) === Number((post as any).brand_id));
-        if (brand) {
-          // Return brand as a user-like object for display
-          return {
-            id: brand.id,
-            name: brand.name,
-            username: brand.name.toLowerCase().replace(/\s+/g, ''),
-            profile_image_url: brand.profile_image_url,
-            cover_image_url: brand.cover_image_url,
-            is_verified: brand.is_verified,
-            role: 'brand',
-            followers: brand.followers,
-            following: [],
-            created_at: brand.created_at,
-          } as User;
-        }
-      }
-      
       const author = users.find((u) => Number(u.id) === Number((post as any).user_id));
       if (author) return author;
       return createFallbackUser();
     },
-    [users, brands]
+    [users]
   );
 
   const handleCreateStoryFromProfile = useCallback(() => {
@@ -4805,7 +4549,6 @@ export default function App() {
         onReelsClick={() => handleNavigate('reels')}
         onMarketplaceClick={() => handleNavigate('marketplace')}
         onGroupsClick={() => handleNavigate('groups')}
-        onBrandsClick={() => handleNavigate('brands')}
         currentUser={currentUser}
         notifications={notifications}
         users={users}
@@ -4825,7 +4568,6 @@ export default function App() {
               onReelsClick={() => handleNavigate('reels')}
               onMarketplaceClick={() => handleNavigate('marketplace')}
               onGroupsClick={() => handleNavigate('groups')}
-              onBrandsClick={() => handleNavigate('brands')}
             />
           </div>
         )}
@@ -4923,7 +4665,7 @@ export default function App() {
                           onFollow={() => followUser(postAuthorId)}
                           followLoading={followLoading[postAuthorId] || false}
                           onViewProductFromPost={openProductFromPost}
-                          onRSVPEvent={onRSVPEvent}
+                          onRSVPEvent={onRSVPEvent} // Pass the unified RSVP handler to Post component
                         />
                       );
                     })
@@ -5003,6 +4745,7 @@ export default function App() {
                 onProfileClick={openProfile}
                 onLikePost={toggleGroupPostLike}
                 onSharePost={(postId: number, newShareCount: number) => {
+                  // Update local state
                   setPosts(prev => prev.map(p => 
                     p.id === postId ? { ...p, shares: newShareCount } as any : p
                   ));
@@ -5029,18 +4772,17 @@ export default function App() {
             </ErrorBoundary>
           )}
 
-          {/* ✅ Brands Page - Fully Integrated */}
           {view === 'brands' && (
             <BrandsPage
               currentUser={currentUser}
               brands={brands}
               posts={posts}
               users={users}
-              onCreateBrand={createBrand}
+              onCreateBrand={() => requireAuth('Creating brands')}
               onFollowBrand={(id: number) => followUser(id)}
               onProfileClick={(id) => openProfile(id)}
-              onPostAsBrand={postAsBrand}
-              onReact={onReactPost}
+              onPostAsBrand={() => requireAuth('Posting')}
+              onReact={() => requireAuth('Reacting')}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onOpenComments={(id: any) => {
                 if (!requireAuth('Commenting')) return;
@@ -5050,14 +4792,10 @@ export default function App() {
                 const found = source.find((p: any) => Number(p.id) === pid) || null;
                 setCommentPostSnapshot(found);
               }}
-              onUpdateBrand={updateBrand}
-              onDeleteBrand={deleteBrand}
-              onMessage={messageBrand}
-              onCreateEvent={createBrandEvent}
+              onDeleteBrand={() => requireAuth('Deleting brands')}
               onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              initialBrandId={null}
             />
           )}
 
@@ -5099,6 +4837,7 @@ export default function App() {
                 users={users}
                 onProfileClick={(id) => openProfile(id)}
                 onEventClick={(eventId) => {
+                  // Open event detail modal
                   setActiveEventId(eventId);
                 }}
                 onCreateEventClick={() => {
@@ -5249,6 +4988,8 @@ export default function App() {
           onCreate={async (eventData) => {
             try {
               const newEvent = await createEvent(eventData);
+              // The AllEvents component will automatically refresh its data
+              // because it re-fetches when the page is active
               setShowCreateEventModal(false);
             } catch (error) {
               console.error('Failed to create event:', error);
@@ -5264,8 +5005,8 @@ export default function App() {
           onClose={() => setShowCreatePostModal(false)}
           onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
           onCreateEventClick={() => {
-            setShowCreatePostModal(false);
-            setShowCreateEventModal(true);
+            setShowCreatePostModal(false); // Close the post modal first
+            setShowCreateEventModal(true);  // Then open the event modal
           }}
         />
       )}
