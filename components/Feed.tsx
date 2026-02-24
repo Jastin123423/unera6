@@ -244,6 +244,7 @@ const safeNumber = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+const safeStr = (v: any) => String(v ?? '').trim();
 
 const safeUserId = (u: any) => safeNumber(u?.id ?? u?.user_id ?? u?.userId, 0);
 const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
@@ -442,6 +443,34 @@ const topReactionEmojis = (reactionsArr: any[], max = 2) => {
 
 /**
  * =========================
+ * ✅ FORMAT COUNT FOR REACTIONS (2K, 1.2M, etc.)
+ * =========================
+ */
+const fmtCount = (n: number) => {
+  const num = Number(n || 0);
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(num % 1_000_000 === 0 ? 0 : 1) + "M";
+  if (num >= 1_000) return (num / 1_000).toFixed(num % 1_000 === 0 ? 0 : 1) + "K";
+  return String(num);
+};
+
+/**
+ * =========================
+ * ✅ PICK REACTOR NAME (FIRST REACTOR FOR FACEBOOK STYLE)
+ * =========================
+ */
+const pickReactorName = (reactions: any[], users?: any[]) => {
+  const first = reactions?.[0];
+  if (!first) return "";
+  const name =
+    first?.name ||
+    first?.user?.name ||
+    users?.find((u) => Number(u.id) === Number(first.user_id))?.name ||
+    "";
+  return String(name || "").trim();
+};
+
+/**
+ * =========================
  * ✅ ENHANCED LINK PREVIEW - FACEBOOK STYLE
  * =========================
  */
@@ -608,6 +637,110 @@ const ensureReactionStyles = () => {
   styleTag.textContent = reactionStyles;
   styleTag.setAttribute('data-reaction-styles', '1');
   document.head.appendChild(styleTag);
+};
+
+/**
+ * =========================
+ * ✅ GROUP POST HEADER - FACEBOOK STYLE WITH GROUP + USER OVERLAY
+ * =========================
+ */
+const GroupPostHeader: React.FC<{
+  post: any;
+  group?: any;
+  author?: any;
+  onOpenGroup?: (groupId: number) => void;
+  onOpenProfile?: (userId: number) => void;
+  onOpenMenu?: () => void;
+}> = ({ post, group, author, onOpenGroup, onOpenProfile, onOpenMenu }) => {
+  const groupName = safeStr(group?.name || post?.group_name);
+  const groupId = Number(group?.id || post?.group_id || 0);
+
+  const userName = safeStr(author?.name || post?.name || post?.username);
+  const userId = Number(author?.id || post?.user_id || 0);
+
+  const groupImg =
+    safeStr(group?.profile_image || group?.avatar || group?.image || post?.group_image) || "";
+  const userImg =
+    safeStr(author?.profile_image_url || author?.avatar || post?.profile_image_url) || "";
+
+  const timeAgo = formatRelativeTime(post?.created_at);
+
+  return (
+    <div className="flex items-start justify-between px-3 pt-3">
+      <div className="flex items-start gap-3 min-w-0">
+        {/* Group avatar with user overlay */}
+        <button
+          className="relative shrink-0"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (groupId && onOpenGroup) onOpenGroup(groupId);
+          }}
+          title={groupName}
+        >
+          <div className="w-10 h-10 rounded-full bg-[#3A3B3C] overflow-hidden flex items-center justify-center border border-[#4E4F50]">
+            {groupImg ? (
+              <img src={groupImg} className="w-full h-full object-cover" />
+            ) : (
+              <i className="fas fa-users text-[#B0B3B8]" />
+            )}
+          </div>
+
+          {/* Small overlay user avatar (like Facebook) */}
+          <div className="absolute -right-1 -bottom-1 w-5 h-5 rounded-full bg-[#3A3B3C] overflow-hidden border-2 border-[#242526] flex items-center justify-center">
+            {userImg ? (
+              <img src={userImg} className="w-full h-full object-cover" />
+            ) : (
+              <i className="fas fa-user text-[10px] text-[#B0B3B8]" />
+            )}
+          </div>
+        </button>
+
+        {/* Title + meta */}
+        <div className="min-w-0">
+          {/* Group name row */}
+          <button
+            className="text-left font-extrabold text-[18px] leading-[1.1] text-[#E4E6EB] truncate"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (groupId && onOpenGroup) onOpenGroup(groupId);
+            }}
+          >
+            {groupName || "Group"}
+          </button>
+
+          {/* User + time row */}
+          <div className="flex items-center gap-2 text-[13px] text-[#B0B3B8] min-w-0">
+            <button
+              className="font-semibold text-[#B0B3B8] hover:underline truncate"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (userId && onOpenProfile) onOpenProfile(userId);
+              }}
+            >
+              {userName || "User"}
+            </button>
+
+            <span>·</span>
+            <span className="truncate">{timeAgo}</span>
+
+            <span>·</span>
+            <i className="fas fa-users text-[12px]" />
+          </div>
+        </div>
+      </div>
+
+      {/* Right menu */}
+      <button
+        className="w-9 h-9 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onOpenMenu) onOpenMenu();
+        }}
+      >
+        <i className="fas fa-ellipsis-h text-[#B0B3B8]" />
+      </button>
+    </div>
+  );
 };
 
 /**
@@ -1296,7 +1429,7 @@ const GalleryViewer: React.FC<{
   onReact: (type: ReactionType) => void;
   onOpenComments: () => void;
   onShare: () => void;
-  onOpenReactions?: () => void; // New prop for reactions sheet
+  onOpenReactions?: () => void;
 }> = ({ 
   isOpen, 
   urls, 
@@ -1405,31 +1538,52 @@ const GalleryViewer: React.FC<{
         className="bg-black/80 backdrop-blur-sm border-t border-white/10 px-4 py-3"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Totals row - Make reaction count clickable */}
-        <div className="flex items-center justify-between text-[#B0B3B8] text-sm mb-2 px-2">
-          {reactionCount > 0 ? (
-            <span 
-              className="text-[#E4E6EB] font-bold cursor-pointer hover:underline flex items-center gap-2"
-              onClick={onOpenReactions}
-            >
-              <div className="flex -space-x-2">
-                {Array.from(new Set([myReaction, 'like', 'love']))
-                  .filter(Boolean)
-                  .slice(0, 2)
-                  .map((t, i) => (
-                    <span
-                      key={i}
-                      className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-black flex items-center justify-center text-[14px]"
-                    >
-                      {reactionEmoji(t as string)}
-                    </span>
-                  ))}
+        {/* Facebook-style reactions summary row */}
+        {reactionCount > 0 && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onOpenReactions) onOpenReactions();
+            }}
+            className="w-full flex items-center justify-between px-2 py-2 hover:bg-[#3A3B3C] rounded-lg mb-2 transition-colors"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-1">
+                <span className="text-[18px]">{reactionEmoji("love")}</span>
+                <span className="-ml-1 text-[18px]">{reactionEmoji("like")}</span>
               </div>
-              {formatCount(reactionCount)} reactions
-            </span>
-          ) : (
-            <span></span>
-          )}
+              <span className="text-[15px] text-[#B0B3B8] font-medium">
+                {fmtCount(reactionCount)}
+              </span>
+            </div>
+            <i className="fas fa-chevron-right text-[#B0B3B8] text-[12px]" />
+          </button>
+        )}
+
+        {/* Totals row */}
+        <div className="flex items-center justify-between text-[#B0B3B8] text-sm mb-2 px-2">
+          <div className="flex items-center gap-2">
+            {reactionCount > 0 && (
+              <span 
+                className="text-[#E4E6EB] font-bold cursor-pointer hover:underline flex items-center gap-2"
+                onClick={onOpenReactions}
+              >
+                <div className="flex -space-x-2">
+                  {Array.from(new Set([myReaction, 'like', 'love']))
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map((t, i) => (
+                      <span
+                        key={i}
+                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-black flex items-center justify-center text-[14px]"
+                      >
+                        {reactionEmoji(t as string)}
+                      </span>
+                    ))}
+                </div>
+              </span>
+            )}
+          </div>
           <div className="flex gap-3">
             <span 
               className="hover:underline cursor-pointer" 
@@ -2942,8 +3096,10 @@ export const Post: React.FC<{
   const podcast = meta?.podcast;
 
   // Group detection
+  const isGroupPost = !!(p?.group_id || p?.group);
   const groupId = Number(p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0);
   const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
+  const group = p?.group || groups?.find(g => g.id === groupId);
 
   const myReaction = p.myReaction ?? p.my_reaction ?? null;
   const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
@@ -3001,6 +3157,12 @@ export const Post: React.FC<{
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
 
+  // Get first reactor name for Facebook-style summary
+  const firstReactorName = useMemo(() => {
+    if (!reactionsArr?.length) return "";
+    return pickReactorName(reactionsArr, users);
+  }, [reactionsArr, users]);
+
   useEffect(() => {
     const newCommentCount = typeof p.comment_count === 'number' 
       ? p.comment_count 
@@ -3046,99 +3208,94 @@ export const Post: React.FC<{
       {/* Unified post wrapper */}
       <div className="w-full">
         <div className="bg-[#242526] w-full overflow-hidden">
-          {/* ===== POST HEADER ===== */}
-          <div className="p-3 md:p-4 flex items-center justify-between">
-            <div
-              className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-              onClick={() => onProfileClick(safeUserId(a))}
-            >
-              <img
-                src={avatarFrom(a)}
-                alt=""
-                className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-              />
-              <div className="min-w-0">
-                {/* Group name header for group posts */}
-                {groupId > 0 && groupName && (
-                  <div className="mb-1">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenGroup?.(groupId);
-                      }}
-                      className="text-[#2D88FF] font-bold text-sm hover:underline"
-                    >
-                      {groupName}
-                    </button>
+          {/* ===== POST HEADER - Use GroupPostHeader for group posts ===== */}
+          {isGroupPost ? (
+            <GroupPostHeader
+              post={p}
+              group={group}
+              author={a}
+              onOpenGroup={(id) => onOpenGroup?.(id)}
+              onOpenProfile={(id) => onProfileClick(id)}
+              onOpenMenu={() => console.log('Open menu')}
+            />
+          ) : (
+            <div className="p-3 md:p-4 flex items-center justify-between">
+              <div
+                className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+                onClick={() => onProfileClick(safeUserId(a))}
+              >
+                <img
+                  src={avatarFrom(a)}
+                  alt=""
+                  className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
+                      {a.name || a.username || 'User'}
+                    </h4>
+                    {a.is_verified && (
+                      <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                    )}
                   </div>
-                )}
-
-                <div className="flex items-center gap-1 flex-wrap">
-                  <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
-                    {a.name || a.username || 'User'}
-                  </h4>
-                  {a.is_verified && (
-                    <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                  <span>{createdAtLabel}</span>
-                  <span>•</span>
-                  <i className="fas fa-globe-americas text-[12px]"></i>
-                  {p.location && (
-                    <>
-                      <span>•</span>
-                      <span className="truncate max-w-[160px]">
-                        {String(p.location).split(',')[0]}
-                      </span>
-                    </>
-                  )}
-                  {p.feeling && (
-                    <>
-                      <span>•</span>
-                      <span>feeling {p.feeling}</span>
-                    </>
-                  )}
+                  <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                    <span>{createdAtLabel}</span>
+                    <span>•</span>
+                    <i className="fas fa-globe-americas text-[12px]"></i>
+                    {p.location && (
+                      <>
+                        <span>•</span>
+                        <span className="truncate max-w-[160px]">
+                          {String(p.location).split(',')[0]}
+                        </span>
+                      </>
+                    )}
+                    {p.feeling && (
+                      <>
+                        <span>•</span>
+                        <span>feeling {p.feeling}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
-              <button
-                onClick={handleFollowClick}
-                disabled={followLoading}
-                className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
-                  isFollowing 
-                    ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-              >
-                {followLoading ? (
-                  <i className="fas fa-spinner fa-spin"></i>
-                ) : isFollowing ? (
-                  'Following'
-                ) : (
-                  'Follow'
-                )}
-              </button>
-            )}
-
-            {onDelete &&
-              currentUser &&
-              safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
+              {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
                 <button
-                  className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(postId);
-                  }}
-                  title="Delete"
+                  onClick={handleFollowClick}
+                  disabled={followLoading}
+                  className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                    isFollowing 
+                      ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
+                      : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                  } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
-                  <i className="fas fa-trash text-[#B0B3B8]"></i>
+                  {followLoading ? (
+                    <i className="fas fa-spinner fa-spin"></i>
+                  ) : isFollowing ? (
+                    'Following'
+                  ) : (
+                    'Follow'
+                  )}
                 </button>
               )}
-          </div>
+
+              {onDelete &&
+                currentUser &&
+                safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
+                  <button
+                    className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(postId);
+                    }}
+                    title="Delete"
+                  >
+                    <i className="fas fa-trash text-[#B0B3B8]"></i>
+                  </button>
+                )}
+            </div>
+          )}
 
           {/* ===== MARKETPLACE TOP LINE ===== */}
           {isMarketplace && (
@@ -3422,17 +3579,47 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== REACTION SUMMARY - NOW CLICKABLE ===== */}
+          {/* ===== FACEBOOK-STYLE REACTIONS SUMMARY ROW ===== */}
+          {finalReactionCount > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowReactionsSheet(true);
+              }}
+              className="w-full flex items-center justify-between px-3 py-2 hover:bg-[#3A3B3C] rounded-lg transition-colors"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {/* Emoji stack */}
+                <div className="flex items-center gap-1">
+                  <span className="text-[18px]">{reactionEmoji("love")}</span>
+                  <span className="-ml-1 text-[18px]">{reactionEmoji("like")}</span>
+                </div>
+
+                {/* Count */}
+                <span className="text-[15px] text-[#B0B3B8] font-medium">
+                  {fmtCount(finalReactionCount)}
+                </span>
+
+                {/* Name + "and others" */}
+                {firstReactorName && (
+                  <span className="text-[15px] truncate hidden sm:inline">
+                    <span className="text-[#1877F2] font-semibold">{firstReactorName}</span>
+                    <span className="text-[#B0B3B8]">
+                      {" and others"}
+                    </span>
+                  </span>
+                )}
+              </div>
+
+              <i className="fas fa-chevron-right text-[#B0B3B8] text-[12px]" />
+            </button>
+          )}
+
+          {/* ===== REACTION SUMMARY ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {finalReactionCount > 0 && (
-                <div
-                  className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowReactionsSheet(true);
-                  }}
-                >
+                <div className="flex items-center gap-2">
                   <div className="flex -space-x-2">
                     {emojiList.slice(0, 2).map((e, i) => (
                       <span
@@ -3444,9 +3631,6 @@ export const Post: React.FC<{
                       </span>
                     ))}
                   </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(finalReactionCount)}
-                  </span>
                 </div>
               )}
             </div>
