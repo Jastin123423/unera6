@@ -1,25 +1,18 @@
 // functions/api/by-user.ts
-// ✅ Option B: Upgrade to include posts + reels + songs + podcasts + products (NO groups)
-// ✅ Response stays RAW ARRAY (so frontend doesn't break)
-// Query params:
-// - userId (profile owner)  REQUIRED
-// - viewerId (optional)     used for my_reaction on posts/reels/songs
-// - limit (optional, default 30, max 50)
-
-import type { PagesFunction } from '@cloudflare/workers-types';
+import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
 
 const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
 const toInt = (v: any, fallback = 0) => {
@@ -34,15 +27,15 @@ export const onRequestOptions: PagesFunction = async () =>
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    if (!env.DB) return json({ success: false, error: 'DB binding missing (DB)' }, 500);
+    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
     const url = new URL(request.url);
 
-    const userId = toInt(url.searchParams.get('userId'), 0); // profile owner
-    const viewerId = toInt(url.searchParams.get('viewerId'), 0); // current viewer
-    const limit = clamp(toInt(url.searchParams.get('limit'), 30), 1, 50);
+    const userId = toInt(url.searchParams.get("userId"), 0); // profile owner
+    const viewerId = toInt(url.searchParams.get("viewerId"), 0); // current viewer
+    const limit = clamp(toInt(url.searchParams.get("limit"), 30), 1, 50);
 
-    if (!userId) return json({ success: false, error: 'Missing userId' }, 400);
+    if (!userId) return json({ success: false, error: "Missing userId" }, 400);
 
     const q = `
       WITH items AS (
@@ -53,6 +46,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'post' AS item_type,
 
           p.id AS id,
+          ('post:' || CAST(p.id AS TEXT)) AS feed_key,
+
           p.user_id AS user_id,
           p.content AS content,
 
@@ -86,6 +81,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           p.views AS views,
           p.shares AS shares,
 
+          /* reactions counts + my reaction */
           (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
           (SELECT pr.type
              FROM post_reactions pr
@@ -93,6 +89,44 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
               AND pr.user_id = ?
             LIMIT 1
           ) AS my_reaction,
+
+          /* ✅ reactions list with names (needed for blue name) */
+          (
+            SELECT json_group_array(
+              json_object(
+                'user_id', x.user_id,
+                'type', x.type,
+                'name', x.name,
+                'created_at', x.created_at
+              )
+            )
+            FROM (
+              SELECT
+                pr.user_id AS user_id,
+                pr.type AS type,
+                COALESCE(uu.username, 'User') AS name,
+                pr.created_at AS created_at
+              FROM post_reactions pr
+              LEFT JOIN users uu ON uu.id = pr.user_id
+              WHERE pr.post_id = p.id
+              ORDER BY pr.created_at DESC
+              LIMIT 30
+            ) x
+          ) AS reactions,
+
+          /* ✅ exact counts per reaction type for tabs */
+          (
+            SELECT json_group_array(
+              json_object('type', y.type, 'count', y.c)
+            )
+            FROM (
+              SELECT pr.type AS type, COUNT(*) AS c
+              FROM post_reactions pr
+              WHERE pr.post_id = p.id
+              GROUP BY pr.type
+              ORDER BY c DESC
+            ) y
+          ) AS reactions_by_type,
 
           /* author fields */
           COALESCE(u.username, 'user') AS username,
@@ -104,6 +138,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           END AS profile_image_url,
           COALESCE(u.is_verified, 0) AS is_verified,
           COALESCE(u.role, 'user') AS role,
+
+          /* ✅ group fields (null for normal posts) */
+          NULL AS group_id,
+          NULL AS group_name,
+          NULL AS group_image,
 
           /* reels fields */
           NULL AS video_url,
@@ -152,12 +191,174 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         UNION ALL
 
+        /* ------------------ GROUP POSTS (by user) ------------------ */
+        SELECT
+          'group_post' AS source,
+          'group_post' AS item_type,
+
+          gp.id AS id,
+          ('group_post:' || CAST(gp.id AS TEXT)) AS feed_key,
+
+          gp.user_id AS user_id,
+          gp.content AS content,
+
+          CASE
+            WHEN gp.media_url LIKE 'data:%' THEN NULL
+            WHEN length(gp.media_url) > 300 THEN NULL
+            ELSE gp.media_url
+          END AS media_url,
+
+          CASE
+            WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+            WHEN gp.media_url IS NOT NULL AND gp.media_url != '' THEN 'image'
+            ELSE NULL
+          END AS media_type,
+
+          CASE
+            WHEN gp.media_url IS NOT NULL AND gp.media_url != ''
+            THEN json_array(gp.media_url)
+            ELSE NULL
+          END AS media_urls,
+
+          CASE
+            WHEN gp.media_url IS NOT NULL AND gp.media_url != ''
+            THEN json_array(
+              CASE
+                WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+                ELSE 'image'
+              END
+            )
+            ELSE NULL
+          END AS media_types,
+
+          gp.visibility AS visibility,
+          gp.created_at AS created_at,
+          0 AS views,
+          0 AS shares,
+
+          (SELECT COUNT(*) FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id) AS reactions_count,
+          (SELECT 'like'
+             FROM group_post_likes gpl
+            WHERE gpl.group_post_id = gp.id
+              AND gpl.user_id = ?
+            LIMIT 1
+          ) AS my_reaction,
+
+          /* ✅ reactions list with names for group posts */
+          (
+            SELECT json_group_array(
+              json_object(
+                'user_id', x.user_id,
+                'type', x.type,
+                'name', x.name,
+                'created_at', x.created_at
+              )
+            )
+            FROM (
+              SELECT
+                gpl.user_id AS user_id,
+                'like' AS type,
+                COALESCE(uu.username, 'User') AS name,
+                gpl.created_at AS created_at
+              FROM group_post_likes gpl
+              LEFT JOIN users uu ON uu.id = gpl.user_id
+              WHERE gpl.group_post_id = gp.id
+              ORDER BY gpl.created_at DESC
+              LIMIT 30
+            ) x
+          ) AS reactions,
+
+          /* ✅ counts per type (group likes only => like) */
+          (
+            SELECT json_group_array(
+              json_object('type','like','count', y.c)
+            )
+            FROM (
+              SELECT COUNT(*) AS c
+              FROM group_post_likes
+              WHERE group_post_id = gp.id
+            ) y
+          ) AS reactions_by_type,
+
+          /* author fields */
+          COALESCE(u.username, 'user') AS username,
+          COALESCE(u.username, 'User') AS name,
+          CASE
+            WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+            WHEN length(u.profile_image_url) > 300 THEN NULL
+            ELSE u.profile_image_url
+          END AS profile_image_url,
+          COALESCE(u.is_verified, 0) AS is_verified,
+          COALESCE(u.role, 'user') AS role,
+
+          /* ✅ group fields required by your UI */
+          g.id AS group_id,
+          g.name AS group_name,
+          CASE
+            WHEN g.profile_image LIKE 'data:%' THEN NULL
+            WHEN length(g.profile_image) > 300 THEN NULL
+            ELSE g.profile_image
+          END AS group_image,
+
+          /* reels fields */
+          CASE
+            WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN gp.media_url
+            ELSE NULL
+          END AS video_url,
+          NULL AS caption,
+          NULL AS song_name,
+          NULL AS audio_url,
+          0 AS audio_start,
+          0 AS audio_end,
+          NULL AS location,
+          NULL AS song_id,
+          NULL AS sound_key,
+          NULL AS sound_id,
+
+          /* product fields */
+          NULL AS product_title,
+          NULL AS product_category,
+          NULL AS product_description,
+          NULL AS product_country,
+          NULL AS product_address,
+          NULL AS product_main_price,
+          NULL AS product_discount_price,
+          NULL AS product_quantity,
+          NULL AS product_phone_number,
+          NULL AS product_images,
+
+          /* song fields */
+          NULL AS song_title,
+          NULL AS song_artist_name,
+          NULL AS song_album_name,
+          NULL AS song_cover_image_url,
+          NULL AS song_duration_seconds,
+          NULL AS song_genre,
+          NULL AS song_likes_count,
+          NULL AS song_plays_count,
+
+          /* podcast fields */
+          NULL AS podcast_title,
+          NULL AS podcast_description,
+          NULL AS podcast_audio_url,
+          NULL AS podcast_cover_url,
+          NULL AS podcast_plays_count
+
+        FROM group_posts gp
+        LEFT JOIN users u ON u.id = gp.user_id
+        LEFT JOIN groups g ON g.id = gp.group_id
+        WHERE gp.user_id = ?
+
+        UNION ALL
+
         /* ------------------ REELS (by user) ------------------ */
         SELECT
           'reel' AS source,
           'reel' AS item_type,
 
           r.id AS id,
+          ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
+
           r.user_id AS user_id,
           NULL AS content,
 
@@ -179,6 +380,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             LIMIT 1
           ) AS my_reaction,
 
+          /* reactions list not implemented for reels here */
+          NULL AS reactions,
+          NULL AS reactions_by_type,
+
           COALESCE(u.username, 'user') AS username,
           COALESCE(u.username, 'User') AS name,
           CASE
@@ -188,6 +393,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           END AS profile_image_url,
           COALESCE(u.is_verified, 0) AS is_verified,
           COALESCE(u.role, 'user') AS role,
+
+          NULL AS group_id,
+          NULL AS group_name,
+          NULL AS group_image,
 
           r.video_url AS video_url,
           r.caption AS caption,
@@ -238,6 +447,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'song' AS item_type,
 
           s.id AS id,
+          ('song:' || CAST(s.id AS TEXT)) AS feed_key,
+
           s.uploader_id AS user_id,
           NULL AS content,
 
@@ -259,6 +470,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             LIMIT 1
           ) AS my_reaction,
 
+          NULL AS reactions,
+          NULL AS reactions_by_type,
+
           COALESCE(u.username, 'user') AS username,
           COALESCE(u.username, 'User') AS name,
           CASE
@@ -268,6 +482,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           END AS profile_image_url,
           COALESCE(u.is_verified, 0) AS is_verified,
           COALESCE(u.role, 'user') AS role,
+
+          NULL AS group_id,
+          NULL AS group_name,
+          NULL AS group_image,
 
           NULL AS video_url,
           NULL AS caption,
@@ -322,6 +540,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'podcast' AS item_type,
 
           pc.id AS id,
+          ('podcast:' || CAST(pc.id AS TEXT)) AS feed_key,
+
           pc.creator_id AS user_id,
           NULL AS content,
 
@@ -338,6 +558,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           0 AS reactions_count,
           NULL AS my_reaction,
 
+          NULL AS reactions,
+          NULL AS reactions_by_type,
+
           COALESCE(u.username, 'user') AS username,
           COALESCE(u.username, 'User') AS name,
           CASE
@@ -347,6 +570,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           END AS profile_image_url,
           COALESCE(u.is_verified, 0) AS is_verified,
           COALESCE(u.role, 'user') AS role,
+
+          NULL AS group_id,
+          NULL AS group_name,
+          NULL AS group_image,
 
           NULL AS video_url,
           NULL AS caption,
@@ -397,6 +624,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'product' AS item_type,
 
           pr.id AS id,
+          ('product:' || CAST(pr.id AS TEXT)) AS feed_key,
+
           pr.seller_id AS user_id,
           NULL AS content,
 
@@ -413,6 +642,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           0 AS reactions_count,
           NULL AS my_reaction,
 
+          NULL AS reactions,
+          NULL AS reactions_by_type,
+
           COALESCE(u.username, 'seller') AS username,
           COALESCE(u.username, 'Seller') AS name,
           CASE
@@ -422,6 +654,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           END AS profile_image_url,
           COALESCE(u.is_verified, 0) AS is_verified,
           COALESCE(u.role, 'user') AS role,
+
+          NULL AS group_id,
+          NULL AS group_name,
+          NULL AS group_image,
 
           NULL AS video_url,
           NULL AS caption,
@@ -469,25 +705,38 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // Bind order EXACTLY:
-    // posts: viewerId, userId
-    // reels: viewerId, userId
-    // songs: viewerId, userId
-    // podcasts: userId
-    // products: userId
-    // limit
+    /**
+     * Bind order EXACT:
+     * posts:    viewerId, userId
+     * group:    viewerId, userId
+     * reels:    viewerId, userId
+     * songs:    viewerId, userId
+     * podcasts: userId
+     * products: userId
+     * limit
+     */
     const binds = [
-      viewerId || 0, userId,
-      viewerId || 0, userId,
-      viewerId || 0, userId,
+      viewerId || 0,
+      userId,
+
+      viewerId || 0,
+      userId,
+
+      viewerId || 0,
+      userId,
+
+      viewerId || 0,
+      userId,
+
       userId,
       userId,
+
       limit,
     ];
 
     const { results } = await env.DB.prepare(q).bind(...binds).all();
 
-    // ✅ RAW ARRAY RESPONSE (as requested)
+    // return raw array
     return json(Array.isArray(results) ? results : [], 200);
   } catch (e: any) {
     return json({ success: false, error: e?.message || String(e) }, 500);
