@@ -1118,7 +1118,167 @@ const MediaGrid: React.FC<{
 
 /**
  * =========================
+ * ✅ REACTIONS SHEET - FACEBOOK STYLE WITH TABS
+ * =========================
+ */
+const ReactionsSheet: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  postId: number;
+  onProfileClick: (id: number) => void;
+  onOpenComments?: (postId: number) => void;
+}> = ({ isOpen, onClose, postId, onProfileClick, onOpenComments }) => {
+  const [loading, setLoading] = useState(false);
+  const [active, setActive] = useState<string>("all");
+  const [items, setItems] = useState<any[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setLoading(true);
+    setItems([]);
+    setCounts({});
+    setActive("all");
+
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+
+    (async () => {
+      try {
+        const data = await apiFetch(`/api/posts/${postId}/reactions?limit=500&offset=0`, {
+          signal: abortRef.current?.signal as any,
+        } as any);
+
+        const arr = Array.isArray(data?.reactions) ? data.reactions : [];
+        setItems(arr);
+
+        const map: Record<string, number> = {};
+        for (const r of arr) {
+          const t = String(r?.type || "like").toLowerCase();
+          map[t] = (map[t] || 0) + 1;
+        }
+        setCounts(map);
+      } catch (e) {
+        // ignore abort
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    return () => abortRef.current?.abort();
+  }, [isOpen, postId]);
+
+  if (!isOpen) return null;
+
+  const typesSorted = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([t]) => t);
+
+  const filtered =
+    active === "all" ? items : items.filter((x) => String(x?.type).toLowerCase() === active);
+
+  const Tab = ({ t, label, count }: { t: string; label: React.ReactNode; count: number }) => (
+    <button
+      onClick={() => setActive(t)}
+      className={`px-3 py-2 text-[15px] font-bold border-b-2 whitespace-nowrap ${
+        active === t ? "text-[#1877F2] border-[#1877F2]" : "text-[#B0B3B8] border-transparent"
+      }`}
+    >
+      {label} {count ? <span className="ml-1">{count}</span> : null}
+    </button>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-[#18191A] flex flex-col">
+      {/* header */}
+      <div className="p-4 border-b border-[#3E4042] flex items-center gap-3 bg-[#242526]">
+        <button
+          className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
+          onClick={onClose}
+          aria-label="Back"
+        >
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+        </button>
+        <div className="text-[#E4E6EB] font-bold text-[18px]">People who reacted</div>
+      </div>
+
+      {/* tabs */}
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-[#3E4042] bg-[#242526] scrollbar-hide">
+        <Tab t="all" label="All" count={items.length} />
+        {typesSorted.map((t) => (
+          <Tab
+            key={t}
+            t={t}
+            label={<span className="text-[18px]">{reactionEmoji(t)}</span>}
+            count={counts[t] || 0}
+          />
+        ))}
+      </div>
+
+      {/* list */}
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="p-6 text-[#B0B3B8] text-center">Loading reactions...</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-6 text-[#B0B3B8] text-center">No reactions yet.</div>
+        ) : (
+          <div className="p-2">
+            {filtered.map((r, idx) => {
+              const u = r?.user || {};
+              const uid = Number(u?.id || r?.user_id || 0);
+              const name = String(u?.name || u?.username || "User");
+              const img = avatarFrom(u);
+
+              return (
+                <button
+                  key={String(uid) + "-" + idx}
+                  className="w-full flex items-center gap-3 p-3 hover:bg-[#3A3B3C] rounded-xl text-left"
+                  onClick={() => uid && onProfileClick(uid)}
+                >
+                  <div className="relative">
+                    <img src={img} className="w-12 h-12 rounded-full object-cover" alt="" />
+                    <div className="absolute -right-1 -bottom-1 w-6 h-6 rounded-full bg-[#242526] border border-[#3E4042] flex items-center justify-center text-[14px]">
+                      {reactionEmoji(String(r?.type))}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[#E4E6EB] font-bold truncate">{name}</div>
+                    {u?.username ? (
+                      <div className="text-[#B0B3B8] text-xs truncate">@{u.username}</div>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Optional: Comments button at bottom */}
+      {onOpenComments && (
+        <div className="p-4 border-t border-[#3E4042] bg-[#242526]">
+          <button
+            onClick={() => {
+              onClose();
+              onOpenComments(postId);
+            }}
+            className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-bold rounded-lg transition-colors"
+          >
+            View Comments
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * =========================
  * ✅ FIXED: GALLERY VIEWER WITH LIKE/COMMENT/SHARE AT THE BOTTOM
+ * AND REACTIONS SHEET SUPPORT
  * =========================
  */
 const GalleryViewer: React.FC<{
@@ -1136,6 +1296,7 @@ const GalleryViewer: React.FC<{
   onReact: (type: ReactionType) => void;
   onOpenComments: () => void;
   onShare: () => void;
+  onOpenReactions?: () => void; // New prop for reactions sheet
 }> = ({ 
   isOpen, 
   urls, 
@@ -1149,7 +1310,8 @@ const GalleryViewer: React.FC<{
   myReaction,
   onReact,
   onOpenComments,
-  onShare
+  onShare,
+  onOpenReactions
 }) => {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
@@ -1243,11 +1405,31 @@ const GalleryViewer: React.FC<{
         className="bg-black/80 backdrop-blur-sm border-t border-white/10 px-4 py-3"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Totals row */}
+        {/* Totals row - Make reaction count clickable */}
         <div className="flex items-center justify-between text-[#B0B3B8] text-sm mb-2 px-2">
-          <span className="text-[#E4E6EB] font-bold">
-            {formatCount(reactionCount)} reactions
-          </span>
+          {reactionCount > 0 ? (
+            <span 
+              className="text-[#E4E6EB] font-bold cursor-pointer hover:underline flex items-center gap-2"
+              onClick={onOpenReactions}
+            >
+              <div className="flex -space-x-2">
+                {Array.from(new Set([myReaction, 'like', 'love']))
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((t, i) => (
+                    <span
+                      key={i}
+                      className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-black flex items-center justify-center text-[14px]"
+                    >
+                      {reactionEmoji(t as string)}
+                    </span>
+                  ))}
+              </div>
+              {formatCount(reactionCount)} reactions
+            </span>
+          ) : (
+            <span></span>
+          )}
           <div className="flex gap-3">
             <span 
               className="hover:underline cursor-pointer" 
@@ -2744,6 +2926,9 @@ export const Post: React.FC<{
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
+  // Reactions sheet state
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+
   const openGallery = (urls: string[], index: number) => {
     setGalleryUrls(urls);
     setGalleryIndex(index);
@@ -3237,11 +3422,17 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== REACTION SUMMARY ===== */}
+          {/* ===== REACTION SUMMARY - NOW CLICKABLE ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {finalReactionCount > 0 && (
-                <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
+                <div
+                  className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowReactionsSheet(true);
+                  }}
+                >
                   <div className="flex -space-x-2">
                     {emojiList.slice(0, 2).map((e, i) => (
                       <span
@@ -3322,7 +3513,16 @@ export const Post: React.FC<{
         onShareComplete={handleShareComplete}
       />
 
-      {/* Gallery Viewer for multi-image swiping - WITH ACTIONS */}
+      {/* Reactions Sheet */}
+      <ReactionsSheet
+        isOpen={showReactionsSheet}
+        onClose={() => setShowReactionsSheet(false)}
+        postId={postId}
+        onProfileClick={onProfileClick}
+        onOpenComments={onOpenComments}
+      />
+
+      {/* Gallery Viewer for multi-image swiping - WITH ACTIONS AND REACTIONS SHEET SUPPORT */}
       <GalleryViewer
         isOpen={galleryOpen}
         urls={galleryUrls}
@@ -3337,6 +3537,7 @@ export const Post: React.FC<{
         onReact={(type) => onReact(postId, type)}
         onOpenComments={() => onOpenComments(postId)}
         onShare={() => setShowShareSheet(true)}
+        onOpenReactions={() => setShowReactionsSheet(true)}
       />
     </>
   );
