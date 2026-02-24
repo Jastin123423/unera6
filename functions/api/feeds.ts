@@ -1,538 +1,1298 @@
+// functions/api/feeds.ts
+import type { PagesFunction } from "@cloudflare/workers-types";
 
+type Env = { DB: D1Database };
 
-import React, { useState, useEffect, useRef } from 'react';
-import { User, Notification } from '../types';
-import { useLanguage } from '../contexts/LanguageContext';
-import { NotificationDropdown } from './Notifications';
-
-interface MenuOverlayProps {
-  currentUser: User | null;
-  onClose: () => void;
-  onNavigate: (view: string) => void;
-  onLogout: () => void;
-}
-
-export const MenuOverlay: React.FC<MenuOverlayProps> = ({
-  currentUser,
-  onClose,
-  onNavigate,
-  onLogout,
-}) => {
-  const menuItems = [
-    { id: 'marketplace', title: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', desc: 'Buy and sell in your community.' },
-    { id: 'events', title: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', desc: 'Discover events near you.' },
-    { id: 'profiles', title: 'Profiles', icon: 'fas fa-user-friends', color: '#1877F2', desc: 'See friends and profiles.' },
-    { id: 'groups', title: 'Groups', icon: 'fas fa-users', color: '#1877F2', desc: 'Connect with people who share your interests.' },
-    { id: 'brands', title: 'Brands', icon: 'fas fa-award', color: '#F7B928', desc: 'Discover and create business pages.' },
-    { id: 'music', title: 'UNERA Music', icon: 'fas fa-music', color: '#0055FF', desc: 'Listen to music and podcasts.' },
-    { id: 'tools', title: 'UNERA Tools', icon: 'fas fa-briefcase', color: '#2ABBA7', desc: 'PDF Tools, AI Chat, Image Tools.' },
-    { id: 'reels', title: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F', desc: 'Watch and create short videos.' },
-    { id: 'birthdays', title: 'Birthdays', icon: 'fas fa-birthday-cake', color: '#F7B928', desc: 'See upcoming birthdays.' },
-    { id: 'memories', title: 'Memories', icon: 'fas fa-history', color: '#1877F2', desc: 'Browse your old photos, videos and posts.' },
-  ];
-
-  const bottomItems = [
-    { id: 'settings', title: 'Settings & Privacy', icon: 'fas fa-cog' },
-    { id: 'privacy', title: 'Privacy Policy', icon: 'fas fa-user-shield' },
-    { id: 'help', title: 'Help & Support', icon: 'fas fa-question-circle' },
-    { id: 'terms', title: 'Terms of Service', icon: 'fas fa-file-alt' },
-  ];
-
-  return (
-    <div className="fixed inset-0 z-[200] bg-[#18191A] animate-slide-down flex flex-col font-sans overflow-hidden">
-      <div className="h-14 px-4 flex items-center justify-between border-b border-[#3E4042] bg-[#242526] shadow-sm flex-shrink-0">
-        <h2 className="text-[24px] font-bold text-[#E4E6EB]">Menu</h2>
-        <div className="flex gap-2">
-          <div
-            onClick={onClose}
-            className="w-9 h-9 bg-[#3A3B3C] rounded-full flex items-center justify-center cursor-pointer hover:bg-[#4E4F50]"
-          >
-            <i className="fas fa-times text-[#E4E6EB] text-xl"></i>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 bg-[#18191A]">
-        {currentUser && (
-          <div
-            className="flex items-center gap-3 p-3 bg-[#242526] rounded-xl shadow-sm mb-4 cursor-pointer hover:bg-[#3A3B3C]"
-            onClick={() => {
-              onNavigate('profile');
-              onClose();
-            }}
-          >
-            <img
-              src={currentUser.profile_image_url}
-              alt={currentUser.name}
-              className="w-10 h-10 rounded-full object-cover"
-            />
-            <div className="flex flex-col">
-              <span className="font-bold text-[#E4E6EB] text-lg">{currentUser.name}</span>
-              <span className="text-[#B0B3B8] text-sm">View your profile</span>
-            </div>
-          </div>
-        )}
-
-        <h3 className="text-[#E4E6EB] font-semibold text-[17px] mb-3 px-1">All shortcuts</h3>
-
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          {menuItems.map((item) => (
-            <div
-              key={item.id}
-              className="bg-[#242526] rounded-xl p-4 shadow-sm flex flex-col gap-3 cursor-pointer hover:bg-[#3A3B3C] transition-colors"
-              onClick={() => {
-                onNavigate(item.id);
-                onClose();
-              }}
-            >
-              <i className={`${item.icon} text-[28px]`} style={{ color: item.color }}></i>
-              <div>
-                <h4 className="font-semibold text-[#E4E6EB] text-[16px] leading-tight mb-0.5">
-                  {item.title}
-                </h4>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="border-t border-[#3E4042] my-4"></div>
-
-        <div className="flex flex-col gap-1">
-          {bottomItems.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center justify-between p-3 rounded-lg hover:bg-[#3A3B3C] cursor-pointer"
-              onClick={() => {
-                onNavigate(item.id);
-                onClose();
-              }}
-            >
-              <div className="flex items-center gap-3">
-                <i className={`${item.icon} text-[#B0B3B8] text-xl w-6 text-center`}></i>
-                <span className="text-[#E4E6EB] font-medium text-[16px]">{item.title}</span>
-              </div>
-              <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
-            </div>
-          ))}
-
-          <div
-            className="flex items-center justify-between p-3 rounded-lg hover:bg-[#3A3B3C] cursor-pointer mt-2"
-            onClick={onLogout}
-          >
-            <div className="flex items-center gap-3">
-              <i className="fas fa-sign-out-alt text-[#E4E6EB] text-xl w-6 text-center"></i>
-              <span className="text-[#E4E6EB] font-medium text-[16px]">Log Out</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+const cors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-interface HeaderProps {
-  onHomeClick: () => void;
-  onProfileClick: (id: number) => void;
-  onReelsClick: () => void;
-  onMarketplaceClick: () => void;
-  onGroupsClick: () => void;
-  currentUser: User | null;
-  notifications: Notification[];
-  users: User[];
-  onLogout: () => void;
-  onLoginClick: () => void;
-  onMarkNotificationsRead: () => void;
-  activeTab: string;
-  onNavigate: (view: string) => void;
-}
+const json = (data: any, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
 
-export const Header: React.FC<HeaderProps> = ({
-  onHomeClick,
-  onProfileClick,
-  onReelsClick,
-  onMarketplaceClick,
-  onGroupsClick,
-  currentUser,
-  notifications,
-  users,
-  onLogout,
-  onLoginClick,
-  onMarkNotificationsRead,
-  activeTab,
-  onNavigate,
-}) => {
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [showFullMenu, setShowFullMenu] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<User[]>([]);
-  const notifRef = useRef<HTMLDivElement>(null);
-  const profileRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLDivElement>(null);
+const toInt = (v: any, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(event.target as Node)) setShowNotifications(false);
-      if (profileRef.current && !profileRef.current.contains(event.target as Node)) setShowProfileMenu(false);
-      if (searchRef.current && !searchRef.current.contains(event.target as Node)) setSearchResults([]);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const query = e.target.value;
-    setSearchQuery(query);
+const parseSeenIds = (raw: string | null, max = 250) => {
+  if (!raw) return [];
+  const ids = raw
+    .split(",")
+    .map((x) => Number(String(x).trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return Array.from(new Set(ids)).slice(0, max);
+};
 
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    const lowerQuery = query.toLowerCase();
-    const scoredUsers = users
-      .filter((u) => !currentUser || u.id !== currentUser.id)
-      .map((user) => {
-        let score = 0;
-        if (user.name.toLowerCase().includes(lowerQuery)) score += 10;
-        return { user, score };
-      })
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .map((item) => item.user);
-
-    setSearchResults(scoredUsers);
+// Deterministic seeded RNG + shuffle
+const mulberry32 = (seed: number) => {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-
-  // ✅ NEW icon (bigger than "U" and closer to UNERA)
-  const uneraIconUrl =
-    'https://pub-71f20b7e692d481a8486f90d3e574be7.r2.dev/task_01kj5y9gc6ey5rdbgt7qkymnvk_1771873623_img_0.webp';
-
-  return (
-    <>
-      <div className="sticky top-0 z-50 bg-[#242526] shadow-sm h-14 flex items-center justify-between px-4 w-full border-b border-[#3E4042]">
-        <div className="flex items-center gap-2">
-          <div
-            className="flex items-center cursor-pointer mr-2"
-            onClick={onHomeClick}
-          >
-            
-        {/* ✅ Bigger icon and closer to text */}
-            <img
-              src={uneraIconUrl}
-              alt="UNERA"
-              className="
-                w-[56px] h-[56px]
-                sm:w-[44px] sm:h-[44px]
-                object-contain
-                animate-[spin_7s_linear_infinite]
-                -mr-1
-                select-none
-              "
-              draggable={false}
-            />
-
-            <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
-              UNERA
-            </h1>
-          </div>
-
-  {/* ✅ Local keyframes (only affect this component) */}
-  <style>{`
-    @keyframes uneraGlobeSpin_2.8s {
-      from { transform: rotate(0deg); }
-      to   { transform: rotate(360deg); }
-    }
-    /* "Globe-like" feel: slight 3D tilt/wobble while spinning */
-    @keyframes uneraGlobeWobble_3.6s {
-      0%   { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(0deg) rotateX(12deg) rotateY(-18deg); }
-      50%  { filter: drop-shadow(0 2px 10px rgba(0,0,0,0.35)); transform: rotate(180deg) rotateX(-10deg) rotateY(18deg); }
-      100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transform: rotate(360deg) rotateX(12deg) rotateY(-18deg); }
-    }
-  `}</style>
-</div>
-
-        <div className="flex-1 max-w-[600px] h-full hidden md:flex items-center justify-center gap-1">
-          <div
-            onClick={onHomeClick}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'home'
-                ? 'border-[#1877F2] text-[#1877F2]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-home text-[24px]"></i>
-          </div>
-
-          <div
-            onClick={onReelsClick}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'reels'
-                ? 'border-[#1877F2] text-[#1877F2]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-clapperboard text-[24px]"></i>
-          </div>
-
-          <div
-            onClick={onMarketplaceClick}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'marketplace'
-                ? 'border-[#1877F2] text-[#1877F2]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-store text-[24px]"></i>
-          </div>
-
-          <div
-            onClick={onGroupsClick}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'groups'
-                ? 'border-[#1877F2] text-[#1877F2]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-users text-[24px]"></i>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 justify-end">
-          <div
-            className="flex items-center justify-center w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] cursor-pointer"
-            onClick={() => setShowFullMenu(true)}
-          >
-            <i className="fas fa-bars text-[#E4E6EB] text-[18px]"></i>
-          </div>
-
-          <div className="relative mr-1 md:mr-2" ref={searchRef}>
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <i className="fas fa-search text-[#B0B3B8]"></i>
-            </div>
-
-            <input
-              type="text"
-              className="bg-[#3A3B3C] text-[#E4E6EB] rounded-full py-2 pl-10 pr-4 w-[40px] md:w-[240px] focus:w-[240px] transition-all duration-300 focus:outline-none focus:ring-1 focus:ring-[#1877F2] cursor-pointer md:cursor-text"
-              placeholder="Search in UNERA"
-              value={searchQuery}
-              onChange={handleSearchChange}
-            />
-
-            {searchQuery && (
-              <div className="absolute top-12 right-0 w-[280px] bg-[#242526] rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.5)] border border-[#3E4042] z-50 p-2 max-h-[400px] overflow-y-auto">
-                {searchResults.length > 0 ? (
-                  searchResults.map((user) => (
-                    <div
-                      key={user.id}
-                      className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
-                      onClick={() => {
-                        onProfileClick(user.id);
-                        setSearchQuery('');
-                        setSearchResults([]);
-                      }}
-                    >
-                      <img
-                        src={user.profile_image_url}
-                        alt={user.name}
-                        className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-                      />
-                      <div className="flex flex-col overflow-hidden">
-                        <span className="font-semibold text-[15px] text-[#E4E6EB] truncate">
-                          {user.name}
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="p-4 text-center text-[#B0B3B8] text-sm">No results found</div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {!currentUser ? (
-            <button
-              onClick={onLoginClick}
-              className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-1.5 px-4 rounded-full transition-colors"
-            >
-              Log In
-            </button>
-          ) : (
-            <>
-              <div
-                className="flex items-center justify-center w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] cursor-pointer relative"
-                onClick={() => {
-                  setShowNotifications(!showNotifications);
-                  if (!showNotifications) onMarkNotificationsRead();
-                }}
-                ref={notifRef}
-              >
-                <i className="fas fa-bell text-[#E4E6EB] text-lg"></i>
-
-                {showNotifications && (
-                  <NotificationDropdown
-                    notifications={notifications}
-                    users={users}
-                    onNotificationClick={(n) => {
-                      setShowNotifications(false);
-                      if (n.post_id) onNavigate(`post-${n.post_id}`);
-                      else if (n.sender_id) onProfileClick(n.sender_id);
-                    }}
-                    onMarkAllRead={onMarkNotificationsRead}
-                  />
-                )}
-              </div>
-
-              <div
-                className="relative cursor-pointer"
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                ref={profileRef}
-              >
-                <img
-                  src={currentUser.profile_image_url}
-                  alt="Profile"
-                  className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-                />
-
-                {showProfileMenu && (
-                  <div className="absolute top-12 right-0 w-[300px] bg-[#242526] rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.5)] border border-[#3E4042] z-50 p-2">
-                    <div
-                      className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-2"
-                      onClick={() => onProfileClick(currentUser.id)}
-                    >
-                      <img
-                        src={currentUser.profile_image_url}
-                        alt=""
-                        className="w-10 h-10 rounded-full object-cover"
-                      />
-                      <span className="font-semibold text-[17px] text-[#E4E6EB]">
-                        {currentUser.name}
-                      </span>
-                    </div>
-
-                    <div className="border-b border-[#3E4042] my-1"></div>
-
-                    <div
-                      className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
-                      onClick={onLogout}
-                    >
-                      <div className="w-9 h-9 bg-[#3A3B3C] rounded-full flex items-center justify-center">
-                        <i className="fas fa-sign-out-alt text-[#E4E6EB]"></i>
-                      </div>
-                      <span className="font-medium text-[15px] text-[#E4E6EB]">
-                        Log Out
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {showFullMenu && (
-        <MenuOverlay
-          currentUser={currentUser}
-          onClose={() => setShowFullMenu(false)}
-          onNavigate={onNavigate}
-          onLogout={onLogout}
-        />
-      )}
-    </>
-  );
 };
 
-interface SidebarProps {
-  currentUser: User;
-  onProfileClick: (id: number) => void;
-  onReelsClick: () => void;
-  onMarketplaceClick: () => void;
-  onGroupsClick: () => void;
-  onEventsClick: () => void;
-}
-
-export const Sidebar: React.FC<SidebarProps> = ({
-  currentUser,
-  onProfileClick,
-  onReelsClick,
-  onMarketplaceClick,
-  onGroupsClick,
-  onEventsClick,
-}) => {
-  const items = [
-    { id: 'friends', label: 'Friends', icon: 'fas fa-user-friends', color: '#1877F2' },
-    { id: 'memories', label: 'Memories', icon: 'fas fa-history', color: '#1877F2' },
-    { id: 'saved', label: 'Saved', icon: 'fas fa-bookmark', color: '#B250B3' },
-    { id: 'groups', label: 'Groups', icon: 'fas fa-users', color: '#1877F2', onClick: onGroupsClick },
-    { id: 'marketplace', label: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', onClick: onMarketplaceClick },
-    { id: 'reels', label: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F', onClick: onReelsClick },
-    { id: 'events', label: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', onClick: onEventsClick },
-  ];
-
-  return (
-    <div className="w-[300px] h-full overflow-y-auto px-2 pt-4 bg-[#18191A] hidden lg:block scrollbar-hide">
-      <div
-        className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors mb-2"
-        onClick={() => onProfileClick(currentUser.id)}
-      >
-        <img src={currentUser.profile_image_url} alt="" className="w-9 h-9 rounded-full object-cover" />
-        <span className="text-[#E4E6EB] font-semibold text-[15px]">{currentUser.name}</span>
-      </div>
-
-      {items.map((item) => (
-        <div
-          key={item.id}
-          className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-1"
-          onClick={item.onClick}
-        >
-          <div className="w-9 h-9 flex items-center justify-center">
-            <i className={`${item.icon} text-[22px]`} style={{ color: item.color }}></i>
-          </div>
-          <span className="text-[#E4E6EB] font-semibold text-[15px]">{item.label}</span>
-        </div>
-      ))}
-
-      <div className="border-t border-[#3E4042] my-4 mx-2"></div>
-      <div className="px-4 text-[#B0B3B8] text-[13px] leading-tight">
-        <p>UNERA © 2025</p>
-      </div>
-    </div>
-  );
+const seededShuffle = <T,>(arr: T[], seed: number) => {
+  const a = arr.slice();
+  const rnd = mulberry32(seed || 1);
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 };
 
-export const RightSidebar: React.FC<{ contacts: User[]; onProfileClick: (id: number) => void }> = ({
-  contacts,
-  onProfileClick,
-}) => {
-  return (
-    <div className="w-[280px] h-full overflow-y-auto pt-4 pr-2 bg-[#18191A] hidden xl:block scrollbar-hide">
-      <div className="flex items-center justify-between px-2 mb-2">
-        <span className="text-[#B0B3B8] font-bold text-[17px]">Contacts</span>
-      </div>
+export const onRequestOptions: PagesFunction = async () =>
+  new Response(null, { status: 204, headers: cors });
 
-      <div className="space-y-1">
-        {contacts.map((user) => (
-          <div
-            key={user.id}
-            className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors relative"
-            onClick={() => onProfileClick(user.id)}
-          >
-            <div className="relative">
-              <img
-                src={user.profile_image_url}
-                alt=""
-                className="w-9 h-9 rounded-full object-cover border border-[#3E4042]"
-              />
-              {user.is_online && (
-                <div className="absolute bottom-0 right-0 w-3 h-3 bg-[#31A24C] rounded-full border-2 border-[#18191A]"></div>
-              )}
-            </div>
-            <span className="text-[#E4E6EB] font-semibold text-[15px]">{user.name}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
+  try {
+    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
+
+    const url = new URL(request.url);
+
+    // ✅ allow opening /api/feeds directly in browser
+    const userId = toInt(url.searchParams.get("userId"), 0);
+    const reactionUserId = userId || 0;
+
+    const limit = clamp(toInt(url.searchParams.get("limit"), 20), 1, 50);
+    const cursor = url.searchParams.get("cursor"); // older-than created_at
+    const seed = toInt(url.searchParams.get("seed"), 1);
+    const seen = parseSeenIds(url.searchParams.get("seen"), 250);
+    const debug = url.searchParams.get("debug") === "1";
+
+    const freshCount = Math.max(5, Math.floor(limit * 0.65));
+    const exploreCount = Math.max(0, limit - freshCount);
+
+    // ============================================================
+    // 1) POSTS  ✅ excludes "product posts" stored in posts table
+    // + ✅ reactor_name + reactions_preview + reactions_by_type
+    // ============================================================
+    const wherePosts: string[] = [];
+    const bindsPosts: any[] = [];
+
+    wherePosts.push(
+      `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
+    );
+
+    // ✅ BLOCK product-posts that were stored in posts table (no extra DB column required)
+    wherePosts.push(`(p.content IS NULL OR (
+      p.content NOT LIKE '%"post_type":"product"%'
+      AND p.content NOT LIKE '%"kind":"product"%'
+      AND p.content NOT LIKE '%"product_id"%'
+      AND p.content NOT LIKE '%marketplace%'
+    ))`);
+
+    if (cursor && cursor.trim()) {
+      wherePosts.push(`p.created_at < ?`);
+      bindsPosts.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      wherePosts.push(`p.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsPosts.push(...seen);
+    }
+
+    const wherePostsSql = wherePosts.length ? `WHERE ${wherePosts.join(" AND ")}` : "";
+
+    const baseSelectPosts = `
+      SELECT
+        'post' AS source,
+        'post' AS item_type,
+
+        p.id AS id,
+        ('post:' || CAST(p.id AS TEXT)) AS feed_key,
+
+        p.created_at AS created_at,
+
+        -- canonical identifiers for the frontend (prevents ID collisions)
+        p.id AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
+
+        p.user_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.name, u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        p.content AS content,
+        p.visibility AS visibility,
+        p.views AS views,
+        p.shares AS shares,
+
+        CASE
+          WHEN p.media_url LIKE 'data:%' THEN NULL
+          WHEN length(p.media_url) > 300 THEN NULL
+          ELSE p.media_url
+        END AS media_url,
+
+        CASE
+          WHEN p.media_url LIKE 'data:%' THEN NULL
+          WHEN length(p.media_url) > 300 THEN NULL
+          ELSE p.media_type
+        END AS media_type,
+
+        CASE
+          WHEN p.media_urls LIKE 'data:%' THEN NULL
+          WHEN length(p.media_urls) > 5000 THEN NULL
+          ELSE p.media_urls
+        END AS media_urls,
+
+        CASE
+          WHEN length(p.media_types) > 5000 THEN NULL
+          ELSE p.media_types
+        END AS media_types,
+
+        (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
+        (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
+
+        -- ✅ show a stable "someone reacted" name (latest reactor)
+        (
+          SELECT COALESCE(u2.name, u2.username, '')
+          FROM post_reactions pr2
+          JOIN users u2 ON u2.id = pr2.user_id
+          WHERE pr2.post_id = p.id
+          ORDER BY pr2.created_at DESC, pr2.id DESC
+          LIMIT 1
+        ) AS reactor_name,
+
+        -- ✅ up to 30 reactors for the reactions panel (and tabs counts UI later)
+        (
+          SELECT json_group_array(
+            json_object(
+              'user_id', x.user_id,
+              'type', x.type,
+              'name', x.name,
+              'profile_image_url', x.profile_image_url
+            )
+          )
+          FROM (
+            SELECT
+              pr3.user_id AS user_id,
+              LOWER(COALESCE(pr3.type,'like')) AS type,
+              COALESCE(u3.name, u3.username, '') AS name,
+              CASE
+                WHEN u3.profile_image_url LIKE 'data:%' THEN NULL
+                WHEN length(u3.profile_image_url) > 300 THEN NULL
+                ELSE u3.profile_image_url
+              END AS profile_image_url
+            FROM post_reactions pr3
+            LEFT JOIN users u3 ON u3.id = pr3.user_id
+            WHERE pr3.post_id = p.id
+            ORDER BY pr3.created_at DESC, pr3.id DESC
+            LIMIT 30
+          ) x
+        ) AS reactions_preview,
+
+        -- ✅ counts per type for tabs like: 👍 2K 😆 20 ❤️ 14 😡 5
+        (
+          SELECT json_group_array(
+            json_object('type', t.type, 'count', t.c)
+          )
+          FROM (
+            SELECT LOWER(COALESCE(type,'like')) AS type, COUNT(*) AS c
+            FROM post_reactions
+            WHERE post_id = p.id
+            GROUP BY LOWER(COALESCE(type,'like'))
+            ORDER BY c DESC
+          ) t
+        ) AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        -- keep existing fields used by your UI
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        -- group fields (null for normal posts)
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
+      FROM posts p
+      LEFT JOIN users u ON u.id = p.user_id
+    `;
+
+    // ============================================================
+    // 2) REELS
+    // ============================================================
+    const whereReels: string[] = [];
+    const bindsReels: any[] = [];
+
+    whereReels.push(
+      `(r.visibility IS NULL OR r.visibility = 'public' OR r.visibility = '' OR r.visibility = 'Public')`
+    );
+
+    if (cursor && cursor.trim()) {
+      whereReels.push(`r.created_at < ?`);
+      bindsReels.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereReels.push(`r.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsReels.push(...seen);
+    }
+
+    const whereReelsSql = whereReels.length ? `WHERE ${whereReels.join(" AND ")}` : "";
+
+    const baseSelectReels = `
+      SELECT
+        'reel' AS source,
+        'reel' AS item_type,
+
+        r.id AS id,
+        ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
+
+        r.created_at AS created_at,
+
+        NULL AS post_id,
+        r.id AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
+
+        r.user_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.name, u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        NULL AS content,
+        r.visibility AS visibility,
+        r.views AS views,
+        r.shares AS shares,
+
+        r.video_url AS media_url,
+        'video' AS media_type,
+        NULL AS media_urls,
+        NULL AS media_types,
+
+        (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
+        (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
+
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
+
+        r.video_url AS video_url,
+        r.caption AS caption,
+        r.song_name AS song_name,
+        r.audio_url AS audio_url,
+        COALESCE(r.audio_start, 0) AS audio_start,
+        COALESCE(r.audio_end, 0) AS audio_end,
+        r.location AS location,
+        r.sound_key AS sound_key,
+        r.sound_id AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
+      FROM reels r
+      LEFT JOIN users u ON u.id = r.user_id
+    `;
+
+    // ============================================================
+    // 3) SONGS
+    // ============================================================
+    const whereSongs: string[] = [];
+    const bindsSongs: any[] = [];
+
+    if (cursor && cursor.trim()) {
+      whereSongs.push(`s.created_at < ?`);
+      bindsSongs.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereSongs.push(`s.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsSongs.push(...seen);
+    }
+
+    const whereSongsSql = whereSongs.length ? `WHERE ${whereSongs.join(" AND ")}` : "";
+
+    const baseSelectSongs = `
+      SELECT
+        'song' AS source,
+        'song' AS item_type,
+
+        s.id AS id,
+        ('song:' || CAST(s.id AS TEXT)) AS feed_key,
+
+        s.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        s.id AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
+
+        s.uploader_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.name, u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        (
+          COALESCE(s.title,'')
+          || CASE
+               WHEN s.artist_name IS NOT NULL AND s.artist_name != '' THEN ' — ' || s.artist_name
+               ELSE ''
+             END
+        ) AS content,
+
+        'public' AS visibility,
+        0 AS views,
+        0 AS shares,
+
+        s.audio_url AS media_url,
+        'audio/mpeg' AS media_type,
+
+        CASE
+          WHEN s.cover_image_url IS NOT NULL AND s.cover_image_url != ''
+          THEN json_array(s.cover_image_url)
+          ELSE NULL
+        END AS media_urls,
+
+        CASE
+          WHEN s.cover_image_url IS NOT NULL AND s.cover_image_url != ''
+          THEN json_array('image')
+          ELSE NULL
+        END AS media_types,
+
+        (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS reactions_count,
+        (SELECT 'like' FROM song_likes sl WHERE sl.song_id = s.id AND sl.user_id = ? LIMIT 1) AS my_reaction,
+
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        s.audio_url AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        s.title AS song_title,
+        s.artist_name AS song_artist_name,
+        s.album_name AS song_album_name,
+        s.cover_image_url AS song_cover_image_url,
+        s.duration_seconds AS song_duration_seconds,
+        s.genre AS song_genre,
+
+        (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS song_likes_count,
+        (
+          (SELECT COUNT(*) FROM song_play_events spe WHERE spe.song_id = s.id)
+          +
+          (SELECT COUNT(*) FROM song_plays sp WHERE sp.song_id = s.id)
+        ) AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
+      FROM songs s
+      LEFT JOIN users u ON u.id = s.uploader_id
+    `;
+
+    // ============================================================
+    // 4) PODCASTS
+    // ============================================================
+    const wherePodcasts: string[] = [];
+    const bindsPodcasts: any[] = [];
+
+    if (cursor && cursor.trim()) {
+      wherePodcasts.push(`pc.created_at < ?`);
+      bindsPodcasts.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      wherePodcasts.push(`pc.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsPodcasts.push(...seen);
+    }
+
+    const wherePodcastsSql = wherePodcasts.length ? `WHERE ${wherePodcasts.join(" AND ")}` : "";
+
+    const baseSelectPodcasts = `
+      SELECT
+        'podcast' AS source,
+        'podcast' AS item_type,
+
+        pc.id AS id,
+        ('podcast:' || CAST(pc.id AS TEXT)) AS feed_key,
+
+        pc.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        pc.id AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
+
+        pc.creator_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.name, u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        COALESCE(pc.title,'Podcast') AS content,
+
+        'public' AS visibility,
+        0 AS views,
+        0 AS shares,
+
+        pc.audio_url AS media_url,
+        'audio/mpeg' AS media_type,
+
+        CASE
+          WHEN pc.cover_url IS NOT NULL AND pc.cover_url != ''
+          THEN json_array(pc.cover_url)
+          ELSE NULL
+        END AS media_urls,
+
+        CASE
+          WHEN pc.cover_url IS NOT NULL AND pc.cover_url != ''
+          THEN json_array('image')
+          ELSE NULL
+        END AS media_types,
+
+        0 AS reactions_count,
+        NULL AS my_reaction,
+
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        pc.audio_url AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        pc.title AS podcast_title,
+        pc.description AS podcast_description,
+        pc.audio_url AS podcast_audio_url,
+        pc.cover_url AS podcast_cover_url,
+        COALESCE(pc.plays_count, 0) AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
+      FROM podcasts pc
+      LEFT JOIN users u ON u.id = pc.creator_id
+    `;
+
+    // ============================================================
+    // 5) EVENTS (unchanged)
+    // ============================================================
+    const whereEvents: string[] = [];
+    const bindsEvents: any[] = [];
+
+    whereEvents.push(`(e.visibility IS NULL OR e.visibility = 'worldwide' OR e.visibility = 'targeted')`);
+
+    if (cursor && cursor.trim()) {
+      whereEvents.push(`e.created_at < ?`);
+      bindsEvents.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereEvents.push(`e.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsEvents.push(...seen);
+    }
+
+    const whereEventsSql = whereEvents.length ? `WHERE ${whereEvents.join(" AND ")}` : "";
+
+    const baseSelectEvents = `
+      SELECT
+        'event' AS source,
+        'event' AS item_type,
+
+        e.id AS id,
+        ('event:' || CAST(e.id AS TEXT)) AS feed_key,
+
+        e.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        e.id AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
+
+        e.creator_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.name, u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        e.title AS content,
+        'public' AS visibility,
+        0 AS views,
+        0 AS shares,
+
+        CASE
+          WHEN e.cover_url LIKE 'data:%' THEN NULL
+          WHEN length(e.cover_url) > 300 THEN NULL
+          ELSE e.cover_url
+        END AS media_url,
+
+        CASE
+          WHEN e.cover_url IS NOT NULL AND e.cover_url != '' THEN 'image'
+          ELSE NULL
+        END AS media_type,
+
+        CASE
+          WHEN e.cover_url IS NOT NULL AND e.cover_url != ''
+          THEN json_array(e.cover_url)
+          ELSE NULL
+        END AS media_urls,
+
+        CASE
+          WHEN e.cover_url IS NOT NULL AND e.cover_url != ''
+          THEN json_array('image')
+          ELSE NULL
+        END AS media_types,
+
+        0 AS reactions_count,
+        NULL AS my_reaction,
+
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        e.location AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        -- EXTRA EVENT FIELDS FOR FEED UI
+        e.event_date AS event_date,
+        e.description AS event_description,
+
+        (SELECT COUNT(*) FROM event_attendees ea WHERE ea.event_id = e.id) AS attending_count,
+        (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id) AS interested_count,
+
+        CASE
+          WHEN EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = e.id AND ea.user_id = ?) THEN 'going'
+          WHEN EXISTS (SELECT 1 FROM event_interested ei WHERE ei.event_id = e.id AND ei.user_id = ?) THEN 'interested'
+          ELSE ''
+        END AS my_rsvp_status,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
+      FROM events e
+      LEFT JOIN users u ON u.id = e.creator_id
+    `;
+
+    // ============================================================
+    // 6) GROUP POSTS ✅ includes group_id/group_name/group_image
+    // + ✅ reactor_name + reactions_preview
+    // ============================================================
+    const whereGroupPosts: string[] = [];
+    const bindsGroupPosts: any[] = [];
+
+    whereGroupPosts.push(`(gp.visibility IS NULL OR gp.visibility = 'public')`);
+
+    if (cursor && cursor.trim()) {
+      whereGroupPosts.push(`gp.created_at < ?`);
+      bindsGroupPosts.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereGroupPosts.push(`gp.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsGroupPosts.push(...seen);
+    }
+
+    const whereGroupPostsSql = whereGroupPosts.length ? `WHERE ${whereGroupPosts.join(" AND ")}` : "";
+
+    const baseSelectGroupPosts = `
+      SELECT
+        'group_post' AS source,
+        'group_post' AS item_type,
+
+        gp.id AS id,
+        ('group_post:' || CAST(gp.id AS TEXT)) AS feed_key,
+
+        gp.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        gp.id AS group_post_id,
+        NULL AS product_id2,
+
+        -- AUTHOR
+        gp.user_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.name, u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        -- ✅ GROUP
+        gp.group_id AS group_id,
+        COALESCE(g.name, 'Group') AS group_name,
+        CASE
+          WHEN g.profile_image LIKE 'data:%' THEN NULL
+          WHEN length(g.profile_image) > 300 THEN NULL
+          ELSE g.profile_image
+        END AS group_image,
+
+        gp.content AS content,
+        gp.visibility AS visibility,
+        0 AS views,
+        0 AS shares,
+
+        CASE
+          WHEN gp.media_url LIKE 'data:%' THEN NULL
+          WHEN length(gp.media_url) > 300 THEN NULL
+          ELSE gp.media_url
+        END AS media_url,
+
+        CASE
+          WHEN gp.media_url LIKE 'data:%' THEN NULL
+          WHEN length(gp.media_url) > 300 THEN NULL
+          ELSE
+            CASE
+              WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+              ELSE 'image'
+            END
+        END AS media_type,
+
+        CASE
+          WHEN gp.media_url IS NOT NULL AND gp.media_url != ''
+          THEN json_array(gp.media_url)
+          ELSE NULL
+        END AS media_urls,
+
+        CASE
+          WHEN gp.media_url IS NOT NULL AND gp.media_url != ''
+          THEN json_array(
+            CASE
+              WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+              ELSE 'image'
+            END
+          )
+          ELSE NULL
+        END AS media_types,
+
+        (SELECT COUNT(*) FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id) AS reactions_count,
+        (SELECT 'like' FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id AND gpl.user_id = ? LIMIT 1) AS my_reaction,
+
+        -- ✅ latest reactor name (group likes)
+        (
+          SELECT COALESCE(u2.name, u2.username, '')
+          FROM group_post_likes gpl2
+          JOIN users u2 ON u2.id = gpl2.user_id
+          WHERE gpl2.group_post_id = gp.id
+          ORDER BY gpl2.created_at DESC, gpl2.id DESC
+          LIMIT 1
+        ) AS reactor_name,
+
+        -- ✅ preview list for reactions sheet (group likes are only "like")
+        (
+          SELECT json_group_array(
+            json_object(
+              'user_id', x.user_id,
+              'type', 'like',
+              'name', x.name,
+              'profile_image_url', x.profile_image_url
+            )
+          )
+          FROM (
+            SELECT
+              gpl3.user_id AS user_id,
+              COALESCE(u3.name, u3.username, '') AS name,
+              CASE
+                WHEN u3.profile_image_url LIKE 'data:%' THEN NULL
+                WHEN length(u3.profile_image_url) > 300 THEN NULL
+                ELSE u3.profile_image_url
+              END AS profile_image_url
+            FROM group_post_likes gpl3
+            LEFT JOIN users u3 ON u3.id = gpl3.user_id
+            WHERE gpl3.group_post_id = gp.id
+            ORDER BY gpl3.created_at DESC, gpl3.id DESC
+            LIMIT 30
+          ) x
+        ) AS reactions_preview,
+
+        (
+          SELECT json_group_array(json_object('type','like','count',COUNT(*)))
+          FROM group_post_likes
+          WHERE group_post_id = gp.id
+        ) AS reactions_by_type,
+
+        CASE
+          WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN gp.media_url
+          ELSE NULL
+        END AS video_url,
+
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta
+      FROM group_posts gp
+      LEFT JOIN users u ON u.id = gp.user_id
+      LEFT JOIN groups g ON g.id = gp.group_id
+    `;
+
+    // ============================================================
+    // 7) PRODUCTS feed-injection as marketplace posts
+    // ============================================================
+    const whereProductsFeed: string[] = [];
+    const bindsProductsFeed: any[] = [];
+
+    if (cursor && cursor.trim()) {
+      whereProductsFeed.push(`pr.created_at < ?`);
+      bindsProductsFeed.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereProductsFeed.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsProductsFeed.push(...seen);
+    }
+
+    const whereProductsFeedSql = whereProductsFeed.length ? `WHERE ${whereProductsFeed.join(" AND ")}` : "";
+
+    const baseSelectProductsFeed = `
+      SELECT
+        'product' AS source,
+        'product' AS item_type,
+
+        pr.id AS id,
+        ('product:' || CAST(pr.id AS TEXT)) AS feed_key,
+
+        pr.created_at AS created_at,
+
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        pr.id AS product_id2,
+
+        pr.seller_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.name, u.username, 'User') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'user') AS role,
+
+        pr.title AS content,
+        'public' AS visibility,
+        0 AS views,
+        0 AS shares,
+
+        NULL AS media_url,
+        NULL AS media_type,
+
+        pr.images AS media_urls,
+        NULL AS media_types,
+
+        0 AS reactions_count,
+        NULL AS my_reaction,
+
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        'marketplace' AS type,
+        'product' AS post_type,
+        'product' AS kind,
+        pr.id AS product_id,
+
+        json_object(
+          'kind','product',
+          'type','product',
+          'product_id', pr.id,
+          'marketplace', json_object('id', pr.id)
+        ) AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
+      FROM products pr
+      LEFT JOIN users u ON u.id = pr.seller_id
+    `;
+
+    // ============================================================
+    // 8) PRODUCTS (separate list)
+    // ============================================================
+    const whereProducts: string[] = [];
+    const bindsProducts: any[] = [];
+
+    if (cursor && cursor.trim()) {
+      whereProducts.push(`pr.created_at < ?`);
+      bindsProducts.push(cursor.trim());
+    }
+
+    if (seen.length > 0) {
+      whereProducts.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsProducts.push(...seen);
+    }
+
+    const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(" AND ")}` : "";
+
+    const selectProducts = `
+      SELECT
+        pr.id,
+        pr.seller_id,
+        pr.title,
+        pr.category,
+        pr.description,
+        pr.country,
+        pr.address,
+        pr.main_price,
+        pr.discount_price,
+        pr.quantity,
+        pr.phone_number,
+        pr.images,
+        pr.created_at
+      FROM products pr
+      ${whereProductsSql}
+      ORDER BY pr.created_at DESC
+      LIMIT ?
+    `;
+
+    // ============================================================
+    // RUN QUERIES (Fresh)
+    // ============================================================
+    const freshPostsRes = await env.DB.prepare(
+      `${baseSelectPosts} ${wherePostsSql} ORDER BY p.created_at DESC LIMIT ?`
+    ).bind(reactionUserId, ...bindsPosts, freshCount).all();
+    const freshPosts = Array.isArray(freshPostsRes?.results) ? freshPostsRes.results : [];
+
+    const freshReelsRes = await env.DB.prepare(
+      `${baseSelectReels} ${whereReelsSql} ORDER BY r.created_at DESC LIMIT ?`
+    ).bind(reactionUserId, ...bindsReels, freshCount).all();
+    const freshReels = Array.isArray(freshReelsRes?.results) ? freshReelsRes.results : [];
+
+    const freshSongsRes = await env.DB.prepare(
+      `${baseSelectSongs} ${whereSongsSql} ORDER BY s.created_at DESC LIMIT ?`
+    ).bind(reactionUserId, ...bindsSongs, freshCount).all();
+    const freshSongs = Array.isArray(freshSongsRes?.results) ? freshSongsRes.results : [];
+
+    const freshPodcastsRes = await env.DB.prepare(
+      `${baseSelectPodcasts} ${wherePodcastsSql} ORDER BY pc.created_at DESC LIMIT ?`
+    ).bind(...bindsPodcasts, freshCount).all();
+    const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
+
+    // ✅ bind reactionUserId twice for my_rsvp_status
+    const freshEventsRes = await env.DB.prepare(
+      `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
+    ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
+    const freshEvents = Array.isArray(freshEventsRes?.results) ? freshEventsRes.results : [];
+
+    const freshGroupPostsRes = await env.DB.prepare(
+      `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY gp.created_at DESC LIMIT ?`
+    ).bind(reactionUserId, ...bindsGroupPosts, freshCount).all();
+    const freshGroupPosts = Array.isArray(freshGroupPostsRes?.results) ? freshGroupPostsRes.results : [];
+
+    const freshProductsFeedRes = await env.DB.prepare(
+      `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY pr.created_at DESC LIMIT ?`
+    ).bind(...bindsProductsFeed, freshCount).all();
+    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results)
+      ? freshProductsFeedRes.results
+      : [];
+
+    const freshProductsRes = await env.DB.prepare(selectProducts)
+      .bind(...bindsProducts, freshCount)
+      .all();
+    const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
+
+    // ============================================================
+    // RUN QUERIES (Explore)
+    // ============================================================
+    let explorePosts: any[] = [];
+    let exploreReels: any[] = [];
+    let exploreSongs: any[] = [];
+    let explorePodcasts: any[] = [];
+    let exploreEvents: any[] = [];
+    let exploreGroupPosts: any[] = [];
+    let exploreProductsFeed: any[] = [];
+    let exploreProducts: any[] = [];
+
+    if (exploreCount > 0) {
+      const explorePostsRes = await env.DB.prepare(
+        `${baseSelectPosts} ${wherePostsSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(reactionUserId, ...bindsPosts, exploreCount).all();
+      explorePosts = Array.isArray(explorePostsRes?.results) ? explorePostsRes.results : [];
+
+      const exploreReelsRes = await env.DB.prepare(
+        `${baseSelectReels} ${whereReelsSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(reactionUserId, ...bindsReels, exploreCount).all();
+      exploreReels = Array.isArray(exploreReelsRes?.results) ? exploreReelsRes.results : [];
+
+      const exploreSongsRes = await env.DB.prepare(
+        `${baseSelectSongs} ${whereSongsSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(reactionUserId, ...bindsSongs, exploreCount).all();
+      exploreSongs = Array.isArray(exploreSongsRes?.results) ? exploreSongsRes.results : [];
+
+      const explorePodcastsRes = await env.DB.prepare(
+        `${baseSelectPodcasts} ${wherePodcastsSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(...bindsPodcasts, exploreCount).all();
+      explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
+
+      const exploreEventsRes = await env.DB.prepare(
+        `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount).all();
+      exploreEvents = Array.isArray(exploreEventsRes?.results) ? exploreEventsRes.results : [];
+
+      const exploreGroupPostsRes = await env.DB.prepare(
+        `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(reactionUserId, ...bindsGroupPosts, exploreCount).all();
+      exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results) ? exploreGroupPostsRes.results : [];
+
+      const exploreProductsFeedRes = await env.DB.prepare(
+        `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
+      ).bind(...bindsProductsFeed, exploreCount).all();
+      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results)
+        ? exploreProductsFeedRes.results
+        : [];
+
+      const exploreProductsRes = await env.DB.prepare(
+        `
+          SELECT
+            pr.id, pr.seller_id, pr.title, pr.category, pr.description, pr.country, pr.address,
+            pr.main_price, pr.discount_price, pr.quantity, pr.phone_number, pr.images, pr.created_at
+          FROM products pr
+          ${whereProductsSql}
+          ORDER BY RANDOM()
+          LIMIT ?
+        `
+      ).bind(...bindsProducts, exploreCount).all();
+      exploreProducts = Array.isArray(exploreProductsRes?.results) ? exploreProductsRes.results : [];
+    }
+
+    // ============================================================
+    // Merge + dedup FEED
+    // ============================================================
+    const map = new Map<string, any>();
+    const allFeedRows = [
+      ...freshPosts,
+      ...freshReels,
+      ...freshSongs,
+      ...freshPodcasts,
+      ...freshEvents,
+      ...freshGroupPosts,
+      ...freshProductsFeed,
+      ...explorePosts,
+      ...exploreReels,
+      ...exploreSongs,
+      ...explorePodcasts,
+      ...exploreEvents,
+      ...exploreGroupPosts,
+      ...exploreProductsFeed,
+    ];
+
+    for (const row of allFeedRows) {
+      const fk = String((row as any)?.feed_key || "");
+      if (fk) {
+        if (!map.has(fk)) map.set(fk, row);
+        continue;
+      }
+      const src = String((row as any)?.source || "");
+      const id = Number((row as any)?.id);
+      if (!src || !Number.isFinite(id)) continue;
+      const key = `${src}:${id}`;
+      if (!map.has(key)) map.set(key, row);
+    }
+
+    const merged = Array.from(map.values());
+
+    const oldest = merged.reduce((acc: any, cur: any) => {
+      if (!acc) return cur;
+      return String(cur.created_at) < String(acc.created_at) ? cur : acc;
+    }, null as any);
+
+    const nextCursor = oldest?.created_at ?? null;
+    const ordered = seededShuffle(merged, seed);
+
+    // ============================================================
+    // Merge + dedup PRODUCTS (separate list)
+    // ============================================================
+    const productMap = new Map<number, any>();
+    for (const row of [...freshProducts, ...exploreProducts]) {
+      const id = Number((row as any)?.id);
+      if (!Number.isFinite(id)) continue;
+      if (!productMap.has(id)) productMap.set(id, row);
+    }
+    const products = Array.from(productMap.values());
+
+    // ============================================================
+    // hasMore (posts-only simple) ✅ uses SAME posts filter
+    // ============================================================
+    let hasMore = false;
+    if (nextCursor) {
+      const qMore = `
+        SELECT p.id
+        FROM posts p
+        WHERE
+          (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')
+          AND (p.content IS NULL OR (
+            p.content NOT LIKE '%"post_type":"product"%'
+            AND p.content NOT LIKE '%"kind":"product"%'
+            AND p.content NOT LIKE '%"product_id"%'
+            AND p.content NOT LIKE '%marketplace%'
+          ))
+          AND p.created_at < ?
+        ORDER BY p.created_at DESC
+        LIMIT 1
+      `;
+      const more = await env.DB.prepare(qMore).bind(nextCursor).first();
+      hasMore = !!more;
+    }
+
+    const payload = {
+      success: true,
+      userId,
+      limit,
+      cursor: cursor ?? null,
+      nextCursor,
+      hasMore,
+      feed: ordered,
+      products,
+    };
+
+    if (debug) {
+      return json({
+        ...payload,
+        debug: {
+          seenCount: seen.length,
+          returnedFeed: ordered.length,
+          returnedProducts: products.length,
+          fresh: {
+            posts: freshPosts.length,
+            reels: freshReels.length,
+            songs: freshSongs.length,
+            podcasts: freshPodcasts.length,
+            events: freshEvents.length,
+            groupPosts: freshGroupPosts.length,
+            productsFeed: freshProductsFeed.length,
+            products: freshProducts.length,
+          },
+          explore: {
+            posts: explorePosts.length,
+            reels: exploreReels.length,
+            songs: exploreSongs.length,
+            podcasts: explorePodcasts.length,
+            events: exploreEvents.length,
+            groupPosts: exploreGroupPosts.length,
+            productsFeed: exploreProductsFeed.length,
+            products: exploreProducts.length,
+          },
+        },
+      });
+    }
+
+    return json(payload);
+  } catch (e: any) {
+    return json({ success: false, error: e?.message || String(e) }, 500);
+  }
 };
