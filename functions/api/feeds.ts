@@ -867,12 +867,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             LIMIT 30
           ) x
         ) AS reactions_preview,
-
         (
-          SELECT json_group_array(json_object('type','like','count',COUNT(*)))
-          FROM group_post_likes
-          WHERE group_post_id = gp.id
-        ) AS reactions_by_type,
+  SELECT json_group_array(
+    json_object('type','like','count', x.c)
+  )
+  FROM (
+    SELECT COUNT(*) AS c
+    FROM group_post_likes
+    WHERE group_post_id = gp.id
+  ) x
+) AS reactions_by_type,
 
         CASE
           WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN gp.media_url
