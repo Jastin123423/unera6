@@ -1,4 +1,4 @@
-// Layout.tsx
+// Layout.tsx-
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Notification } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
