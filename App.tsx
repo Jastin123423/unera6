@@ -462,7 +462,7 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 };
 
 // ============================================================================
-// BRANDS INTEGRATION - COMPLETE IMPLEMENTATION
+// BRANDS INTEGRATION - COMPLETE IMPLEMENTATION matching Brands.tsx
 // ============================================================================
 
 /**
@@ -542,7 +542,7 @@ const normalizePost = (p: any): PostType => {
       ...p,
       id: resolvedId,
       user_id: safeNumber(p?.user_id),
-      brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null, // ✅ Added brand_id
+      brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null,
       content: safeString(p?.content),
       type: 'event',
       event_id: p?.event_id || p?.meta?.event_id,
@@ -570,7 +570,7 @@ const normalizePost = (p: any): PostType => {
     ...p,
     id: resolvedId,
     user_id: p?.user_id === null || p?.user_id === undefined ? null : safeNumber(p?.user_id),
-    brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null, // ✅ Added brand_id
+    brand_id: p?.brand_id ? safeNumber(p?.brand_id) : null,
     content: safeString(p?.content),
 
     media_url: mediaUrl,
@@ -683,7 +683,7 @@ const normalizeEvent = (e: any): Event => {
     
     // Group event specific fields
     group_id: e?.group_id ? safeNumber(e.group_id) : null,
-    brand_id: e?.brand_id ? safeNumber(e.brand_id) : null, // ✅ Added brand_id
+    brand_id: e?.brand_id ? safeNumber(e.brand_id) : null,
     user_rsvp_status: e?.user_rsvp_status ?? null,
   } as any;
 };
@@ -1103,7 +1103,11 @@ const fetchUserFollowData = async (userId: number): Promise<{ followers: number[
   }
 };
 
-const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
+/**
+ * ✅ FIXED: Upload helper matching Brands.tsx
+ * Uses media.unera.social domain
+ */
+const uploadToCloudflareR2 = async (file: File, folder = 'brand-images'): Promise<string> => {
   try {
     const formData = new FormData();
     formData.append('file', file);
@@ -1112,7 +1116,7 @@ const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url
     formData.append('folder', folder);
     formData.append('timestamp', Date.now().toString());
 
-    const response = await fetch('/api/upload', {
+    const response = await fetch('https://media.unera.social/api/upload', {
       method: 'POST',
       body: formData,
     });
@@ -1125,7 +1129,7 @@ const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url
     const result = await response.json();
     if (!result.url) throw new Error('No URL returned from upload');
 
-    return { url: result.url, type: file.type, filename: file.name };
+    return result.url;
   } catch (error) {
     console.error('Upload failed:', error);
     throw error;
@@ -1221,7 +1225,7 @@ const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
     ...row,
     user_id: safeNumber(row?.user_id),
-    brand_id: row?.brand_id ? safeNumber(row?.brand_id) : null, // ✅ Added brand_id
+    brand_id: row?.brand_id ? safeNumber(row?.brand_id) : null,
     content: row?.content ?? '',
     created_at: row?.created_at,
     media_url: row?.media_url ?? null,
@@ -1352,7 +1356,7 @@ export default function App() {
   const [reels, setReels] = useState<Reel[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]); // ✅ Added brands state
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
 
@@ -2289,7 +2293,7 @@ export default function App() {
   }, [currentUser, requireAuth, createMarketplacePost]);
 
   // ============================================================================
-  // BRAND OPERATIONS
+  // BRAND OPERATIONS - Matching Brands.tsx requirements
   // ============================================================================
 
   /** ---------- Create a new brand ---------- */
@@ -2333,6 +2337,7 @@ export default function App() {
         body: JSON.stringify(data)
       });
 
+      // Optimistic update
       setBrands(prev => 
         safeArray(prev).map(b => 
           Number(b.id) === Number(brandId) ? normalizeBrand({ ...b, ...data }) : b
@@ -2356,6 +2361,7 @@ export default function App() {
         method: 'DELETE'
       });
 
+      // Optimistic update
       setBrands(prev => safeArray(prev).filter(b => Number(b.id) !== Number(brandId)));
     } catch (error) {
       console.error('Failed to delete brand:', error);
@@ -2373,7 +2379,7 @@ export default function App() {
       let mediaUrl = null;
       if (postData.file) {
         const uploadResult = await uploadToCloudflareR2(postData.file, 'brand-posts');
-        mediaUrl = uploadResult.url;
+        mediaUrl = uploadResult;
       }
 
       const payload = {
@@ -2441,6 +2447,7 @@ export default function App() {
       const newEvent = normalizeEvent(data?.event ?? data);
       setEvents(prev => [newEvent, ...safeArray(prev)]);
       
+      // Create a feed post for this event
       try {
         const eventPostPayload = {
           user_id: currentUser.id,
@@ -2499,6 +2506,7 @@ export default function App() {
     
     const brand = brands.find(b => Number(b.id) === Number(brandId));
     if (brand) {
+      // Navigate to chat with this brand
       setActiveChatUser(brand as any);
       setView('home');
     }
@@ -3162,7 +3170,7 @@ export default function App() {
       creator_name: safeString(currentUser.name),
       creator_avatar: safeString(currentUser.profile_image_url),
       group_id: eventData?.group_id ? Number(eventData.group_id) : null,
-      brand_id: eventData?.brand_id ? Number(eventData.brand_id) : null, // ✅ Added brand_id
+      brand_id: eventData?.brand_id ? Number(eventData.brand_id) : null,
     };
 
     const res = await apiFetch('/api/events', { method: 'POST', body: JSON.stringify(payload) });
@@ -3253,7 +3261,7 @@ export default function App() {
       const [pr, g, b, c] = await Promise.all([
         apiFetch('/api/products').catch(() => []),
         apiFetch('/api/groups').catch(() => []),
-        apiFetch('/api/brands').catch(() => []), // ✅ Fetch brands from API
+        apiFetch('/api/brands').catch(() => []), // Fetch brands from API
         apiFetch('/api/chats').catch(() => []),
       ]);
 
@@ -3294,7 +3302,7 @@ export default function App() {
         });
       });
       
-      // ✅ Handle brands
+      // ✅ Handle brands with proper normalization
       const bRaw = b;
       const bList = Array.isArray(bRaw)
         ? bRaw
@@ -3524,7 +3532,7 @@ export default function App() {
     let media_url: string | null = null;
     if (file) {
       const up = await uploadToCloudflareR2(file, "group-posts");
-      media_url = up.url;
+      media_url = up;
     }
 
     try {
@@ -3750,7 +3758,7 @@ export default function App() {
 
     try {
       const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
-      const imageUrl = uploadResult.url;
+      const imageUrl = uploadResult;
 
       const field = type === 'cover' ? 'cover_image' : 'profile_image';
       await updateGroupSettings(groupId, { [field]: imageUrl } as any);
@@ -4257,7 +4265,7 @@ export default function App() {
     setSelectedReelSound(null);
     setSongs([]);
     setEvents([]);
-    setBrands([]); // ✅ Clear brands on logout
+    setBrands([]);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -4298,7 +4306,7 @@ export default function App() {
         taggedUsers?: number[];
         background?: string;
         linkPreview?: any;
-        brand_id?: number; // ✅ Added brand_id support
+        brand_id?: number;
       }
     ) => {
       if (!requireAuth('Creating posts')) return;
@@ -4314,8 +4322,8 @@ export default function App() {
       if (list.length) {
         try {
           const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
-          media_urls = ups.map((u) => u.url).filter(Boolean);
-          media_types = ups.map((u) => u.type).filter(Boolean);
+          media_urls = ups.map((u) => u).filter(Boolean);
+          media_types = list.map((f) => f.type).filter(Boolean);
         } catch (error: any) {
           setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
           return;
@@ -4327,7 +4335,7 @@ export default function App() {
 
       const payload: any = {
         user_id: currentUser!.id,
-        brand_id: meta?.brand_id || null, // ✅ Added brand_id
+        brand_id: meta?.brand_id || null,
         content: trimmed,
 
         media_url,
@@ -4606,7 +4614,7 @@ export default function App() {
 
       try {
         const uploadResult = await uploadToCloudflareR2(file, 'profiles');
-        await updateUserDetails({ profile_image_url: uploadResult.url } as any);
+        await updateUserDetails({ profile_image_url: uploadResult } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload profile image: ${error.message}`);
       }
@@ -4626,7 +4634,7 @@ export default function App() {
 
       try {
         const uploadResult = await uploadToCloudflareR2(file, 'covers');
-        await updateUserDetails({ cover_image_url: uploadResult.url } as any);
+        await updateUserDetails({ cover_image_url: uploadResult } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload cover image: ${error.message}`);
       }
@@ -4797,7 +4805,7 @@ export default function App() {
         onReelsClick={() => handleNavigate('reels')}
         onMarketplaceClick={() => handleNavigate('marketplace')}
         onGroupsClick={() => handleNavigate('groups')}
-        onBrandsClick={() => handleNavigate('brands')} // ✅ Added brands navigation
+        onBrandsClick={() => handleNavigate('brands')}
         currentUser={currentUser}
         notifications={notifications}
         users={users}
@@ -4817,7 +4825,7 @@ export default function App() {
               onReelsClick={() => handleNavigate('reels')}
               onMarketplaceClick={() => handleNavigate('marketplace')}
               onGroupsClick={() => handleNavigate('groups')}
-              onBrandsClick={() => handleNavigate('brands')} // ✅ Added brands navigation
+              onBrandsClick={() => handleNavigate('brands')}
             />
           </div>
         )}
@@ -4908,7 +4916,7 @@ export default function App() {
                           onVideoClick={handleVideoClick}
                           onPlayAudioTrack={onPlayTrack}
                           groups={groups}
-                          brands={brands} // ✅ Brands passed to Post component
+                          brands={brands}
                           chats={chats}
                           onHashtagClick={handleHashtagClick}
                           isFollowing={isFollowing}
@@ -5132,7 +5140,7 @@ export default function App() {
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
               groups={groups}
-              brands={brands} // ✅ Brands passed to MemoriesPage
+              brands={brands}
               chats={chats}
             />
           )}
@@ -5292,7 +5300,7 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           groups={groups}
-          brands={brands} // ✅ Brands passed to ShareBottomSheet
+          brands={brands}
           chats={chats}
           onShareComplete={handleShareComplete}
           onFollow={followUser}
