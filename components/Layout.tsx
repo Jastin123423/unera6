@@ -216,7 +216,7 @@ const Header: React.FC<HeaderProps> = ({
             <img
               src={uneraIconUrl}
               alt="UNERA"
-              className="uneraGlobeIcon w-[44px] h-[44px] sm:w-[48px] sm:h-[48px] object-contain select-none -mr-[14px]"
+              className="uneraGlobeIcon w-[64px] h-[64px] sm:w-[48px] sm:h-[48px] object-contain select-none -mr-[14px]"
               draggable={false}
             />
 
@@ -230,7 +230,7 @@ const Header: React.FC<HeaderProps> = ({
         <style>{`
           .uneraGlobeIcon {
             transform-origin: 50% 50%;
-            animation: uneraSpin 2.8s linear infinite, uneraWobble 3.6s ease-in-out infinite;
+            animation: uneraSpin 3.8s linear infinite, uneraWobble 3.6s ease-in-out infinite;
             will-change: transform;
             backface-visibility: hidden;
             transform-style: preserve-3d;
