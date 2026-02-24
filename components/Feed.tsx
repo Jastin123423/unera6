@@ -2224,19 +2224,13 @@ const normalizeEventFromFeed = (item: any) => {
       name: String(item?.name ?? meta?.creator_name ?? "Event Organizer"),
       username: String(item?.username ?? meta?.creator_username ?? ""),
       profile_image_url: String(item?.profile_image_url ?? meta?.creator_image ?? "")
-    },
-    // Add reaction data for events
-    reactions: Array.isArray(item?.reactions) ? item.reactions : [],
-    reactions_count: Number(item?.reactions_count ?? item?.likesCount ?? 0),
-    my_reaction: item?.my_reaction,
-    comment_count: Number(item?.comment_count ?? 0),
-    share_count: Number(item?.share_count ?? item?.shares ?? 0)
+    }
   };
 };
 
 /**
  * =========================
- * ✅ UPDATED: EVENT POST COMPONENT - WITH FULL REACTION SUPPORT
+ * ✅ ORIGINAL EVENT POST COMPONENT - REVERTED TO ORIGINAL STATE (NO REACTION FEATURES)
  * =========================
  */
 export const EventPost: React.FC<{
@@ -2252,17 +2246,10 @@ export const EventPost: React.FC<{
   onReact?: (id: number, type: ReactionType) => void;
   onShare?: (id: number, newShareCount: number) => void;
   onOpenComments?: (id: number) => void;
-  onOpenReactions?: (eventId: number) => void;
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
   onEventClick?: (eventId: number) => void;
-  // Reaction props
-  reactions?: any[];
-  reactionsCount?: number;
-  myReaction?: ReactionType;
-  commentCount?: number;
-  shareCount?: number;
 }> = ({ 
   event, 
   author, 
@@ -2276,25 +2263,16 @@ export const EventPost: React.FC<{
   onReact,
   onShare,
   onOpenComments,
-  onOpenReactions,
   groups = [],
   brands = [],
   chats = [],
   onEventClick,
-  reactions = [],
-  reactionsCount = 0,
-  myReaction,
-  commentCount = 0,
-  shareCount = 0,
 }) => {
   const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
   const [attendeesCount, setAttendeesCount] = useState(event.attendees_count || 0);
   const [interestedCount, setInterestedCount] = useState(event.interested_count || 0);
   const [loading, setLoading] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
-  const [localReactionsCount, setLocalReactionsCount] = useState(reactionsCount);
-  const [localMyReaction, setLocalMyReaction] = useState(myReaction);
-  const [localReactions, setLocalReactions] = useState(reactions);
   
   const creator = author || users?.find(u => Number(u.id) === Number(event.creator_id)) || event.creator || {
     id: event.creator_id,
@@ -2306,20 +2284,6 @@ export const EventPost: React.FC<{
   const dateObj = event.event_date ? toDateSafe(event.event_date) : null;
   const nowLocal = new Date();
   const isPast = !!dateObj && dateObj < nowLocal;
-  
-  // Stable reactor name for events
-  const reactorName = React.useMemo(() => {
-    if (!localReactionsCount || !localReactions?.length) return "";
-    return pickStableReactorName(event.id, localReactions, users);
-  }, [event.id, localReactionsCount, localReactions, users]);
-  
-  // Top reaction emojis for events
-  const emojiList = React.useMemo(() => {
-    if (localReactions?.length > 0) {
-      return topReactionEmojis(localReactions, 2);
-    }
-    return localReactionsCount > 0 ? ['👍'] : [];
-  }, [localReactions, localReactionsCount]);
   
   const formatEventDate = () => {
     if (!dateObj) return "Date TBD";
@@ -2424,22 +2388,6 @@ export const EventPost: React.FC<{
   };
 
   const handleReact = (type: ReactionType) => {
-    if (!currentUser) {
-      alert('Please login to react');
-      return;
-    }
-    
-    // Optimistic update
-    if (localMyReaction === type) {
-      // Remove reaction
-      setLocalMyReaction(undefined);
-      setLocalReactionsCount(prev => Math.max(0, prev - 1));
-    } else {
-      // Add/change reaction
-      setLocalMyReaction(type);
-      setLocalReactionsCount(prev => prev + (localMyReaction ? 0 : 1));
-    }
-    
     if (onReact && event.id) {
       onReact(event.id, type);
     }
@@ -2464,12 +2412,6 @@ export const EventPost: React.FC<{
   const handleOpenComments = () => {
     if (onOpenComments && event.id) {
       onOpenComments(event.id);
-    }
-  };
-
-  const handleOpenReactions = () => {
-    if (onOpenReactions && event.id) {
-      onOpenReactions(event.id);
     }
   };
 
@@ -2537,7 +2479,7 @@ export const EventPost: React.FC<{
             )}
           </div>
 
-          {/* EVENT BODY */}
+          {/* EVENT BODY - FIXED: Image now shows on top */}
           <div className="pb-4" onClick={(e) => e.stopPropagation()}>
             <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
               {/* Cover Image */}
@@ -2620,7 +2562,7 @@ export const EventPost: React.FC<{
                   </div>
                 </div>
 
-                {/* RSVP Buttons */}
+                {/* RSVP Buttons - Matches AllEvents.tsx exactly */}
                 <div className="mt-4 flex gap-2">
                   <button
                     disabled={loading || isPast}
@@ -2668,71 +2610,13 @@ export const EventPost: React.FC<{
             </div>
           </div>
 
-          {/* ===== REACTION SUMMARY FOR EVENTS - NEW SECTION ===== */}
-          {localReactionsCount > 0 && (
-            <div className="px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenReactions();
-                  }}
-                  className="flex items-center gap-2 hover:underline"
-                >
-                  {/* Top reaction emojis */}
-                  <div className="flex -space-x-2">
-                    {emojiList.map((emoji, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {emoji}
-                      </span>
-                    ))}
-                  </div>
-                  
-                  {/* Reaction count */}
-                  <span className="text-[#E4E6EB] font-bold">
-                    {fmtCount(localReactionsCount)}
-                  </span>
-                  
-                  {/* Stable reactor name */}
-                  {reactorName && (
-                    <span className="hidden sm:inline">
-                      <span className="text-[#1877F2] font-semibold">{reactorName}</span>
-                      <span className="text-[#B0B3B8]"> and others</span>
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* Comments & Shares counts */}
-              <div className="flex gap-4">
-                {commentCount > 0 && (
-                  <span 
-                    className="hover:underline cursor-pointer" 
-                    onClick={handleOpenComments}
-                  >
-                    {fmtCount(commentCount)} Comments
-                  </span>
-                )}
-                {shareCount > 0 && (
-                  <span className="hover:underline">
-                    {fmtCount(shareCount)} Shares
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Action row - WITH REAL REACTION DATA */}
+          {/* Action row - ORIGINAL EVENT ACTION ROW (NO REACTION SUMMARY) */}
           <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
             {/* Like/React Button */}
             <div className="flex-1">
               <ReactionButton
-                currentUserReactions={localMyReaction}
-                reactionCount={localReactionsCount}
+                currentUserReactions={undefined}
+                reactionCount={0}
                 onReact={handleReact}
                 isGuest={!currentUser}
               />
@@ -2788,7 +2672,7 @@ export const EventPost: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: EVENT FEED CARD COMPONENT - FIXED RSVP LOGIC
+ * ✅ UPDATED: EVENT FEED CARD COMPONENT - ORIGINAL VERSION (NO REACTION FEATURES)
  * =========================
  */
 type FeedEventItem = {
@@ -2812,12 +2696,6 @@ type FeedEventItem = {
   attending_count?: number;
   interested_count?: number;
   my_rsvp_status?: "" | "going" | "interested";
-  // Add reaction fields
-  reactions?: any[];
-  reactions_count?: number;
-  my_reaction?: ReactionType;
-  comment_count?: number;
-  share_count?: number;
 };
 
 export const EventFeedCard: React.FC<{
@@ -2827,22 +2705,7 @@ export const EventFeedCard: React.FC<{
   onUpdateItem: (patch: Partial<FeedEventItem>) => void;
   onRSVPEvent?: (eventId: number, status: "going" | "interested" | "not_going") => Promise<any>;
   onEventClick?: (eventId: number) => void;
-  onReact?: (eventId: number, type: ReactionType) => void;
-  onOpenReactions?: (eventId: number) => void;
-  onOpenComments?: (eventId: number) => void;
-  users?: User[];
-}> = ({ 
-  item, 
-  currentUser, 
-  onProfileClick, 
-  onUpdateItem, 
-  onRSVPEvent, 
-  onEventClick,
-  onReact,
-  onOpenReactions,
-  onOpenComments,
-  users = []
-}) => {
+}> = ({ item, currentUser, onProfileClick, onUpdateItem, onRSVPEvent, onEventClick }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -2861,23 +2724,6 @@ export const EventFeedCard: React.FC<{
   const dateObj = item.event_date ? toDateSafe(item.event_date) : null;
   const nowLocal = new Date();
   const isPast = !!dateObj && dateObj < nowLocal;
-
-  // Stable reactor name
-  const reactorName = React.useMemo(() => {
-    const reactions = Array.isArray(item.reactions) ? item.reactions : [];
-    const count = item.reactions_count || 0;
-    if (!count || !reactions.length) return "";
-    return pickStableReactorName(item.event_id || item.id, reactions, users);
-  }, [item.event_id, item.id, item.reactions, item.reactions_count, users]);
-
-  // Top reaction emojis
-  const emojiList = React.useMemo(() => {
-    const reactions = Array.isArray(item.reactions) ? item.reactions : [];
-    if (reactions.length > 0) {
-      return topReactionEmojis(reactions, 2);
-    }
-    return (item.reactions_count || 0) > 0 ? ['👍'] : [];
-  }, [item.reactions, item.reactions_count]);
 
   /**
    * ✅ FIXED: RSVP function now matches AllEvents.tsx logic
@@ -2964,38 +2810,9 @@ export const EventFeedCard: React.FC<{
     }
   };
 
-  const handleReact = (type: ReactionType) => {
-    if (!currentUser) {
-      alert('Please login to react');
-      return;
-    }
-    if (onReact) {
-      const eventId = item.event_id || item.id;
-      onReact(eventId, type);
-    }
-  };
-
-  const handleOpenReactions = () => {
-    if (onOpenReactions) {
-      const eventId = item.event_id || item.id;
-      onOpenReactions(eventId);
-    }
-  };
-
-  const handleOpenComments = () => {
-    if (onOpenComments) {
-      const eventId = item.event_id || item.id;
-      onOpenComments(eventId);
-    }
-  };
-
   const my = item.my_rsvp_status || "";
   const attending = Number(item.attending_count ?? 0);
   const interested = Number(item.interested_count ?? 0);
-  const reactionsCount = item.reactions_count || 0;
-  const myReaction = item.my_reaction;
-  const commentCount = item.comment_count || 0;
-  const shareCount = item.share_count || 0;
 
   // Handle card click to open preview modal
   const handleCardClick = () => {
@@ -3116,7 +2933,7 @@ export const EventFeedCard: React.FC<{
             </div>
           )}
 
-          {/* RSVP Buttons */}
+          {/* RSVP Buttons - Matches AllEvents.tsx */}
           <div className="mt-4 flex gap-2">
             <button
               disabled={loading || isPast}
@@ -3161,88 +2978,6 @@ export const EventFeedCard: React.FC<{
             </button>
           </div>
         </div>
-
-        {/* Reaction summary for events */}
-        {reactionsCount > 0 && (
-          <div className="px-4 pb-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042] pt-2">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenReactions();
-                }}
-                className="flex items-center gap-2 hover:underline"
-              >
-                <div className="flex -space-x-2">
-                  {emojiList.map((emoji, i) => (
-                    <span
-                      key={i}
-                      className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                      style={{ zIndex: 10 - i }}
-                    >
-                      {emoji}
-                    </span>
-                  ))}
-                </div>
-                <span className="text-[#E4E6EB] font-bold">
-                  {fmtCount(reactionsCount)}
-                </span>
-                {reactorName && (
-                  <span className="hidden sm:inline">
-                    <span className="text-[#1877F2] font-semibold">{reactorName}</span>
-                    <span className="text-[#B0B3B8]"> and others</span>
-                  </span>
-                )}
-              </button>
-            </div>
-            <div className="flex gap-4">
-              {commentCount > 0 && (
-                <span className="hover:underline cursor-pointer" onClick={handleOpenComments}>
-                  {fmtCount(commentCount)} Comments
-                </span>
-              )}
-              {shareCount > 0 && (
-                <span className="hover:underline">
-                  {fmtCount(shareCount)} Shares
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Action row for events */}
-        <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-          <div className="flex-1">
-            <ReactionButton
-              currentUserReactions={myReaction}
-              reactionCount={reactionsCount}
-              onReact={(type) => {
-                handleReact(type);
-              }}
-              isGuest={!currentUser}
-            />
-          </div>
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={handleOpenComments}
-          >
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
-          </button>
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => {
-              if (!currentUser) {
-                alert('Please login to share events.');
-                return;
-              }
-              // Handle share
-            }}
-          >
-            <i className="fas fa-share text-[20px]"></i>
-            <span className="text-[17px] font-medium">Share</span>
-          </button>
-        </div>
       </div>
       
       {/* Facebook-style separator */}
@@ -3254,7 +2989,7 @@ export const EventFeedCard: React.FC<{
 /**
  * =========================
  * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
- * AND STABLE REACTOR NAME
+ * AND STABLE REACTOR NAME (KEPT FOR REGULAR POSTS)
  * =========================
  */
 export const Post: React.FC<{
@@ -3275,7 +3010,6 @@ export const Post: React.FC<{
   onOpenGroup?: (groupId: number) => void;
   onOpenAudio?: (item: any) => void;
   onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
-  onOpenReactions?: (postId: number) => void;
   groups?: Group[];
   brands?: Brand[];
   chats?: any[];
@@ -3283,6 +3017,7 @@ export const Post: React.FC<{
   onFollow?: (id: number) => void;
   followLoading?: boolean;
   onEventClick?: (eventId: number) => void;
+  onOpenReactions?: (postId: number) => void;
 }> = ({
   post,
   author,
@@ -3301,7 +3036,6 @@ export const Post: React.FC<{
   onOpenGroup,
   onOpenAudio,
   onRSVP,
-  onOpenReactions,
   groups = [],
   brands = [],
   chats = [],
@@ -3309,6 +3043,7 @@ export const Post: React.FC<{
   onFollow,
   followLoading = false,
   onEventClick,
+  onOpenReactions,
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -3357,16 +3092,10 @@ export const Post: React.FC<{
         onReact={onReact}
         onShare={onShare}
         onOpenComments={onOpenComments}
-        onOpenReactions={onOpenReactions}
         groups={groups}
         brands={brands}
         chats={chats}
         onEventClick={onEventClick}
-        reactions={event.reactions}
-        reactionsCount={event.reactions_count}
-        myReaction={event.my_reaction}
-        commentCount={event.comment_count}
-        shareCount={event.share_count}
       />
     );
   }
@@ -3453,7 +3182,7 @@ export const Post: React.FC<{
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
 
-  // Stable reactor name (no flicker)
+  // Stable reactor name (no flicker) - KEPT FOR REGULAR POSTS
   const reactorName = useMemo(() => {
     if (!finalReactionCount || !reactionsArr?.length) return "";
     return pickStableReactorName(postId, reactionsArr, users);
@@ -3718,7 +3447,7 @@ export const Post: React.FC<{
             ) : null
           ) : (
             <>
-              {/* Images Grid */}
+              {/* Images Grid - KEEP AS IS */}
               {!p.background && imageMedia.length > 0 && (
                 <MediaGrid
                   media={imageMedia.map((m) => ({ url: m.url }))}
@@ -3881,7 +3610,7 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== REACTION SUMMARY WITH STABLE REACTOR NAME ===== */}
+          {/* ===== REACTION SUMMARY WITH STABLE REACTOR NAME (KEPT FOR REGULAR POSTS) ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {finalReactionCount > 0 && (
@@ -3911,7 +3640,7 @@ export const Post: React.FC<{
                     {fmtCount(finalReactionCount)}
                   </span>
                   
-                  {/* Stable reactor name in blue (no flicker) */}
+                  {/* Stable reactor name in blue (no flicker) - ONLY FOR REGULAR POSTS */}
                   {finalReactionCount > 0 && reactorName && (
                     <span className="text-[15px] sm:inline hidden">
                       <span className="text-[#1877F2] font-semibold">{reactorName}</span>
@@ -3993,7 +3722,7 @@ export const Post: React.FC<{
         onOpenComments={onOpenComments}
       />
 
-      {/* Gallery Viewer for multi-image swiping */}
+      {/* Gallery Viewer for multi-image swiping - WITH ACTIONS AND REACTIONS SHEET SUPPORT */}
       <GalleryViewer
         isOpen={galleryOpen}
         urls={galleryUrls}
@@ -5508,4 +5237,4 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { getMediaTypeInfo, avatarFrom };a
+export { getMediaTypeInfo, avatarFrom };
