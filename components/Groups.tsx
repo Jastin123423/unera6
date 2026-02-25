@@ -10,7 +10,6 @@ import {
   getMediaTypeInfo,
   avatarFrom,
   topReactionEmojis,
-  fmtCount
 } from './Feed';
 import { CreateEventModal } from './Events';
 
