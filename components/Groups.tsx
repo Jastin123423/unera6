@@ -6,7 +6,11 @@ import {
   formatRelativeTime,
   ReactionButton,
   ShareBottomSheet,
-  RichText
+  RichText,
+  getMediaTypeInfo,
+  avatarFrom,
+  topReactionEmojis,
+  fmtCount
 } from './Feed';
 import { CreateEventModal } from './Events';
 
@@ -19,7 +23,7 @@ const safeNumber = (v: any, fallback = 0) => {
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : String(v || ''));
 const safeBoolean = (v: any, fallback = false) => (typeof v === 'boolean' ? v : !!v);
 
-// ✅ LOCAL IMPLEMENTATION: getPostMediaList
+// ✅ LOCAL IMPLEMENTATION: getPostMediaList (enhanced version from Feed.tsx)
 type NormalizedMedia = { url: string; kind: 'image' | 'video' };
 
 const getPostMediaList = (post: any): NormalizedMedia[] => {
@@ -78,7 +82,7 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
   return out.filter((x) => x.url);
 };
 
-// ✅ LOCAL IMPLEMENTATION: ExpandableRichText
+// ✅ LOCAL IMPLEMENTATION: ExpandableRichText (from Feed.tsx)
 const ExpandableRichText: React.FC<{
   text: string;
   users?: User[];
@@ -98,12 +102,13 @@ const ExpandableRichText: React.FC<{
   onSeeMore,
   forceExpanded = false,
 }) => {
+  const [expanded, setExpanded] = useState(false);
   const safeText = safeString(text);
   const words = safeText.trim().split(/\s+/).filter(Boolean);
   const isLong = words.length > maxWords;
 
-  const shownText =
-    forceExpanded || !isLong ? safeText : words.slice(0, maxWords).join(' ') + '…';
+  const showAll = forceExpanded || expanded || !isLong;
+  const shownText = showAll ? safeText : words.slice(0, maxWords).join(' ') + '…';
 
   return (
     <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed">
@@ -119,20 +124,20 @@ const ExpandableRichText: React.FC<{
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onSeeMore?.();
+            setExpanded((v) => !v);
           }}
           className="ml-2 font-bold text-[#1877F2] hover:underline"
         >
-          See more
+          {expanded ? 'See less' : 'See more'}
         </button>
       )}
     </div>
   );
 };
 
-// ✅ LOCAL IMPLEMENTATION: MediaGrid
+// ✅ LOCAL IMPLEMENTATION: MediaGrid (enhanced version from Feed.tsx)
 const MediaGrid: React.FC<{
-  media: { url: string }[];
+  media: { url: string; kind?: string }[];
   onOpen: (url: string, index: number) => void;
 }> = ({ media = [], onOpen }) => {
   const total = media.length;
@@ -233,6 +238,233 @@ const MediaGrid: React.FC<{
         className="h-[260px] w-full"
         showOverlay={extra > 0}
       />
+    </div>
+  );
+};
+
+// ✅ LOCAL IMPLEMENTATION: GalleryViewer (from Feed.tsx)
+const GalleryViewer: React.FC<{
+  isOpen: boolean;
+  urls: string[];
+  startIndex: number;
+  onClose: () => void;
+  postId: number;
+  currentUser: User | null;
+  reactionCount: number;
+  commentCount: number;
+  shareCount: number;
+  myReaction?: ReactionType;
+  onReact: (type: ReactionType) => void;
+  onOpenComments: () => void;
+  onShare: () => void;
+  onOpenReactions?: () => void;
+}> = ({ 
+  isOpen, 
+  urls, 
+  startIndex, 
+  onClose,
+  postId,
+  currentUser,
+  reactionCount,
+  commentCount,
+  shareCount,
+  myReaction,
+  onReact,
+  onOpenComments,
+  onShare,
+  onOpenReactions
+}) => {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [currentIndex, setCurrentIndex] = useState(startIndex);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    setCurrentIndex(startIndex);
+
+    requestAnimationFrame(() => {
+      const el = scrollerRef.current;
+      if (!el) return;
+      const w = el.clientWidth || window.innerWidth;
+      el.scrollTo({ left: startIndex * w, behavior: 'instant' as any });
+    });
+
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, startIndex]);
+
+  const handleScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const scrollLeft = el.scrollLeft;
+    const width = el.clientWidth || window.innerWidth;
+    const newIndex = Math.round(scrollLeft / width);
+    if (newIndex !== currentIndex) {
+      setCurrentIndex(newIndex);
+    }
+  };
+
+  const formatCount = (count: number): string => {
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    return count.toString();
+  };
+
+  const reactionEmoji = (t: string) => {
+    switch (t) {
+      case 'like': return '👍';
+      case 'love': return '❤️';
+      case 'haha': return '😂';
+      case 'wow': return '😮';
+      case 'sad': return '😢';
+      case 'angry': return '😡';
+      case 'fire': return '🔥';
+      case 'party': return '🎉';
+      default: return '👍';
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] bg-black flex flex-col"
+      onClick={(e) => {
+        e.stopPropagation();
+      }}
+    >
+      {/* Header */}
+      <div
+        className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3 bg-black/40"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-white text-sm font-semibold">
+          {currentIndex + 1}/{urls.length}
+        </div>
+        <button
+          className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <i className="fas fa-times text-white text-lg"></i>
+        </button>
+      </div>
+
+      {/* Images */}
+      <div
+        ref={scrollerRef}
+        className="flex-1 w-full overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scroll-smooth"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+        onClick={(e) => e.stopPropagation()}
+        onScroll={handleScroll}
+      >
+        {urls.map((url, i) => (
+          <div
+            key={url + i}
+            className="min-w-full h-full snap-center flex items-center justify-center bg-black"
+          >
+            <img
+              src={url}
+              alt=""
+              className="max-w-full max-h-full object-contain"
+              draggable={false}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Action Buttons - Fixed at bottom */}
+      <div 
+        className="bg-black/80 backdrop-blur-sm border-t border-white/10 px-4 py-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Facebook-style reactions summary row */}
+        {reactionCount > 0 && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onOpenReactions) onOpenReactions();
+            }}
+            className="w-full flex items-center justify-between px-2 py-2 hover:bg-[#3A3B3C] rounded-lg mb-2 transition-colors"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-1">
+                <span className="text-[18px]">{reactionEmoji("love")}</span>
+                <span className="-ml-1 text-[18px]">{reactionEmoji("like")}</span>
+              </div>
+              <span className="text-[15px] text-[#B0B3B8] font-medium">
+                {fmtCount(reactionCount)}
+              </span>
+            </div>
+            <i className="fas fa-chevron-right text-[#B0B3B8] text-[12px]" />
+          </button>
+        )}
+
+        {/* Totals row */}
+        <div className="flex items-center justify-between text-[#B0B3B8] text-sm mb-2 px-2">
+          <div className="flex items-center gap-2">
+            {reactionCount > 0 && (
+              <span 
+                className="text-[#E4E6EB] font-bold cursor-pointer hover:underline flex items-center gap-2"
+                onClick={onOpenReactions}
+              >
+                <div className="flex -space-x-2">
+                  {Array.from(new Set([myReaction, 'like', 'love']))
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map((t, i) => (
+                      <span
+                        key={i}
+                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-black flex items-center justify-center text-[14px]"
+                      >
+                        {reactionEmoji(t as string)}
+                      </span>
+                    ))}
+                </div>
+              </span>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <span 
+              className="hover:underline cursor-pointer" 
+              onClick={onOpenComments}
+            >
+              {formatCount(commentCount)} Comments
+            </span>
+            {shareCount > 0 && (
+              <span className="hover:underline cursor-pointer" onClick={onShare}>
+                {formatCount(shareCount)} Shares
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions row */}
+        <div className="flex items-center justify-between">
+          <ReactionButton
+            currentUserReactions={myReaction}
+            reactionCount={reactionCount}
+            onReact={onReact}
+            isGuest={!currentUser}
+          />
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
+            onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}
+          >
+            <i className="far fa-comment-alt text-[20px]"></i>
+            <span className="text-[17px] font-medium">Comment</span>
+          </button>
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
+            onClick={() => (currentUser ? onShare() : alert("Please login to share posts."))}
+          >
+            <i className="fas fa-share text-[20px]"></i>
+            <span className="text-[17px] font-medium">Share</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -589,7 +821,7 @@ const PostActionsMenu: React.FC<{
 };
 
 /**
- * GroupPost Component with Three-Dots Menu
+ * GroupPost Component with Three-Dots Menu and Enhanced Feed Features
  */
 const GroupPost: React.FC<{
   post: PostType;
@@ -605,7 +837,7 @@ const GroupPost: React.FC<{
   onEditPost?: (postId: number, content: string) => Promise<any>;
   onDeletePost?: (postId: number) => Promise<any>;
   onReportPost?: (postId: number) => Promise<any>;
-  onViewImage?: (url: string) => void;
+  onViewImage?: (url: string, index?: number) => void;
   onVideoClick?: (post: PostType) => void;
   onHashtagClick?: (tag: string) => void;
   onFollow?: (userId: number) => Promise<any>;
@@ -645,6 +877,10 @@ const GroupPost: React.FC<{
   });
 
   const [showShareSheet, setShowShareSheet] = useState(false);
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
   const likesCount = Number(
@@ -677,21 +913,20 @@ const GroupPost: React.FC<{
 
   // Get media list for multiple images
   const mediaList = useMemo(() => {
-    const list = getPostMediaList(p);
-    return list.filter((x) => x.kind === 'image');
+    return getPostMediaList(p);
   }, [p]);
 
-  // Check for video
-  const mediaUrl = String(p?.media_url || '');
-  const mediaTypeRaw = String(p?.media_type || '').toLowerCase();
-  const typeRaw = String(p?.type || '').toLowerCase();
-  const ext = mediaUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase() || '';
-  
-  const isVideo =
-    typeRaw === 'video' ||
-    mediaTypeRaw === 'video' ||
-    mediaTypeRaw.startsWith('video/') ||
-    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
+  const imageMedia = mediaList.filter(m => m.kind === 'image');
+  const videoMedia = mediaList.filter(m => m.kind === 'video');
+
+  // Facebook-style reaction emojis
+  const emojiList = useMemo(() => {
+    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
+      const em = topReactionEmojis(reactionsArr, 2);
+      return em.length ? em : ['👍'];
+    }
+    return finalReactionCount > 0 ? ['👍'] : [];
+  }, [reactionsArr, finalReactionCount]);
 
   const formatCount = (count: number): string => {
     if (count >= 1000000) {
@@ -724,6 +959,12 @@ const GroupPost: React.FC<{
     onOpenComments(postId);
   };
 
+  const openGallery = (urls: string[], index: number) => {
+    setGalleryUrls(urls);
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  };
+
   return (
     <>
       <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
@@ -733,7 +974,7 @@ const GroupPost: React.FC<{
             onClick={() => onProfileClick(a.id)}
           >
             <img
-              src={a.profile_image_url || 'https://ui-avatars.com/api/?name=User'}
+              src={avatarFrom(a)}
               alt=""
               className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
             />
@@ -799,44 +1040,31 @@ const GroupPost: React.FC<{
           </div>
         )}
 
-        {mediaList.length > 0 && (
+        {/* Images Grid - Enhanced with multi-image support */}
+        {imageMedia.length > 0 && (
           <MediaGrid
-            media={mediaList.map((m) => ({ url: m.url }))}
-            onOpen={(url, index) => onViewImage?.(url)}
+            media={imageMedia.map((m) => ({ url: m.url }))}
+            onOpen={(url, index) => {
+              const urls = imageMedia.map((m) => m.url);
+              openGallery(urls, index);
+            }}
           />
         )}
 
-        {mediaList.length === 0 && mediaUrl && !isVideo && (
-          <div
-            className="cursor-pointer bg-black"
-            onClick={() => onViewImage?.(mediaUrl)}
-          >
-            <img
-              src={mediaUrl}
-              alt=""
-              className="w-full h-auto max-h-[600px] object-contain"
-              loading="lazy"
-              onError={(e) => {
-                console.error('Failed to load image:', mediaUrl);
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-          </div>
-        )}
-
-        {isVideo && mediaUrl && (
+        {/* Video */}
+        {videoMedia.length > 0 && (
           <div
             className="cursor-pointer relative h-[500px] bg-black"
             onClick={() => onVideoClick?.(post)}
           >
             <video
-              src={mediaUrl}
+              src={videoMedia[0].url}
               className="w-full h-full object-cover"
               preload="metadata"
               playsInline
               muted
               onError={(e) => {
-                console.error('Failed to load video:', mediaUrl);
+                console.error('Failed to load video:', videoMedia[0].url);
                 e.currentTarget.style.display = 'none';
               }}
             />
@@ -846,27 +1074,49 @@ const GroupPost: React.FC<{
           </div>
         )}
 
-        <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-          <div className="flex items-center gap-1.5">
-            {finalReactionCount > 0 && (
-              <span className="hover:underline">{formatCount(finalReactionCount)} Reactions</span>
-            )}
-          </div>
-          <div className="flex gap-4">
-            <span
-              className="hover:underline cursor-pointer"
-              onClick={() => onOpenComments(postId)}
+        {/* Reaction summary row - Facebook style */}
+        {finalReactionCount > 0 && (
+          <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowReactionsSheet(true);
+              }}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              {formatCount(commentCount)} Comments
-            </span>
-            {shareCount > 0 && (
-              <span className="hover:underline">
-                {formatCount(shareCount)} Shares
+              <div className="flex -space-x-2">
+                {emojiList.slice(0, 2).map((e, i) => (
+                  <span
+                    key={i}
+                    className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                    style={{ zIndex: 10 - i }}
+                  >
+                    {e}
+                  </span>
+                ))}
+              </div>
+              <span className="text-[#E4E6EB] font-bold text-[16px]">
+                {formatCount(finalReactionCount)}
               </span>
-            )}
+            </button>
+            
+            <div className="flex gap-4">
+              <span
+                className="hover:underline cursor-pointer"
+                onClick={() => onOpenComments(postId)}
+              >
+                {formatCount(commentCount)} Comments
+              </span>
+              {shareCount > 0 && (
+                <span className="hover:underline">
+                  {formatCount(shareCount)} Shares
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
+        {/* Action buttons */}
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
           <ReactionButton
             currentUserReactions={finalMyReaction}
@@ -904,6 +1154,24 @@ const GroupPost: React.FC<{
         currentUser={currentUser}
         users={users}
         onShareComplete={handleShareComplete}
+      />
+
+      {/* Gallery Viewer */}
+      <GalleryViewer
+        isOpen={galleryOpen}
+        urls={galleryUrls}
+        startIndex={galleryIndex}
+        onClose={() => setGalleryOpen(false)}
+        postId={postId}
+        currentUser={currentUser}
+        reactionCount={finalReactionCount}
+        commentCount={commentCount}
+        shareCount={shareCount}
+        myReaction={finalMyReaction}
+        onReact={handleLikeClick}
+        onOpenComments={() => onOpenComments(postId)}
+        onShare={() => setShowShareSheet(true)}
+        onOpenReactions={() => setShowReactionsSheet(true)}
       />
     </>
   );
@@ -1086,6 +1354,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [showPostView, setShowPostView] = useState(false);
   const [selectedPost, setSelectedPost] = useState<PostType | null>(null);
   const [selectedPostAuthor, setSelectedPostAuthor] = useState<User | null>(null);
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
 
   // Events state - using ref to prevent unnecessary reloads
   const [groupEvents, setGroupEvents] = useState<Event[]>([]);
@@ -1540,6 +1809,12 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     } catch (error) {
       console.error('Failed to report post:', error);
       throw error;
+    }
+  };
+
+  const handleViewImage = (url: string, index?: number) => {
+    if (onViewImage) {
+      onViewImage(url);
     }
   };
 
@@ -2167,7 +2442,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                   className="bg-[#1e1e1e] rounded-xl p-3 mb-4 border border-[#333] shadow-sm flex gap-3 items-center cursor-pointer mx-2 md:mx-0 transition-colors hover:bg-[#2d2d2d]"
                   onClick={() => setShowGroupPostModal(true)}
                 >
-                  <img src={currentUser?.profile_image_url} className="w-10 h-10 rounded-full bg-[#2d2d2d] object-cover" alt="" />
+                  <img src={avatarFrom(currentUser)} className="w-10 h-10 rounded-full bg-[#2d2d2d] object-cover" alt="" />
                   <div className="flex-1 bg-[#2d2d2d] transition-colors rounded-full px-4 py-2.5">
                     <span className="text-[#b0b3b8] text-[17px]">Post something in {activeGroup.name}...</span>
                   </div>
@@ -2227,7 +2502,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         onEditPost={onEditGroupPost ? handleEditPost : undefined}
                         onDeletePost={onDeleteGroupPost ? handleDeletePost : undefined}
                         onReportPost={onReportGroupPost ? handleReportPost : undefined}
-                        onViewImage={onViewImage}
+                        onViewImage={handleViewImage}
                         onVideoClick={onVideoClick}
                         onHashtagClick={onHashtagClick}
                         onFollow={onFollow}
@@ -2371,7 +2646,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     <div key={memberId} className="flex items-center justify-between p-3 hover:bg-[#2d2d2d] rounded-lg transition-colors">
                       <div className="flex items-center gap-3 cursor-pointer group" onClick={() => onProfileClick(memberId)}>
                         <img
-                          src={member.profile_image_url}
+                          src={avatarFrom(member)}
                           className="w-12 h-12 rounded-xl object-cover border border-[#333]"
                           alt=""
                         />
@@ -2419,7 +2694,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             <div className="flex-1 flex flex-col overflow-y-auto">
               <div className="p-6 flex items-center gap-4">
                 <img
-                  src={currentUser?.profile_image_url}
+                  src={avatarFrom(currentUser)}
                   className="w-14 h-14 rounded-full border-2 border-[#1877f2] object-cover"
                   alt=""
                 />
