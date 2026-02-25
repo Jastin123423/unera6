@@ -9,9 +9,19 @@ import {
   RichText,
   getMediaTypeInfo,
   avatarFrom,
-  topReactionEmojis,
+  topReactionEmojis
 } from './Feed';
 import { CreateEventModal } from './Events';
+
+// ✅ Add fmtCount helper locally
+const fmtCount = (n: number) => {
+  const num = Number(n || 0);
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(num % 1_000_000 === 0 ? 0 : 1) + "M";
+  if (num >= 1_000) return (num / 1_000).toFixed(num % 1_000 === 0 ? 0 : 1) + "K";
+  return String(num);
+};
+
+// ... rest of your Groups.tsx code remains exactly the same ...
 
 // ✅ SAFETY HELPERS
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
