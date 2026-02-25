@@ -5,17 +5,84 @@ import { cors, ok, bad, server } from "./_cors";
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
+/** -------------------------
+ * Helpers
+ * -------------------------- */
+const toInt = (v: any, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const cleanUrl = (v: any) => {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  if (s === "null" || s === "undefined") return "";
+  return s;
+};
+
+const parseMediaUrls = (raw: any): string[] => {
+  // Accept:
+  // - array: ["a","b"]
+  // - json string: '["a","b"]'
+  // - string url: "a" => ["a"]
+  // - null => []
+  if (Array.isArray(raw)) {
+    return raw.map(cleanUrl).filter(Boolean);
+  }
+
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s);
+        return Array.isArray(parsed) ? parsed.map(cleanUrl).filter(Boolean) : [];
+      } catch {
+        // If it's not valid JSON, treat as single url
+        const one = cleanUrl(s);
+        return one ? [one] : [];
+      }
+    }
+    const one = cleanUrl(s);
+    return one ? [one] : [];
+  }
+
+  return [];
+};
+
+const normalizeImagesForResponse = (row: any): string[] => {
+  // Prefer media_urls if present, else fallback to media_url
+  const urls = parseMediaUrls(row?.media_urls);
+  if (urls.length) return urls;
+
+  const single = cleanUrl(row?.media_url);
+  return single ? [single] : [];
+};
+
 // CREATE: POST /api/group-posts
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => ({} as any));
-    const group_id = Number(body.group_id || 0);
-    const user_id = Number(body.user_id || 0);
+
+    const group_id = toInt(body.group_id, 0);
+    const user_id = toInt(body.user_id, 0);
     const content = body.content == null ? null : String(body.content);
-    const media_url = body.media_url == null ? null : String(body.media_url);
+
+    // Backward compatibility: media_url (single)
+    const media_url = body.media_url == null ? null : cleanUrl(body.media_url);
+
+    // ✅ New: media_urls (multiple)
+    const media_urls_arr = parseMediaUrls(body.media_urls);
+    const media_urls_json = media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
 
     if (!group_id || !user_id) return bad("group_id and user_id are required");
-    if (!content && !media_url) return bad("content or media_url required");
+
+    // ✅ Must have either content OR some media (single or multiple)
+    const hasText = !!String(content ?? "").trim();
+    const hasSingle = !!media_url;
+    const hasMulti = !!(media_urls_arr.length > 0);
+
+    if (!hasText && !hasSingle && !hasMulti) return bad("content or media_url or media_urls required");
 
     // ✅ Must be a member to post
     const mem = await env.DB.prepare(
@@ -25,14 +92,19 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
       .first();
     if (!mem) return bad("User is not a member of this group", 403);
 
+    // ✅ Insert with new column (media_urls)
     const result = await env.DB.prepare(
-      `INSERT INTO group_posts (group_id, user_id, content, media_url)
-       VALUES (?, ?, ?, ?)`
+      `INSERT INTO group_posts (group_id, user_id, content, media_url, media_urls)
+       VALUES (?, ?, ?, ?, ?)`
     )
-      .bind(group_id, user_id, content, media_url)
+      .bind(group_id, user_id, content, media_url, media_urls_json)
       .run();
 
-    return ok({ success: true, post_id: Number(result.meta.last_row_id) });
+    return ok({
+      success: true,
+      post_id: Number(result.meta.last_row_id),
+      media_urls: media_urls_arr, // helpful for client
+    });
   } catch (e: any) {
     return server(e?.message || "Failed to create group post");
   }
@@ -41,18 +113,17 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 // LIST:
 // - all: /api/group-posts
 // - by group: /api/group-posts?group_id=123
-// - include viewer: /api/group-posts?group_id=123&viewerId=4  (returns my_reaction='like' if liked)
+// - include viewer: /api/group-posts?group_id=123&viewerId=4
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
-    const group_id = Number(url.searchParams.get("group_id") || 0);
-    const viewerId = Number(url.searchParams.get("viewerId") || 0);
+    const group_id = toInt(url.searchParams.get("group_id"), 0);
+    const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
     const where = group_id ? `WHERE gp.group_id = ?` : ``;
     const binds: any[] = [];
     if (group_id) binds.push(group_id);
 
-    // if viewerId provided, compute my_reaction cheaply
     const myLikeSelect = viewerId
       ? `(SELECT CASE WHEN EXISTS(
             SELECT 1 FROM group_post_likes l
@@ -60,6 +131,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
           ) THEN 'like' ELSE NULL END) AS my_reaction`
       : `NULL AS my_reaction`;
 
+    // ✅ include gp.media_urls (new column)
     const stmt = `
       SELECT
         gp.*,
@@ -81,33 +153,37 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     const q = env.DB.prepare(stmt);
     const { results } = group_id ? await q.bind(...binds).all() : await q.all();
 
-    return ok({ success: true, posts: results || [] });
+    // ✅ Add a normalized "images" array so frontend can render multi-images easily
+    const posts = (results || []).map((r: any) => ({
+      ...r,
+      images: normalizeImagesForResponse(r), // always array
+    }));
+
+    return ok({ success: true, posts });
   } catch (e: any) {
     return server(e?.message || "Failed to fetch group posts");
   }
 };
 
-// EDIT: PUT /api/group-posts?post_id=123   body: { user_id, content }
+// EDIT: PUT /api/group-posts?post_id=123   body: { user_id, content, media_url?, media_urls? }
 export const onRequestPut: PagesFunction = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
-    const post_id = Number(url.searchParams.get("post_id") || 0);
+    const post_id = toInt(url.searchParams.get("post_id"), 0);
     if (!post_id) return bad("post_id is required");
 
     const body = await request.json().catch(() => ({} as any));
-    const user_id = Number(body.user_id || 0);
-    const content = body.content == null ? "" : String(body.content).trim();
+    const user_id = toInt(body.user_id, 0);
 
     if (!user_id) return bad("user_id is required");
-    if (!content) return bad("content is required");
 
     const post = await env.DB.prepare(
       `SELECT id, group_id, user_id FROM group_posts WHERE id=? LIMIT 1`
     ).bind(post_id).first();
     if (!post) return bad("Post not found", 404);
 
-    const group_id = Number((post as any).group_id);
-    const author_id = Number((post as any).user_id);
+    const group_id = toInt((post as any).group_id, 0);
+    const author_id = toInt((post as any).user_id, 0);
 
     const member = await env.DB.prepare(
       `SELECT role FROM group_members WHERE group_id=? AND user_id=? LIMIT 1`
@@ -118,9 +194,50 @@ export const onRequestPut: PagesFunction = async ({ request, env }) => {
 
     if (!isAuthor && !isGroupAdmin) return bad("Not allowed to edit this post", 403);
 
-    await env.DB.prepare(`UPDATE group_posts SET content=? WHERE id=?`)
-      .bind(content, post_id)
-      .run();
+    // You can update text and/or media (optional)
+    const content =
+      body.content == null ? null : String(body.content).trim();
+
+    const media_url =
+      body.media_url == null ? null : cleanUrl(body.media_url);
+
+    const media_urls_arr = body.media_urls == null ? null : parseMediaUrls(body.media_urls);
+    const media_urls_json = media_urls_arr && media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
+
+    // Build dynamic update (only what is provided)
+    const sets: string[] = [];
+    const binds: any[] = [];
+
+    if (body.content !== undefined) {
+      sets.push(`content=?`);
+      binds.push(content);
+    }
+    if (body.media_url !== undefined) {
+      sets.push(`media_url=?`);
+      binds.push(media_url);
+    }
+    if (body.media_urls !== undefined) {
+      sets.push(`media_urls=?`);
+      binds.push(media_urls_json);
+    }
+
+    if (sets.length === 0) return bad("Nothing to update");
+
+    // Optional: prevent empty post after update
+    // (If they set content="" and clear media_url/media_urls)
+    const willClearText = body.content !== undefined && !String(content ?? "").trim();
+    const willClearSingle = body.media_url !== undefined && !media_url;
+    const willClearMulti = body.media_urls !== undefined && !(media_urls_arr?.length);
+
+    // If they try to clear everything in one update:
+    if (willClearText && willClearSingle && willClearMulti) {
+      return bad("content or media_url or media_urls required");
+    }
+
+    const sql = `UPDATE group_posts SET ${sets.join(", ")} WHERE id=?`;
+    binds.push(post_id);
+
+    await env.DB.prepare(sql).bind(...binds).run();
 
     return ok({ success: true });
   } catch (e: any) {
@@ -132,8 +249,8 @@ export const onRequestPut: PagesFunction = async ({ request, env }) => {
 export const onRequestDelete: PagesFunction = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
-    const post_id = Number(url.searchParams.get("post_id") || 0);
-    const user_id = Number(url.searchParams.get("user_id") || 0);
+    const post_id = toInt(url.searchParams.get("post_id"), 0);
+    const user_id = toInt(url.searchParams.get("user_id"), 0);
 
     if (!post_id) return bad("post_id is required");
     if (!user_id) return bad("user_id is required");
@@ -143,8 +260,8 @@ export const onRequestDelete: PagesFunction = async ({ request, env }) => {
     ).bind(post_id).first();
     if (!post) return bad("Post not found", 404);
 
-    const group_id = Number((post as any).group_id);
-    const author_id = Number((post as any).user_id);
+    const group_id = toInt((post as any).group_id, 0);
+    const author_id = toInt((post as any).user_id, 0);
 
     const member = await env.DB.prepare(
       `SELECT role FROM group_members WHERE group_id=? AND user_id=? LIMIT 1`
@@ -155,7 +272,6 @@ export const onRequestDelete: PagesFunction = async ({ request, env }) => {
 
     if (!isAuthor && !isGroupAdmin) return bad("Not allowed to delete this post", 403);
 
-    // ✅ CASCADE will delete likes/comments due to FK ON DELETE CASCADE
     await env.DB.prepare(`DELETE FROM group_posts WHERE id=?`).bind(post_id).run();
 
     return ok({ success: true });
