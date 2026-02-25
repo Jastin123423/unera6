@@ -1,5 +1,3 @@
-
-//
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { User, Group, Event, Post as PostType, ReactionType } from '../types';
 import { 
@@ -23,8 +21,6 @@ const fmtCount = (n: number) => {
   return String(num);
 };
 
-// ... rest of your Groups.tsx code remains exactly the same ...
-
 // ✅ SAFETY HELPERS
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
@@ -40,12 +36,38 @@ type NormalizedMedia = { url: string; kind: 'image' | 'video' };
 const getPostMediaList = (post: any): NormalizedMedia[] => {
   const out: NormalizedMedia[] = [];
 
+  // Parse media_urls if it's a string (JSON)
+  let mediaUrls: string[] = [];
+  if (post?.media_urls) {
+    if (Array.isArray(post.media_urls)) {
+      mediaUrls = post.media_urls;
+    } else if (typeof post.media_urls === 'string') {
+      try {
+        const parsed = JSON.parse(post.media_urls);
+        mediaUrls = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        mediaUrls = [];
+      }
+    }
+  }
+
+  // Parse images if it's a string (JSON)
+  let images: string[] = [];
+  if (post?.images) {
+    if (Array.isArray(post.images)) {
+      images = post.images;
+    } else if (typeof post.images === 'string') {
+      try {
+        const parsed = JSON.parse(post.images);
+        images = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        images = [];
+      }
+    }
+  }
+
   // 1) arrays: media_urls, images
-  const arrUrls: any[] = Array.isArray(post?.media_urls)
-    ? post.media_urls
-    : Array.isArray(post?.images)
-      ? post.images
-      : [];
+  const arrUrls: any[] = mediaUrls.length ? mediaUrls : images;
 
   for (const u of arrUrls) {
     const url = String(u || '').trim();
@@ -1201,7 +1223,7 @@ interface GroupsPageProps {
 
   // Group content functions
   onUpdateGroupImage: (groupId: number, type: 'cover' | 'profile', file: File) => Promise<any>;
-  onPostToGroup: (groupId: number, content: string, file?: File | null) => Promise<any>;
+  onPostToGroup: (groupId: number, content: string, files?: File[]) => Promise<any>;
   onCreateGroupEvent: (groupId: number, event: Partial<Event>) => Promise<any>;
   onInviteToGroup: (groupId: number, userIds: number[]) => Promise<any>;
 
@@ -1268,11 +1290,56 @@ function normalizeGroup(raw: any): Group {
 }
 
 /**
- * Normalize post data for UI safety
+ * Normalize post data for UI safety - Updated to preserve media_urls array
  */
 function normalizePost(post: any): PostType {
   const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
   const mediaType = post?.media_type ?? post?.mediaType ?? null;
+  
+  // Parse media_urls if it's a string (JSON)
+  let mediaUrls: string[] = [];
+  if (post?.media_urls) {
+    if (Array.isArray(post.media_urls)) {
+      mediaUrls = post.media_urls;
+    } else if (typeof post.media_urls === 'string') {
+      try {
+        const parsed = JSON.parse(post.media_urls);
+        mediaUrls = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        mediaUrls = [];
+      }
+    }
+  }
+  
+  // Parse images if it's a string (JSON)
+  let images: string[] = [];
+  if (post?.images) {
+    if (Array.isArray(post.images)) {
+      images = post.images;
+    } else if (typeof post.images === 'string') {
+      try {
+        const parsed = JSON.parse(post.images);
+        images = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        images = [];
+      }
+    }
+  }
+
+  // Parse media_types if it's a string (JSON)
+  let mediaTypes: string[] = [];
+  if (post?.media_types) {
+    if (Array.isArray(post.media_types)) {
+      mediaTypes = post.media_types;
+    } else if (typeof post.media_types === 'string') {
+      try {
+        const parsed = JSON.parse(post.media_types);
+        mediaTypes = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        mediaTypes = [];
+      }
+    }
+  }
 
   return {
     ...post,
@@ -1281,6 +1348,9 @@ function normalizePost(post: any): PostType {
     content: String(post?.content ?? post?.text ?? ''),
     media_url: mediaUrl,
     media_type: mediaType,
+    media_urls: mediaUrls.length ? mediaUrls : images, // Use media_urls or images
+    images: mediaUrls.length ? mediaUrls : images, // Keep images for backward compatibility
+    media_types: mediaTypes,
     type: post?.type ?? (mediaUrl ? (mediaType?.startsWith('image/') ? 'image' : 'video') : 'text'),
     reactions: Array.isArray(post?.reactions) ? post.reactions : [],
     comments: Array.isArray(post?.comments) ? post.comments : [],
@@ -1399,7 +1469,8 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [newGroupType, setNewGroupType] = useState<'public' | 'private'>('public');
 
   const [postContent, setPostContent] = useState('');
-  const [postFile, setPostFile] = useState<File | null>(null);
+  const [postFiles, setPostFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
 
   // normalize ALL groups so missing arrays never crash UI
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
@@ -1501,10 +1572,27 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     setGroupEvents([]);
   }, [activeGroupId]);
 
+  // Clean up preview URLs when files change
+  useEffect(() => {
+    // Create preview URLs
+    const urls = postFiles.map(file => URL.createObjectURL(file));
+    setPreviews(urls);
+    
+    // Clean up function
+    return () => {
+      urls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [postFiles]);
+
   useEffect(() => {
     if (!showGroupPostModal) {
       setPostContent('');
-      setPostFile(null);
+      setPostFiles([]);
+      setPreviews([]);
+      // Clear input value so selecting the same files again works
+      if (postFileInputRef.current) {
+        postFileInputRef.current.value = '';
+      }
     }
   }, [showGroupPostModal]);
 
@@ -1565,13 +1653,19 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
 
   const handlePostSubmit = async () => {
     if (!activeGroup) return;
-    if (!postContent.trim() && !postFile) return;
+    if (!postContent.trim() && postFiles.length === 0) return;
 
     try {
-      await onPostToGroup(activeGroup.id, postContent.trim(), postFile);
+      await onPostToGroup(activeGroup.id, postContent.trim(), postFiles);
       setShowGroupPostModal(false);
       setPostContent('');
-      setPostFile(null);
+      setPostFiles([]);
+      setPreviews([]);
+      
+      // Clear input value
+      if (postFileInputRef.current) {
+        postFileInputRef.current.value = '';
+      }
       
       // Reload posts with force flag
       postsLoadedRef.current = false;
@@ -1589,6 +1683,16 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
         console.error('Failed to update group image:', error);
       }
     }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setPostFiles(Array.from(e.target.files));
+    }
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setPostFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleCreateEvent = async (eventData: Partial<Event>) => {
@@ -2689,7 +2793,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           )}
         </div>
 
-        {/* Create Post Modal */}
+        {/* Create Post Modal with Multi-File Support */}
         {showGroupPostModal && (
           <div className="fixed inset-0 z-[150] bg-[#121212] flex flex-col animate-slide-up font-sans">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#333] bg-[#1e1e1e]">
@@ -2725,6 +2829,39 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 />
               </div>
 
+              {/* File Previews Grid */}
+              {previews.length > 0 && (
+                <div className="px-6 mb-4">
+                  <div className="grid grid-cols-4 gap-2">
+                    {previews.slice(0, 4).map((preview, index) => (
+                      <div key={index} className="relative aspect-square rounded-lg overflow-hidden group">
+                        <img
+                          src={preview}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          onClick={() => handleRemoveFile(index)}
+                          className="absolute top-1 right-1 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <i className="fas fa-times text-white text-xs"></i>
+                        </button>
+                        {postFiles[index]?.type.startsWith('video/') && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                            <i className="fas fa-play text-white text-2xl"></i>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {previews.length > 4 && (
+                      <div className="aspect-square rounded-lg bg-[#2d2d2d] flex items-center justify-center">
+                        <span className="text-[#e4e6eb] font-bold text-lg">+{previews.length - 4}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="border-t border-[#333] bg-[#1e1e1e] p-2">
                 <div
                   className="flex items-center gap-4 p-4 hover:bg-[#2d2d2d] rounded-2xl cursor-pointer transition-all border border-transparent hover:border-[#333]"
@@ -2733,7 +2870,9 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                   <div className="w-10 h-10 bg-[#45BD62]/10 rounded-full flex items-center justify-center text-[#45BD62]">
                     <i className="fas fa-images text-xl"></i>
                   </div>
-                  <span className="text-[#e4e6eb] font-black text-lg">Add Photo/Video</span>
+                  <span className="text-[#e4e6eb] font-black text-lg">
+                    {postFiles.length > 0 ? `${postFiles.length} file(s) selected` : 'Add Photo/Video'}
+                  </span>
                 </div>
 
                 <div
@@ -2753,7 +2892,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
               <div className="p-6 bg-[#1e1e1e]">
                 <button
                   onClick={handlePostSubmit}
-                  disabled={!postContent.trim() && !postFile}
+                  disabled={!postContent.trim() && postFiles.length === 0}
                   className="w-full bg-[#1877f2] text-white font-black text-xl py-4 rounded-2xl hover:bg-[#166fe5] disabled:opacity-50 transition-all shadow-2xl active:scale-95 disabled:cursor-not-allowed"
                 >
                   POST TO FEED
@@ -2767,11 +2906,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
               className="hidden"
               accept="image/*,video/*"
               multiple
-              onChange={e => {
-                if (e.target.files && e.target.files[0]) {
-                  setPostFile(e.target.files[0]);
-                }
-              }}
+              onChange={handleFileChange}
             />
           </div>
         )}
