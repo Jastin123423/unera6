@@ -5274,4 +5274,4 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { getMediaTypeInfo, avatarFrom };
+export { getMediaTypeInfo, avatarFrom,fmtCount };
