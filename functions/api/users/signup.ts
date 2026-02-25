@@ -1,4 +1,4 @@
-// functions/api/users/signup.ts
+// functions/api/users/signup.ts-
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { signJWT } from "./_jwt";
 
