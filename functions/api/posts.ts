@@ -75,6 +75,75 @@ const normCreatedAt = (v: any) => {
 };
 
 /* ============================================================
+   ✅ MULTI-MEDIA HELPERS (same idea as feeds.ts)
+============================================================ */
+
+const cleanUrl = (v: any) => {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  if (s === "null" || s === "undefined") return "";
+  if (s.startsWith("data:")) return ""; // block base64
+  return s;
+};
+
+const parseJsonArray = (raw: any, maxItems = 20): string[] => {
+  if (Array.isArray(raw)) {
+    return raw.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+  }
+
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    if (s.length > 10000) return []; // safety
+
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) {
+          return parsed.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+        }
+        return [];
+      } catch {
+        // fallthrough
+      }
+    }
+
+    const one = cleanUrl(s);
+    return one ? [one] : [];
+  }
+
+  return [];
+};
+
+const guessTypeFromUrl = (url: string) => {
+  const u = url.toLowerCase();
+  if (u.includes(".mp4") || u.includes(".webm") || u.includes(".mov") || u.includes("video")) return "video";
+  if (u.includes(".mp3") || u.includes(".wav") || u.includes("audio")) return "audio";
+  return "image";
+};
+
+const normalizeMedia = (row: any) => {
+  const single = cleanUrl(row?.media_url);
+
+  const urls = parseJsonArray(row?.media_urls);
+  const outUrls = urls.length ? urls : single ? [single] : [];
+
+  const types = parseJsonArray(row?.media_types);
+  let outTypes = types.length ? types : [];
+
+  if (outUrls.length && outTypes.length !== outUrls.length) {
+    outTypes = outUrls.map(guessTypeFromUrl);
+  }
+
+  return {
+    media_url: single || null,       // keep old field
+    media_urls: outUrls,             // ✅ ALWAYS array in response
+    media_types: outTypes,           // ✅ ALWAYS array
+    images: outUrls,                 // ✅ alias for UI
+  };
+};
+
+/* ============================================================
    OPTIONS
 ============================================================ */
 
@@ -85,10 +154,7 @@ export const onRequestOptions: PagesFunction = async () =>
    POST /api/posts
 ============================================================ */
 
-export const onRequestPost: PagesFunction<Env> = async ({
-  request,
-  env,
-}) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env.DB)
       return json(
@@ -108,36 +174,20 @@ export const onRequestPost: PagesFunction<Env> = async ({
     const media_types_arr = normalizeStringArray(body.media_types);
 
     const filtered_urls = media_urls_arr
-      .filter((u) => !String(u).startsWith("data:"))
+      .map(cleanUrl)
+      .filter(Boolean)
       .filter((u) => isHttpUrl(u));
 
-    const filtered_types = filtered_urls.map(
-      (_, i) => media_types_arr[i] || ""
-    );
+    const filtered_types = filtered_urls.map((_, i) => String(media_types_arr[i] || "").trim());
 
-    const media_url =
-      body.media_url ||
-      (filtered_urls.length ? filtered_urls[0] : null);
-
-    const media_type =
-      body.media_type ||
-      (filtered_types.length ? filtered_types[0] : null);
+    const media_url = body.media_url || (filtered_urls.length ? filtered_urls[0] : null);
+    const media_type = body.media_type || (filtered_types.length ? filtered_types[0] : null);
 
     if (!content && !media_url && filtered_urls.length === 0)
-      return json(
-        { error: "content or media_url or media_urls required" },
-        400
-      );
+      return json({ error: "content or media_url or media_urls required" }, 400);
 
-    const media_urls_json =
-      filtered_urls.length > 0
-        ? JSON.stringify(filtered_urls)
-        : null;
-
-    const media_types_json =
-      filtered_types.length > 0
-        ? JSON.stringify(filtered_types)
-        : null;
+    const media_urls_json = filtered_urls.length > 0 ? JSON.stringify(filtered_urls) : null;
+    const media_types_json = filtered_types.length > 0 ? JSON.stringify(filtered_types) : null;
 
     const result = await env.DB.prepare(
       `
@@ -159,27 +209,20 @@ export const onRequestPost: PagesFunction<Env> = async ({
 
     const post_id = result.meta?.last_row_id;
 
-    return json({
-      success: true,
-      post_id,
-    });
+    return json({ success: true, post_id });
   } catch (err: any) {
-    return json(
-      { error: "Backend crash", message: String(err?.message) },
-      500
-    );
+    return json({ error: "Backend crash", message: String(err?.message) }, 500);
   }
 };
 
 /* ============================================================
    GET /api/posts
    NON-LOGGED USERS SUPPORTED
+   ✅ UPDATED: returns media_urls/media_types as ARRAYS + images alias
+   ✅ UPDATED: group posts use group_post_reactions + gp.media_urls
 ============================================================ */
 
-export const onRequestGet: PagesFunction<Env> = async ({
-  request,
-  env,
-}) => {
+export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env.DB)
       return json(
@@ -189,17 +232,9 @@ export const onRequestGet: PagesFunction<Env> = async ({
 
     const url = new URL(request.url);
 
-    const viewerId = toInt(
-      url.searchParams.get("viewerId"),
-      0
-    );
+    const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
-    const limit = clamp(
-      readLimit(url.searchParams.get("limit"), 50),
-      1,
-      50
-    );
-
+    const limit = clamp(readLimit(url.searchParams.get("limit"), 50), 1, 50);
     const perType = clamp(limit * 2, 10, 100);
 
     /* ============================================================
@@ -217,10 +252,12 @@ export const onRequestGet: PagesFunction<Env> = async ({
 
         p.user_id,
         p.content,
+
         p.media_url,
         p.media_type,
         p.media_urls,
         p.media_types,
+
         p.visibility,
         p.created_at,
         p.views,
@@ -233,16 +270,16 @@ export const onRequestGet: PagesFunction<Env> = async ({
          AS my_reaction,
 
         (
-          SELECT u.username
+          SELECT COALESCE(u2.username,'')
           FROM post_reactions pr
-          JOIN users u ON u.id=pr.user_id
+          JOIN users u2 ON u2.id=pr.user_id
           WHERE pr.post_id=p.id
-          ORDER BY pr.created_at DESC
+          ORDER BY pr.created_at DESC, pr.id DESC
           LIMIT 1
         ) AS reactor_name,
 
         u.username,
-        u.username AS name,
+        COALESCE(u.name, u.username) AS name,
         u.profile_image_url,
         u.is_verified,
         u.role,
@@ -277,10 +314,12 @@ export const onRequestGet: PagesFunction<Env> = async ({
 
         r.user_id,
         NULL AS content,
+
         r.video_url AS media_url,
         'video' AS media_type,
         NULL AS media_urls,
         NULL AS media_types,
+
         r.visibility,
         r.created_at,
         r.views,
@@ -292,17 +331,17 @@ export const onRequestGet: PagesFunction<Env> = async ({
          WHERE reel_id=r.id AND user_id=? LIMIT 1)
          AS my_reaction,
 
-        NULL reactor_name,
+        NULL AS reactor_name,
 
         u.username,
-        u.username AS name,
+        COALESCE(u.name, u.username) AS name,
         u.profile_image_url,
         u.is_verified,
         u.role,
 
-        NULL group_id,
-        NULL group_name,
-        NULL group_image
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
 
       FROM reels r
       LEFT JOIN users u ON u.id=r.user_id
@@ -316,7 +355,8 @@ export const onRequestGet: PagesFunction<Env> = async ({
       .all();
 
     /* ============================================================
-       GROUP POSTS
+       GROUP POSTS  ✅ likes -> reactions + gp.media_urls
+       NOTE: guests still see only public group posts
     ============================================================ */
 
     const groupPosts = await env.DB.prepare(
@@ -330,41 +370,44 @@ export const onRequestGet: PagesFunction<Env> = async ({
 
         gp.user_id,
         gp.content,
+
         gp.media_url,
-        NULL media_type,
-        NULL media_urls,
-        NULL media_types,
+        NULL AS media_type,
+
+        gp.media_urls,      -- ✅ from DB
+        NULL AS media_types,
+
         gp.visibility,
         gp.created_at,
-        0 views,
-        0 shares,
+        0 AS views,
+        0 AS shares,
 
-        (SELECT COUNT(*) FROM group_post_likes
-         WHERE group_post_id=gp.id) reactions_count,
+        (SELECT COUNT(*) FROM group_post_reactions
+         WHERE group_post_id=gp.id) AS reactions_count,
 
-        (SELECT 'like'
-         FROM group_post_likes
+        (SELECT LOWER(COALESCE(type,'like'))
+         FROM group_post_reactions
          WHERE group_post_id=gp.id AND user_id=?
-         LIMIT 1) my_reaction,
+         LIMIT 1) AS my_reaction,
 
         (
-          SELECT u.username
-          FROM group_post_likes gpl
-          JOIN users u ON u.id=gpl.user_id
-          WHERE gpl.group_post_id=gp.id
-          ORDER BY gpl.created_at DESC
+          SELECT COALESCE(u2.username,'')
+          FROM group_post_reactions gpr
+          JOIN users u2 ON u2.id=gpr.user_id
+          WHERE gpr.group_post_id=gp.id
+          ORDER BY gpr.created_at DESC, gpr.id DESC
           LIMIT 1
-        ) reactor_name,
+        ) AS reactor_name,
 
         u.username,
-        u.username AS name,
+        COALESCE(u.name, u.username) AS name,
         u.profile_image_url,
         u.is_verified,
         u.role,
 
         gp.group_id,
-        g.name group_name,
-        g.profile_image group_image
+        g.name AS group_name,
+        g.profile_image AS group_image
 
       FROM group_posts gp
       LEFT JOIN users u ON u.id=gp.user_id
@@ -379,7 +422,7 @@ export const onRequestGet: PagesFunction<Env> = async ({
       .all();
 
     /* ============================================================
-       MERGE
+       MERGE + DEDUP + SORT
     ============================================================ */
 
     const items = [
@@ -388,25 +431,18 @@ export const onRequestGet: PagesFunction<Env> = async ({
       ...(groupPosts.results || []),
     ];
 
-    const map = new Map();
+    const map = new Map<string, any>();
+    for (const it of items) map.set(String(it.feed_key || ""), it);
 
-    for (const it of items) {
-      map.set(it.feed_key, it);
-    }
-
-    const merged = Array.from(map.values())
-      .sort((a, b) =>
-        normCreatedAt(b.created_at).localeCompare(
-          normCreatedAt(a.created_at)
-        )
-      )
+    const mergedRaw = Array.from(map.values())
+      .sort((a, b) => normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at)))
       .slice(0, limit);
+
+    // ✅ Normalize media for all items (same as feeds.ts behavior)
+    const merged = mergedRaw.map((it: any) => ({ ...it, ...normalizeMedia(it) }));
 
     return json(merged);
   } catch (err: any) {
-    return json(
-      { error: "Backend crash", message: String(err?.message) },
-      500
-    );
+    return json({ error: "Backend crash", message: String(err?.message) }, 500);
   }
 };
