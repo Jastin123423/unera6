@@ -1829,7 +1829,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     setShowPostView(true);
   };
 
-  // ✅ FIXED: handleLikePost with optimistic updates for immediate UI feedback
+  // ✅ FIXED: handleLikePost with proper optimistic updates for immediate UI feedback
   const handleLikePost = async (postId: number, type?: ReactionType) => {
     if (!currentUser) return;
     
@@ -1842,19 +1842,29 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     const previousMyReaction = (postToUpdate as any).my_reaction;
     const previousReactionsCount = (postToUpdate as any).reactions_count || 0;
 
-    // Optimistically update UI immediately
+    // Determine new reaction state
+    let newMyReaction: ReactionType | null = type || 'like';
+    let newReactionsCount = previousReactionsCount;
+
+    if (!previousMyReaction) {
+      // No previous reaction -> add reaction
+      newReactionsCount = previousReactionsCount + 1;
+    } else if (previousMyReaction === type) {
+      // Same reaction -> remove it
+      newMyReaction = null;
+      newReactionsCount = previousReactionsCount - 1;
+    } else {
+      // Different reaction -> change type (count stays same)
+      newMyReaction = type || 'like';
+      newReactionsCount = previousReactionsCount;
+    }
+
+    // Optimistically update UI immediately - this makes the reaction appear instantly
     setGroupPosts(prev => prev.map(post => {
       if (post.id === postId) {
-        const isLiking = !previousMyReaction; // If no previous reaction, we're liking
-        const newReactionsCount = isLiking 
-          ? previousReactionsCount + 1 
-          : previousMyReaction === type 
-            ? previousReactionsCount - 1 // If same reaction, remove it
-            : previousReactionsCount; // If different reaction, count stays the same
-        
         return {
           ...post,
-          my_reaction: isLiking ? type : (previousMyReaction === type ? null : type),
+          my_reaction: newMyReaction,
           reactions_count: newReactionsCount,
         } as any;
       }
@@ -1865,16 +1875,9 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     if (selectedPost && selectedPost.id === postId) {
       setSelectedPost(prev => {
         if (!prev) return prev;
-        const isLiking = !previousMyReaction;
-        const newReactionsCount = isLiking 
-          ? previousReactionsCount + 1 
-          : previousMyReaction === type 
-            ? previousReactionsCount - 1
-            : previousReactionsCount;
-        
         return {
           ...prev,
-          my_reaction: isLiking ? type : (previousMyReaction === type ? null : type),
+          my_reaction: newMyReaction,
           reactions_count: newReactionsCount,
         } as any;
       });
