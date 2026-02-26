@@ -13,7 +13,7 @@ import {
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
-import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
+import { MarketplaceContext } from "./components/MarketplaceContext";
 import { ReelsFeed, CreateReelModal } from './components/Reels';
 import { AllEvents } from "./components/AllEvents";
 import { ImageViewer, ProfessionalLoader } from './components/Common';
