@@ -1,4 +1,5 @@
-// App.tsx-
+// App.tsx (Complete file with all fixes)
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -13,7 +14,7 @@ import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Stor
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
-import { AllEvents } from "./components/AllEvents"; // Updated import
+import { AllEvents } from "./components/AllEvents";
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
   BirthdaysPage,
@@ -52,6 +53,7 @@ const safeNumber = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : String(v || ''));
+const safeBoolean = (v: any, fallback = false) => (typeof v === 'boolean' ? v : !!v);
 
 /** ✅ JSON parsing helper for meta fields */
 const parseJSON = (v: any) => {
@@ -3280,25 +3282,57 @@ export default function App() {
     }
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
-  const createGroupPost = useCallback(async (groupId: number, text: string, file?: File | null) => {
+  /** ---------- ✅ UPDATED: createGroupPost with multi-file support ---------- */
+  const createGroupPost = useCallback(async (groupId: number, text: string, files?: File[] | File | null) => {
     if (!requireAuth("Posting")) return;
     const meId = Number(currentUser!.id);
 
     let media_url: string | null = null;
-    if (file) {
-      const up = await uploadToCloudflareR2(file, "group-posts");
-      media_url = up.url;
+    let media_urls: string[] = [];
+    let media_types: string[] = [];
+
+    // Handle multiple files
+    if (files) {
+      const fileArray = Array.isArray(files) ? files : (files ? [files] : []);
+      
+      if (fileArray.length > 0) {
+        try {
+          // Upload all files in parallel
+          const uploadPromises = fileArray.map(file => 
+            uploadToCloudflareR2(file, "group-posts")
+          );
+          
+          const uploadResults = await Promise.all(uploadPromises);
+          
+          media_urls = uploadResults.map(r => r.url);
+          media_types = uploadResults.map(r => r.type);
+          
+          // Keep first file as media_url for backward compatibility
+          media_url = media_urls[0] || null;
+        } catch (error) {
+          console.error('Failed to upload files:', error);
+          throw new Error('Failed to upload files');
+        }
+      }
     }
 
     try {
+      const payload: any = {
+        group_id: Number(groupId),
+        user_id: meId,
+        content: String(text || "").trim() || null,
+        media_url, // For backward compatibility
+      };
+      
+      // Add arrays if we have multiple files
+      if (media_urls.length > 0) {
+        payload.media_urls = media_urls;
+        payload.media_types = media_types;
+      }
+
       const result = await apiFetch("/api/group-posts", {
         method: "POST",
-        body: JSON.stringify({
-          group_id: Number(groupId),
-          user_id: meId,
-          content: String(text || "").trim() || null,
-          media_url,
-        }),
+        body: JSON.stringify(payload),
       });
       
       return result;
