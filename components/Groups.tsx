@@ -1,4 +1,4 @@
-I want the group post when liked to immediately show reaction not to wait user reload the page for reaction to appear on post and also make changing group cover working  
+
 
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { User, Group, Event, Post as PostType, ReactionType } from '../types';
