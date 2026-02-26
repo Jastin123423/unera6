@@ -42,37 +42,58 @@ const cleanUrl = (v: any) => {
   return s;
 };
 
-const parseJsonArray = (raw: any, maxItems = 20): string[] => {
-  // Accept:
-  // - array: ["a","b"]
-  // - json string: '["a","b"]'
-  // - single string => ["a"]
-  // - null => []
+const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
+  // For URL arrays
+  if (Array.isArray(raw)) return raw.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    if (s.length > 10000) return [];
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+        return [];
+      } catch {
+        // fallthrough
+      }
+    }
+    const one = cleanUrl(s);
+    return one ? [one] : [];
+  }
+
+  return [];
+};
+
+const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
+  // For types arrays like ["image","video"] (NOT URLs)
   if (Array.isArray(raw)) {
-    return raw.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+    return raw
+      .map((x) => String(x ?? "").trim())
+      .filter((x) => x && x !== "null" && x !== "undefined")
+      .slice(0, maxItems);
   }
 
   if (typeof raw === "string") {
     const s = raw.trim();
     if (!s) return [];
-    // safety cap
     if (s.length > 10000) return [];
-
-    // JSON array
     if (s.startsWith("[")) {
       try {
         const parsed = JSON.parse(s);
         if (Array.isArray(parsed)) {
-          return parsed.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+          return parsed
+            .map((x) => String(x ?? "").trim())
+            .filter((x) => x && x !== "null" && x !== "undefined")
+            .slice(0, maxItems);
         }
         return [];
       } catch {
         // fallthrough
       }
     }
-
-    // single item
-    const one = cleanUrl(s);
+    const one = String(s).trim();
     return one ? [one] : [];
   }
 
@@ -81,32 +102,29 @@ const parseJsonArray = (raw: any, maxItems = 20): string[] => {
 
 const guessTypeFromUrl = (url: string) => {
   const u = url.toLowerCase();
-  if (u.includes(".mp4") || u.includes(".webm") || u.includes(".mov") || u.includes("video")) return "video";
-  if (u.includes(".mp3") || u.includes(".wav") || u.includes("audio")) return "audio";
+  if (u.includes(".mp4") || u.includes(".webm") || u.includes(".mov")) return "video";
+  if (u.includes(".mp3") || u.includes(".wav") || u.includes(".m4a")) return "audio";
   return "image";
 };
 
 const normalizeMedia = (row: any) => {
   const single = cleanUrl(row?.media_url);
 
-  // media_urls could be JSON text array, or null
-  const urls = parseJsonArray(row?.media_urls);
+  const urls = parseJsonArrayUrls(row?.media_urls);
   const outUrls = urls.length ? urls : single ? [single] : [];
 
-  // media_types could be JSON text array, or null
-  const types = parseJsonArray(row?.media_types);
+  const types = parseJsonArrayStrings(row?.media_types);
   let outTypes = types.length ? types : [];
 
-  // If types missing but urls exist, infer types per url
   if (outUrls.length && outTypes.length !== outUrls.length) {
     outTypes = outUrls.map(guessTypeFromUrl);
   }
 
   return {
-    media_url: single || null, // keep original field for old clients
-    media_urls: outUrls, // ✅ ALWAYS array in API response
-    media_types: outTypes, // ✅ ALWAYS array (same length as media_urls when possible)
-    images: outUrls, // ✅ alias so your UI can use `item.images`
+    media_url: single || null,
+    media_urls: outUrls,      // ✅ ALWAYS array
+    media_types: outTypes,    // ✅ ALWAYS array (best-effort)
+    images: outUrls,          // ✅ alias for your UI
   };
 };
 
@@ -139,7 +157,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const url = new URL(request.url);
 
-    // ✅ allow opening /api/feeds directly in browser
     const userId = toInt(url.searchParams.get("userId"), 0);
     const reactionUserId = userId || 0;
 
@@ -153,7 +170,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const exploreCount = Math.max(0, limit - freshCount);
 
     // ============================================================
-    // 1) POSTS (supports multi images via p.media_urls + p.media_types)
+    // 1) POSTS
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -162,7 +179,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
 
-    // ✅ BLOCK product-posts that were stored in posts table
+    // block product posts stored inside posts.content
     wherePosts.push(`(p.content IS NULL OR (
       p.content NOT LIKE '%"post_type":"product"%'
       AND p.content NOT LIKE '%"kind":"product"%'
@@ -329,7 +346,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) REELS
+    // 2) REELS (unchanged)
     // ============================================================
     const whereReels: string[] = [];
     const bindsReels: any[] = [];
@@ -433,7 +450,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 3) SONGS
+    // 3) SONGS (unchanged)
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -555,7 +572,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) PODCASTS
+    // 4) PODCASTS (unchanged)
     // ============================================================
     const wherePodcasts: string[] = [];
     const bindsPodcasts: any[] = [];
@@ -798,7 +815,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 6) GROUP POSTS ✅ now supports gp.media_urls + gp.media_types
+    // 6) GROUP POSTS ✅ multi-images + ✅ full reaction types
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -874,25 +891,26 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             END
         END AS media_type,
 
-        -- ✅ MULTI URLs (JSON text) FROM DB
+        -- ✅ multi media stored in gp.media_urls (JSON text)
         CASE
           WHEN gp.media_urls LIKE 'data:%' THEN NULL
           WHEN length(gp.media_urls) > 5000 THEN NULL
           ELSE gp.media_urls
         END AS media_urls,
 
-        -- ✅ MULTI types (optional column; if you don't have it, keep it NULL)
+        -- if you add gp.media_types later, select it here
         NULL AS media_types,
 
-        (SELECT COUNT(*) FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id) AS reactions_count,
-        (SELECT 'like' FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id AND gpl.user_id = ? LIMIT 1) AS my_reaction,
+        -- ✅ reactions like posts (group_post_reactions)
+        (SELECT COUNT(*) FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id) AS reactions_count,
+        (SELECT gpr.type FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id AND gpr.user_id = ? LIMIT 1) AS my_reaction,
 
         (
           SELECT COALESCE(u2.name, u2.username, '')
-          FROM group_post_likes gpl2
-          JOIN users u2 ON u2.id = gpl2.user_id
-          WHERE gpl2.group_post_id = gp.id
-          ORDER BY gpl2.created_at DESC, gpl2.id DESC
+          FROM group_post_reactions gpr2
+          JOIN users u2 ON u2.id = gpr2.user_id
+          WHERE gpr2.group_post_id = gp.id
+          ORDER BY gpr2.created_at DESC, gpr2.id DESC
           LIMIT 1
         ) AS reactor_name,
 
@@ -900,37 +918,40 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           SELECT json_group_array(
             json_object(
               'user_id', x.user_id,
-              'type', 'like',
+              'type', x.type,
               'name', x.name,
               'profile_image_url', x.profile_image_url
             )
           )
           FROM (
             SELECT
-              gpl3.user_id AS user_id,
+              gpr3.user_id AS user_id,
+              LOWER(COALESCE(gpr3.type,'like')) AS type,
               COALESCE(u3.name, u3.username, '') AS name,
               CASE
                 WHEN u3.profile_image_url LIKE 'data:%' THEN NULL
                 WHEN length(u3.profile_image_url) > 300 THEN NULL
                 ELSE u3.profile_image_url
               END AS profile_image_url
-            FROM group_post_likes gpl3
-            LEFT JOIN users u3 ON u3.id = gpl3.user_id
-            WHERE gpl3.group_post_id = gp.id
-            ORDER BY gpl3.created_at DESC, gpl3.id DESC
+            FROM group_post_reactions gpr3
+            LEFT JOIN users u3 ON u3.id = gpr3.user_id
+            WHERE gpr3.group_post_id = gp.id
+            ORDER BY gpr3.created_at DESC, gpr3.id DESC
             LIMIT 30
           ) x
         ) AS reactions_preview,
 
         (
           SELECT json_group_array(
-            json_object('type','like','count', x.c)
+            json_object('type', t.type, 'count', t.c)
           )
           FROM (
-            SELECT COUNT(*) AS c
-            FROM group_post_likes
+            SELECT LOWER(COALESCE(type,'like')) AS type, COUNT(*) AS c
+            FROM group_post_reactions
             WHERE group_post_id = gp.id
-          ) x
+            GROUP BY LOWER(COALESCE(type,'like'))
+            ORDER BY c DESC
+          ) t
         ) AS reactions_by_type,
 
         CASE
@@ -972,7 +993,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS feed-injection as marketplace posts
+    // 7) PRODUCTS feed-injection
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -1270,19 +1291,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const nextCursor = oldest?.created_at ?? null;
     const orderedRaw = seededShuffle(merged, seed);
 
-    // ============================================================
-    // ✅ Normalize media for ALL feed items (posts, group_posts, products…)
-    // - media_urls becomes an ARRAY in response
-    // - images alias provided
-    // ============================================================
-    const ordered = orderedRaw.map((item: any) => {
-      // Products use `pr.images` -> came as media_urls; normalize handles it
-      const media = normalizeMedia(item);
-      return {
-        ...item,
-        ...media,
-      };
-    });
+    // ✅ Normalize media for ALL feed items
+    const ordered = orderedRaw.map((item: any) => ({ ...item, ...normalizeMedia(item) }));
 
     // ============================================================
     // Merge + dedup PRODUCTS (separate list) + normalize images
@@ -1292,7 +1302,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       const id = Number((row as any)?.id);
       if (!Number.isFinite(id)) continue;
       if (!productMap.has(id)) {
-        const imgs = parseJsonArray((row as any)?.images);
+        const imgs = parseJsonArrayUrls((row as any)?.images);
         productMap.set(id, {
           ...row,
           images: imgs,
@@ -1333,7 +1343,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       cursor: cursor ?? null,
       nextCursor,
       hasMore,
-      feed: ordered, // ✅ now has media_urls as array + images
+      feed: ordered,
       products,
     };
 
