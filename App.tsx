@@ -1,4 +1,6 @@
-// -App.tsx (Complete file with People You May Know feature)
+
+
+// App.tsx (Complete file with all fixes)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -9,11 +11,10 @@ import {
   CommentsSheet,
   CreatePostModal,
   ShareBottomSheet,
-  PeopleYouMayKnowGrid, // ✅ Import the new component
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
-import { MarketplaceContext } from "./components/MarketplaceContext";
+import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
 import { AllEvents } from "./components/AllEvents";
 import { ImageViewer, ProfessionalLoader } from './components/Common';
@@ -1295,19 +1296,6 @@ async function recordPlay(track: AudioTrack, userId: any) {
   return null;
 }
 
-// ✅ People You May Know Types
-interface PeopleSuggestion {
-  id: number;
-  username: string;
-  name: string;
-  profile_image_url: string | null;
-  is_verified: boolean;
-  role: string;
-  mutual_count: number;
-  is_following: boolean;
-  score: number;
-}
-
 export default function App() {
   useLanguage();
 
@@ -1322,12 +1310,9 @@ export default function App() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
+
   const [songs, setSongs] = useState<Song[]>([]);
   
-  // ✅ People You May Know suggestions state
-  const [peopleSuggestions, setPeopleSuggestions] = useState<PeopleSuggestion[]>([]);
-  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
-
   const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
 
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
@@ -1525,7 +1510,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
-  const [activeEventId, setActiveEventId] = useState<number | null>(null);
+  const [activeEventId, setActiveEventId] = useState<number | null>(null); // Added for event detail modal
 
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
@@ -3620,76 +3605,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  // ============================================================================
-  // ✅ NEW: People You May Know API integration
-  // ============================================================================
-  const fetchPeopleSuggestions = useCallback(async () => {
-    if (!currentUser) {
-      // Guest mode - fetch suggestions without user_id
-      try {
-        setIsLoadingSuggestions(true);
-        const data = await apiFetch('/api/people-you-may-know?limit=8');
-        setPeopleSuggestions(safeArray(data?.users ?? []));
-      } catch (error) {
-        console.error('Failed to fetch guest suggestions:', error);
-        setPeopleSuggestions([]);
-      } finally {
-        setIsLoadingSuggestions(false);
-      }
-      return;
-    }
-
-    // Logged in user - fetch personalized suggestions
-    try {
-      setIsLoadingSuggestions(true);
-      const data = await apiFetch(`/api/people-you-may-know?user_id=${currentUser.id}&limit=8`);
-      
-      const suggestions = safeArray(data?.users ?? []).map((user: any) => ({
-        ...user,
-        is_following: false // Start with false, will be checked by isFollowing function
-      }));
-      
-      setPeopleSuggestions(suggestions);
-    } catch (error) {
-      console.error('Failed to fetch people suggestions:', error);
-      setPeopleSuggestions([]);
-    } finally {
-      setIsLoadingSuggestions(false);
-    }
-  }, [currentUser]);
-
-  // Refresh suggestions when user changes or after follow/unfollow
-  useEffect(() => {
-    fetchPeopleSuggestions();
-  }, [currentUser?.id, fetchPeopleSuggestions]);
-
-  // Update suggestions when follow status changes
-  const handlePeopleFollow = useCallback(async (userId: number) => {
-    if (!currentUser) {
-      // Guest mode - redirect to login
-      setLoginError('Please login to follow users');
-      setView('login');
-      return;
-    }
-
-    // Optimistic update
-    setPeopleSuggestions(prev => 
-      prev.map(user => 
-        user.id === userId 
-          ? { ...user, is_following: !user.is_following }
-          : user
-      )
-    );
-
-    // Call the actual follow function
-    await followUser(userId);
-
-    // Refresh suggestions after follow/unfollow
-    setTimeout(() => {
-      fetchPeopleSuggestions();
-    }, 500);
-  }, [currentUser, followUser, fetchPeopleSuggestions]);
-
   const fetchData = useCallback(
     async (viewer: User | null) => {
       await Promise.all([
@@ -3699,10 +3614,9 @@ export default function App() {
         fetchReels(),
         fetchSongs(),
         fetchStories(),
-        fetchPeopleSuggestions(), // ✅ Fetch suggestions on initial load
       ]);
     },
-    [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories, fetchPeopleSuggestions]
+    [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
   useEffect(() => {
@@ -3741,7 +3655,6 @@ export default function App() {
         fetchReels(),
         fetchSongs(),
         fetchStories(),
-        fetchPeopleSuggestions(), // ✅ Fetch suggestions on initial load
       ]);
       
       if (!mounted) return;
@@ -3777,7 +3690,6 @@ export default function App() {
         } catch {}
         fetchPostsForHome(currentUser).catch(() => {});
         fetchReels().catch(() => {});
-        fetchPeopleSuggestions(); // ✅ Refresh suggestions when returning
       }
     };
 
@@ -3791,7 +3703,7 @@ export default function App() {
       events.forEach((e) => window.removeEventListener(e, markActive as any));
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [currentUser, fetchPostsForHome, fetchReels, fetchPeopleSuggestions]);
+  }, [currentUser, fetchPostsForHome, fetchReels]);
 
   useEffect(() => {
     if (activeCommentsPostId != null) return;
@@ -3805,7 +3717,6 @@ export default function App() {
       if (activeCommentsPostId != null) return;
       await fetchPostsForHome(currentUser).catch(() => {});
       await fetchReels().catch(() => {});
-      await fetchPeopleSuggestions(); // ✅ Periodic refresh of suggestions
     };
 
     const t = setInterval(tick, 30000);
@@ -3813,7 +3724,7 @@ export default function App() {
       stopped = true;
       clearInterval(t);
     };
-  }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsPostId, fetchPeopleSuggestions]);
+  }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsPostId]);
 
   const verifyUser = useCallback(
     async (userId: number) => {
@@ -3979,12 +3890,11 @@ export default function App() {
       setView('home');
       await fetchPostsForHome(normalized);
       await fetchReels();
-      await fetchPeopleSuggestions(); // ✅ Fetch suggestions after registration
 
     } catch (error: any) {
       setLoginError(error?.message || 'Registration failed');
     }
-  }, [fetchPostsForHome, fetchReels, fetchPeopleSuggestions]);
+  }, [fetchPostsForHome, fetchReels]);
 
   const handleLogin = async (email: string, password: string) => {
     try {
@@ -4028,7 +3938,6 @@ export default function App() {
 
       await fetchPostsForHome(finalUser);
       await fetchReels();
-      await fetchPeopleSuggestions(); // ✅ Fetch suggestions after login
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -4159,7 +4068,6 @@ export default function App() {
     setSelectedReelSound(null);
     setSongs([]);
     setEvents([]);
-    setPeopleSuggestions([]); // ✅ Clear suggestions on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -4772,41 +4680,29 @@ export default function App() {
                       const isFollowing = checkIsFollowing(postAuthorId);
                       
                       return (
-                        <React.Fragment key={getStableItemKey(post, 'post')}>
-                          <Post
-                            post={post}
-                            author={getPostAuthor(post)}
-                            currentUser={currentUser}
-                            users={users}
-                            onProfileClick={(id) => openProfile(id)}
-                            onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                            onShare={() => handleOpenShareSheet(post)}
-                            onViewImage={setFullScreenImage}
-                            onOpenComments={(postId: number) => onOpenComments(postId)}
-                            onVideoClick={handleVideoClick}
-                            onPlayAudioTrack={onPlayTrack}
-                            groups={groups}
-                            brands={brands}
-                            chats={chats}
-                            onHashtagClick={handleHashtagClick}
-                            isFollowing={isFollowing}
-                            onFollow={() => followUser(postAuthorId)}
-                            followLoading={followLoading[postAuthorId] || false}
-                            onViewProductFromPost={openProductFromPost}
-                            onRSVPEvent={onRSVPEvent}
-                          />
-                          
-                          {/* ✅ People You May Know - Appears after every 8th post */}
-                          {idx > 0 && idx % 8 === 0 && peopleSuggestions.length > 0 && (
-                            <PeopleYouMayKnowGrid
-                              users={peopleSuggestions}
-                              onFollow={handlePeopleFollow}
-                              currentUser={currentUser}
-                              isLoading={isLoadingSuggestions}
-                              onLoginClick={() => setView('login')}
-                            />
-                          )}
-                        </React.Fragment>
+                        <Post
+                          key={getStableItemKey(post, 'post')}
+                          post={post}
+                          author={getPostAuthor(post)}
+                          currentUser={currentUser}
+                          users={users}
+                          onProfileClick={(id) => openProfile(id)}
+                          onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                          onShare={() => handleOpenShareSheet(post)}
+                          onViewImage={setFullScreenImage}
+                          onOpenComments={(postId: number) => onOpenComments(postId)}
+                          onVideoClick={handleVideoClick}
+                          onPlayAudioTrack={onPlayTrack}
+                          groups={groups}
+                          brands={brands}
+                          chats={chats}
+                          onHashtagClick={handleHashtagClick}
+                          isFollowing={isFollowing}
+                          onFollow={() => followUser(postAuthorId)}
+                          followLoading={followLoading[postAuthorId] || false}
+                          onViewProductFromPost={openProductFromPost}
+                          onRSVPEvent={onRSVPEvent} // Pass the unified RSVP handler to Post component
+                        />
                       );
                     })
                   ) : !feedHydrated ? (
