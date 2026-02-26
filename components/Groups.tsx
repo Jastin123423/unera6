@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { User, Group, Event, Post as PostType, ReactionType } from '../types';
 import { 
@@ -1831,32 +1829,93 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     setShowPostView(true);
   };
 
+  // ✅ FIXED: handleLikePost with optimistic updates for immediate UI feedback
   const handleLikePost = async (postId: number, type?: ReactionType) => {
     if (!currentUser) return;
     
+    // Find the post to update
+    const postToUpdate = groupPosts.find(p => p.id === postId);
+    if (!postToUpdate) return;
+
+    // Store previous values for potential rollback
+    const previousPosts = [...groupPosts];
+    const previousMyReaction = (postToUpdate as any).my_reaction;
+    const previousReactionsCount = (postToUpdate as any).reactions_count || 0;
+
+    // Optimistically update UI immediately
+    setGroupPosts(prev => prev.map(post => {
+      if (post.id === postId) {
+        const isLiking = !previousMyReaction; // If no previous reaction, we're liking
+        const newReactionsCount = isLiking 
+          ? previousReactionsCount + 1 
+          : previousMyReaction === type 
+            ? previousReactionsCount - 1 // If same reaction, remove it
+            : previousReactionsCount; // If different reaction, count stays the same
+        
+        return {
+          ...post,
+          my_reaction: isLiking ? type : (previousMyReaction === type ? null : type),
+          reactions_count: newReactionsCount,
+        } as any;
+      }
+      return post;
+    }));
+
+    // Also update selected post if it's the same one
+    if (selectedPost && selectedPost.id === postId) {
+      setSelectedPost(prev => {
+        if (!prev) return prev;
+        const isLiking = !previousMyReaction;
+        const newReactionsCount = isLiking 
+          ? previousReactionsCount + 1 
+          : previousMyReaction === type 
+            ? previousReactionsCount - 1
+            : previousReactionsCount;
+        
+        return {
+          ...prev,
+          my_reaction: isLiking ? type : (previousMyReaction === type ? null : type),
+          reactions_count: newReactionsCount,
+        } as any;
+      });
+    }
+
     try {
+      // Make the actual API call
       const result = await onLikePost(postId, type);
       
-      setGroupPosts(prev => prev.map(post => {
-        if (post.id === postId) {
-          return {
-            ...post,
+      // If API returns different values, sync them (but UI already updated)
+      if (result) {
+        setGroupPosts(prev => prev.map(post => {
+          if (post.id === postId) {
+            return {
+              ...post,
+              my_reaction: result.liked ? (type || 'like') : null,
+              reactions_count: result.likes_count,
+            } as any;
+          }
+          return post;
+        }));
+
+        if (selectedPost && selectedPost.id === postId) {
+          setSelectedPost(prev => prev ? {
+            ...prev,
             my_reaction: result.liked ? (type || 'like') : null,
             reactions_count: result.likes_count,
-          } as any;
+          } as any : null);
         }
-        return post;
-      }));
-
+      }
+    } catch (error) {
+      // Rollback on error
+      console.error('Failed to like post:', error);
+      setGroupPosts(previousPosts);
       if (selectedPost && selectedPost.id === postId) {
         setSelectedPost(prev => prev ? {
           ...prev,
-          my_reaction: result.liked ? (type || 'like') : null,
-          reactions_count: result.likes_count,
+          my_reaction: previousMyReaction,
+          reactions_count: previousReactionsCount,
         } as any : null);
       }
-    } catch (error) {
-      console.error('Failed to like post:', error);
     }
   };
 
