@@ -854,7 +854,7 @@ const PostActionsMenu: React.FC<{
 };
 
 /**
- * GroupPost Component with Three-Dots Menu and Enhanced Feed Features
+ * FIXED: GroupPost Component with local state for immediate reaction updates
  */
 const GroupPost: React.FC<{
   post: PostType;
@@ -864,7 +864,7 @@ const GroupPost: React.FC<{
   isGroupAdmin?: boolean;
   isPlatformAdmin?: boolean;
   onProfileClick: (id: number) => void;
-  onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
+  onLikePost: (postId: number, type?: ReactionType) => Promise<{ liked: boolean; likes_count: number }>;
   onOpenComments: (postId: number) => void;
   onSharePost: (postId: number, newShareCount: number) => void;
   onEditPost?: (postId: number, content: string) => Promise<any>;
@@ -909,34 +909,27 @@ const GroupPost: React.FC<{
     return Number(p.shares ?? p.shares_count ?? 0);
   });
 
+  // FIXED: Local state for immediate reaction updates
+  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
+    (p as any).myReaction ?? (p as any).my_reaction ?? null
+  );
+  const [localReactionCount, setLocalReactionCount] = useState<number>(
+    Number((p as any).likesCount ?? (p as any).reactionsCount ?? (p as any).reactions_count ?? 0)
+  );
+
+  // Sync with props when they change
+  useEffect(() => {
+    setLocalMyReaction((p as any).myReaction ?? (p as any).my_reaction ?? null);
+    setLocalReactionCount(Number((p as any).likesCount ?? (p as any).reactionsCount ?? (p as any).reactions_count ?? 0));
+  }, [p]);
+
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
-  const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
-  const likesCount = Number(
-    (p as any).likesCount ?? 
-    (p as any).reactionsCount ?? 
-    (p as any).reactions_count ?? 
-    0
-  );
-
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
-  
-  const finalMyReaction: ReactionType | undefined =
-    myReaction ||
-    (currentUser && reactionsArr
-      ? (reactionsArr.find((r: any) => Number(r.user_id) === currentUser.id)?.type as ReactionType)
-      : undefined);
-
-  const finalReactionCount =
-    likesCount > 0
-      ? likesCount
-      : reactionsArr
-        ? reactionsArr.length
-        : 0;
 
   const createdAtLabel = formatRelativeTime(p.created_at || p.createdAt || '');
   const postId = Number(p.id ?? p.post_id ?? 0);
@@ -958,8 +951,8 @@ const GroupPost: React.FC<{
       const em = topReactionEmojis(reactionsArr, 2);
       return em.length ? em : ['👍'];
     }
-    return finalReactionCount > 0 ? ['👍'] : [];
-  }, [reactionsArr, finalReactionCount]);
+    return localReactionCount > 0 ? ['👍'] : [];
+  }, [reactionsArr, localReactionCount]);
 
   const formatCount = (count: number): string => {
     if (count >= 1000000) {
@@ -970,11 +963,33 @@ const GroupPost: React.FC<{
     return count.toString();
   };
 
+  // FIXED: handleLikeClick with optimistic update
   const handleLikeClick = async (type: ReactionType) => {
     if (!currentUser) return;
+    
+    // Get current state for optimistic update
+    const wasLiked = !!localMyReaction;
+    const newMyReaction = wasLiked ? null : type;
+    const newCount = wasLiked 
+      ? Math.max(0, localReactionCount - 1)
+      : localReactionCount + 1;
+    
+    // OPTIMISTIC UPDATE: Update local state immediately
+    setLocalMyReaction(newMyReaction || undefined);
+    setLocalReactionCount(newCount);
+    
     try {
-      await onLikePost(postId, type);
+      const result = await onLikePost(postId, type);
+      
+      // If API returns updated data, sync with it
+      if (result && typeof result.likes_count === 'number') {
+        setLocalReactionCount(result.likes_count);
+        setLocalMyReaction(result.liked ? (type || 'like') : undefined);
+      }
     } catch (error) {
+      // Revert on error
+      setLocalMyReaction(localMyReaction);
+      setLocalReactionCount(localReactionCount);
       console.error('Failed to like post:', error);
     }
   };
@@ -1108,7 +1123,7 @@ const GroupPost: React.FC<{
         )}
 
         {/* Reaction summary row - Facebook style */}
-        {finalReactionCount > 0 && (
+        {localReactionCount > 0 && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <button
               onClick={(e) => {
@@ -1129,7 +1144,7 @@ const GroupPost: React.FC<{
                 ))}
               </div>
               <span className="text-[#E4E6EB] font-bold text-[16px]">
-                {formatCount(finalReactionCount)}
+                {formatCount(localReactionCount)}
               </span>
             </button>
             
@@ -1152,8 +1167,8 @@ const GroupPost: React.FC<{
         {/* Action buttons */}
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
           <ReactionButton
-            currentUserReactions={finalMyReaction}
-            reactionCount={finalReactionCount}
+            currentUserReactions={localMyReaction}
+            reactionCount={localReactionCount}
             onReact={handleLikeClick}
             isGuest={!currentUser}
           />
@@ -1197,10 +1212,10 @@ const GroupPost: React.FC<{
         onClose={() => setGalleryOpen(false)}
         postId={postId}
         currentUser={currentUser}
-        reactionCount={finalReactionCount}
+        reactionCount={localReactionCount}
         commentCount={commentCount}
         shareCount={shareCount}
-        myReaction={finalMyReaction}
+        myReaction={localMyReaction}
         onReact={handleLikeClick}
         onOpenComments={() => onOpenComments(postId)}
         onShare={() => setShowShareSheet(true)}
@@ -1829,12 +1844,14 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     setShowPostView(true);
   };
 
+  // FIXED: handleLikePost with proper return type
   const handleLikePost = async (postId: number, type?: ReactionType) => {
-    if (!currentUser) return;
+    if (!currentUser) return { liked: false, likes_count: 0 };
     
     try {
       const result = await onLikePost(postId, type);
       
+      // Update posts list with server data (for consistency when reloading)
       setGroupPosts(prev => prev.map(post => {
         if (post.id === postId) {
           return {
@@ -1853,8 +1870,11 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           reactions_count: result.likes_count,
         } as any : null);
       }
+      
+      return result;
     } catch (error) {
       console.error('Failed to like post:', error);
+      return { liked: false, likes_count: 0 };
     }
   };
 
@@ -2425,7 +2445,12 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
         <div className="bg-[#1e1e1e] border-b border-[#333] shadow-sm mb-4 animate-fade-in">
           <div className="max-w-[1100px] mx-auto">
             <div className="h-[200px] md:h-[350px] relative group bg-[#2d2d2d] md:rounded-b-xl overflow-hidden">
-              <img src={activeGroup.cover_image} className="w-full h-full object-cover" alt="Cover" />
+              <img 
+                src={activeGroup.cover_image} 
+                className="w-full h-full object-cover" 
+                alt="Cover"
+                key={activeGroup.cover_image} // Force re-render when cover changes
+              />
               {canManage && (
                 <div
                   className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg cursor-pointer hover:bg-black/70 font-bold text-white text-sm flex items-center gap-2 transition-all"
@@ -2447,7 +2472,12 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
               <div className="flex flex-col md:flex-row items-start md:items-end -mt-[40px] md:-mt-[30px] relative z-10 gap-4 mb-4">
                 <div className="relative">
                   <div className="w-[100px] h-[100px] md:w-[140px] md:h-[140px] rounded-xl border-4 border-[#1e1e1e] overflow-hidden bg-[#1e1e1e] shadow-xl">
-                    <img src={activeGroup.profile_image} className="w-full h-full object-cover" alt="" />
+                    <img 
+                      src={activeGroup.profile_image} 
+                      className="w-full h-full object-cover" 
+                      alt=""
+                      key={activeGroup.profile_image} // Force re-render when profile changes
+                    />
                   </div>
                   {canManage && (
                     <div
@@ -2584,47 +2614,77 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     </button>
                   </div>
                 ) : groupPosts.length > 0 ? (
-                  groupPosts.map((post) => {
-                    const author = users.find(u => u.id === post.user_id) || {
-                      id: post.user_id || 0,
-                      username: 'unknown',
-                      name: 'Unknown User',
-                      profile_image_url: 'https://ui-avatars.com/api/?name=User&background=random',
-                      followers: [],
-                      following: [],
-                      email: '',
-                      is_verified: false,
-                      role: 'user',
-                      is_online: false,
-                      location: '',
-                      bio: '',
-                      created_at: null,
-                    };
-                    
-                    return (
-                      <GroupPost
-                        key={post.id}
-                        post={post}
-                        author={author}
-                        currentUser={currentUser}
-                        users={users}
-                        isGroupAdmin={isGroupAdmin}
-                        isPlatformAdmin={isAdmin}
-                        onProfileClick={onProfileClick}
-                        onLikePost={handleLikePost}
-                        onOpenComments={handleOpenComments}
-                        onSharePost={handleSharePost}
-                        onEditPost={onEditGroupPost ? handleEditPost : undefined}
-                        onDeletePost={onDeleteGroupPost ? handleDeletePost : undefined}
-                        onReportPost={onReportGroupPost ? handleReportPost : undefined}
-                        onViewImage={handleViewImage}
-                        onVideoClick={onVideoClick}
-                        onHashtagClick={onHashtagClick}
-                        onFollow={onFollow}
-                        checkIsFollowing={checkIsFollowing}
-                      />
-                    );
-                  })
+                  <>
+                    {/* Show events in feed if there are any */}
+                    {groupEvents.length > 0 && groupTab === 'Discussion' && (
+                      <div className="mb-6">
+                        <h3 className="text-[#e4e6eb] font-bold text-lg mb-3 px-2">Upcoming Events</h3>
+                        <div className="space-y-3">
+                          {groupEvents.slice(0, 3).map(event => (
+                            <GroupEventCard
+                              key={event.id}
+                              event={event}
+                              group={activeGroup}
+                              currentUser={currentUser}
+                              onRSVP={onEventRSVP ? handleEventRSVP : undefined}
+                              onProfileClick={onProfileClick}
+                            />
+                          ))}
+                          {groupEvents.length > 3 && (
+                            <button
+                              onClick={() => setGroupTab('Events')}
+                              className="w-full text-center py-2 text-[#1877f2] font-bold hover:underline"
+                            >
+                              See all {groupEvents.length} events
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Posts */}
+                    {groupPosts.map((post) => {
+                      const author = users.find(u => u.id === post.user_id) || {
+                        id: post.user_id || 0,
+                        username: 'unknown',
+                        name: 'Unknown User',
+                        profile_image_url: 'https://ui-avatars.com/api/?name=User&background=random',
+                        followers: [],
+                        following: [],
+                        email: '',
+                        is_verified: false,
+                        role: 'user',
+                        is_online: false,
+                        location: '',
+                        bio: '',
+                        created_at: null,
+                      };
+                      
+                      return (
+                        <GroupPost
+                          key={post.id}
+                          post={post}
+                          author={author}
+                          currentUser={currentUser}
+                          users={users}
+                          isGroupAdmin={isGroupAdmin}
+                          isPlatformAdmin={isAdmin}
+                          onProfileClick={onProfileClick}
+                          onLikePost={handleLikePost}
+                          onOpenComments={handleOpenComments}
+                          onSharePost={handleSharePost}
+                          onEditPost={onEditGroupPost ? handleEditPost : undefined}
+                          onDeletePost={onDeleteGroupPost ? handleDeletePost : undefined}
+                          onReportPost={onReportGroupPost ? handleReportPost : undefined}
+                          onViewImage={handleViewImage}
+                          onVideoClick={onVideoClick}
+                          onHashtagClick={onHashtagClick}
+                          onFollow={onFollow}
+                          checkIsFollowing={checkIsFollowing}
+                        />
+                      );
+                    })}
+                  </>
                 ) : loadingPosts ? (
                   <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
                     <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
