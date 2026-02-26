@@ -915,28 +915,40 @@ const GroupPost: React.FC<{
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
-  const myReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
-  const likesCount = Number(
-    (p as any).likesCount ?? 
-    (p as any).reactionsCount ?? 
-    (p as any).reactions_count ?? 
-    0
+  // Local state for immediate reaction updates
+  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
+    (p as any).myReaction ?? (p as any).my_reaction ?? null
   );
+  const [localReactionCount, setLocalReactionCount] = useState(() => {
+    const likesCount = Number(
+      (p as any).likesCount ?? 
+      (p as any).reactionsCount ?? 
+      (p as any).reactions_count ?? 
+      0
+    );
+    const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
+    return likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0;
+  });
+
+  // Sync with props when they change (but not on every render)
+  useEffect(() => {
+    setLocalMyReaction((p as any).myReaction ?? (p as any).my_reaction ?? null);
+    
+    const likesCount = Number(
+      (p as any).likesCount ?? 
+      (p as any).reactionsCount ?? 
+      (p as any).reactions_count ?? 
+      0
+    );
+    const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
+    setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
+  }, [p.id, (p as any).myReaction, (p as any).my_reaction, (p as any).likesCount, (p as any).reactionsCount, (p as any).reactions_count]);
 
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
   
-  const finalMyReaction: ReactionType | undefined =
-    myReaction ||
-    (currentUser && reactionsArr
-      ? (reactionsArr.find((r: any) => Number(r.user_id) === currentUser.id)?.type as ReactionType)
-      : undefined);
-
-  const finalReactionCount =
-    likesCount > 0
-      ? likesCount
-      : reactionsArr
-        ? reactionsArr.length
-        : 0;
+  // Use local state for immediate updates
+  const finalMyReaction = localMyReaction;
+  const finalReactionCount = localReactionCount;
 
   const createdAtLabel = formatRelativeTime(p.created_at || p.createdAt || '');
   const postId = Number(p.id ?? p.post_id ?? 0);
@@ -972,10 +984,40 @@ const GroupPost: React.FC<{
 
   const handleLikeClick = async (type: ReactionType) => {
     if (!currentUser) return;
+    
+    // Store previous values for potential rollback
+    const previousMyReaction = finalMyReaction;
+    const previousReactionCount = finalReactionCount;
+
+    // Determine new reaction state
+    let newMyReaction: ReactionType | null = type;
+    let newReactionCount = previousReactionCount;
+
+    if (!previousMyReaction) {
+      // No previous reaction -> add reaction
+      newReactionCount = previousReactionCount + 1;
+    } else if (previousMyReaction === type) {
+      // Same reaction -> remove it
+      newMyReaction = null;
+      newReactionCount = previousReactionCount - 1;
+    } else {
+      // Different reaction -> change type (count stays same)
+      newMyReaction = type;
+      newReactionCount = previousReactionCount;
+    }
+
+    // Update local state immediately for instant UI feedback
+    setLocalMyReaction(newMyReaction || undefined);
+    setLocalReactionCount(newReactionCount);
+
     try {
+      // Make the actual API call
       await onLikePost(postId, type);
     } catch (error) {
+      // Rollback on error
       console.error('Failed to like post:', error);
+      setLocalMyReaction(previousMyReaction);
+      setLocalReactionCount(previousReactionCount);
     }
   };
 
@@ -1829,96 +1871,14 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     setShowPostView(true);
   };
 
-  // ✅ FIXED: handleLikePost with proper optimistic updates for immediate UI feedback
+  // This now just passes through to the GroupPost component which handles its own local state
   const handleLikePost = async (postId: number, type?: ReactionType) => {
     if (!currentUser) return;
     
-    // Find the post to update
-    const postToUpdate = groupPosts.find(p => p.id === postId);
-    if (!postToUpdate) return;
-
-    // Store previous values for potential rollback
-    const previousPosts = [...groupPosts];
-    const previousMyReaction = (postToUpdate as any).my_reaction;
-    const previousReactionsCount = (postToUpdate as any).reactions_count || 0;
-
-    // Determine new reaction state
-    let newMyReaction: ReactionType | null = type || 'like';
-    let newReactionsCount = previousReactionsCount;
-
-    if (!previousMyReaction) {
-      // No previous reaction -> add reaction
-      newReactionsCount = previousReactionsCount + 1;
-    } else if (previousMyReaction === type) {
-      // Same reaction -> remove it
-      newMyReaction = null;
-      newReactionsCount = previousReactionsCount - 1;
-    } else {
-      // Different reaction -> change type (count stays same)
-      newMyReaction = type || 'like';
-      newReactionsCount = previousReactionsCount;
-    }
-
-    // Optimistically update UI immediately - this makes the reaction appear instantly
-    setGroupPosts(prev => prev.map(post => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          my_reaction: newMyReaction,
-          reactions_count: newReactionsCount,
-        } as any;
-      }
-      return post;
-    }));
-
-    // Also update selected post if it's the same one
-    if (selectedPost && selectedPost.id === postId) {
-      setSelectedPost(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          my_reaction: newMyReaction,
-          reactions_count: newReactionsCount,
-        } as any;
-      });
-    }
-
     try {
-      // Make the actual API call
-      const result = await onLikePost(postId, type);
-      
-      // If API returns different values, sync them (but UI already updated)
-      if (result) {
-        setGroupPosts(prev => prev.map(post => {
-          if (post.id === postId) {
-            return {
-              ...post,
-              my_reaction: result.liked ? (type || 'like') : null,
-              reactions_count: result.likes_count,
-            } as any;
-          }
-          return post;
-        }));
-
-        if (selectedPost && selectedPost.id === postId) {
-          setSelectedPost(prev => prev ? {
-            ...prev,
-            my_reaction: result.liked ? (type || 'like') : null,
-            reactions_count: result.likes_count,
-          } as any : null);
-        }
-      }
+      await onLikePost(postId, type);
     } catch (error) {
-      // Rollback on error
       console.error('Failed to like post:', error);
-      setGroupPosts(previousPosts);
-      if (selectedPost && selectedPost.id === postId) {
-        setSelectedPost(prev => prev ? {
-          ...prev,
-          my_reaction: previousMyReaction,
-          reactions_count: previousReactionsCount,
-        } as any : null);
-      }
     }
   };
 
