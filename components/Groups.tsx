@@ -616,7 +616,8 @@ const GroupEventCard: React.FC<{
   currentUser: User | null;
   onRSVP?: (eventId: number, status: string) => Promise<any>;
   onProfileClick: (id: number) => void;
-}> = ({ event, group, currentUser, onRSVP, onProfileClick }) => {
+  onClick?: () => void;
+}> = ({ event, group, currentUser, onRSVP, onProfileClick, onClick }) => {
   const [rsvpStatus, setRsvpStatus] = useState<string>(event.user_rsvp_status || '');
   const [loading, setLoading] = useState(false);
 
@@ -642,14 +643,23 @@ const GroupEventCard: React.FC<{
     }
   };
 
+  const handleClick = (e: React.MouseEvent) => {
+    if (onClick) {
+      onClick();
+    }
+  };
+
   return (
-    <div className="bg-[#1e1e1e] rounded-xl border border-[#333] overflow-hidden hover:shadow-lg transition-all">
+    <div 
+      className="bg-[#1e1e1e] rounded-xl border border-[#333] overflow-hidden hover:shadow-lg transition-all cursor-pointer"
+      onClick={handleClick}
+    >
       {event.cover_image && (
         <div className="h-40 overflow-hidden">
           <img 
             src={event.cover_image} 
             alt={event.title}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
           />
         </div>
       )}
@@ -675,7 +685,7 @@ const GroupEventCard: React.FC<{
         </div>
 
         {currentUser && onRSVP && (
-          <div className="flex gap-2">
+          <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
             {rsvpStatus === 'going' ? (
               <button
                 onClick={() => handleRSVP('not_going')}
@@ -855,6 +865,7 @@ const PostActionsMenu: React.FC<{
 
 /**
  * FIXED: GroupPost Component with local state for immediate reaction updates
+ * Now uses local state exclusively for reactions and syncs with props only on mount
  */
 const GroupPost: React.FC<{
   post: PostType;
@@ -909,7 +920,7 @@ const GroupPost: React.FC<{
     return Number(p.shares ?? p.shares_count ?? 0);
   });
 
-  // FIXED: Local state for immediate reaction updates
+  // FIXED: Initialize local state from props but don't sync on every prop change
   const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
     (p as any).myReaction ?? (p as any).my_reaction ?? null
   );
@@ -917,11 +928,30 @@ const GroupPost: React.FC<{
     Number((p as any).likesCount ?? (p as any).reactionsCount ?? (p as any).reactions_count ?? 0)
   );
 
-  // Sync with props when they change
+  // FIXED: Only sync with props on initial mount, not on every update
   useEffect(() => {
-    setLocalMyReaction((p as any).myReaction ?? (p as any).my_reaction ?? null);
-    setLocalReactionCount(Number((p as any).likesCount ?? (p as any).reactionsCount ?? (p as any).reactions_count ?? 0));
-  }, [p]);
+    // Only set initial values if they're different and local state hasn't been modified
+    const propMyReaction = (p as any).myReaction ?? (p as any).my_reaction ?? null;
+    const propReactionCount = Number((p as any).likesCount ?? (p as any).reactionsCount ?? (p as any).reactions_count ?? 0);
+    
+    // Only update if the prop values are different and we haven't made local changes
+    // This prevents props from overwriting optimistic updates
+    setLocalMyReaction(prev => {
+      // If we have a local reaction that differs from props, keep the local one
+      // This preserves optimistic updates
+      if (prev !== propMyReaction) {
+        return prev;
+      }
+      return propMyReaction;
+    });
+    
+    setLocalReactionCount(prev => {
+      if (prev !== propReactionCount) {
+        return prev;
+      }
+      return propReactionCount;
+    });
+  }, [p]); // Only run when post object changes (like when post is edited)
 
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
@@ -963,7 +993,7 @@ const GroupPost: React.FC<{
     return count.toString();
   };
 
-  // FIXED: handleLikeClick with optimistic update
+  // FIXED: handleLikeClick with optimistic update - now permanent
   const handleLikeClick = async (type: ReactionType) => {
     if (!currentUser) return;
     
@@ -975,19 +1005,21 @@ const GroupPost: React.FC<{
       : localReactionCount + 1;
     
     // OPTIMISTIC UPDATE: Update local state immediately
+    // This is permanent - we don't revert unless API fails
     setLocalMyReaction(newMyReaction || undefined);
     setLocalReactionCount(newCount);
     
     try {
       const result = await onLikePost(postId, type);
       
-      // If API returns updated data, sync with it
+      // If API returns updated data, sync with it (but keep our local state if it's newer)
+      // This ensures consistency with server
       if (result && typeof result.likes_count === 'number') {
         setLocalReactionCount(result.likes_count);
         setLocalMyReaction(result.liked ? (type || 'like') : undefined);
       }
     } catch (error) {
-      // Revert on error
+      // Revert on error only
       setLocalMyReaction(localMyReaction);
       setLocalReactionCount(localReactionCount);
       console.error('Failed to like post:', error);
@@ -1572,7 +1604,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, fetchGroupEvents]);
 
-  // Load events only when explicitly switching to Events tab
+  // Load events when switching to Events tab
   useEffect(() => {
     if (activeGroup && groupTab === 'Events') {
       loadGroupEvents();
@@ -1694,6 +1726,8 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     if (e.target.files && e.target.files[0] && activeGroup) {
       try {
         await onUpdateGroupImage(activeGroup.id, type, e.target.files[0]);
+        // Force re-render by updating a state
+        setActiveGroupId(prev => prev); // Trigger re-render
       } catch (error) {
         console.error('Failed to update group image:', error);
       }
@@ -1723,10 +1757,13 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       setShowEventModal(false);
       
       // Reload events with force flag
-      if (groupTab === 'Events' && fetchGroupEvents) {
+      if (fetchGroupEvents) {
         eventsLoadedRef.current = false;
-        loadGroupEvents(true);
+        await loadGroupEvents(true);
       }
+      
+      // Stay on Discussion tab to show events mixed in feed
+      setGroupTab('Discussion');
     } catch (error) {
       console.error('Failed to create event:', error);
       throw error;
@@ -1850,27 +1887,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     
     try {
       const result = await onLikePost(postId, type);
-      
-      // Update posts list with server data (for consistency when reloading)
-      setGroupPosts(prev => prev.map(post => {
-        if (post.id === postId) {
-          return {
-            ...post,
-            my_reaction: result.liked ? (type || 'like') : null,
-            reactions_count: result.likes_count,
-          } as any;
-        }
-        return post;
-      }));
-
-      if (selectedPost && selectedPost.id === postId) {
-        setSelectedPost(prev => prev ? {
-          ...prev,
-          my_reaction: result.liked ? (type || 'like') : null,
-          reactions_count: result.likes_count,
-        } as any : null);
-      }
-      
       return result;
     } catch (error) {
       console.error('Failed to like post:', error);
@@ -1951,6 +1967,18 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     if (onViewImage) {
       onViewImage(url);
     }
+  };
+
+  const handleEventClick = (eventId: number) => {
+    // Switch to Events tab when an event is clicked
+    setGroupTab('Events');
+    // Optionally scroll to the specific event
+    setTimeout(() => {
+      const element = document.getElementById(`event-${eventId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   };
 
   const isAdmin = currentUser?.role === 'admin';
@@ -2439,6 +2467,34 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       ? new Date(activeGroup.created_at as any)
       : null;
 
+  // Combine posts and events for the feed, sorted by date
+  const feedItems = useMemo(() => {
+    const items = [];
+    
+    // Add posts
+    items.push(...groupPosts.map(post => ({
+      type: 'post' as const,
+      id: post.id,
+      created_at: post.created_at,
+      data: post
+    })));
+    
+    // Add events (only if they have start_time)
+    items.push(...groupEvents.map(event => ({
+      type: 'event' as const,
+      id: event.id,
+      created_at: event.start_time || event.created_at,
+      data: event
+    })));
+    
+    // Sort by date (newest first)
+    return items.sort((a, b) => {
+      const dateA = new Date(a.created_at || 0).getTime();
+      const dateB = new Date(b.created_at || 0).getTime();
+      return dateB - dateA;
+    });
+  }, [groupPosts, groupEvents]);
+
   return (
     <>
       <div className="w-full bg-[#121212] min-h-screen pb-10">
@@ -2579,7 +2635,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
         </div>
 
         <div className="max-w-[700px] mx-auto px-0 md:px-4">
-          {/* Discussion Tab */}
+          {/* Discussion Tab - Now with mixed posts and events */}
           {groupTab === 'Discussion' && (
             <div className="animate-fade-in">
               {isMember && canPost && (
@@ -2613,37 +2669,17 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                       {joining ? 'Joining...' : 'Join Group'}
                     </button>
                   </div>
-                ) : groupPosts.length > 0 ? (
-                  <>
-                    {/* Show events in feed if there are any */}
-                    {groupEvents.length > 0 && groupTab === 'Discussion' && (
-                      <div className="mb-6">
-                        <h3 className="text-[#e4e6eb] font-bold text-lg mb-3 px-2">Upcoming Events</h3>
-                        <div className="space-y-3">
-                          {groupEvents.slice(0, 3).map(event => (
-                            <GroupEventCard
-                              key={event.id}
-                              event={event}
-                              group={activeGroup}
-                              currentUser={currentUser}
-                              onRSVP={onEventRSVP ? handleEventRSVP : undefined}
-                              onProfileClick={onProfileClick}
-                            />
-                          ))}
-                          {groupEvents.length > 3 && (
-                            <button
-                              onClick={() => setGroupTab('Events')}
-                              className="w-full text-center py-2 text-[#1877f2] font-bold hover:underline"
-                            >
-                              See all {groupEvents.length} events
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Posts */}
-                    {groupPosts.map((post) => {
+                ) : loadingPosts && loadingEvents ? (
+                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
+                      <i className="fas fa-spinner fa-spin text-[#b0b3b8] text-2xl"></i>
+                    </div>
+                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">Loading feed...</h3>
+                  </div>
+                ) : feedItems.length > 0 ? (
+                  feedItems.map(item => {
+                    if (item.type === 'post') {
+                      const post = item.data as PostType;
                       const author = users.find(u => u.id === post.user_id) || {
                         id: post.user_id || 0,
                         username: 'unknown',
@@ -2662,7 +2698,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                       
                       return (
                         <GroupPost
-                          key={post.id}
+                          key={`post-${post.id}`}
                           post={post}
                           author={author}
                           currentUser={currentUser}
@@ -2683,29 +2719,35 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                           checkIsFollowing={checkIsFollowing}
                         />
                       );
-                    })}
-                  </>
-                ) : loadingPosts ? (
-                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
-                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
-                      <i className="fas fa-spinner fa-spin text-[#b0b3b8] text-2xl"></i>
-                    </div>
-                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">Loading posts...</h3>
-                  </div>
+                    } else {
+                      const event = item.data as Event;
+                      return (
+                        <GroupEventCard
+                          key={`event-${event.id}`}
+                          event={event}
+                          group={activeGroup}
+                          currentUser={currentUser}
+                          onRSVP={onEventRSVP ? handleEventRSVP : undefined}
+                          onProfileClick={onProfileClick}
+                          onClick={() => handleEventClick(event.id)}
+                        />
+                      );
+                    }
+                  })
                 ) : (
                   <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
                     <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
                       <i className="fas fa-comments text-[#b0b3b8] text-2xl"></i>
                     </div>
-                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">No posts yet</h3>
-                    <p className="text-[#b0b3b8] text-sm">Be the first to start a conversation in this group!</p>
+                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">No posts or events yet</h3>
+                    <p className="text-[#b0b3b8] text-sm">Be the first to start a conversation or create an event!</p>
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* Events Tab - Now only loads when clicked */}
+          {/* Events Tab - Dedicated events view */}
           {groupTab === 'Events' && (
             <div className="animate-fade-in">
               {isMember && (
@@ -2739,14 +2781,16 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 ) : groupEvents.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mx-2 md:mx-0">
                     {groupEvents.map(event => (
-                      <GroupEventCard
-                        key={event.id}
-                        event={event}
-                        group={activeGroup}
-                        currentUser={currentUser}
-                        onRSVP={onEventRSVP ? handleEventRSVP : undefined}
-                        onProfileClick={onProfileClick}
-                      />
+                      <div key={event.id} id={`event-${event.id}`}>
+                        <GroupEventCard
+                          event={event}
+                          group={activeGroup}
+                          currentUser={currentUser}
+                          onRSVP={onEventRSVP ? handleEventRSVP : undefined}
+                          onProfileClick={onProfileClick}
+                          onClick={() => {}} // No additional action needed in Events tab
+                        />
+                      </div>
                     ))}
                   </div>
                 ) : loadingEvents ? (
