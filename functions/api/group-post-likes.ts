@@ -1,4 +1,4 @@
-let us modify  backend  the frontend  already  support 
+ 
 //. functions/api/group-post-likes.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { cors, ok, bad, server } from "./_cors";
