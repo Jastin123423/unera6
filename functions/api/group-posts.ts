@@ -45,10 +45,8 @@ const parseMediaUrls = (raw: any): string[] => {
       }
     }
 
-    // comma-separated
+    // comma-separated (safe-ish)
     if (s.includes(",") && !s.includes("://")) {
-      // If someone passes "a,b,c" without protocols, still split.
-      // But if it contains ://, it's likely URLs; we won't split by comma unless they clearly intended it.
       return s
         .split(",")
         .map((x) => cleanUrl(x))
@@ -63,7 +61,6 @@ const parseMediaUrls = (raw: any): string[] => {
 };
 
 const normalizeImagesForResponse = (row: any): string[] => {
-  // Prefer media_urls if present, else fallback to media_url
   const urls = parseMediaUrls(row?.media_urls);
   if (urls.length) return urls;
 
@@ -72,8 +69,6 @@ const normalizeImagesForResponse = (row: any): string[] => {
 };
 
 const isMemberOrAdmin = async (env: any, group_id: number, user_id: number) => {
-  // Admins can be allowed globally (users.role='admin'), but your schema may vary.
-  // We'll still enforce group membership unless group admin / platform admin logic exists elsewhere.
   const mem = await env.DB.prepare(
     `SELECT role FROM group_members WHERE group_id=? AND user_id=? LIMIT 1`
   )
@@ -83,9 +78,6 @@ const isMemberOrAdmin = async (env: any, group_id: number, user_id: number) => {
 };
 
 // CREATE: POST /api/group-posts
-// Body accepts:
-// { group_id, user_id, content?, media_url?, media_urls? }
-// - media_urls can be array OR JSON string.
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   try {
     if (!env?.DB) return server("DB binding missing (DB)");
@@ -96,16 +88,13 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     const user_id = toInt(body.user_id, 0);
     const content = body.content == null ? null : String(body.content);
 
-    // Backward compatibility: single media_url
     const media_url = body.media_url == null ? null : cleanUrl(body.media_url);
 
-    // New: media_urls (multiple)
     const media_urls_arr = parseMediaUrls(body.media_urls);
     const media_urls_json = media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
 
     if (!group_id || !user_id) return bad("group_id and user_id are required");
 
-    // Must have either content OR some media (single or multiple)
     const hasText = !!String(content ?? "").trim();
     const hasSingle = !!media_url;
     const hasMulti = media_urls_arr.length > 0;
@@ -114,7 +103,6 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
       return bad("content or media_url or media_urls required");
     }
 
-    // Must be a member to post
     const mem = await isMemberOrAdmin(env, group_id, user_id);
     if (!mem.ok) return bad("User is not a member of this group", 403);
 
@@ -128,7 +116,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     return ok({
       success: true,
       post_id: Number(result.meta.last_row_id),
-      media_urls: media_urls_arr, // helpful to client
+      media_urls: media_urls_arr,
     });
   } catch (e: any) {
     return server(e?.message || "Failed to create group post");
@@ -151,15 +139,16 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     const binds: any[] = [];
     if (group_id) binds.push(group_id);
 
-    // NOTE: viewerId is a number after toInt(). Interpolating is OK here,
-    // but we can also bind it. This subquery form is okay for D1.
-    const myLikeSelect = viewerId
-      ? `(SELECT CASE WHEN EXISTS(
-            SELECT 1 FROM group_post_likes l
-            WHERE l.group_post_id = gp.id AND l.user_id = ${viewerId}
-          ) THEN 'like' ELSE NULL END) AS my_reaction`
+    // ✅ UPDATED: likes -> reactions
+    const myReactionSelect = viewerId
+      ? `(SELECT LOWER(COALESCE(r.type,'like'))
+          FROM group_post_reactions r
+          WHERE r.group_post_id = gp.id AND r.user_id = ${viewerId}
+          LIMIT 1
+        ) AS my_reaction`
       : `NULL AS my_reaction`;
 
+    // ✅ UPDATED: counts + preview + by_type like posts table
     const stmt = `
       SELECT
         gp.*,
@@ -168,9 +157,61 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
         u.profile_image_url,
         u.is_verified,
         u.role,
-        (SELECT COUNT(*) FROM group_post_likes l WHERE l.group_post_id = gp.id) AS reactions_count,
+
+        (SELECT COUNT(*) FROM group_post_reactions r WHERE r.group_post_id = gp.id) AS reactions_count,
         (SELECT COUNT(*) FROM group_post_comments c WHERE c.group_post_id = gp.id) AS comments_count,
-        ${myLikeSelect}
+
+        ${myReactionSelect},
+
+        (
+          SELECT COALESCE(u2.name, u2.username, '')
+          FROM group_post_reactions r2
+          JOIN users u2 ON u2.id = r2.user_id
+          WHERE r2.group_post_id = gp.id
+          ORDER BY r2.created_at DESC, r2.id DESC
+          LIMIT 1
+        ) AS reactor_name,
+
+        (
+          SELECT json_group_array(
+            json_object(
+              'user_id', x.user_id,
+              'type', x.type,
+              'name', x.name,
+              'profile_image_url', x.profile_image_url
+            )
+          )
+          FROM (
+            SELECT
+              r3.user_id AS user_id,
+              LOWER(COALESCE(r3.type,'like')) AS type,
+              COALESCE(u3.name, u3.username, '') AS name,
+              CASE
+                WHEN u3.profile_image_url LIKE 'data:%' THEN NULL
+                WHEN length(u3.profile_image_url) > 300 THEN NULL
+                ELSE u3.profile_image_url
+              END AS profile_image_url
+            FROM group_post_reactions r3
+            LEFT JOIN users u3 ON u3.id = r3.user_id
+            WHERE r3.group_post_id = gp.id
+            ORDER BY r3.created_at DESC, r3.id DESC
+            LIMIT 30
+          ) x
+        ) AS reactions_preview,
+
+        (
+          SELECT json_group_array(
+            json_object('type', t.type, 'count', t.c)
+          )
+          FROM (
+            SELECT LOWER(COALESCE(type,'like')) AS type, COUNT(*) AS c
+            FROM group_post_reactions
+            WHERE group_post_id = gp.id
+            GROUP BY LOWER(COALESCE(type,'like'))
+            ORDER BY c DESC
+          ) t
+        ) AS reactions_by_type
+
       FROM group_posts gp
       JOIN users u ON u.id = gp.user_id
       ${where}
@@ -181,14 +222,13 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     const q = env.DB.prepare(stmt);
     const { results } = group_id ? await q.bind(...binds).all() : await q.all();
 
-    // Add normalized arrays so frontend can render multi-images easily
     const posts = (results || []).map((r: any) => {
       const images = normalizeImagesForResponse(r);
       return {
         ...r,
-        // ✅ consistent multi-image arrays
-        images, // always array
-        media_urls: images, // alias to make UI easier
+        images,
+        // ✅ keep raw DB column too, but provide array alias for UI
+        media_urls: images,
       };
     });
 
@@ -199,7 +239,6 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
 };
 
 // EDIT: PUT /api/group-posts?post_id=123
-// body: { user_id, content?, media_url?, media_urls? }
 export const onRequestPut: PagesFunction = async ({ request, env }) => {
   try {
     if (!env?.DB) return server("DB binding missing (DB)");
@@ -232,16 +271,12 @@ export const onRequestPut: PagesFunction = async ({ request, env }) => {
     const isAuthor = author_id === user_id;
     if (!isAuthor && !isGroupAdmin) return bad("Not allowed to edit this post", 403);
 
-    // Optional updates
     const content = body.content == null ? null : String(body.content).trim();
     const media_url = body.media_url == null ? null : cleanUrl(body.media_url);
 
-    const media_urls_arr =
-      body.media_urls == null ? null : parseMediaUrls(body.media_urls);
-    const media_urls_json =
-      media_urls_arr && media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
+    const media_urls_arr = body.media_urls == null ? null : parseMediaUrls(body.media_urls);
+    const media_urls_json = media_urls_arr && media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
 
-    // Build dynamic update
     const sets: string[] = [];
     const binds: any[] = [];
 
@@ -260,7 +295,6 @@ export const onRequestPut: PagesFunction = async ({ request, env }) => {
 
     if (sets.length === 0) return bad("Nothing to update");
 
-    // Prevent clearing everything in a single update (if they set all to empty)
     const willClearText = body.content !== undefined && !String(content ?? "").trim();
     const willClearSingle = body.media_url !== undefined && !media_url;
     const willClearMulti = body.media_urls !== undefined && !(media_urls_arr?.length);
