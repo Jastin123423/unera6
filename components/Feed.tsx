@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -456,6 +455,27 @@ const fmtCount = (n: number) => {
 
 /**
  * =========================
+ * ✅ PROFESSIONAL FORMAT FOR REACTION TEXT
+ * =========================
+ */
+const formatReactionText = (totalCount: number, reactorName: string): string => {
+  if (totalCount === 0) return '';
+  
+  const formattedTotal = fmtCount(totalCount);
+  
+  if (totalCount === 1) {
+    return `${formattedTotal} · ${reactorName}`;
+  }
+  
+  // For 2+ reactions: "5 · Jastin Beda and 4 others"
+  const othersCount = totalCount - 1;
+  const formattedOthers = fmtCount(othersCount);
+  
+  return `${formattedTotal} · ${reactorName} and ${formattedOthers} other${othersCount !== 1 ? 's' : ''}`;
+};
+
+/**
+ * =========================
  * ✅ STABLE HASH FOR CONSISTENT REACTOR NAME (NO FLICKER)
  * =========================
  */
@@ -718,7 +738,7 @@ const GroupPostHeader: React.FC<{
   return (
     <div className="flex items-start justify-between px-3 pt-3">
       <div className="flex items-start gap-3 min-w-0">
-        {/* Group avatar with user overlay */}
+        {/* Group avatar with user overlay - MAKE GROUP AVATAR CLICKABLE */}
         <button
           className="relative shrink-0"
           onClick={(e) => {
@@ -747,9 +767,9 @@ const GroupPostHeader: React.FC<{
 
         {/* Title + meta */}
         <div className="min-w-0">
-          {/* Group name row */}
+          {/* Group name row - MAKE GROUP NAME CLICKABLE */}
           <button
-            className="text-left font-extrabold text-[18px] leading-[1.1] text-[#E4E6EB] truncate"
+            className="text-left font-extrabold text-[18px] leading-[1.1] text-[#E4E6EB] truncate hover:underline"
             onClick={(e) => {
               e.stopPropagation();
               if (groupId && onOpenGroup) onOpenGroup(groupId);
@@ -2990,7 +3010,7 @@ export const EventFeedCard: React.FC<{
 /**
  * =========================
  * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
- * AND STABLE REACTOR NAME (VISIBLE ON ALL DEVICES)
+ * AND PROFESSIONAL REACTION TEXT FORMATTING
  * =========================
  */
 export const Post: React.FC<{
@@ -3208,18 +3228,11 @@ export const Post: React.FC<{
     return reactorNameFromApi;
   }, [postId, finalReactionCount, reactionsArr, users, reactorNameFromApi]);
 
-  // Debug log to verify data
-  useEffect(() => {
-    console.log('🔍 Reaction debug:', {
-      postId,
-      finalReactionCount,
-      reactionsArrLength: reactionsArr.length,
-      reactorNameFromApi,
-      reactorName,
-      hasReactionsArray: Array.isArray(p.reactions),
-      hasReactionsPreview: Array.isArray(p.reactions_preview)
-    });
-  }, [postId, finalReactionCount, reactionsArr.length, reactorNameFromApi, reactorName, p.reactions, p.reactions_preview]);
+  // ✅ PROFESSIONAL REACTION TEXT
+  const reactionText = useMemo(() => {
+    if (!finalReactionCount || !reactorName) return '';
+    return formatReactionText(finalReactionCount, reactorName);
+  }, [finalReactionCount, reactorName]);
 
   useEffect(() => {
     const newCommentCount = typeof p.comment_count === 'number' 
@@ -3643,7 +3656,7 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== REACTION SUMMARY WITH STABLE REACTOR NAME - VISIBLE ON ALL DEVICES ===== */}
+          {/* ===== PROFESSIONAL REACTION SUMMARY WITH FORMATTED TEXT ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {finalReactionCount > 0 && (
@@ -3671,16 +3684,10 @@ export const Post: React.FC<{
                     ))}
                   </div>
                   
-                  {/* Formatted reaction count (e.g., 1.2K) */}
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {fmtCount(finalReactionCount)}
-                  </span>
-                  
-                  {/* STABLE REACTOR NAME IN BLUE - VISIBLE ON ALL DEVICES */}
-                  {finalReactionCount > 0 && reactorName && (
-                    <span className="text-[15px] inline">
-                      <span className="text-[#1877F2] font-semibold">{reactorName}</span>
-                      <span className="text-[#B0B3B8]"> and others</span>
+                  {/* PROFESSIONAL REACTION TEXT - e.g., "5 · Jastin Beda and 4 others" */}
+                  {reactionText && (
+                    <span className="text-[15px] text-[#E4E6EB] font-medium">
+                      {reactionText}
                     </span>
                   )}
                 </div>
