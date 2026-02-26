@@ -2168,6 +2168,250 @@ export const ShareBottomSheet: React.FC<{
     </>
   );
 };
+    /**
+ * =========================
+ * ✅ PEOPLE YOU MAY KNOW - FACEBOOK STYLE FEED CARD
+ * =========================
+ */
+interface PeopleSuggestion {
+  id: number;
+  username: string;
+  name: string;
+  profile_image_url: string | null;
+  is_verified: boolean;
+  role: string;
+  mutual_count: number;
+  is_following: boolean;
+  score: number;
+}
+
+export const PeopleYouMayKnowGrid: React.FC<{
+  users: PeopleSuggestion[];
+  onFollow: (userId: number) => void;
+  currentUser: User | null;
+  isLoading?: boolean;
+  onLoginClick?: () => void;
+  title?: string;
+  maxDisplay?: number;
+}> = ({
+  users = [],
+  onFollow,
+  currentUser,
+  isLoading = false,
+  onLoginClick,
+  title = "People You May Know",
+  maxDisplay = 6
+}) => {
+  const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const displayUsers = users.slice(0, maxDisplay);
+
+  // Check scroll position for arrows
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    
+    setCanScrollLeft(el.scrollLeft > 0);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 5);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    
+    checkScroll();
+    el.addEventListener('scroll', checkScroll);
+    window.addEventListener('resize', checkScroll);
+    
+    return () => {
+      el.removeEventListener('scroll', checkScroll);
+      window.removeEventListener('resize', checkScroll);
+    };
+  }, [checkScroll, displayUsers.length]);
+
+  const scroll = (direction: 'left' | 'right') => {
+    const el = scrollRef.current;
+    if (!el) return;
+    
+    const scrollAmount = 300;
+    el.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth'
+    });
+  };
+
+  const handleFollow = async (userId: number) => {
+    setFollowLoading(prev => ({ ...prev, [userId]: true }));
+    try {
+      await onFollow(userId);
+    } finally {
+      setFollowLoading(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="w-full">
+        <div className="bg-[#242526] w-full p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-[#E4E6EB] font-bold text-[17px]">{title}</h3>
+          </div>
+          <div className="flex gap-3 overflow-x-hidden py-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex-shrink-0 w-[140px] animate-pulse">
+                <div className="w-20 h-20 mx-auto mb-2 bg-[#3A3B3C] rounded-full"></div>
+                <div className="h-4 bg-[#3A3B3C] rounded w-24 mx-auto mb-1"></div>
+                <div className="h-3 bg-[#3A3B3C] rounded w-16 mx-auto mb-3"></div>
+                <div className="h-8 bg-[#3A3B3C] rounded-lg w-full"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      </div>
+    );
+  }
+
+  if (displayUsers.length === 0) return null;
+
+  return (
+    <div className="w-full">
+      <div className="bg-[#242526] w-full p-4">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-[#E4E6EB] font-bold text-[17px]">{title}</h3>
+          <div className="flex items-center gap-1">
+            {canScrollLeft && (
+              <button
+                onClick={() => scroll('left')}
+                className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                aria-label="Scroll left"
+              >
+                <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
+              </button>
+            )}
+            {canScrollRight && (
+              <button
+                onClick={() => scroll('right')}
+                className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                aria-label="Scroll right"
+              >
+                <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Horizontal scrollable grid */}
+        <div
+          ref={scrollRef}
+          className="flex gap-3 overflow-x-auto scrollbar-hide pb-1"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {displayUsers.map((user) => (
+            <div
+              key={user.id}
+              className="flex-shrink-0 w-[140px] bg-[#3A3B3C] rounded-lg p-3 hover:bg-[#4E4F50] transition-colors group"
+            >
+              {/* Profile Image */}
+              <div className="relative w-20 h-20 mx-auto mb-2">
+                <div className="w-full h-full rounded-full overflow-hidden border-2 border-[#1877F2] group-hover:border-[#166FE5] transition-colors">
+                  <img
+                    src={user.profile_image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1877F2&color=fff&bold=true`}
+                    alt={user.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1877F2&color=fff&bold=true`;
+                    }}
+                  />
+                </div>
+                {user.is_verified && (
+                  <i className="fas fa-check-circle absolute bottom-0 right-0 text-[#1877F2] text-sm bg-[#242526] rounded-full p-0.5 border border-[#3A3B3C]"></i>
+                )}
+              </div>
+
+              {/* Name */}
+              <div className="text-center mb-1">
+                <span className="text-[#E4E6EB] font-semibold text-[13px] truncate block">
+                  {user.name}
+                </span>
+              </div>
+
+              {/* Mutual count */}
+              {user.mutual_count > 0 && (
+                <div className="text-center mb-2">
+                  <span className="text-[#B0B3B8] text-[11px]">
+                    {user.mutual_count} mutual friend{user.mutual_count !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              )}
+
+              {/* Follow Button */}
+              {!currentUser ? (
+                <button
+                  onClick={onLoginClick}
+                  className="w-full py-1.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[12px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                >
+                  <i className="fas fa-sign-in-alt text-[10px]"></i>
+                  <span>Sign in</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleFollow(user.id)}
+                  disabled={followLoading[user.id]}
+                  className={`w-full py-1.5 text-[12px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                    user.is_following
+                      ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                      : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                  } disabled:opacity-70 disabled:cursor-not-allowed`}
+                >
+                  {followLoading[user.id] ? (
+                    <i className="fas fa-spinner fa-spin text-[10px]"></i>
+                  ) : (
+                    <>
+                      <i className={`fas ${user.is_following ? 'fa-check' : 'fa-user-plus'} text-[10px]`}></i>
+                      <span>{user.is_following ? 'Following' : 'Follow'}</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      {/* Facebook-style separator */}
+      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+    </div>
+  );
+};
+
+// Add CSS for hiding scrollbar
+const scrollbarHideStyles = `
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+`;
+
+// Inject styles if not already present
+if (typeof document !== 'undefined') {
+  const styleId = 'people-you-may-know-styles';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = scrollbarHideStyles;
+    document.head.appendChild(style);
+  }
+}
 
 /**
  * =========================
