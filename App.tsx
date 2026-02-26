@@ -1,4 +1,4 @@
-// App.tsx (Complete file with People You May Know feature)
+// -App.tsx (Complete file with People You May Know feature)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
