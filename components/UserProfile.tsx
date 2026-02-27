@@ -1,3 +1,4 @@
+// UserProfile.tsx
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack } from '../types';
 import { CreatePost, Post, CreatePostModal } from './Feed';
@@ -216,6 +217,11 @@ interface UserProfileProps {
   
   // ✅ ADDED: Audio player handler
   onOpenAudio?: (item: any) => void;
+
+  // ✅ ADDED: Chat control props
+  onOpenChat?: (recipient: User) => void;
+  isChatOpen?: boolean;
+  activeChatRecipient?: User | null;
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -251,6 +257,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   fetchProfilePosts,
   onViewProductFromPost,
   onOpenAudio,
+  // ✅ ADDED: Chat props
+  onOpenChat,
+  isChatOpen,
+  activeChatRecipient,
 }) => {
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
@@ -381,6 +391,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     setTimeout(() => {
       setIsFollowButtonClicked(false);
     }, 300);
+  };
+
+  // ✅ ADDED: Message click handler - opens chat directly
+  const handleMessageClick = () => {
+    if (!currentUser) return;
+    if (onOpenChat) {
+      onOpenChat(user);
+    } else {
+      // Fallback to original onMessage if onOpenChat not provided
+      onMessage(user.id);
+    }
   };
 
   // ✅ ADDED: Custom API fetch helper for profile posts with viewerId
@@ -971,13 +992,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                         </span>
                       )}
                     </button>
+                    
+                    {/* ✅ MODIFIED: Message button with direct chat open */}
                     <button
-                      onClick={() => onMessage(user.id)}
-                      className="bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
+                      onClick={handleMessageClick}
+                      className={`bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner ${
+                        isChatOpen && activeChatRecipient?.id === user.id ? 'ring-2 ring-[#1877F2]' : ''
+                      }`}
                     >
                       <span className="flex items-center gap-2">
                         <i className="fas fa-comment"></i>
-                        Message
+                        {isChatOpen && activeChatRecipient?.id === user.id ? 'Chat Open' : 'Message'}
                       </span>
                     </button>
                   </>
