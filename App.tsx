@@ -1,4 +1,4 @@
-// App.tsx (Complete file with chat integration)
+// App.tsx (Complete file with chat integration and fixed group post creation)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -30,7 +30,7 @@ import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
 import { TermsOfServicePage } from './components/TermsOfService';
-import { ChatWindow } from './components/Chat'; // ✅ ADDED: Import ChatWindow
+import { ChatWindow } from './components/Chat';
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -3021,7 +3021,9 @@ export default function App() {
     return newEvent;
   }, [currentUser, requireAuth, selectedUserId]);
 
-  /** ---------- ✅ FIXED: Refresh group members helper ---------- */
+  // ============================================================================
+  // 🔧 FIXED: Refresh group members helper
+  // ============================================================================
   const refreshGroupMembers = useCallback(async (groupId: number) => {
     try {
       const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
@@ -3343,8 +3345,13 @@ export default function App() {
     }
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
-  /** ---------- ✅ UPDATED: createGroupPost with multi-file support ---------- */
-  const createGroupPost = useCallback(async (groupId: number, text: string, files?: File[] | File | null) => {
+  /** ---------- ✅ UPDATED: createGroupPost with multi-file support AND category metadata ---------- */
+  const createGroupPost = useCallback(async (
+    groupId: number, 
+    text: string, 
+    files?: File[] | File | null,
+    metadata?: any // Add metadata parameter for category-specific fields
+  ) => {
     if (!requireAuth("Posting")) return;
     const meId = Number(currentUser!.id);
 
@@ -3378,6 +3385,7 @@ export default function App() {
     }
 
     try {
+      // Base payload
       const payload: any = {
         group_id: Number(groupId),
         user_id: meId,
@@ -3390,6 +3398,38 @@ export default function App() {
         payload.media_urls = media_urls;
         payload.media_types = media_types;
       }
+
+      // ✅ ADDED: Include category-specific metadata in the post
+      // This is crucial for recruitment and buy/sell posts
+      if (metadata) {
+        // For recruitment posts
+        if (metadata.job_title) payload.job_title = metadata.job_title;
+        if (metadata.company) payload.company = metadata.company;
+        if (metadata.street) payload.street = metadata.street;
+        if (metadata.district) payload.district = metadata.district;
+        if (metadata.region) payload.region = metadata.region;
+        if (metadata.country) payload.country = metadata.country;
+        if (metadata.location) payload.location = metadata.location;
+        if (metadata.salary) payload.salary = metadata.salary;
+        if (metadata.job_type) payload.job_type = metadata.job_type;
+        if (metadata.application_type) payload.application_type = metadata.application_type;
+        if (metadata.application_value) payload.application_value = metadata.application_value;
+        if (metadata.expiry_date) payload.expiry_date = metadata.expiry_date;
+
+        // For buy/sell posts
+        if (metadata.price) payload.price = metadata.price;
+        if (metadata.currency) payload.currency = metadata.currency;
+        if (metadata.condition) payload.condition = metadata.condition;
+        if (metadata.status) payload.status = metadata.status;
+
+        // For music/drama posts
+        if (metadata.artist) payload.artist = metadata.artist;
+        if (metadata.series) payload.series = metadata.series;
+        if (metadata.episode) payload.episode = metadata.episode;
+        if (metadata.duration) payload.duration = metadata.duration;
+      }
+
+      console.log('Creating group post with payload:', payload); // Debug log
 
       const result = await apiFetch("/api/group-posts", {
         method: "POST",
@@ -4865,6 +4905,25 @@ export default function App() {
                 onViewImage={setFullScreenImage}
                 onVideoClick={handleVideoClick}
                 initialGroupId={null}
+                // Category-specific handlers
+                onApplyToJob={async (postId: number, applicationData?: any) => {
+                  console.log('Apply to job:', postId, applicationData);
+                  // Implement job application logic
+                }}
+                onMessageSeller={(userId: number) => {
+                  const recipient = users.find(u => u.id === userId);
+                  if (recipient) {
+                    handleOpenChat(recipient);
+                  }
+                }}
+                onMakeOffer={async (postId: number, amount: number) => {
+                  console.log('Make offer:', postId, amount);
+                  // Implement offer logic
+                }}
+                onPlayVideo={(postId: number, url: string) => {
+                  console.log('Play video:', postId, url);
+                  // Implement video playback
+                }}
               />
             </ErrorBoundary>
           )}
