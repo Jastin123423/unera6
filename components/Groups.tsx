@@ -30,6 +30,59 @@ const safeNumber = (v: any, fallback = 0) => {
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : String(v || ''));
 const safeBoolean = (v: any, fallback = false) => (typeof v === 'boolean' ? v : !!v);
 
+// ✅ Add GroupCategory type
+type GroupCategory = 'general' | 'recruitment' | 'buy_sell' | 'music_drama';
+
+// ✅ Category configuration
+interface CategoryOption {
+  id: GroupCategory;
+  label: string;
+  description: string;
+  icon: string;
+  previewIcon: string;
+  color: string;
+  features: string[];
+}
+
+const GROUP_CATEGORIES: CategoryOption[] = [
+  {
+    id: 'general',
+    label: 'General',
+    description: 'Standard group for discussions and community',
+    icon: 'fas fa-users',
+    previewIcon: 'fas fa-comments',
+    color: '#1877F2',
+    features: ['Discussions', 'Media sharing', 'Member posts']
+  },
+  {
+    id: 'recruitment',
+    label: 'Recruitment',
+    description: 'Find talent, job opportunities, and professional networking',
+    icon: 'fas fa-briefcase',
+    previewIcon: 'fas fa-user-plus',
+    color: '#45BD62',
+    features: ['Job postings', 'Talent search', 'Professional networking']
+  },
+  {
+    id: 'buy_sell',
+    label: 'Buy and Sell',
+    description: 'Marketplace for buying, selling, and trading items',
+    icon: 'fas fa-store',
+    previewIcon: 'fas fa-tag',
+    color: '#F7B928',
+    features: ['Item listings', 'Price tags', 'Location filtering', 'Sold/Pending status']
+  },
+  {
+    id: 'music_drama',
+    label: 'Music & Drama',
+    description: 'Share music, videos, movie series, and performances',
+    icon: 'fas fa-music',
+    previewIcon: 'fas fa-film',
+    color: '#F3425F',
+    features: ['Video player', 'Music playback', 'Series episodes', 'Performance showcase']
+  }
+];
+
 // ✅ LOCAL IMPLEMENTATION: getPostMediaList (enhanced version from Feed.tsx)
 type NormalizedMedia = { url: string; kind: 'image' | 'video' };
 
@@ -853,14 +906,531 @@ const PostActionsMenu: React.FC<{
   );
 };
 
+// ✅ Category-specific Post Components
+
+// Recruitment Post Component
+const RecruitmentPost: React.FC<{
+  post: PostType;
+  author: User;
+  currentUser: User | null;
+  users: User[];
+  isGroupAdmin?: boolean;
+  isPlatformAdmin?: boolean;
+  onProfileClick: (id: number) => void;
+  onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
+  onOpenComments: (postId: number) => void;
+  onSharePost: (postId: number, newShareCount: number) => void;
+  onEditPost?: (postId: number, content: string) => Promise<any>;
+  onDeletePost?: (postId: number) => Promise<any>;
+  onReportPost?: (postId: number) => Promise<any>;
+  onApply?: (postId: number) => Promise<any>;
+}> = (props) => {
+  const { post, author, currentUser, onApply } = props;
+  const [applied, setApplied] = useState(false);
+
+  // Parse job details from post content or metadata
+  const jobTitle = (post as any).job_title || 'Position';
+  const company = (post as any).company || '';
+  const location = (post as any).location || '';
+  const salary = (post as any).salary || '';
+  const type = (post as any).job_type || 'Full-time';
+
+  const handleApply = async () => {
+    if (!currentUser) {
+      alert('Please login to apply');
+      return;
+    }
+    if (onApply) {
+      try {
+        await onApply(post.id);
+        setApplied(true);
+      } catch (error) {
+        console.error('Failed to apply:', error);
+      }
+    }
+  };
+
+  return (
+    <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+      {/* Header (same as GroupPost) */}
+      <div className="p-3 md:p-4 flex items-center justify-between">
+        <div
+          className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+          onClick={() => props.onProfileClick(author.id)}
+        >
+          <img
+            src={avatarFrom(author)}
+            alt=""
+            className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1 flex-wrap">
+              <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
+                {author.name || 'User'}
+              </h4>
+              {author.is_verified && (
+                <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+              <span>{formatRelativeTime(post.created_at || '')}</span>
+              <span>•</span>
+              <i className="fas fa-briefcase text-[12px]"></i>
+              <span>Recruitment</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Job Badge */}
+      <div className="px-3 md:px-4 pb-2">
+        <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#45BD62]/10 rounded-full border border-[#45BD62]/20">
+          <i className="fas fa-briefcase text-[#45BD62] text-xs"></i>
+          <span className="text-[#45BD62] text-xs font-bold">JOB POSTING</span>
+        </div>
+      </div>
+
+      {/* Job Details Card */}
+      <div className="px-3 md:px-4 pb-3">
+        <div className="bg-[#3A3B3C] rounded-lg p-4">
+          <h3 className="text-[#E4E6EB] font-bold text-xl mb-2">{jobTitle}</h3>
+          
+          {company && (
+            <div className="flex items-center gap-2 text-[#B0B3B8] mb-2">
+              <i className="fas fa-building text-xs"></i>
+              <span className="text-sm">{company}</span>
+            </div>
+          )}
+          
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            {location && (
+              <div className="flex items-center gap-1 text-[#B0B3B8]">
+                <i className="fas fa-map-marker-alt text-xs"></i>
+                <span className="text-xs">{location}</span>
+              </div>
+            )}
+            {type && (
+              <div className="flex items-center gap-1 text-[#B0B3B8]">
+                <i className="fas fa-clock text-xs"></i>
+                <span className="text-xs">{type}</span>
+              </div>
+            )}
+            {salary && (
+              <div className="flex items-center gap-1 text-[#B0B3B8] col-span-2">
+                <i className="fas fa-dollar-sign text-xs"></i>
+                <span className="text-xs">{salary}</span>
+              </div>
+            )}
+          </div>
+
+          {post.content && (
+            <p className="text-[#E4E6EB] text-sm mb-3">{post.content}</p>
+          )}
+
+          {/* Apply Button */}
+          <button
+            onClick={handleApply}
+            disabled={applied}
+            className="w-full bg-[#45BD62] text-white py-2.5 rounded-lg font-bold hover:bg-[#3aa34f] transition-colors disabled:opacity-50"
+          >
+            {applied ? (
+              <span className="flex items-center justify-center gap-2">
+                <i className="fas fa-check"></i>
+                Applied
+              </span>
+            ) : (
+              'Apply Now'
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Reactions and Actions (same as GroupPost) */}
+      {/* ... */}
+    </div>
+  );
+};
+
+// Buy & Sell Post Component (Facebook Marketplace style)
+const BuySellPost: React.FC<{
+  post: PostType;
+  author: User;
+  currentUser: User | null;
+  users: User[];
+  isGroupAdmin?: boolean;
+  isPlatformAdmin?: boolean;
+  onProfileClick: (id: number) => void;
+  onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
+  onOpenComments: (postId: number) => void;
+  onSharePost: (postId: number, newShareCount: number) => void;
+  onEditPost?: (postId: number, content: string) => Promise<any>;
+  onDeletePost?: (postId: number) => Promise<any>;
+  onReportPost?: (postId: number) => Promise<any>;
+  onMessageSeller?: (userId: number) => void;
+  onMakeOffer?: (postId: number, amount: number) => Promise<any>;
+}> = (props) => {
+  const { post, author, currentUser, onMessageSeller, onMakeOffer } = props;
+  const [showOfferModal, setShowOfferModal] = useState(false);
+  const [offerAmount, setOfferAmount] = useState('');
+  const [offerSent, setOfferSent] = useState(false);
+
+  // Parse item details
+  const price = (post as any).price || '0';
+  const condition = (post as any).condition || 'Used - Good';
+  const location = (post as any).location || '';
+  const status = (post as any).status || 'available'; // available, pending, sold
+
+  // Get media for gallery view
+  const mediaList = useMemo(() => {
+    return getPostMediaList(post);
+  }, [post]);
+
+  const handleMakeOffer = async () => {
+    if (!currentUser) {
+      alert('Please login to make an offer');
+      return;
+    }
+    if (!offerAmount || isNaN(Number(offerAmount))) {
+      alert('Please enter a valid amount');
+      return;
+    }
+    if (onMakeOffer) {
+      try {
+        await onMakeOffer(post.id, Number(offerAmount));
+        setOfferSent(true);
+        setShowOfferModal(false);
+      } catch (error) {
+        console.error('Failed to make offer:', error);
+      }
+    }
+  };
+
+  const handleMessage = () => {
+    if (!currentUser) {
+      alert('Please login to message seller');
+      return;
+    }
+    if (onMessageSeller) {
+      onMessageSeller(author.id);
+    }
+  };
+
+  const statusColors = {
+    available: 'bg-[#45BD62]',
+    pending: 'bg-[#F7B928]',
+    sold: 'bg-[#F3425F]'
+  };
+
+  return (
+    <>
+      <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+        {/* Header */}
+        <div className="p-3 md:p-4 flex items-center justify-between">
+          <div
+            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+            onClick={() => props.onProfileClick(author.id)}
+          >
+            <img
+              src={avatarFrom(author)}
+              alt=""
+              className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
+                  {author.name || 'User'}
+                </h4>
+                {author.is_verified && (
+                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                <span>{formatRelativeTime(post.created_at || '')}</span>
+                <span>•</span>
+                <i className="fas fa-store text-[12px]"></i>
+                <span>Marketplace</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Status Badge */}
+          <div className={`px-3 py-1 rounded-full ${statusColors[status as keyof typeof statusColors]} text-white text-xs font-bold uppercase`}>
+            {status}
+          </div>
+        </div>
+
+        {/* Price Tag */}
+        <div className="px-3 md:px-4 pb-2">
+          <span className="text-[#E4E6EB] font-black text-2xl">${price}</span>
+          {condition && (
+            <span className="ml-2 text-[#B0B3B8] text-sm">• {condition}</span>
+          )}
+        </div>
+
+        {/* Images Grid */}
+        {mediaList.length > 0 && (
+          <MediaGrid
+            media={mediaList.filter(m => m.kind === 'image')}
+            onOpen={(url, index) => {
+              // Handle gallery open
+            }}
+          />
+        )}
+
+        {/* Description */}
+        {post.content && (
+          <div className="px-3 md:px-4 py-3">
+            <p className="text-[#E4E6EB] text-sm">{post.content}</p>
+          </div>
+        )}
+
+        {/* Location */}
+        {location && (
+          <div className="px-3 md:px-4 pb-2">
+            <div className="flex items-center gap-1 text-[#B0B3B8]">
+              <i className="fas fa-map-marker-alt text-xs"></i>
+              <span className="text-xs">{location}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Action Buttons - Marketplace Style */}
+        <div className="px-2 py-3 border-t border-[#3E4042] grid grid-cols-2 gap-2">
+          <button
+            onClick={handleMessage}
+            className="flex items-center justify-center gap-2 h-10 rounded-lg bg-[#1877F2] text-white font-bold hover:bg-[#166fe5] transition-colors"
+          >
+            <i className="fas fa-comment"></i>
+            Message
+          </button>
+          <button
+            onClick={() => setShowOfferModal(true)}
+            disabled={status !== 'available' || offerSent}
+            className="flex items-center justify-center gap-2 h-10 rounded-lg bg-[#2d2d2d] text-[#E4E6EB] font-bold hover:bg-[#3a3a3a] transition-colors disabled:opacity-50"
+          >
+            <i className="fas fa-tag"></i>
+            {offerSent ? 'Offer Sent' : 'Make Offer'}
+          </button>
+        </div>
+
+        {/* Reactions row */}
+        {/* ... */}
+      </div>
+
+      {/* Make Offer Modal */}
+      {showOfferModal && (
+        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-[#1e1e1e] w-full max-w-[400px] rounded-xl border border-[#333] p-4">
+            <h3 className="text-[#e4e6eb] font-bold text-lg mb-4">Make an Offer</h3>
+            <div className="mb-4">
+              <label className="block text-[#b0b3b8] text-sm mb-1">Your offer ($)</label>
+              <input
+                type="number"
+                value={offerAmount}
+                onChange={(e) => setOfferAmount(e.target.value)}
+                placeholder={`Enter amount (max $${price})`}
+                max={price}
+                className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2.5 text-[#e4e6eb] outline-none"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowOfferModal(false)}
+                className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] py-2.5 rounded-lg font-bold hover:bg-[#3a3a3a] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMakeOffer}
+                disabled={!offerAmount}
+                className="flex-1 bg-[#1877f2] text-white py-2.5 rounded-lg font-bold hover:bg-[#166fe5] transition-colors disabled:opacity-50"
+              >
+                Send Offer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// Music & Drama Post Component (Video-focused)
+const MusicDramaPost: React.FC<{
+  post: PostType;
+  author: User;
+  currentUser: User | null;
+  users: User[];
+  isGroupAdmin?: boolean;
+  isPlatformAdmin?: boolean;
+  onProfileClick: (id: number) => void;
+  onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
+  onOpenComments: (postId: number) => void;
+  onSharePost: (postId: number, newShareCount: number) => void;
+  onEditPost?: (postId: number, content: string) => Promise<any>;
+  onDeletePost?: (postId: number) => Promise<any>;
+  onReportPost?: (postId: number) => Promise<any>;
+  onPlayVideo?: (postId: number, url: string) => void;
+}> = (props) => {
+  const { post, author, onPlayVideo } = props;
+  const [isPlaying, setIsPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Get media list
+  const mediaList = useMemo(() => {
+    return getPostMediaList(post);
+  }, [post]);
+
+  // Find first video
+  const videoMedia = mediaList.find(m => m.kind === 'video');
+  const imageMedia = mediaList.filter(m => m.kind === 'image');
+
+  // Parse metadata
+  const duration = (post as any).duration || '';
+  const artist = (post as any).artist || '';
+  const episode = (post as any).episode || '';
+  const series = (post as any).series || '';
+
+  const handlePlayPause = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+    if (onPlayVideo) {
+      onPlayVideo(post.id, videoMedia?.url || '');
+    }
+  };
+
+  return (
+    <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+      {/* Header */}
+      <div className="p-3 md:p-4 flex items-center justify-between">
+        <div
+          className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+          onClick={() => props.onProfileClick(author.id)}
+        >
+          <img
+            src={avatarFrom(author)}
+            alt=""
+            className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1 flex-wrap">
+              <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
+                {author.name || 'User'}
+              </h4>
+              {author.is_verified && (
+                <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+              <span>{formatRelativeTime(post.created_at || '')}</span>
+              <span>•</span>
+              {series ? (
+                <>
+                  <i className="fas fa-film text-[12px]"></i>
+                  <span>Series • Ep {episode}</span>
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-music text-[12px]"></i>
+                  <span>Music</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Artist/Series Info */}
+      {(artist || series) && (
+        <div className="px-3 md:px-4 pb-2">
+          <div className="inline-flex items-center gap-2">
+            {artist && (
+              <span className="text-[#E4E6EB] font-bold">{artist}</span>
+            )}
+            {series && (
+              <>
+                <span className="text-[#B0B3B8]">•</span>
+                <span className="text-[#B0B3B8]">{series}</span>
+                {episode && (
+                  <span className="text-[#B0B3B8]">Episode {episode}</span>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Video Player - Prominent */}
+      {videoMedia && (
+        <div className="relative bg-black">
+          <video
+            ref={videoRef}
+            src={videoMedia.url}
+            className="w-full aspect-video"
+            poster={imageMedia[0]?.url}
+            controls={isPlaying}
+            playsInline
+          />
+          
+          {/* Custom Play Button Overlay */}
+          {!isPlaying && (
+            <button
+              onClick={handlePlayPause}
+              className="absolute inset-0 flex items-center justify-center bg-black/40 group"
+            >
+              <div className="w-20 h-20 rounded-full bg-[#F3425F] flex items-center justify-center group-hover:scale-110 transition-transform">
+                <i className="fas fa-play text-white text-3xl ml-1"></i>
+              </div>
+            </button>
+          )}
+
+          {/* Duration Badge */}
+          {duration && (
+            <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/60 rounded text-white text-xs">
+              {duration}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Image Grid (if any) */}
+      {!videoMedia && imageMedia.length > 0 && (
+        <MediaGrid
+          media={imageMedia}
+          onOpen={(url, index) => {
+            // Handle gallery
+          }}
+        />
+      )}
+
+      {/* Description */}
+      {post.content && (
+        <div className="px-3 md:px-4 py-3">
+          <p className="text-[#E4E6EB] text-sm">{post.content}</p>
+        </div>
+      )}
+
+      {/* Reactions and Actions */}
+      {/* ... */}
+    </div>
+  );
+};
+
 /**
- * GroupPost Component with Three-Dots Menu and Enhanced Feed Features
+ * GroupPost Component - Now dispatches to category-specific components
  */
 const GroupPost: React.FC<{
   post: PostType;
   author: User;
   currentUser: User | null;
   users: User[];
+  groupCategory?: GroupCategory;
   isGroupAdmin?: boolean;
   isPlatformAdmin?: boolean;
   onProfileClick: (id: number) => void;
@@ -875,7 +1445,31 @@ const GroupPost: React.FC<{
   onHashtagClick?: (tag: string) => void;
   onFollow?: (userId: number) => Promise<any>;
   checkIsFollowing?: (userId: number) => boolean;
-}> = ({
+  // Category-specific handlers
+  onApply?: (postId: number) => Promise<any>;
+  onMessageSeller?: (userId: number) => void;
+  onMakeOffer?: (postId: number, amount: number) => Promise<any>;
+  onPlayVideo?: (postId: number, url: string) => void;
+}> = (props) => {
+  const { groupCategory = 'general' } = props;
+
+  // Dispatch to category-specific component based on group category
+  switch (groupCategory) {
+    case 'recruitment':
+      return <RecruitmentPost {...props} />;
+    case 'buy_sell':
+      return <BuySellPost {...props} />;
+    case 'music_drama':
+      return <MusicDramaPost {...props} />;
+    case 'general':
+    default:
+      // Use the existing GroupPost implementation for general
+      return <GeneralGroupPost {...props} />;
+  }
+};
+
+// Original GroupPost implementation renamed to GeneralGroupPost
+const GeneralGroupPost: React.FC<any> = ({
   post,
   author,
   currentUser,
@@ -930,7 +1524,7 @@ const GroupPost: React.FC<{
     return likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0;
   });
 
-  // Sync with props when they change (but not on every render)
+  // Sync with props when they change
   useEffect(() => {
     setLocalMyReaction((p as any).myReaction ?? (p as any).my_reaction ?? null);
     
@@ -946,7 +1540,6 @@ const GroupPost: React.FC<{
 
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
   
-  // Use local state for immediate updates
   const finalMyReaction = localMyReaction;
   const finalReactionCount = localReactionCount;
 
@@ -985,36 +1578,28 @@ const GroupPost: React.FC<{
   const handleLikeClick = async (type: ReactionType) => {
     if (!currentUser) return;
     
-    // Store previous values for potential rollback
     const previousMyReaction = finalMyReaction;
     const previousReactionCount = finalReactionCount;
 
-    // Determine new reaction state
     let newMyReaction: ReactionType | null = type;
     let newReactionCount = previousReactionCount;
 
     if (!previousMyReaction) {
-      // No previous reaction -> add reaction
       newReactionCount = previousReactionCount + 1;
     } else if (previousMyReaction === type) {
-      // Same reaction -> remove it
       newMyReaction = null;
       newReactionCount = previousReactionCount - 1;
     } else {
-      // Different reaction -> change type (count stays same)
       newMyReaction = type;
       newReactionCount = previousReactionCount;
     }
 
-    // Update local state immediately for instant UI feedback
     setLocalMyReaction(newMyReaction || undefined);
     setLocalReactionCount(newReactionCount);
 
     try {
-      // Make the actual API call
       await onLikePost(postId, type);
     } catch (error) {
-      // Rollback on error
       console.error('Failed to like post:', error);
       setLocalMyReaction(previousMyReaction);
       setLocalReactionCount(previousReactionCount);
@@ -1265,7 +1850,7 @@ interface GroupsPageProps {
 
   // Group content functions
   onUpdateGroupImage: (groupId: number, type: 'cover' | 'profile', file: File) => Promise<any>;
-  onPostToGroup: (groupId: number, content: string, files?: File[]) => Promise<any>;
+  onPostToGroup: (groupId: number, content: string, files?: File[], metadata?: any) => Promise<any>;
   onCreateGroupEvent: (groupId: number, event: Partial<Event>) => Promise<any>;
   onInviteToGroup: (groupId: number, userIds: number[]) => Promise<any>;
 
@@ -1298,13 +1883,18 @@ interface GroupsPageProps {
   onHashtagClick?: (tag: string) => void;
   onViewImage?: (url: string) => void;
   onVideoClick?: (post: PostType) => void;
+  
+  // Category-specific handlers
+  onApplyToJob?: (postId: number) => Promise<any>;
+  onMessageSeller?: (userId: number) => void;
+  onMakeOffer?: (postId: number, amount: number) => Promise<any>;
+  onPlayVideo?: (postId: number, url: string) => void;
 }
 
 /**
- * Normalize group data for UI safety - UPDATED to keep undefined for missing members
+ * Normalize group data for UI safety - UPDATED to include category
  */
 function normalizeGroup(raw: any): Group {
-  // Keep undefined if members missing, otherwise ensure it's an array of numbers
   const members =
     raw?.members === undefined || raw?.members === null
       ? undefined
@@ -1320,11 +1910,12 @@ function normalizeGroup(raw: any): Group {
     name: String(raw?.name ?? 'Untitled Group'),
     description: String(raw?.description ?? ''),
     type: (raw?.type === 'private' ? 'private' : 'public') as any,
+    category: (raw?.category as GroupCategory) || 'general',
     cover_image: String(raw?.cover_image ?? raw?.coverImage ?? ''),
     profile_image: String(raw?.profile_image ?? raw?.profileImage ?? ''),
     created_at: raw?.created_at ?? new Date().toISOString(),
     member_posting_allowed: raw?.member_posting_allowed ?? true,
-    members: members, // undefined if missing from API
+    members: members,
     posts,
     events,
     members_count: Number(raw?.members_count ?? (members ? members.length : 0)),
@@ -1332,13 +1923,12 @@ function normalizeGroup(raw: any): Group {
 }
 
 /**
- * Normalize post data for UI safety - Updated to preserve media_urls array
+ * Normalize post data for UI safety
  */
 function normalizePost(post: any): PostType {
   const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
   const mediaType = post?.media_type ?? post?.mediaType ?? null;
   
-  // Parse media_urls if it's a string (JSON)
   let mediaUrls: string[] = [];
   if (post?.media_urls) {
     if (Array.isArray(post.media_urls)) {
@@ -1353,7 +1943,6 @@ function normalizePost(post: any): PostType {
     }
   }
   
-  // Parse images if it's a string (JSON)
   let images: string[] = [];
   if (post?.images) {
     if (Array.isArray(post.images)) {
@@ -1368,7 +1957,6 @@ function normalizePost(post: any): PostType {
     }
   }
 
-  // Parse media_types if it's a string (JSON)
   let mediaTypes: string[] = [];
   if (post?.media_types) {
     if (Array.isArray(post.media_types)) {
@@ -1390,8 +1978,8 @@ function normalizePost(post: any): PostType {
     content: String(post?.content ?? post?.text ?? ''),
     media_url: mediaUrl,
     media_type: mediaType,
-    media_urls: mediaUrls.length ? mediaUrls : images, // Use media_urls or images
-    images: mediaUrls.length ? mediaUrls : images, // Keep images for backward compatibility
+    media_urls: mediaUrls.length ? mediaUrls : images,
+    images: mediaUrls.length ? mediaUrls : images,
     media_types: mediaTypes,
     type: post?.type ?? (mediaUrl ? (mediaType?.startsWith('image/') ? 'image' : 'video') : 'text'),
     reactions: Array.isArray(post?.reactions) ? post.reactions : [],
@@ -1403,6 +1991,20 @@ function normalizePost(post: any): PostType {
     groupId: post?.groupId ? Number(post.groupId) : null,
     my_reaction: post?.my_reaction ?? null,
     reactions_count: Number(post?.reactions_count ?? post?.likesCount ?? 0),
+    
+    // Category-specific fields
+    price: post?.price,
+    condition: post?.condition,
+    location: post?.location,
+    status: post?.status,
+    job_title: post?.job_title,
+    company: post?.company,
+    salary: post?.salary,
+    job_type: post?.job_type,
+    artist: post?.artist,
+    series: post?.series,
+    episode: post?.episode,
+    duration: post?.duration,
   } as any;
 }
 
@@ -1427,6 +2029,96 @@ function normalizeEvent(event: any): Event {
     user_rsvp_status: event?.user_rsvp_status ?? null,
   } as any;
 }
+
+// Category Selection Modal Component
+const CategorySelectionModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onSelect: (category: GroupCategory) => void;
+}> = ({ isOpen, onClose, onSelect }) => {
+  const [selectedId, setSelectedId] = useState<GroupCategory | null>(null);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
+      <div className="bg-[#1e1e1e] w-full max-w-[600px] rounded-xl border border-[#333] shadow-2xl overflow-hidden animate-slide-up">
+        <div className="p-4 border-b border-[#333] flex justify-between items-center">
+          <h3 className="text-xl font-bold text-[#e4e6eb]">Choose Group Category</h3>
+          <div
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-[#2d2d2d] flex items-center justify-center cursor-pointer hover:bg-[#3a3a3a] transition-colors"
+          >
+            <i className="fas fa-times text-[#b0b3b8]"></i>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+          {GROUP_CATEGORIES.map((category) => (
+            <button
+              key={category.id}
+              onClick={() => setSelectedId(category.id)}
+              className={`w-full p-4 rounded-xl border-2 transition-all ${
+                selectedId === category.id
+                  ? 'border-[#1877f2] bg-[#1877f2]/10'
+                  : 'border-[#333] hover:border-[#4a4a4a] bg-[#2d2d2d]'
+              }`}
+            >
+              <div className="flex items-start gap-4">
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
+                  style={{ backgroundColor: `${category.color}20`, color: category.color }}
+                >
+                  <i className={category.icon}></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <h4 className="text-[#e4e6eb] font-bold text-lg mb-1">{category.label}</h4>
+                  <p className="text-[#b0b3b8] text-sm mb-2">{category.description}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {category.features.map((feature, i) => (
+                      <span
+                        key={i}
+                        className="px-2 py-1 bg-[#3a3a3a] rounded-full text-xs text-[#b0b3b8]"
+                      >
+                        {feature}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                {selectedId === category.id && (
+                  <div className="w-6 h-6 rounded-full bg-[#1877f2] flex items-center justify-center">
+                    <i className="fas fa-check text-white text-xs"></i>
+                  </div>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="p-4 border-t border-[#333] flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] py-2.5 rounded-lg font-bold hover:bg-[#3a3a3a] transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              if (selectedId) {
+                onSelect(selectedId);
+                onClose();
+              }
+            }}
+            disabled={!selectedId}
+            className="flex-1 bg-[#1877f2] text-white py-2.5 rounded-lg font-bold hover:bg-[#166fe5] transition-colors disabled:opacity-50"
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const GroupsPage: React.FC<GroupsPageProps> = ({
   currentUser,
@@ -1462,16 +2154,27 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   onHashtagClick,
   onViewImage,
   onVideoClick,
+  onApplyToJob,
+  onMessageSeller,
+  onMakeOffer,
+  onPlayVideo,
 }) => {
   const [view, setView] = useState<'feed' | 'detail'>('feed');
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
   const [groupTab, setGroupTab] = useState<'Discussion' | 'Events' | 'Members' | 'About'>('Discussion');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showGroupPostModal, setShowGroupPostModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
+
+  // New group creation state
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupDesc, setNewGroupDesc] = useState('');
+  const [newGroupType, setNewGroupType] = useState<'public' | 'private'>('public');
+  const [selectedCategory, setSelectedCategory] = useState<GroupCategory | null>(null);
 
   // Full Post View state
   const [showPostView, setShowPostView] = useState(false);
@@ -1479,7 +2182,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const [selectedPostAuthor, setSelectedPostAuthor] = useState<User | null>(null);
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
 
-  // Events state - using ref to prevent unnecessary reloads
+  // Events state
   const [groupEvents, setGroupEvents] = useState<Event[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const eventsLoadedRef = useRef<boolean>(false);
@@ -1506,15 +2209,12 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
   const groupProfileInputRef = useRef<HTMLInputElement>(null);
   const postFileInputRef = useRef<HTMLInputElement>(null);
 
-  const [newGroupName, setNewGroupName] = useState('');
-  const [newGroupDesc, setNewGroupDesc] = useState('');
-  const [newGroupType, setNewGroupType] = useState<'public' | 'private'>('public');
-
   const [postContent, setPostContent] = useState('');
   const [postFiles, setPostFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
+  const [postMetadata, setPostMetadata] = useState<any>({});
 
-  // normalize ALL groups so missing arrays never crash UI
+  // normalize ALL groups
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
 
   useEffect(() => {
@@ -1540,14 +2240,13 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     activeGroupIdRef.current = activeGroupId;
   }, [activeGroupId]);
 
-  // Load group posts with ref to prevent unnecessary reloads
+  // Load group posts
   const loadGroupPosts = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupPosts) {
       setGroupPosts([]);
       return;
     }
     
-    // Skip if already loaded and not forced
     if (postsLoadedRef.current && !force) {
       return;
     }
@@ -1566,21 +2265,20 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, fetchGroupPosts]);
 
-  // Load posts when entering Discussion tab or when group changes
+  // Load posts when entering Discussion tab
   useEffect(() => {
     if (activeGroup && groupTab === 'Discussion') {
       loadGroupPosts();
     }
   }, [activeGroup, groupTab, loadGroupPosts]);
 
-  // Load group events with ref to prevent unnecessary reloads
+  // Load group events
   const loadGroupEvents = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupEvents) {
       setGroupEvents([]);
       return;
     }
     
-    // Skip if already loaded for this group and not forced
     if (eventsLoadedRef.current && activeGroupIdRef.current === activeGroup.id && !force) {
       return;
     }
@@ -1599,7 +2297,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, [activeGroup, fetchGroupEvents]);
 
-  // Load events only when explicitly switching to Events tab
+  // Load events only when switching to Events tab
   useEffect(() => {
     if (activeGroup && groupTab === 'Events') {
       loadGroupEvents();
@@ -1614,13 +2312,11 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     setGroupEvents([]);
   }, [activeGroupId]);
 
-  // Clean up preview URLs when files change
+  // Clean up preview URLs
   useEffect(() => {
-    // Create preview URLs
     const urls = postFiles.map(file => URL.createObjectURL(file));
     setPreviews(urls);
     
-    // Clean up function
     return () => {
       urls.forEach(url => URL.revokeObjectURL(url));
     };
@@ -1631,14 +2327,14 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       setPostContent('');
       setPostFiles([]);
       setPreviews([]);
-      // Clear input value so selecting the same files again works
+      setPostMetadata({});
       if (postFileInputRef.current) {
         postFileInputRef.current.value = '';
       }
     }
   }, [showGroupPostModal]);
 
-  // Load pinned groups from localStorage on mount
+  // Load pinned groups from localStorage
   useEffect(() => {
     try {
       if (typeof window === 'undefined') return;
@@ -1654,7 +2350,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   }, []);
 
-  // Save pinned groups to localStorage when they change
+  // Save pinned groups to localStorage
   useEffect(() => {
     try {
       if (typeof window === 'undefined') return;
@@ -1673,14 +2369,30 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     window.scrollTo(0, 0);
   };
 
+  const handleCreateGroupClick = () => {
+    if (!currentUser) {
+      alert('Please login to create a group');
+      return;
+    }
+    // Show category selection first
+    setShowCategoryModal(true);
+  };
+
+  const handleCategorySelect = (category: GroupCategory) => {
+    setSelectedCategory(category);
+    setShowCategoryModal(false);
+    setShowCreateModal(true);
+  };
+
   const handleCreateSubmit = async () => {
-    if (!newGroupName.trim()) return;
+    if (!newGroupName.trim() || !selectedCategory) return;
 
     try {
       await onCreateGroup({
         name: newGroupName.trim(),
         description: newGroupDesc.trim(),
         type: newGroupType,
+        category: selectedCategory,
         profile_image: `https://ui-avatars.com/api/?name=${encodeURIComponent(newGroupName)}&background=random`,
         cover_image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1500&q=80',
       });
@@ -1688,6 +2400,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       setShowCreateModal(false);
       setNewGroupName('');
       setNewGroupDesc('');
+      setSelectedCategory(null);
     } catch (error) {
       console.error('Failed to create group:', error);
     }
@@ -1697,19 +2410,43 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     if (!activeGroup) return;
     if (!postContent.trim() && postFiles.length === 0) return;
 
+    // Prepare metadata based on category
+    let metadata = {};
+    if (activeGroup.category === 'buy_sell') {
+      metadata = {
+        price: postMetadata.price,
+        condition: postMetadata.condition,
+        location: postMetadata.location,
+      };
+    } else if (activeGroup.category === 'recruitment') {
+      metadata = {
+        job_title: postMetadata.job_title,
+        company: postMetadata.company,
+        location: postMetadata.location,
+        salary: postMetadata.salary,
+        job_type: postMetadata.job_type,
+      };
+    } else if (activeGroup.category === 'music_drama') {
+      metadata = {
+        artist: postMetadata.artist,
+        series: postMetadata.series,
+        episode: postMetadata.episode,
+        duration: postMetadata.duration,
+      };
+    }
+
     try {
-      await onPostToGroup(activeGroup.id, postContent.trim(), postFiles);
+      await onPostToGroup(activeGroup.id, postContent.trim(), postFiles, metadata);
       setShowGroupPostModal(false);
       setPostContent('');
       setPostFiles([]);
       setPreviews([]);
+      setPostMetadata({});
       
-      // Clear input value
       if (postFileInputRef.current) {
         postFileInputRef.current.value = '';
       }
       
-      // Reload posts with force flag
       postsLoadedRef.current = false;
       loadGroupPosts(true);
     } catch (error) {
@@ -1749,7 +2486,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       
       setShowEventModal(false);
       
-      // Reload events with force flag
       if (groupTab === 'Events' && fetchGroupEvents) {
         eventsLoadedRef.current = false;
         loadGroupEvents(true);
@@ -1783,7 +2519,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  // ✅ FIXED: handleJoinGroup with loading state and better error handling
   const handleJoinGroup = async () => {
     if (!activeGroup) return;
     if (!currentUser) {
@@ -1796,20 +2531,15 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     try {
       await onJoinGroup(activeGroup.id);
 
-      // Force reload posts/events
       postsLoadedRef.current = false;
       eventsLoadedRef.current = false;
       await loadGroupPosts(true);
       if (groupTab === 'Events') await loadGroupEvents(true);
       
-      // If fetchGroupDetails is available, refresh group details to get updated members
       if (fetchGroupDetails) {
         const details = await fetchGroupDetails(activeGroup.id);
         if (details?.group) {
-          // The groups prop will be updated by App.tsx, but we can also update local state
-          // to make UI update immediately
-          const updatedGroup = normalizeGroup(details.group);
-          setActiveGroupId(prev => prev); // Trigger re-render
+          setActiveGroupId(prev => prev);
         }
       }
     } catch (error) {
@@ -1820,7 +2550,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     }
   };
 
-  // ✅ FIXED: handleLeaveGroup with loading state and better error handling
   const handleLeaveGroup = async () => {
     if (!activeGroup) return;
     if (!currentUser) {
@@ -1835,20 +2564,15 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     try {
       await onLeaveGroup(activeGroup.id);
 
-      // Clear group content immediately
       setGroupPosts([]);
       setGroupEvents([]);
       postsLoadedRef.current = false;
       eventsLoadedRef.current = false;
       
-      // If fetchGroupDetails is available, refresh group details to get updated members
       if (fetchGroupDetails) {
         const details = await fetchGroupDetails(activeGroup.id);
         if (details?.group) {
-          // The groups prop will be updated by App.tsx, but we can also update local state
-          // to make UI update immediately
-          const updatedGroup = normalizeGroup(details.group);
-          setActiveGroupId(prev => prev); // Trigger re-render
+          setActiveGroupId(prev => prev);
         }
       }
     } catch (error) {
@@ -1871,7 +2595,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     setShowPostView(true);
   };
 
-  // This now just passes through to the GroupPost component which handles its own local state
   const handleLikePost = async (postId: number, type?: ReactionType) => {
     if (!currentUser) return;
     
@@ -2009,12 +2732,22 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     return [...safeGroups].sort((a, b) => computeVisits(b) - computeVisits(a));
   }, [safeGroups, sortMode]);
 
-  // FEED VIEW (Facebook-style with dark theme)
+  const getCategoryIcon = (category?: GroupCategory) => {
+    const cat = GROUP_CATEGORIES.find(c => c.id === category);
+    return cat?.icon || 'fas fa-users';
+  };
+
+  const getCategoryColor = (category?: GroupCategory) => {
+    const cat = GROUP_CATEGORIES.find(c => c.id === category);
+    return cat?.color || '#1877F2';
+  };
+
+  // FEED VIEW
   if (view === 'feed' || !activeGroup) {
     return (
       <>
         <div className="w-full bg-[#121212] min-h-screen font-sans pb-24">
-          {/* Top header with dark theme */}
+          {/* Top header */}
           <div className="sticky top-0 z-[50] bg-[#1e1e1e] border-b border-[#333]">
             <div className="max-w-[900px] mx-auto px-4">
               <div className="h-14 flex items-center justify-between">
@@ -2038,7 +2771,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition"
-                    onClick={() => currentUser ? setShowCreateModal(true) : alert('Login first')}
+                    onClick={handleCreateGroupClick}
                     aria-label="Create"
                   >
                     <i className="fas fa-plus text-[18px] text-[#e4e6eb]"></i>
@@ -2057,7 +2790,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 </div>
               </div>
 
-              {/* Tabs row with dark theme */}
+              {/* Tabs row */}
               <div className="flex gap-2 overflow-x-auto pb-3 pt-1 scrollbar-hide">
                 {(['Your groups', 'Posts', 'Discover', 'Invites'] as const).map(tab => {
                   const active = fbTab === tab;
@@ -2077,7 +2810,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 })}
               </div>
 
-              {/* Search input with dark theme */}
+              {/* Search input */}
               <div className="pb-3">
                 <div className="relative">
                   <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#b0b3b8] text-sm"></i>
@@ -2096,12 +2829,9 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           {/* Content */}
           <div className="max-w-[900px] mx-auto">
             {(() => {
-              // Data filtering - handle undefined members gracefully
               const myGroups = currentUser
                 ? safeGroups.filter(g => {
-                    // Check admin first
                     if (g.admin_id === currentUser.id) return true;
-                    // Check members if it exists and is an array
                     if (Array.isArray(g.members)) {
                       return g.members.includes(currentUser.id);
                     }
@@ -2111,23 +2841,18 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
 
               let list = myGroups.length ? myGroups : safeGroups;
 
-              // Separate pinned groups from regular groups
               const pinnedList = list.filter(g => pinnedGroups.has(g.id));
               const regularList = list.filter(g => !pinnedGroups.has(g.id));
 
-              // Search filter
               if (searchQuery.trim()) {
                 const q = searchQuery.toLowerCase();
                 list = list.filter(g => (g.name || '').toLowerCase().includes(q));
               }
 
-              // Tab filtering
               if (fbTab === 'Discover') {
                 list = currentUser
                   ? safeGroups.filter(g => {
-                      // Not a member - check admin first
                       if (g.admin_id === currentUser.id) return false;
-                      // Check members if it exists
                       if (Array.isArray(g.members) && g.members.includes(currentUser.id)) return false;
                       return true;
                     })
@@ -2141,7 +2866,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 list = [];
               }
 
-              // Sorting function
               const sortGroups = (groups: Group[]) => {
                 return [...groups].sort((a, b) => {
                   if (sortMode === 'Alphabetical') return (a.name || '').localeCompare(b.name || '');
@@ -2157,7 +2881,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
 
               return (
                 <div className="px-4">
-                  {/* Most visited + Sort row */}
                   {showMostVisitedHeader && (
                     <div className="flex items-center justify-between pt-2 pb-2">
                       <div className="text-[20px] font-extrabold text-[#e4e6eb]">Most visited</div>
@@ -2171,10 +2894,9 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     </div>
                   )}
 
-                  {/* Create a group row */}
                   {fbTab === 'Your groups' && currentUser && !searchQuery.trim() && (
                     <button
-                      onClick={() => setShowCreateModal(true)}
+                      onClick={handleCreateGroupClick}
                       className="w-full flex items-center gap-3 py-3 active:opacity-80 hover:bg-[#2d2d2d] rounded-lg transition-colors"
                     >
                       <div className="w-12 h-12 rounded-full bg-[#1877f2] flex items-center justify-center">
@@ -2196,51 +2918,56 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         <div className="text-[16px] font-bold text-[#e4e6eb]">Pinned Groups</div>
                       </div>
                       <div className="space-y-1">
-                        {sortedPinned.map(g => (
-                          <button
-                            key={g.id}
-                            onClick={() => handleGroupClick(g)}
-                            className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
-                          >
-                            {/* avatar */}
-                            <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0 relative">
-                              {g.profile_image ? (
-                                <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
-                              ) : (
-                                <span className="text-[#e4e6eb] font-extrabold">
-                                  {(g.name || 'G').slice(0, 1).toUpperCase()}
-                                </span>
-                              )}
-                              <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#1877f2] rounded-full flex items-center justify-center">
-                                <i className="fas fa-thumbtack text-white text-[10px]"></i>
-                              </div>
-                            </div>
-
-                            {/* text */}
-                            <div className="flex-1 min-w-0 text-left">
-                              <div className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
-                                {g.name}
-                              </div>
-
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span
-                                  className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`}
-                                />
-                                <div className="text-[15px] text-[#b0b3b8] truncate">
-                                  {formatNewPostsText(g)}
+                        {sortedPinned.map(g => {
+                          const categoryColor = getCategoryColor(g.category);
+                          const categoryIcon = getCategoryIcon(g.category);
+                          
+                          return (
+                            <button
+                              key={g.id}
+                              onClick={() => handleGroupClick(g)}
+                              className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
+                            >
+                              <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0 relative">
+                                {g.profile_image ? (
+                                  <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
+                                ) : (
+                                  <span className="text-[#e4e6eb] font-extrabold">
+                                    {(g.name || 'G').slice(0, 1).toUpperCase()}
+                                  </span>
+                                )}
+                                <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#1877f2] rounded-full flex items-center justify-center">
+                                  <i className="fas fa-thumbtack text-white text-[10px]"></i>
                                 </div>
                               </div>
-                            </div>
 
-                            {/* unpin icon on right */}
-                            <div 
-                              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
-                              onClick={(e) => togglePinGroup(g.id, e)}
-                            >
-                              <i className="fas fa-thumbtack text-[#1877f2] text-[18px]"></i>
-                            </div>
-                          </button>
-                        ))}
+                              <div className="flex-1 min-w-0 text-left">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
+                                    {g.name}
+                                  </span>
+                                  <i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i>
+                                </div>
+
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span
+                                    className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`}
+                                  />
+                                  <div className="text-[15px] text-[#b0b3b8] truncate">
+                                    {formatNewPostsText(g)}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div 
+                                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
+                                onClick={(e) => togglePinGroup(g.id, e)}
+                              >
+                                <i className="fas fa-thumbtack text-[#1877f2] text-[18px]"></i>
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -2252,48 +2979,53 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         <div className="text-[16px] font-bold text-[#e4e6eb] mb-3">All Groups</div>
                       )}
                       <div className="space-y-1">
-                        {sortedRegular.map(g => (
-                          <button
-                            key={g.id}
-                            onClick={() => handleGroupClick(g)}
-                            className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
-                          >
-                            {/* avatar */}
-                            <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0">
-                              {g.profile_image ? (
-                                <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
-                              ) : (
-                                <span className="text-[#e4e6eb] font-extrabold">
-                                  {(g.name || 'G').slice(0, 1).toUpperCase()}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* text */}
-                            <div className="flex-1 min-w-0 text-left">
-                              <div className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
-                                {g.name}
+                        {sortedRegular.map(g => {
+                          const categoryColor = getCategoryColor(g.category);
+                          const categoryIcon = getCategoryIcon(g.category);
+                          
+                          return (
+                            <button
+                              key={g.id}
+                              onClick={() => handleGroupClick(g)}
+                              className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
+                            >
+                              <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0">
+                                {g.profile_image ? (
+                                  <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
+                                ) : (
+                                  <span className="text-[#e4e6eb] font-extrabold">
+                                    {(g.name || 'G').slice(0, 1).toUpperCase()}
+                                  </span>
+                                )}
                               </div>
 
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span
-                                  className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`}
-                                />
-                                <div className="text-[15px] text-[#b0b3b8] truncate">
-                                  {formatNewPostsText(g)}
+                              <div className="flex-1 min-w-0 text-left">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
+                                    {g.name}
+                                  </span>
+                                  <i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i>
+                                </div>
+
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span
+                                    className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`}
+                                  />
+                                  <div className="text-[15px] text-[#b0b3b8] truncate">
+                                    {formatNewPostsText(g)}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
 
-                            {/* pin icon on right */}
-                            <div 
-                              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors opacity-0 group-hover:opacity-100"
-                              onClick={(e) => togglePinGroup(g.id, e)}
-                            >
-                              <i className="far fa-thumbtack text-[#b0b3b8] hover:text-[#1877f2] text-[18px] transition-colors"></i>
-                            </div>
-                          </button>
-                        ))}
+                              <div 
+                                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors opacity-0 group-hover:opacity-100"
+                                onClick={(e) => togglePinGroup(g.id, e)}
+                              >
+                                <i className="far fa-thumbtack text-[#b0b3b8] hover:text-[#1877f2] text-[18px] transition-colors"></i>
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -2312,7 +3044,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             })()}
           </div>
 
-          {/* Sort Bottom Sheet with dark theme */}
+          {/* Sort Bottom Sheet */}
           {sortOpen && (
             <div className="fixed inset-0 z-[200] bg-black/60 flex items-end animate-fade-in" onClick={() => setSortOpen(false)}>
               <div
@@ -2344,12 +3076,19 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             </div>
           )}
 
-          {/* Create Group modal with dark theme */}
-          {showCreateModal && (
+          {/* Category Selection Modal */}
+          <CategorySelectionModal
+            isOpen={showCategoryModal}
+            onClose={() => setShowCategoryModal(false)}
+            onSelect={handleCategorySelect}
+          />
+
+          {/* Create Group modal */}
+          {showCreateModal && selectedCategory && (
             <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
               <div className="bg-[#1e1e1e] w-full max-w-[500px] rounded-xl border border-[#333] shadow-2xl overflow-hidden animate-slide-up">
                 <div className="p-4 border-b border-[#333] flex justify-between items-center">
-                  <h3 className="text-xl font-bold text-[#e4e6eb]">Create Group</h3>
+                  <h3 className="text-xl font-bold text-[#e4e6eb]">Create {GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.label} Group</h3>
                   <div
                     onClick={() => setShowCreateModal(false)}
                     className="w-8 h-8 rounded-full bg-[#2d2d2d] flex items-center justify-center cursor-pointer hover:bg-[#3a3a3a] transition-colors"
@@ -2392,12 +3131,27 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     </select>
                   </div>
 
+                  <div className="bg-[#2d2d2d] p-3 rounded-lg border border-[#333]">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-10 h-10 rounded-lg flex items-center justify-center"
+                        style={{ backgroundColor: `${GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.color}20` }}
+                      >
+                        <i className={GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.icon} style={{ color: GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.color }}></i>
+                      </div>
+                      <div>
+                        <div className="text-[#e4e6eb] font-bold">Category: {GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.label}</div>
+                        <div className="text-[#b0b3b8] text-xs">{GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.description}</div>
+                      </div>
+                    </div>
+                  </div>
+
                   <button
                     onClick={handleCreateSubmit}
                     disabled={!newGroupName.trim()}
                     className="w-full bg-[#1877f2] hover:bg-[#166fe5] text-white py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Create
+                    Create Group
                   </button>
                 </div>
               </div>
@@ -2442,6 +3196,8 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     activeGroup.created_at && !Number.isNaN(new Date(activeGroup.created_at as any).getTime())
       ? new Date(activeGroup.created_at as any)
       : null;
+
+  const categoryInfo = GROUP_CATEGORIES.find(c => c.id === activeGroup.category) || GROUP_CATEGORIES[0];
 
   return (
     <>
@@ -2491,8 +3247,18 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 </div>
 
                 <div className="flex-1 mt-2">
-                  <h1 className="text-2xl md:text-4xl font-bold text-[#e4e6eb] leading-tight mb-1">{activeGroup.name}</h1>
-                  <div className="flex items-center gap-2 text-[#b0b3b8] text-sm font-semibold">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h1 className="text-2xl md:text-4xl font-bold text-[#e4e6eb] leading-tight">{activeGroup.name}</h1>
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center"
+                      style={{ backgroundColor: `${categoryInfo.color}20` }}
+                    >
+                      <i className={categoryInfo.icon} style={{ color: categoryInfo.color, fontSize: '16px' }}></i>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-[#b0b3b8] text-sm font-semibold mb-1">
+                    <span style={{ color: categoryInfo.color }} className="font-bold">{categoryInfo.label}</span>
+                    <span>•</span>
                     <i className={`fas ${activeGroup.type === 'public' ? 'fa-globe-americas' : 'fa-lock'} text-xs`}></i>
                     <span className="capitalize">{activeGroup.type} group</span>
                     <span>•</span>
@@ -2583,7 +3349,13 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 >
                   <img src={avatarFrom(currentUser)} className="w-10 h-10 rounded-full bg-[#2d2d2d] object-cover" alt="" />
                   <div className="flex-1 bg-[#2d2d2d] transition-colors rounded-full px-4 py-2.5">
-                    <span className="text-[#b0b3b8] text-[17px]">Post something in {activeGroup.name}...</span>
+                    <span className="text-[#b0b3b8] text-[17px]">
+                      {activeGroup.category === 'buy_sell' && 'Sell something in '}
+                      {activeGroup.category === 'recruitment' && 'Post a job in '}
+                      {activeGroup.category === 'music_drama' && 'Share music or video in '}
+                      {activeGroup.category === 'general' && 'Post something in '}
+                      {activeGroup.name}...
+                    </span>
                   </div>
                   <div className="text-[#45BD62] hover:bg-[#2d2d2d] p-2 rounded-full transition-colors">
                     <i className="fas fa-images text-xl"></i>
@@ -2632,6 +3404,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         author={author}
                         currentUser={currentUser}
                         users={users}
+                        groupCategory={activeGroup.category}
                         isGroupAdmin={isGroupAdmin}
                         isPlatformAdmin={isAdmin}
                         onProfileClick={onProfileClick}
@@ -2646,6 +3419,11 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         onHashtagClick={onHashtagClick}
                         onFollow={onFollow}
                         checkIsFollowing={checkIsFollowing}
+                        // Category-specific handlers
+                        onApply={onApplyToJob}
+                        onMessageSeller={onMessageSeller}
+                        onMakeOffer={onMakeOffer}
+                        onPlayVideo={onPlayVideo}
                       />
                     );
                   })
@@ -2669,7 +3447,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
             </div>
           )}
 
-          {/* Events Tab - Now only loads when clicked */}
+          {/* Events Tab */}
           {groupTab === 'Events' && (
             <div className="animate-fade-in">
               {isMember && (
@@ -2765,6 +3543,19 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     </div>
                   </div>
                 </div>
+
+                <div className="flex items-center gap-4 text-[#e4e6eb]">
+                  <div
+                    className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center"
+                    style={{ backgroundColor: `${categoryInfo.color}20` }}
+                  >
+                    <i className={categoryInfo.icon} style={{ color: categoryInfo.color }}></i>
+                  </div>
+                  <div>
+                    <div className="font-bold">Category</div>
+                    <div className="text-xs text-[#b0b3b8]">{categoryInfo.label}</div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -2817,7 +3608,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           )}
         </div>
 
-        {/* Create Post Modal with Multi-File Support */}
+        {/* Create Post Modal with Category-Specific Fields */}
         {showGroupPostModal && (
           <div className="fixed inset-0 z-[150] bg-[#121212] flex flex-col animate-slide-up font-sans">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#333] bg-[#1e1e1e]">
@@ -2826,7 +3617,12 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                   className="fas fa-arrow-left text-[#e4e6eb] text-xl cursor-pointer"
                   onClick={() => setShowGroupPostModal(false)}
                 ></i>
-                <h3 className="text-[#e4e6eb] text-[18px] font-bold">Post to Group</h3>
+                <h3 className="text-[#e4e6eb] text-[18px] font-bold">
+                  {activeGroup.category === 'buy_sell' && 'Sell an Item'}
+                  {activeGroup.category === 'recruitment' && 'Post a Job'}
+                  {activeGroup.category === 'music_drama' && 'Share Music/Video'}
+                  {activeGroup.category === 'general' && 'Create Post'}
+                </h3>
               </div>
             </div>
 
@@ -2843,10 +3639,168 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 </div>
               </div>
 
+              {/* Category-Specific Fields */}
+              {activeGroup.category === 'buy_sell' && (
+                <div className="px-6 mb-4 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Price ($)</label>
+                      <input
+                        type="number"
+                        value={postMetadata.price || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, price: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        placeholder="29.99"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Condition</label>
+                      <select
+                        value={postMetadata.condition || 'Used - Good'}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, condition: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                      >
+                        <option>New</option>
+                        <option>Like New</option>
+                        <option>Used - Like New</option>
+                        <option>Used - Good</option>
+                        <option>Used - Fair</option>
+                        <option>For Parts/Not Working</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[#b0b3b8] text-xs mb-1">Location</label>
+                    <input
+                      type="text"
+                      value={postMetadata.location || ''}
+                      onChange={(e) => setPostMetadata({ ...postMetadata, location: e.target.value })}
+                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                      placeholder="City, State"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {activeGroup.category === 'recruitment' && (
+                <div className="px-6 mb-4 space-y-3">
+                  <div>
+                    <label className="block text-[#b0b3b8] text-xs mb-1">Job Title</label>
+                    <input
+                      type="text"
+                      value={postMetadata.job_title || ''}
+                      onChange={(e) => setPostMetadata({ ...postMetadata, job_title: e.target.value })}
+                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                      placeholder="e.g. Senior Software Engineer"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[#b0b3b8] text-xs mb-1">Company</label>
+                    <input
+                      type="text"
+                      value={postMetadata.company || ''}
+                      onChange={(e) => setPostMetadata({ ...postMetadata, company: e.target.value })}
+                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                      placeholder="Company name"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Location</label>
+                      <input
+                        type="text"
+                        value={postMetadata.location || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, location: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        placeholder="Remote / City"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Job Type</label>
+                      <select
+                        value={postMetadata.job_type || 'Full-time'}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, job_type: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                      >
+                        <option>Full-time</option>
+                        <option>Part-time</option>
+                        <option>Contract</option>
+                        <option>Internship</option>
+                        <option>Freelance</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[#b0b3b8] text-xs mb-1">Salary Range</label>
+                    <input
+                      type="text"
+                      value={postMetadata.salary || ''}
+                      onChange={(e) => setPostMetadata({ ...postMetadata, salary: e.target.value })}
+                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                      placeholder="e.g. $80k - $100k"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {activeGroup.category === 'music_drama' && (
+                <div className="px-6 mb-4 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Artist/Band</label>
+                      <input
+                        type="text"
+                        value={postMetadata.artist || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, artist: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        placeholder="Artist name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Duration</label>
+                      <input
+                        type="text"
+                        value={postMetadata.duration || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, duration: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        placeholder="3:45"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[#b0b3b8] text-xs mb-1">Series (optional)</label>
+                    <input
+                      type="text"
+                      value={postMetadata.series || ''}
+                      onChange={(e) => setPostMetadata({ ...postMetadata, series: e.target.value })}
+                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                      placeholder="Series name"
+                    />
+                  </div>
+                  {postMetadata.series && (
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Episode</label>
+                      <input
+                        type="text"
+                        value={postMetadata.episode || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, episode: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        placeholder="Episode 1"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="p-6 min-h-[200px] flex-1">
                 <textarea
                   className="w-full bg-transparent outline-none text-[#e4e6eb] placeholder-[#b0b3b8] resize-none text-[28px] font-medium leading-tight"
-                  placeholder="Share something with the community..."
+                  placeholder={
+                    activeGroup.category === 'buy_sell' ? "Describe what you're selling..." :
+                    activeGroup.category === 'recruitment' ? "Describe the position and requirements..." :
+                    activeGroup.category === 'music_drama' ? "Add a description or lyrics..." :
+                    "Share something with the community..."
+                  }
                   value={postContent}
                   onChange={e => setPostContent(e.target.value)}
                   rows={5}
@@ -2919,7 +3873,10 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                   disabled={!postContent.trim() && postFiles.length === 0}
                   className="w-full bg-[#1877f2] text-white font-black text-xl py-4 rounded-2xl hover:bg-[#166fe5] disabled:opacity-50 transition-all shadow-2xl active:scale-95 disabled:cursor-not-allowed"
                 >
-                  POST TO FEED
+                  {activeGroup.category === 'buy_sell' ? 'LIST ITEM' :
+                   activeGroup.category === 'recruitment' ? 'POST JOB' :
+                   activeGroup.category === 'music_drama' ? 'SHARE NOW' :
+                   'POST TO FEED'}
                 </button>
               </div>
             </div>
