@@ -1,4 +1,4 @@
-// UserProfile.tsx - Updated with ChatsList integration (Edit Profile button removed)
+// UserProfile.tsx - Updated with Message button for self (opens ChatsList) and for others (opens Chat)
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack } from '../types';
@@ -188,7 +188,7 @@ interface UserProfileProps {
   onReact: (postId: number, type: ReactionType) => void;
   onComment: (postId: number, text: string) => void;
   onShare: (postId: number) => void;
-  onMessage: (id: number) => void;
+  onMessage: (id: number) => void; // For messaging other users (opens Chat.tsx)
 
   onCreatePost: (text: string, file: File | null, type: any, visibility: any) => void;
   onUpdateProfileImage: (file: File) => void;
@@ -221,12 +221,12 @@ interface UserProfileProps {
   onOpenAudio?: (item: any) => void;
 
   // ✅ ADDED: Chat control props
-  onOpenChat?: (recipient: User) => void;
+  onOpenChat?: (recipient: User) => void; // For opening Chat.tsx with specific user
   isChatOpen?: boolean;
   activeChatRecipient?: User | null;
 
-  // ✅ ADDED: ChatsList visibility control
-  onShowChatsList?: () => void;
+  // ✅ ADDED: ChatsList control props (for profile owner's message inbox)
+  onOpenChatsList?: () => void;
   isChatsListOpen?: boolean;
 }
 
@@ -268,7 +268,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   isChatOpen,
   activeChatRecipient,
   // ✅ ADDED: ChatsList props
-  onShowChatsList,
+  onOpenChatsList,
   isChatsListOpen,
 }) => {
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
@@ -402,13 +402,21 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }, 300);
   };
 
-  // ✅ MODIFIED: Message click handler - opens ChatsList
-  const handleMessageClick = () => {
+  // ✅ MODIFIED: Message click handler for self (opens ChatsList)
+  const handleSelfMessageClick = () => {
     if (!currentUser) return;
-    if (onShowChatsList) {
-      onShowChatsList();
+    if (onOpenChatsList) {
+      onOpenChatsList();
+    }
+  };
+
+  // ✅ MODIFIED: Message click handler for others (opens Chat.tsx with this user)
+  const handleOtherMessageClick = () => {
+    if (!currentUser) return;
+    if (onOpenChat) {
+      onOpenChat(user);
     } else {
-      // Fallback to original onMessage if onShowChatsList not provided
+      // Fallback to original onMessage if onOpenChat not provided
       onMessage(user.id);
     }
   };
@@ -956,6 +964,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
               <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 md:mt-0 md:mb-6">
                 {isCurrentUser ? (
+                  // ✅ PROFILE OWNER - Show "Add to story" and "Messages" (inbox) buttons
                   <>
                     <button
                       className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner"
@@ -971,9 +980,21 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       <span>Add to story</span>
                     </button>
                     
-                    {/* ✅ REMOVED: Edit profile button - now only Edit Details in Intro */}
+                    {/* ✅ ADDED: Message button for self (opens ChatsList inbox) */}
+                    <button
+                      onClick={handleSelfMessageClick}
+                      className={`bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner ${
+                        isChatsListOpen ? 'ring-2 ring-[#1877F2]' : ''
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <i className="fas fa-comment"></i>
+                        {isChatsListOpen ? 'Chats Open' : 'Messages'}
+                      </span>
+                    </button>
                   </>
                 ) : (
+                  // ✅ OTHER USER - Show "Follow" and "Message" (direct chat) buttons
                   <>
                     <button
                       onClick={handleFollowClick}
@@ -997,16 +1018,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       )}
                     </button>
                     
-                    {/* ✅ MODIFIED: Message button now opens ChatsList */}
+                    {/* ✅ MODIFIED: Message button for other users (opens Chat.tsx) */}
                     <button
-                      onClick={handleMessageClick}
+                      onClick={handleOtherMessageClick}
                       className={`bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner ${
-                        isChatsListOpen ? 'ring-2 ring-[#1877F2]' : ''
+                        isChatOpen && activeChatRecipient?.id === user.id ? 'ring-2 ring-[#1877F2]' : ''
                       }`}
                     >
                       <span className="flex items-center gap-2">
                         <i className="fas fa-comment"></i>
-                        {isChatsListOpen ? 'Chats Open' : 'Message'}
+                        {isChatOpen && activeChatRecipient?.id === user.id ? 'Chat Open' : 'Message'}
                       </span>
                     </button>
                   </>
