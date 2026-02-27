@@ -2762,7 +2762,7 @@ function normalizeGroup(raw: any): Group {
 }
 
 /**
- * Normalize post data for UI safety
+ * Normalize post data for UI safety - UPDATED to include all recruitment and buy/sell fields
  */
 function normalizePost(post: any): PostType {
   const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
@@ -2810,6 +2810,31 @@ function normalizePost(post: any): PostType {
     }
   }
 
+  // Log the raw post data to debug
+  console.log('Raw post data from backend:', {
+    id: post?.id,
+    job_title: post?.job_title,
+    company: post?.company,
+    job_type: post?.job_type,
+    salary: post?.salary,
+    street: post?.street,
+    district: post?.district,
+    region: post?.region,
+    country: post?.country,
+    location: post?.location,
+    application_type: post?.application_type,
+    application_value: post?.application_value,
+    expiry_date: post?.expiry_date,
+    price: post?.price,
+    currency: post?.currency,
+    condition: post?.condition,
+    status: post?.status,
+    artist: post?.artist,
+    series: post?.series,
+    episode: post?.episode,
+    duration: post?.duration
+  });
+
   return {
     ...post,
     id: Number(post?.id ?? post?.post_id ?? 0),
@@ -2831,12 +2856,12 @@ function normalizePost(post: any): PostType {
     my_reaction: post?.my_reaction ?? null,
     reactions_count: Number(post?.reactions_count ?? post?.likesCount ?? 0),
     
-    // Category-specific fields
+    // Category-specific fields - Map directly from backend
     price: post?.price,
     currency: post?.currency || 'USD',
     condition: post?.condition,
     location: post?.location,
-    status: post?.status,
+    status: post?.status || 'available',
     job_title: post?.job_title,
     company: post?.company,
     salary: post?.salary,
@@ -3087,7 +3112,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     activeGroupIdRef.current = activeGroupId;
   }, [activeGroupId]);
 
-  // Load group posts
+  // Load group posts - UPDATED to properly handle API response
   const loadGroupPosts = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupPosts) {
       setGroupPosts([]);
@@ -3101,8 +3126,38 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     setLoadingPosts(true);
     try {
       const res = await fetchGroupPosts(activeGroup.id);
-      const list = Array.isArray(res) ? res : Array.isArray((res as any)?.posts) ? (res as any).posts : [];
-      setGroupPosts(list.map((p: any) => normalizePost(p)));
+      
+      // Log the API response
+      console.log('API Response for group posts:', res);
+      
+      // Handle different response structures
+      let postsList = [];
+      if (Array.isArray(res)) {
+        postsList = res;
+      } else if (res?.posts && Array.isArray(res.posts)) {
+        postsList = res.posts;
+      } else if (res?.data && Array.isArray(res.data)) {
+        postsList = res.data;
+      } else if (res?.success && Array.isArray(res.posts)) {
+        postsList = res.posts;
+      }
+      
+      // Log before normalization
+      console.log('Posts list before normalization:', postsList);
+      
+      const normalizedPosts = postsList.map((p: any) => normalizePost(p));
+      
+      // Log after normalization
+      console.log('Normalized posts:', normalizedPosts.map(p => ({
+        id: p.id,
+        job_title: (p as any).job_title,
+        application_type: (p as any).application_type,
+        application_value: (p as any).application_value,
+        price: (p as any).price,
+        currency: (p as any).currency
+      })));
+      
+      setGroupPosts(normalizedPosts);
       postsLoadedRef.current = true;
     } catch (error) {
       console.error('Failed to load group posts:', error);
