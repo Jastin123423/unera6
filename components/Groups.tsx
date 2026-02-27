@@ -940,6 +940,15 @@ const RecruitmentPost: React.FC<{
   const [applied, setApplied] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [localReactionCount, setLocalReactionCount] = useState(0);
+  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>();
+  const [commentCount, setCommentCount] = useState(0);
+  const [shareCount, setShareCount] = useState(0);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   // Parse job details from post content or metadata
   const jobTitle = (post as any).job_title || 'Position';
@@ -954,8 +963,8 @@ const RecruitmentPost: React.FC<{
   const region = (post as any).region || '';
   const country = (post as any).country || '';
   
-  // Format full address
-  const fullAddress = [street, district, region, country].filter(Boolean).join(', ');
+  // Format full address - prioritize combined location if available
+  const fullAddress = location || [street, district, region, country].filter(Boolean).join(', ');
   
   // Application type and value
   const applicationType = (post as any).application_type || null;
@@ -973,6 +982,27 @@ const RecruitmentPost: React.FC<{
 
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
+
+  // Initialize reaction states
+  useEffect(() => {
+    setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
+    
+    const likesCount = Number(
+      (post as any).likesCount ?? 
+      (post as any).reactionsCount ?? 
+      (post as any).reactions_count ?? 
+      0
+    );
+    const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
+    setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
+    
+    setCommentCount(
+      typeof post.comment_count === 'number' ? post.comment_count :
+      Array.isArray(post.comments) ? post.comments.length : 0
+    );
+    
+    setShareCount(Number(post.shares ?? post.shares_count ?? 0));
+  }, [post.id, post]);
 
   const handleApply = async () => {
     if (!currentUser) {
@@ -1005,36 +1035,6 @@ const RecruitmentPost: React.FC<{
 
   const isPostAuthor = currentUser?.id === author.id;
   const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
-
-  // Facebook-style reaction states
-  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
-    (post as any).myReaction ?? (post as any).my_reaction ?? null
-  );
-  const [localReactionCount, setLocalReactionCount] = useState(() => {
-    const likesCount = Number(
-      (post as any).likesCount ?? 
-      (post as any).reactionsCount ?? 
-      (post as any).reactions_count ?? 
-      0
-    );
-    const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
-    return likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0;
-  });
-  const [commentCount, setCommentCount] = useState(() => {
-    if (typeof post.comment_count === 'number') return post.comment_count;
-    if (Array.isArray(post.comments)) return post.comments.length;
-    return 0;
-  });
-  const [shareCount, setShareCount] = useState(() => {
-    return Number(post.shares ?? post.shares_count ?? 0);
-  });
-  const [showShareSheet, setShowShareSheet] = useState(false);
-  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
-  const [galleryOpen, setGalleryOpen] = useState(false);
-  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
-  const [galleryIndex, setGalleryIndex] = useState(0);
-
-  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
 
   const handleLikeClick = async (type: ReactionType) => {
     if (!currentUser) return;
@@ -1081,6 +1081,8 @@ const RecruitmentPost: React.FC<{
     setGalleryIndex(index);
     setGalleryOpen(true);
   };
+
+  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
 
   const emojiList = useMemo(() => {
     if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
@@ -1173,7 +1175,7 @@ const RecruitmentPost: React.FC<{
         </div>
 
         {/* Job Badge and Expiry Status */}
-        <div className="px-3 md:px-4 pb-2 flex items-center gap-2">
+        <div className="px-3 md:px-4 pb-2 flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#45BD62]/10 rounded-full border border-[#45BD62]/20">
             <i className="fas fa-briefcase text-[#45BD62] text-xs"></i>
             <span className="text-[#45BD62] text-xs font-bold">JOB POSTING</span>
@@ -1203,7 +1205,7 @@ const RecruitmentPost: React.FC<{
             {/* Company */}
             {company && (
               <div className="flex items-center gap-2 text-[#B0B3B8] mb-3">
-                <i className="fas fa-building text-sm w-5"></i>
+                <i className="fas fa-building text-sm w-5 text-[#45BD62]"></i>
                 <span className="text-base font-medium">{company}</span>
               </div>
             )}
@@ -1222,14 +1224,8 @@ const RecruitmentPost: React.FC<{
                   <span className="text-sm">{jobType}</span>
                 </div>
               )}
-              {location && !fullAddress && (
-                <div className="flex items-center gap-2 text-[#B0B3B8]">
-                  <i className="fas fa-map-pin text-sm w-5 text-[#45BD62]"></i>
-                  <span className="text-sm">{location}</span>
-                </div>
-              )}
               {salary && (
-                <div className="flex items-center gap-2 text-[#B0B3B8]">
+                <div className="flex items-center gap-2 text-[#B0B3B8] col-span-2">
                   <i className="fas fa-dollar-sign text-sm w-5 text-[#45BD62]"></i>
                   <span className="text-sm font-medium text-[#45BD62]">{salary}</span>
                 </div>
@@ -1299,6 +1295,13 @@ const RecruitmentPost: React.FC<{
             {isExpired && (
               <div className="w-full bg-[#F3425F]/10 text-[#F3425F] py-3 rounded-lg font-bold text-lg text-center border border-[#F3425F]/20">
                 This job posting has expired
+              </div>
+            )}
+
+            {/* Show message if no application method */}
+            {!applicationType && !isExpired && (
+              <div className="w-full bg-[#2d2d2d] text-[#B0B3B8] py-3 rounded-lg font-bold text-lg text-center border border-[#3E4042]">
+                No application method provided
               </div>
             )}
           </div>
@@ -1430,6 +1433,15 @@ const BuySellPost: React.FC<{
   const [offerAmount, setOfferAmount] = useState('');
   const [offerSent, setOfferSent] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [localReactionCount, setLocalReactionCount] = useState(0);
+  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>();
+  const [commentCount, setCommentCount] = useState(0);
+  const [shareCount, setShareCount] = useState(0);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   // Parse item details
   const price = (post as any).price || '0';
@@ -1444,7 +1456,7 @@ const BuySellPost: React.FC<{
     return currency ? currency.symbol : currencyCode;
   };
 
-  // Format price with currency
+  // Format price with currency - use the exact currency selected by user
   const formattedPrice = `${getCurrencySymbol(currency)} ${price}`;
 
   // Get media for gallery view
@@ -1455,14 +1467,10 @@ const BuySellPost: React.FC<{
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
-  const isPostAuthor = currentUser?.id === author.id;
-  const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
-
-  // Facebook-style reaction states
-  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
-    (post as any).myReaction ?? (post as any).my_reaction ?? null
-  );
-  const [localReactionCount, setLocalReactionCount] = useState(() => {
+  // Initialize reaction states
+  useEffect(() => {
+    setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
+    
     const likesCount = Number(
       (post as any).likesCount ?? 
       (post as any).reactionsCount ?? 
@@ -1470,23 +1478,18 @@ const BuySellPost: React.FC<{
       0
     );
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
-    return likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0;
-  });
-  const [commentCount, setCommentCount] = useState(() => {
-    if (typeof post.comment_count === 'number') return post.comment_count;
-    if (Array.isArray(post.comments)) return post.comments.length;
-    return 0;
-  });
-  const [shareCount, setShareCount] = useState(() => {
-    return Number(post.shares ?? post.shares_count ?? 0);
-  });
-  const [showShareSheet, setShowShareSheet] = useState(false);
-  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
-  const [galleryOpen, setGalleryOpen] = useState(false);
-  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
-  const [galleryIndex, setGalleryIndex] = useState(0);
+    setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
+    
+    setCommentCount(
+      typeof post.comment_count === 'number' ? post.comment_count :
+      Array.isArray(post.comments) ? post.comments.length : 0
+    );
+    
+    setShareCount(Number(post.shares ?? post.shares_count ?? 0));
+  }, [post.id, post]);
 
-  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
+  const isPostAuthor = currentUser?.id === author.id;
+  const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
 
   const handleMakeOffer = async () => {
     if (!currentUser) {
@@ -1563,6 +1566,8 @@ const BuySellPost: React.FC<{
     setGalleryIndex(index);
     setGalleryOpen(true);
   };
+
+  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
 
   const emojiList = useMemo(() => {
     if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
@@ -1656,7 +1661,7 @@ const BuySellPost: React.FC<{
           </div>
         </div>
 
-        {/* Price Tag with Currency */}
+        {/* Price Tag with Currency - Shows exact currency user selected */}
         <div className="px-3 md:px-4 pb-2">
           <span className="text-[#E4E6EB] font-black text-2xl">{formattedPrice}</span>
           {condition && (
@@ -1882,6 +1887,15 @@ const MusicDramaPost: React.FC<{
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [localReactionCount, setLocalReactionCount] = useState(0);
+  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>();
+  const [commentCount, setCommentCount] = useState(0);
+  const [shareCount, setShareCount] = useState(0);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   // Get media list
   const mediaList = useMemo(() => {
@@ -1898,14 +1912,10 @@ const MusicDramaPost: React.FC<{
   const episode = (post as any).episode || '';
   const series = (post as any).series || '';
 
-  const isPostAuthor = currentUser?.id === author.id;
-  const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
-
-  // Facebook-style reaction states
-  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
-    (post as any).myReaction ?? (post as any).my_reaction ?? null
-  );
-  const [localReactionCount, setLocalReactionCount] = useState(() => {
+  // Initialize reaction states
+  useEffect(() => {
+    setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
+    
     const likesCount = Number(
       (post as any).likesCount ?? 
       (post as any).reactionsCount ?? 
@@ -1913,23 +1923,18 @@ const MusicDramaPost: React.FC<{
       0
     );
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
-    return likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0;
-  });
-  const [commentCount, setCommentCount] = useState(() => {
-    if (typeof post.comment_count === 'number') return post.comment_count;
-    if (Array.isArray(post.comments)) return post.comments.length;
-    return 0;
-  });
-  const [shareCount, setShareCount] = useState(() => {
-    return Number(post.shares ?? post.shares_count ?? 0);
-  });
-  const [showShareSheet, setShowShareSheet] = useState(false);
-  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
-  const [galleryOpen, setGalleryOpen] = useState(false);
-  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
-  const [galleryIndex, setGalleryIndex] = useState(0);
+    setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
+    
+    setCommentCount(
+      typeof post.comment_count === 'number' ? post.comment_count :
+      Array.isArray(post.comments) ? post.comments.length : 0
+    );
+    
+    setShareCount(Number(post.shares ?? post.shares_count ?? 0));
+  }, [post.id, post]);
 
-  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
+  const isPostAuthor = currentUser?.id === author.id;
+  const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
 
   const handlePlayPause = () => {
     if (videoRef.current) {
@@ -1990,6 +1995,8 @@ const MusicDramaPost: React.FC<{
     setGalleryIndex(index);
     setGalleryOpen(true);
   };
+
+  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
 
   const emojiList = useMemo(() => {
     if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
@@ -2296,7 +2303,6 @@ const GroupPost: React.FC<{
       return <MusicDramaPost {...props} />;
     case 'general':
     default:
-      // Use the existing GroupPost implementation for general
       return <GeneralGroupPost {...props} />;
   }
 };
@@ -3259,6 +3265,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
         currency: postMetadata.currency || 'USD',
         condition: postMetadata.condition,
         location: postMetadata.location,
+        status: 'available',
       };
     } else if (activeGroup.category === 'recruitment') {
       metadata = {
@@ -4553,7 +4560,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                       value={postMetadata.job_title || ''}
                       onChange={(e) => setPostMetadata({ ...postMetadata, job_title: e.target.value })}
                       className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      placeholder="e.g. Senior Software Engineer"
+                      placeholder="e.g. Customer Service"
                     />
                   </div>
                   <div>
@@ -4635,7 +4642,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         value={postMetadata.salary || ''}
                         onChange={(e) => setPostMetadata({ ...postMetadata, salary: e.target.value })}
                         className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="e.g. $80k - $100k"
+                        placeholder="e.g. TSh 100,000 - 700,000"
                       />
                     </div>
                   </div>
