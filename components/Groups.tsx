@@ -906,9 +906,7 @@ const PostActionsMenu: React.FC<{
   );
 };
 
-// ✅ Category-specific Post Components
-
-// Recruitment Post Component
+// ✅ Enhanced Recruitment Post Component with all requested features
 const RecruitmentPost: React.FC<{
   post: PostType;
   author: User;
@@ -923,23 +921,55 @@ const RecruitmentPost: React.FC<{
   onEditPost?: (postId: number, content: string) => Promise<any>;
   onDeletePost?: (postId: number) => Promise<any>;
   onReportPost?: (postId: number) => Promise<any>;
-  onApply?: (postId: number) => Promise<any>;
+  onApply?: (postId: number, applicationData?: any) => Promise<any>;
 }> = (props) => {
-  const { post, author, currentUser, onApply } = props;
+  const { post, author, currentUser, onApply, onProfileClick, users } = props;
   const [applied, setApplied] = useState(false);
+  const [showFullDescription, setShowFullDescription] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
 
   // Parse job details from post content or metadata
   const jobTitle = (post as any).job_title || 'Position';
   const company = (post as any).company || '';
   const location = (post as any).location || '';
   const salary = (post as any).salary || '';
-  const type = (post as any).job_type || 'Full-time';
+  const jobType = (post as any).job_type || 'Full-time';
+  
+  // Parse full address components
+  const street = (post as any).street || '';
+  const district = (post as any).district || '';
+  const region = (post as any).region || '';
+  const country = (post as any).country || '';
+  
+  // Format full address
+  const fullAddress = [street, district, region, country].filter(Boolean).join(', ');
+  
+  // Application type and value
+  const applicationType = (post as any).application_type || null;
+  const applicationValue = (post as any).application_value || '';
+
+  // Get media for gallery view
+  const mediaList = useMemo(() => {
+    return getPostMediaList(post);
+  }, [post]);
+
+  const imageMedia = mediaList.filter(m => m.kind === 'image');
+  const videoMedia = mediaList.filter(m => m.kind === 'video');
 
   const handleApply = async () => {
     if (!currentUser) {
       alert('Please login to apply');
       return;
     }
+    
+    if (applicationType === 'email' && applicationValue) {
+      // Open email client
+      window.location.href = `mailto:${applicationValue}?subject=Application for ${jobTitle} at ${company}`;
+    } else if (applicationType === 'link' && applicationValue) {
+      // Open link in new tab
+      window.open(applicationValue, '_blank', 'noopener,noreferrer');
+    }
+    
     if (onApply) {
       try {
         await onApply(post.id);
@@ -950,108 +980,375 @@ const RecruitmentPost: React.FC<{
     }
   };
 
+  const isPostAuthor = currentUser?.id === author.id;
+  const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
+
+  // Facebook-style reaction states
+  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
+    (post as any).myReaction ?? (post as any).my_reaction ?? null
+  );
+  const [localReactionCount, setLocalReactionCount] = useState(() => {
+    const likesCount = Number(
+      (post as any).likesCount ?? 
+      (post as any).reactionsCount ?? 
+      (post as any).reactions_count ?? 
+      0
+    );
+    const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
+    return likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0;
+  });
+  const [commentCount, setCommentCount] = useState(() => {
+    if (typeof post.comment_count === 'number') return post.comment_count;
+    if (Array.isArray(post.comments)) return post.comments.length;
+    return 0;
+  });
+  const [shareCount, setShareCount] = useState(() => {
+    return Number(post.shares ?? post.shares_count ?? 0);
+  });
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+
+  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
+
+  const handleLikeClick = async (type: ReactionType) => {
+    if (!currentUser) return;
+    
+    const previousMyReaction = localMyReaction;
+    const previousReactionCount = localReactionCount;
+
+    let newMyReaction: ReactionType | null = type;
+    let newReactionCount = previousReactionCount;
+
+    if (!previousMyReaction) {
+      newReactionCount = previousReactionCount + 1;
+    } else if (previousMyReaction === type) {
+      newMyReaction = null;
+      newReactionCount = previousReactionCount - 1;
+    } else {
+      newMyReaction = type;
+      newReactionCount = previousReactionCount;
+    }
+
+    setLocalMyReaction(newMyReaction || undefined);
+    setLocalReactionCount(newReactionCount);
+
+    try {
+      await props.onLikePost(post.id, type);
+    } catch (error) {
+      console.error('Failed to like post:', error);
+      setLocalMyReaction(previousMyReaction);
+      setLocalReactionCount(previousReactionCount);
+    }
+  };
+
+  const handleShareComplete = (destination: string, data?: any) => {
+    const nextShares = Number(data?.shares ?? data?.share_count ?? shareCount + 1);
+    if (data?.success) {
+      setShareCount(nextShares);
+      props.onSharePost(post.id, nextShares);
+    }
+    setShowShareSheet(false);
+  };
+
+  const openGallery = (urls: string[], index: number) => {
+    setGalleryUrls(urls);
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  };
+
+  const emojiList = useMemo(() => {
+    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
+      const em = topReactionEmojis(reactionsArr, 2);
+      return em.length ? em : ['👍'];
+    }
+    return localReactionCount > 0 ? ['👍'] : [];
+  }, [reactionsArr, localReactionCount]);
+
+  const formatCount = (count: number): string => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
+  };
+
+  const createdAtLabel = formatRelativeTime(post.created_at || post.createdAt || '');
+
   return (
-    <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
-      {/* Header (same as GroupPost) */}
-      <div className="p-3 md:p-4 flex items-center justify-between">
-        <div
-          className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-          onClick={() => props.onProfileClick(author.id)}
-        >
-          <img
-            src={avatarFrom(author)}
-            alt=""
-            className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-          />
-          <div className="min-w-0">
-            <div className="flex items-center gap-1 flex-wrap">
-              <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
-                {author.name || 'User'}
-              </h4>
-              {author.is_verified && (
-                <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+    <>
+      <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+        {/* Header */}
+        <div className="p-3 md:p-4 flex items-center justify-between">
+          <div
+            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+            onClick={() => onProfileClick(author.id)}
+          >
+            <img
+              src={avatarFrom(author)}
+              alt=""
+              className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
+                  {author.name || 'User'}
+                </h4>
+                {author.is_verified && (
+                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                <span>{createdAtLabel}</span>
+                <span>•</span>
+                <i className="fas fa-briefcase text-[12px]"></i>
+                <span>Recruitment</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Three-dots menu */}
+          {(canModerate || props.onReportPost) && (
+            <div className="relative">
+              <button
+                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowActionsMenu(!showActionsMenu);
+                }}
+                aria-label="Post actions"
+              >
+                <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
+              </button>
+
+              {showActionsMenu && (
+                <PostActionsMenu
+                  post={post}
+                  currentUser={currentUser}
+                  isGroupAdmin={canModerate}
+                  isPostAuthor={isPostAuthor}
+                  onEdit={props.onEditPost}
+                  onDelete={props.onDeletePost}
+                  onReport={props.onReportPost}
+                  onClose={() => setShowActionsMenu(false)}
+                />
               )}
             </div>
-            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-              <span>{formatRelativeTime(post.created_at || '')}</span>
-              <span>•</span>
-              <i className="fas fa-briefcase text-[12px]"></i>
-              <span>Recruitment</span>
-            </div>
+          )}
+        </div>
+
+        {/* Job Badge */}
+        <div className="px-3 md:px-4 pb-2">
+          <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#45BD62]/10 rounded-full border border-[#45BD62]/20">
+            <i className="fas fa-briefcase text-[#45BD62] text-xs"></i>
+            <span className="text-[#45BD62] text-xs font-bold">JOB POSTING</span>
           </div>
         </div>
-      </div>
 
-      {/* Job Badge */}
-      <div className="px-3 md:px-4 pb-2">
-        <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#45BD62]/10 rounded-full border border-[#45BD62]/20">
-          <i className="fas fa-briefcase text-[#45BD62] text-xs"></i>
-          <span className="text-[#45BD62] text-xs font-bold">JOB POSTING</span>
-        </div>
-      </div>
-
-      {/* Job Details Card */}
-      <div className="px-3 md:px-4 pb-3">
-        <div className="bg-[#3A3B3C] rounded-lg p-4">
-          <h3 className="text-[#E4E6EB] font-bold text-xl mb-2">{jobTitle}</h3>
-          
-          {company && (
-            <div className="flex items-center gap-2 text-[#B0B3B8] mb-2">
-              <i className="fas fa-building text-xs"></i>
-              <span className="text-sm">{company}</span>
+        {/* Professional Job Details Card */}
+        <div className="px-3 md:px-4 pb-3">
+          <div className="bg-[#3A3B3C] rounded-lg p-5">
+            {/* Job Title */}
+            <h2 className="text-[#E4E6EB] font-bold text-2xl mb-3">{jobTitle}</h2>
+            
+            {/* Company */}
+            {company && (
+              <div className="flex items-center gap-2 text-[#B0B3B8] mb-2">
+                <i className="fas fa-building text-sm"></i>
+                <span className="text-base font-medium">{company}</span>
+              </div>
+            )}
+            
+            {/* Job Details Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+              {fullAddress && (
+                <div className="flex items-center gap-2 text-[#B0B3B8]">
+                  <i className="fas fa-map-marker-alt text-sm"></i>
+                  <span className="text-sm">{fullAddress}</span>
+                </div>
+              )}
+              {jobType && (
+                <div className="flex items-center gap-2 text-[#B0B3B8]">
+                  <i className="fas fa-clock text-sm"></i>
+                  <span className="text-sm">{jobType}</span>
+                </div>
+              )}
+              {salary && (
+                <div className="flex items-center gap-2 text-[#B0B3B8] col-span-2">
+                  <i className="fas fa-dollar-sign text-sm"></i>
+                  <span className="text-sm font-medium text-[#45BD62]">{salary}</span>
+                </div>
+              )}
             </div>
-          )}
-          
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            {location && (
-              <div className="flex items-center gap-1 text-[#B0B3B8]">
-                <i className="fas fa-map-marker-alt text-xs"></i>
-                <span className="text-xs">{location}</span>
+
+            {/* Job Description with 20px font and See More/Less */}
+            {post.content && (
+              <div className="mb-4">
+                <div className="text-[#E4E6EB]" style={{ fontSize: '20px' }}>
+                  {showFullDescription ? post.content : post.content.slice(0, 200)}
+                  {post.content.length > 200 && (
+                    <button
+                      onClick={() => setShowFullDescription(!showFullDescription)}
+                      className="ml-2 text-[#1877F2] font-bold hover:underline"
+                    >
+                      {showFullDescription ? 'See less' : 'See more'}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
-            {type && (
-              <div className="flex items-center gap-1 text-[#B0B3B8]">
-                <i className="fas fa-clock text-xs"></i>
-                <span className="text-xs">{type}</span>
+
+            {/* Images/Video */}
+            {imageMedia.length > 0 && (
+              <div className="mb-4">
+                <MediaGrid
+                  media={imageMedia}
+                  onOpen={(url, index) => {
+                    const urls = imageMedia.map(m => m.url);
+                    openGallery(urls, index);
+                  }}
+                />
               </div>
             )}
-            {salary && (
-              <div className="flex items-center gap-1 text-[#B0B3B8] col-span-2">
-                <i className="fas fa-dollar-sign text-xs"></i>
-                <span className="text-xs">{salary}</span>
+
+            {videoMedia.length > 0 && (
+              <div className="mb-4">
+                <video
+                  src={videoMedia[0].url}
+                  className="w-full rounded-lg"
+                  controls
+                  playsInline
+                />
               </div>
+            )}
+
+            {/* Apply Button - Only show if application type is set */}
+            {applicationType && applicationValue && (
+              <button
+                onClick={handleApply}
+                disabled={applied}
+                className="w-full bg-[#45BD62] text-white py-3 rounded-lg font-bold text-lg hover:bg-[#3aa34f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {applied ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <i className="fas fa-check"></i>
+                    Applied
+                  </span>
+                ) : (
+                  'Apply Now'
+                )}
+              </button>
             )}
           </div>
+        </div>
 
-          {post.content && (
-            <p className="text-[#E4E6EB] text-sm mb-3">{post.content}</p>
-          )}
-
-          {/* Apply Button */}
-          <button
-            onClick={handleApply}
-            disabled={applied}
-            className="w-full bg-[#45BD62] text-white py-2.5 rounded-lg font-bold hover:bg-[#3aa34f] transition-colors disabled:opacity-50"
-          >
-            {applied ? (
-              <span className="flex items-center justify-center gap-2">
-                <i className="fas fa-check"></i>
-                Applied
+        {/* Reaction summary row */}
+        {localReactionCount > 0 && (
+          <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowReactionsSheet(true);
+              }}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex -space-x-2">
+                {emojiList.slice(0, 2).map((e, i) => (
+                  <span
+                    key={i}
+                    className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                    style={{ zIndex: 10 - i }}
+                  >
+                    {e}
+                  </span>
+                ))}
+              </div>
+              <span className="text-[#E4E6EB] font-bold text-[16px]">
+                {formatCount(localReactionCount)}
               </span>
-            ) : (
-              'Apply Now'
-            )}
+            </button>
+            
+            <div className="flex gap-4">
+              <span
+                className="hover:underline cursor-pointer"
+                onClick={() => props.onOpenComments(post.id)}
+              >
+                {formatCount(commentCount)} Comments
+              </span>
+              {shareCount > 0 && (
+                <span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>
+                  {formatCount(shareCount)} Shares
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
+          <ReactionButton
+            currentUserReactions={localMyReaction}
+            reactionCount={localReactionCount}
+            onReact={handleLikeClick}
+            isGuest={!currentUser}
+          />
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => currentUser ? props.onOpenComments(post.id) : alert('Login first')}
+          >
+            <i className="far fa-comment-alt text-[20px]"></i>
+            <span className="text-[17px] font-medium">Comment</span>
+          </button>
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => {
+              if (!currentUser) {
+                alert('Please login to share posts.');
+                return;
+              }
+              setShowShareSheet(true);
+            }}
+          >
+            <i className="fas fa-share text-[20px]"></i>
+            <span className="text-[17px] font-medium">Share</span>
           </button>
         </div>
       </div>
 
-      {/* Reactions and Actions (same as GroupPost) */}
-      {/* ... */}
-    </div>
+      <ShareBottomSheet
+        isOpen={showShareSheet}
+        onClose={() => setShowShareSheet(false)}
+        post={post}
+        currentUser={currentUser}
+        users={users}
+        onShareComplete={handleShareComplete}
+      />
+
+      {/* Gallery Viewer */}
+      <GalleryViewer
+        isOpen={galleryOpen}
+        urls={galleryUrls}
+        startIndex={galleryIndex}
+        onClose={() => setGalleryOpen(false)}
+        postId={post.id}
+        currentUser={currentUser}
+        reactionCount={localReactionCount}
+        commentCount={commentCount}
+        shareCount={shareCount}
+        myReaction={localMyReaction}
+        onReact={handleLikeClick}
+        onOpenComments={() => props.onOpenComments(post.id)}
+        onShare={() => setShowShareSheet(true)}
+        onOpenReactions={() => setShowReactionsSheet(true)}
+      />
+    </>
   );
 };
 
-// Buy & Sell Post Component (Facebook Marketplace style)
+// Enhanced Buy & Sell Post Component (Facebook Marketplace style)
 const BuySellPost: React.FC<{
   post: PostType;
   author: User;
@@ -1069,10 +1366,11 @@ const BuySellPost: React.FC<{
   onMessageSeller?: (userId: number) => void;
   onMakeOffer?: (postId: number, amount: number) => Promise<any>;
 }> = (props) => {
-  const { post, author, currentUser, onMessageSeller, onMakeOffer } = props;
+  const { post, author, currentUser, onMessageSeller, onMakeOffer, onProfileClick, users } = props;
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [offerAmount, setOfferAmount] = useState('');
   const [offerSent, setOfferSent] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
 
   // Parse item details
   const price = (post as any).price || '0';
@@ -1084,6 +1382,42 @@ const BuySellPost: React.FC<{
   const mediaList = useMemo(() => {
     return getPostMediaList(post);
   }, [post]);
+
+  const imageMedia = mediaList.filter(m => m.kind === 'image');
+  const videoMedia = mediaList.filter(m => m.kind === 'video');
+
+  const isPostAuthor = currentUser?.id === author.id;
+  const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
+
+  // Facebook-style reaction states
+  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
+    (post as any).myReaction ?? (post as any).my_reaction ?? null
+  );
+  const [localReactionCount, setLocalReactionCount] = useState(() => {
+    const likesCount = Number(
+      (post as any).likesCount ?? 
+      (post as any).reactionsCount ?? 
+      (post as any).reactions_count ?? 
+      0
+    );
+    const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
+    return likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0;
+  });
+  const [commentCount, setCommentCount] = useState(() => {
+    if (typeof post.comment_count === 'number') return post.comment_count;
+    if (Array.isArray(post.comments)) return post.comments.length;
+    return 0;
+  });
+  const [shareCount, setShareCount] = useState(() => {
+    return Number(post.shares ?? post.shares_count ?? 0);
+  });
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+
+  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
 
   const handleMakeOffer = async () => {
     if (!currentUser) {
@@ -1115,6 +1449,71 @@ const BuySellPost: React.FC<{
     }
   };
 
+  const handleLikeClick = async (type: ReactionType) => {
+    if (!currentUser) return;
+    
+    const previousMyReaction = localMyReaction;
+    const previousReactionCount = localReactionCount;
+
+    let newMyReaction: ReactionType | null = type;
+    let newReactionCount = previousReactionCount;
+
+    if (!previousMyReaction) {
+      newReactionCount = previousReactionCount + 1;
+    } else if (previousMyReaction === type) {
+      newMyReaction = null;
+      newReactionCount = previousReactionCount - 1;
+    } else {
+      newMyReaction = type;
+      newReactionCount = previousReactionCount;
+    }
+
+    setLocalMyReaction(newMyReaction || undefined);
+    setLocalReactionCount(newReactionCount);
+
+    try {
+      await props.onLikePost(post.id, type);
+    } catch (error) {
+      console.error('Failed to like post:', error);
+      setLocalMyReaction(previousMyReaction);
+      setLocalReactionCount(previousReactionCount);
+    }
+  };
+
+  const handleShareComplete = (destination: string, data?: any) => {
+    const nextShares = Number(data?.shares ?? data?.share_count ?? shareCount + 1);
+    if (data?.success) {
+      setShareCount(nextShares);
+      props.onSharePost(post.id, nextShares);
+    }
+    setShowShareSheet(false);
+  };
+
+  const openGallery = (urls: string[], index: number) => {
+    setGalleryUrls(urls);
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  };
+
+  const emojiList = useMemo(() => {
+    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
+      const em = topReactionEmojis(reactionsArr, 2);
+      return em.length ? em : ['👍'];
+    }
+    return localReactionCount > 0 ? ['👍'] : [];
+  }, [reactionsArr, localReactionCount]);
+
+  const formatCount = (count: number): string => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
+  };
+
+  const createdAtLabel = formatRelativeTime(post.created_at || post.createdAt || '');
+
   const statusColors = {
     available: 'bg-[#45BD62]',
     pending: 'bg-[#F7B928]',
@@ -1128,7 +1527,7 @@ const BuySellPost: React.FC<{
         <div className="p-3 md:p-4 flex items-center justify-between">
           <div
             className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-            onClick={() => props.onProfileClick(author.id)}
+            onClick={() => onProfileClick(author.id)}
           >
             <img
               src={avatarFrom(author)}
@@ -1145,13 +1544,42 @@ const BuySellPost: React.FC<{
                 )}
               </div>
               <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                <span>{formatRelativeTime(post.created_at || '')}</span>
+                <span>{createdAtLabel}</span>
                 <span>•</span>
                 <i className="fas fa-store text-[12px]"></i>
                 <span>Marketplace</span>
               </div>
             </div>
           </div>
+
+          {/* Three-dots menu */}
+          {(canModerate || props.onReportPost) && (
+            <div className="relative">
+              <button
+                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowActionsMenu(!showActionsMenu);
+                }}
+                aria-label="Post actions"
+              >
+                <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
+              </button>
+
+              {showActionsMenu && (
+                <PostActionsMenu
+                  post={post}
+                  currentUser={currentUser}
+                  isGroupAdmin={canModerate}
+                  isPostAuthor={isPostAuthor}
+                  onEdit={props.onEditPost}
+                  onDelete={props.onDeletePost}
+                  onReport={props.onReportPost}
+                  onClose={() => setShowActionsMenu(false)}
+                />
+              )}
+            </div>
+          )}
 
           {/* Status Badge */}
           <div className={`px-3 py-1 rounded-full ${statusColors[status as keyof typeof statusColors]} text-white text-xs font-bold uppercase`}>
@@ -1168,23 +1596,36 @@ const BuySellPost: React.FC<{
         </div>
 
         {/* Images Grid */}
-        {mediaList.length > 0 && (
+        {imageMedia.length > 0 && (
           <MediaGrid
-            media={mediaList.filter(m => m.kind === 'image')}
+            media={imageMedia}
             onOpen={(url, index) => {
-              // Handle gallery open
+              const urls = imageMedia.map(m => m.url);
+              openGallery(urls, index);
             }}
           />
         )}
 
-        {/* Description */}
-        {post.content && (
-          <div className="px-3 md:px-4 py-3">
-            <p className="text-[#E4E6EB] text-sm">{post.content}</p>
+        {/* Video */}
+        {videoMedia.length > 0 && (
+          <div className="px-3 md:px-4 mb-3">
+            <video
+              src={videoMedia[0].url}
+              className="w-full rounded-lg"
+              controls
+              playsInline
+            />
           </div>
         )}
 
-        {/* Location */}
+        {/* Description - optional */}
+        {post.content && (
+          <div className="px-3 md:px-4 py-3">
+            <p className="text-[#E4E6EB] text-base">{post.content}</p>
+          </div>
+        )}
+
+        {/* Location - optional */}
         {location && (
           <div className="px-3 md:px-4 pb-2">
             <div className="flex items-center gap-1 text-[#B0B3B8]">
@@ -1194,7 +1635,79 @@ const BuySellPost: React.FC<{
           </div>
         )}
 
-        {/* Action Buttons - Marketplace Style */}
+        {/* Reaction summary row */}
+        {localReactionCount > 0 && (
+          <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowReactionsSheet(true);
+              }}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex -space-x-2">
+                {emojiList.slice(0, 2).map((e, i) => (
+                  <span
+                    key={i}
+                    className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                    style={{ zIndex: 10 - i }}
+                  >
+                    {e}
+                  </span>
+                ))}
+              </div>
+              <span className="text-[#E4E6EB] font-bold text-[16px]">
+                {formatCount(localReactionCount)}
+              </span>
+            </button>
+            
+            <div className="flex gap-4">
+              <span
+                className="hover:underline cursor-pointer"
+                onClick={() => props.onOpenComments(post.id)}
+              >
+                {formatCount(commentCount)} Comments
+              </span>
+              {shareCount > 0 && (
+                <span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>
+                  {formatCount(shareCount)} Shares
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
+          <ReactionButton
+            currentUserReactions={localMyReaction}
+            reactionCount={localReactionCount}
+            onReact={handleLikeClick}
+            isGuest={!currentUser}
+          />
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => currentUser ? props.onOpenComments(post.id) : alert('Login first')}
+          >
+            <i className="far fa-comment-alt text-[20px]"></i>
+            <span className="text-[17px] font-medium">Comment</span>
+          </button>
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => {
+              if (!currentUser) {
+                alert('Please login to share posts.');
+                return;
+              }
+              setShowShareSheet(true);
+            }}
+          >
+            <i className="fas fa-share text-[20px]"></i>
+            <span className="text-[17px] font-medium">Share</span>
+          </button>
+        </div>
+
+        {/* Marketplace Action Buttons */}
         <div className="px-2 py-3 border-t border-[#3E4042] grid grid-cols-2 gap-2">
           <button
             onClick={handleMessage}
@@ -1212,9 +1725,6 @@ const BuySellPost: React.FC<{
             {offerSent ? 'Offer Sent' : 'Make Offer'}
           </button>
         </div>
-
-        {/* Reactions row */}
-        {/* ... */}
       </div>
 
       {/* Make Offer Modal */}
@@ -1251,6 +1761,33 @@ const BuySellPost: React.FC<{
           </div>
         </div>
       )}
+
+      <ShareBottomSheet
+        isOpen={showShareSheet}
+        onClose={() => setShowShareSheet(false)}
+        post={post}
+        currentUser={currentUser}
+        users={users}
+        onShareComplete={handleShareComplete}
+      />
+
+      {/* Gallery Viewer */}
+      <GalleryViewer
+        isOpen={galleryOpen}
+        urls={galleryUrls}
+        startIndex={galleryIndex}
+        onClose={() => setGalleryOpen(false)}
+        postId={post.id}
+        currentUser={currentUser}
+        reactionCount={localReactionCount}
+        commentCount={commentCount}
+        shareCount={shareCount}
+        myReaction={localMyReaction}
+        onReact={handleLikeClick}
+        onOpenComments={() => props.onOpenComments(post.id)}
+        onShare={() => setShowShareSheet(true)}
+        onOpenReactions={() => setShowReactionsSheet(true)}
+      />
     </>
   );
 };
@@ -1272,9 +1809,10 @@ const MusicDramaPost: React.FC<{
   onReportPost?: (postId: number) => Promise<any>;
   onPlayVideo?: (postId: number, url: string) => void;
 }> = (props) => {
-  const { post, author, onPlayVideo } = props;
+  const { post, author, onPlayVideo, onProfileClick, users, currentUser } = props;
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
 
   // Get media list
   const mediaList = useMemo(() => {
@@ -1291,6 +1829,39 @@ const MusicDramaPost: React.FC<{
   const episode = (post as any).episode || '';
   const series = (post as any).series || '';
 
+  const isPostAuthor = currentUser?.id === author.id;
+  const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
+
+  // Facebook-style reaction states
+  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
+    (post as any).myReaction ?? (post as any).my_reaction ?? null
+  );
+  const [localReactionCount, setLocalReactionCount] = useState(() => {
+    const likesCount = Number(
+      (post as any).likesCount ?? 
+      (post as any).reactionsCount ?? 
+      (post as any).reactions_count ?? 
+      0
+    );
+    const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
+    return likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0;
+  });
+  const [commentCount, setCommentCount] = useState(() => {
+    if (typeof post.comment_count === 'number') return post.comment_count;
+    if (Array.isArray(post.comments)) return post.comments.length;
+    return 0;
+  });
+  const [shareCount, setShareCount] = useState(() => {
+    return Number(post.shares ?? post.shares_count ?? 0);
+  });
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+
+  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
+
   const handlePlayPause = () => {
     if (videoRef.current) {
       if (isPlaying) {
@@ -1305,120 +1876,313 @@ const MusicDramaPost: React.FC<{
     }
   };
 
+  const handleLikeClick = async (type: ReactionType) => {
+    if (!currentUser) return;
+    
+    const previousMyReaction = localMyReaction;
+    const previousReactionCount = localReactionCount;
+
+    let newMyReaction: ReactionType | null = type;
+    let newReactionCount = previousReactionCount;
+
+    if (!previousMyReaction) {
+      newReactionCount = previousReactionCount + 1;
+    } else if (previousMyReaction === type) {
+      newMyReaction = null;
+      newReactionCount = previousReactionCount - 1;
+    } else {
+      newMyReaction = type;
+      newReactionCount = previousReactionCount;
+    }
+
+    setLocalMyReaction(newMyReaction || undefined);
+    setLocalReactionCount(newReactionCount);
+
+    try {
+      await props.onLikePost(post.id, type);
+    } catch (error) {
+      console.error('Failed to like post:', error);
+      setLocalMyReaction(previousMyReaction);
+      setLocalReactionCount(previousReactionCount);
+    }
+  };
+
+  const handleShareComplete = (destination: string, data?: any) => {
+    const nextShares = Number(data?.shares ?? data?.share_count ?? shareCount + 1);
+    if (data?.success) {
+      setShareCount(nextShares);
+      props.onSharePost(post.id, nextShares);
+    }
+    setShowShareSheet(false);
+  };
+
+  const openGallery = (urls: string[], index: number) => {
+    setGalleryUrls(urls);
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  };
+
+  const emojiList = useMemo(() => {
+    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
+      const em = topReactionEmojis(reactionsArr, 2);
+      return em.length ? em : ['👍'];
+    }
+    return localReactionCount > 0 ? ['👍'] : [];
+  }, [reactionsArr, localReactionCount]);
+
+  const formatCount = (count: number): string => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
+  };
+
+  const createdAtLabel = formatRelativeTime(post.created_at || post.createdAt || '');
+
   return (
-    <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
-      {/* Header */}
-      <div className="p-3 md:p-4 flex items-center justify-between">
-        <div
-          className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-          onClick={() => props.onProfileClick(author.id)}
-        >
-          <img
-            src={avatarFrom(author)}
-            alt=""
-            className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-          />
-          <div className="min-w-0">
-            <div className="flex items-center gap-1 flex-wrap">
-              <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
-                {author.name || 'User'}
-              </h4>
-              {author.is_verified && (
-                <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+    <>
+      <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
+        {/* Header */}
+        <div className="p-3 md:p-4 flex items-center justify-between">
+          <div
+            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+            onClick={() => onProfileClick(author.id)}
+          >
+            <img
+              src={avatarFrom(author)}
+              alt=""
+              className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 flex-wrap">
+                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
+                  {author.name || 'User'}
+                </h4>
+                {author.is_verified && (
+                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                <span>{createdAtLabel}</span>
+                <span>•</span>
+                {series ? (
+                  <>
+                    <i className="fas fa-film text-[12px]"></i>
+                    <span>Series • Ep {episode}</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-music text-[12px]"></i>
+                    <span>Music</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Three-dots menu */}
+          {(canModerate || props.onReportPost) && (
+            <div className="relative">
+              <button
+                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowActionsMenu(!showActionsMenu);
+                }}
+                aria-label="Post actions"
+              >
+                <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
+              </button>
+
+              {showActionsMenu && (
+                <PostActionsMenu
+                  post={post}
+                  currentUser={currentUser}
+                  isGroupAdmin={canModerate}
+                  isPostAuthor={isPostAuthor}
+                  onEdit={props.onEditPost}
+                  onDelete={props.onDeletePost}
+                  onReport={props.onReportPost}
+                  onClose={() => setShowActionsMenu(false)}
+                />
               )}
             </div>
-            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-              <span>{formatRelativeTime(post.created_at || '')}</span>
-              <span>•</span>
-              {series ? (
+          )}
+        </div>
+
+        {/* Artist/Series Info */}
+        {(artist || series) && (
+          <div className="px-3 md:px-4 pb-2">
+            <div className="inline-flex items-center gap-2">
+              {artist && (
+                <span className="text-[#E4E6EB] font-bold">{artist}</span>
+              )}
+              {series && (
                 <>
-                  <i className="fas fa-film text-[12px]"></i>
-                  <span>Series • Ep {episode}</span>
-                </>
-              ) : (
-                <>
-                  <i className="fas fa-music text-[12px]"></i>
-                  <span>Music</span>
+                  <span className="text-[#B0B3B8]">•</span>
+                  <span className="text-[#B0B3B8]">{series}</span>
+                  {episode && (
+                    <span className="text-[#B0B3B8]">Episode {episode}</span>
+                  )}
                 </>
               )}
             </div>
           </div>
+        )}
+
+        {/* Video Player - Prominent */}
+        {videoMedia && (
+          <div className="relative bg-black">
+            <video
+              ref={videoRef}
+              src={videoMedia.url}
+              className="w-full aspect-video"
+              poster={imageMedia[0]?.url}
+              controls={isPlaying}
+              playsInline
+            />
+            
+            {/* Custom Play Button Overlay */}
+            {!isPlaying && (
+              <button
+                onClick={handlePlayPause}
+                className="absolute inset-0 flex items-center justify-center bg-black/40 group"
+              >
+                <div className="w-20 h-20 rounded-full bg-[#F3425F] flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <i className="fas fa-play text-white text-3xl ml-1"></i>
+                </div>
+              </button>
+            )}
+
+            {/* Duration Badge */}
+            {duration && (
+              <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/60 rounded text-white text-xs">
+                {duration}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Image Grid (if any) */}
+        {!videoMedia && imageMedia.length > 0 && (
+          <MediaGrid
+            media={imageMedia}
+            onOpen={(url, index) => {
+              const urls = imageMedia.map(m => m.url);
+              openGallery(urls, index);
+            }}
+          />
+        )}
+
+        {/* Description - optional */}
+        {post.content && (
+          <div className="px-3 md:px-4 py-3">
+            <p className="text-[#E4E6EB] text-base">{post.content}</p>
+          </div>
+        )}
+
+        {/* Reaction summary row */}
+        {localReactionCount > 0 && (
+          <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowReactionsSheet(true);
+              }}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex -space-x-2">
+                {emojiList.slice(0, 2).map((e, i) => (
+                  <span
+                    key={i}
+                    className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                    style={{ zIndex: 10 - i }}
+                  >
+                    {e}
+                  </span>
+                ))}
+              </div>
+              <span className="text-[#E4E6EB] font-bold text-[16px]">
+                {formatCount(localReactionCount)}
+              </span>
+            </button>
+            
+            <div className="flex gap-4">
+              <span
+                className="hover:underline cursor-pointer"
+                onClick={() => props.onOpenComments(post.id)}
+              >
+                {formatCount(commentCount)} Comments
+              </span>
+              {shareCount > 0 && (
+                <span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>
+                  {formatCount(shareCount)} Shares
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
+          <ReactionButton
+            currentUserReactions={localMyReaction}
+            reactionCount={localReactionCount}
+            onReact={handleLikeClick}
+            isGuest={!currentUser}
+          />
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => currentUser ? props.onOpenComments(post.id) : alert('Login first')}
+          >
+            <i className="far fa-comment-alt text-[20px]"></i>
+            <span className="text-[17px] font-medium">Comment</span>
+          </button>
+          <button
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+            onClick={() => {
+              if (!currentUser) {
+                alert('Please login to share posts.');
+                return;
+              }
+              setShowShareSheet(true);
+            }}
+          >
+            <i className="fas fa-share text-[20px]"></i>
+            <span className="text-[17px] font-medium">Share</span>
+          </button>
         </div>
       </div>
 
-      {/* Artist/Series Info */}
-      {(artist || series) && (
-        <div className="px-3 md:px-4 pb-2">
-          <div className="inline-flex items-center gap-2">
-            {artist && (
-              <span className="text-[#E4E6EB] font-bold">{artist}</span>
-            )}
-            {series && (
-              <>
-                <span className="text-[#B0B3B8]">•</span>
-                <span className="text-[#B0B3B8]">{series}</span>
-                {episode && (
-                  <span className="text-[#B0B3B8]">Episode {episode}</span>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <ShareBottomSheet
+        isOpen={showShareSheet}
+        onClose={() => setShowShareSheet(false)}
+        post={post}
+        currentUser={currentUser}
+        users={users}
+        onShareComplete={handleShareComplete}
+      />
 
-      {/* Video Player - Prominent */}
-      {videoMedia && (
-        <div className="relative bg-black">
-          <video
-            ref={videoRef}
-            src={videoMedia.url}
-            className="w-full aspect-video"
-            poster={imageMedia[0]?.url}
-            controls={isPlaying}
-            playsInline
-          />
-          
-          {/* Custom Play Button Overlay */}
-          {!isPlaying && (
-            <button
-              onClick={handlePlayPause}
-              className="absolute inset-0 flex items-center justify-center bg-black/40 group"
-            >
-              <div className="w-20 h-20 rounded-full bg-[#F3425F] flex items-center justify-center group-hover:scale-110 transition-transform">
-                <i className="fas fa-play text-white text-3xl ml-1"></i>
-              </div>
-            </button>
-          )}
-
-          {/* Duration Badge */}
-          {duration && (
-            <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/60 rounded text-white text-xs">
-              {duration}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Image Grid (if any) */}
-      {!videoMedia && imageMedia.length > 0 && (
-        <MediaGrid
-          media={imageMedia}
-          onOpen={(url, index) => {
-            // Handle gallery
-          }}
-        />
-      )}
-
-      {/* Description */}
-      {post.content && (
-        <div className="px-3 md:px-4 py-3">
-          <p className="text-[#E4E6EB] text-sm">{post.content}</p>
-        </div>
-      )}
-
-      {/* Reactions and Actions */}
-      {/* ... */}
-    </div>
+      {/* Gallery Viewer */}
+      <GalleryViewer
+        isOpen={galleryOpen}
+        urls={galleryUrls}
+        startIndex={galleryIndex}
+        onClose={() => setGalleryOpen(false)}
+        postId={post.id}
+        currentUser={currentUser}
+        reactionCount={localReactionCount}
+        commentCount={commentCount}
+        shareCount={shareCount}
+        myReaction={localMyReaction}
+        onReact={handleLikeClick}
+        onOpenComments={() => props.onOpenComments(post.id)}
+        onShare={() => setShowShareSheet(true)}
+        onOpenReactions={() => setShowReactionsSheet(true)}
+      />
+    </>
   );
 };
 
@@ -1446,7 +2210,7 @@ const GroupPost: React.FC<{
   onFollow?: (userId: number) => Promise<any>;
   checkIsFollowing?: (userId: number) => boolean;
   // Category-specific handlers
-  onApply?: (postId: number) => Promise<any>;
+  onApply?: (postId: number, applicationData?: any) => Promise<any>;
   onMessageSeller?: (userId: number) => void;
   onMakeOffer?: (postId: number, amount: number) => Promise<any>;
   onPlayVideo?: (postId: number, url: string) => void;
@@ -1885,7 +2649,7 @@ interface GroupsPageProps {
   onVideoClick?: (post: PostType) => void;
   
   // Category-specific handlers
-  onApplyToJob?: (postId: number) => Promise<any>;
+  onApplyToJob?: (postId: number, applicationData?: any) => Promise<any>;
   onMessageSeller?: (userId: number) => void;
   onMakeOffer?: (postId: number, amount: number) => Promise<any>;
   onPlayVideo?: (postId: number, url: string) => void;
@@ -2001,6 +2765,12 @@ function normalizePost(post: any): PostType {
     company: post?.company,
     salary: post?.salary,
     job_type: post?.job_type,
+    street: post?.street,
+    district: post?.district,
+    region: post?.region,
+    country: post?.country,
+    application_type: post?.application_type,
+    application_value: post?.application_value,
     artist: post?.artist,
     series: post?.series,
     episode: post?.episode,
@@ -2422,9 +3192,15 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       metadata = {
         job_title: postMetadata.job_title,
         company: postMetadata.company,
-        location: postMetadata.location,
+        street: postMetadata.street,
+        district: postMetadata.district,
+        region: postMetadata.region,
+        country: postMetadata.country,
+        location: [postMetadata.street, postMetadata.district, postMetadata.region, postMetadata.country].filter(Boolean).join(', '),
         salary: postMetadata.salary,
         job_type: postMetadata.job_type,
+        application_type: postMetadata.application_type,
+        application_value: postMetadata.application_value,
       };
     } else if (activeGroup.category === 'music_drama') {
       metadata = {
@@ -3704,17 +4480,54 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                       placeholder="Company name"
                     />
                   </div>
+                  
+                  {/* Address Fields */}
+                  <div>
+                    <label className="block text-[#b0b3b8] text-xs mb-1">Street Address</label>
+                    <input
+                      type="text"
+                      value={postMetadata.street || ''}
+                      onChange={(e) => setPostMetadata({ ...postMetadata, street: e.target.value })}
+                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                      placeholder="Street address"
+                    />
+                  </div>
+                  
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Location</label>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">District</label>
                       <input
                         type="text"
-                        value={postMetadata.location || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, location: e.target.value })}
+                        value={postMetadata.district || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, district: e.target.value })}
                         className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="Remote / City"
+                        placeholder="District"
                       />
                     </div>
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Region</label>
+                      <input
+                        type="text"
+                        value={postMetadata.region || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, region: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        placeholder="Region/State"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[#b0b3b8] text-xs mb-1">Country</label>
+                    <input
+                      type="text"
+                      value={postMetadata.country || ''}
+                      onChange={(e) => setPostMetadata({ ...postMetadata, country: e.target.value })}
+                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                      placeholder="Country"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[#b0b3b8] text-xs mb-1">Job Type</label>
                       <select
@@ -3729,16 +4542,65 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         <option>Freelance</option>
                       </select>
                     </div>
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Salary Range</label>
+                      <input
+                        type="text"
+                        value={postMetadata.salary || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, salary: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        placeholder="e.g. $80k - $100k"
+                      />
+                    </div>
                   </div>
+
+                  {/* Application Type */}
                   <div>
-                    <label className="block text-[#b0b3b8] text-xs mb-1">Salary Range</label>
-                    <input
-                      type="text"
-                      value={postMetadata.salary || ''}
-                      onChange={(e) => setPostMetadata({ ...postMetadata, salary: e.target.value })}
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      placeholder="e.g. $80k - $100k"
-                    />
+                    <label className="block text-[#b0b3b8] text-xs mb-1">How should applicants apply?</label>
+                    <div className="flex gap-4 mb-2">
+                      <label className="flex items-center gap-2 text-[#e4e6eb]">
+                        <input
+                          type="radio"
+                          name="applicationType"
+                          value="email"
+                          checked={postMetadata.application_type === 'email'}
+                          onChange={(e) => setPostMetadata({ ...postMetadata, application_type: e.target.value, application_value: '' })}
+                          className="accent-[#1877f2]"
+                        />
+                        <span>Email</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-[#e4e6eb]">
+                        <input
+                          type="radio"
+                          name="applicationType"
+                          value="link"
+                          checked={postMetadata.application_type === 'link'}
+                          onChange={(e) => setPostMetadata({ ...postMetadata, application_type: e.target.value, application_value: '' })}
+                          className="accent-[#1877f2]"
+                        />
+                        <span>External Link</span>
+                      </label>
+                    </div>
+                    
+                    {postMetadata.application_type === 'email' && (
+                      <input
+                        type="email"
+                        value={postMetadata.application_value || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, application_value: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        placeholder="Enter email address for applications"
+                      />
+                    )}
+                    
+                    {postMetadata.application_type === 'link' && (
+                      <input
+                        type="url"
+                        value={postMetadata.application_value || ''}
+                        onChange={(e) => setPostMetadata({ ...postMetadata, application_value: e.target.value })}
+                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        placeholder="Enter application link"
+                      />
+                    )}
                   </div>
                 </div>
               )}
@@ -3796,9 +4658,9 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 <textarea
                   className="w-full bg-transparent outline-none text-[#e4e6eb] placeholder-[#b0b3b8] resize-none text-[28px] font-medium leading-tight"
                   placeholder={
-                    activeGroup.category === 'buy_sell' ? "Describe what you're selling..." :
-                    activeGroup.category === 'recruitment' ? "Describe the position and requirements..." :
-                    activeGroup.category === 'music_drama' ? "Add a description or lyrics..." :
+                    activeGroup.category === 'buy_sell' ? "Describe what you're selling (optional)..." :
+                    activeGroup.category === 'recruitment' ? "Describe the position and requirements (optional)..." :
+                    activeGroup.category === 'music_drama' ? "Add a description or lyrics (optional)..." :
                     "Share something with the community..."
                   }
                   value={postContent}
