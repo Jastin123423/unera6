@@ -83,6 +83,19 @@ const GROUP_CATEGORIES: CategoryOption[] = [
   }
 ];
 
+// Currency options for Buy/Sell
+const CURRENCY_OPTIONS = [
+  { code: 'TSh', symbol: 'TSh', name: 'Tanzanian Shilling' },
+  { code: 'KES', symbol: 'KSh', name: 'Kenyan Shilling' },
+  { code: 'UGX', symbol: 'USh', name: 'Ugandan Shilling' },
+  { code: 'USD', symbol: '$', name: 'US Dollar' },
+  { code: 'EUR', symbol: '€', name: 'Euro' },
+  { code: 'GBP', symbol: '£', name: 'British Pound' },
+  { code: 'ZAR', symbol: 'R', name: 'South African Rand' },
+  { code: 'NGN', symbol: '₦', name: 'Nigerian Naira' },
+  { code: 'GHS', symbol: 'GH₵', name: 'Ghanaian Cedi' },
+];
+
 // ✅ LOCAL IMPLEMENTATION: getPostMediaList (enhanced version from Feed.tsx)
 type NormalizedMedia = { url: string; kind: 'image' | 'video' };
 
@@ -197,7 +210,7 @@ const ExpandableRichText: React.FC<{
   const shownText = showAll ? safeText : words.slice(0, maxWords).join(' ') + '…';
 
   return (
-    <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed">
+    <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed whitespace-pre-wrap">
       <RichText
         text={shownText}
         users={users}
@@ -948,6 +961,11 @@ const RecruitmentPost: React.FC<{
   const applicationType = (post as any).application_type || null;
   const applicationValue = (post as any).application_value || '';
 
+  // Expiry date
+  const expiryDate = (post as any).expiry_date ? new Date((post as any).expiry_date) : null;
+  const now = new Date();
+  const isExpired = expiryDate ? expiryDate < now : false;
+
   // Get media for gallery view
   const mediaList = useMemo(() => {
     return getPostMediaList(post);
@@ -959,6 +977,11 @@ const RecruitmentPost: React.FC<{
   const handleApply = async () => {
     if (!currentUser) {
       alert('Please login to apply');
+      return;
+    }
+    
+    if (isExpired) {
+      alert('This job posting has expired');
       return;
     }
     
@@ -1078,6 +1101,15 @@ const RecruitmentPost: React.FC<{
 
   const createdAtLabel = formatRelativeTime(post.created_at || post.createdAt || '');
 
+  // Format expiry date
+  const formatExpiryDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
   return (
     <>
       <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
@@ -1140,12 +1172,26 @@ const RecruitmentPost: React.FC<{
           )}
         </div>
 
-        {/* Job Badge */}
-        <div className="px-3 md:px-4 pb-2">
+        {/* Job Badge and Expiry Status */}
+        <div className="px-3 md:px-4 pb-2 flex items-center gap-2">
           <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#45BD62]/10 rounded-full border border-[#45BD62]/20">
             <i className="fas fa-briefcase text-[#45BD62] text-xs"></i>
             <span className="text-[#45BD62] text-xs font-bold">JOB POSTING</span>
           </div>
+          
+          {isExpired && (
+            <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#F3425F]/10 rounded-full border border-[#F3425F]/20">
+              <i className="fas fa-clock text-[#F3425F] text-xs"></i>
+              <span className="text-[#F3425F] text-xs font-bold">EXPIRED</span>
+            </div>
+          )}
+          
+          {expiryDate && !isExpired && (
+            <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#F7B928]/10 rounded-full border border-[#F7B928]/20">
+              <i className="fas fa-calendar-alt text-[#F7B928] text-xs"></i>
+              <span className="text-[#F7B928] text-xs">Expires {formatExpiryDate(expiryDate)}</span>
+            </div>
+          )}
         </div>
 
         {/* Professional Job Details Card */}
@@ -1156,40 +1202,46 @@ const RecruitmentPost: React.FC<{
             
             {/* Company */}
             {company && (
-              <div className="flex items-center gap-2 text-[#B0B3B8] mb-2">
-                <i className="fas fa-building text-sm"></i>
+              <div className="flex items-center gap-2 text-[#B0B3B8] mb-3">
+                <i className="fas fa-building text-sm w-5"></i>
                 <span className="text-base font-medium">{company}</span>
               </div>
             )}
             
-            {/* Job Details Grid */}
+            {/* Job Details Grid with Icons */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
               {fullAddress && (
                 <div className="flex items-center gap-2 text-[#B0B3B8]">
-                  <i className="fas fa-map-marker-alt text-sm"></i>
+                  <i className="fas fa-map-marker-alt text-sm w-5 text-[#45BD62]"></i>
                   <span className="text-sm">{fullAddress}</span>
                 </div>
               )}
               {jobType && (
                 <div className="flex items-center gap-2 text-[#B0B3B8]">
-                  <i className="fas fa-clock text-sm"></i>
+                  <i className="fas fa-clock text-sm w-5 text-[#F7B928]"></i>
                   <span className="text-sm">{jobType}</span>
                 </div>
               )}
+              {location && !fullAddress && (
+                <div className="flex items-center gap-2 text-[#B0B3B8]">
+                  <i className="fas fa-map-pin text-sm w-5 text-[#45BD62]"></i>
+                  <span className="text-sm">{location}</span>
+                </div>
+              )}
               {salary && (
-                <div className="flex items-center gap-2 text-[#B0B3B8] col-span-2">
-                  <i className="fas fa-dollar-sign text-sm"></i>
+                <div className="flex items-center gap-2 text-[#B0B3B8]">
+                  <i className="fas fa-dollar-sign text-sm w-5 text-[#45BD62]"></i>
                   <span className="text-sm font-medium text-[#45BD62]">{salary}</span>
                 </div>
               )}
             </div>
 
-            {/* Job Description with 20px font and See More/Less */}
+            {/* Job Description with 20px font and See More/Less - Preserves formatting */}
             {post.content && (
               <div className="mb-4">
-                <div className="text-[#E4E6EB]" style={{ fontSize: '20px' }}>
-                  {showFullDescription ? post.content : post.content.slice(0, 200)}
-                  {post.content.length > 200 && (
+                <div className="text-[#E4E6EB] whitespace-pre-wrap" style={{ fontSize: '20px' }}>
+                  {showFullDescription ? post.content : post.content.slice(0, 300)}
+                  {post.content.length > 300 && (
                     <button
                       onClick={() => setShowFullDescription(!showFullDescription)}
                       className="ml-2 text-[#1877F2] font-bold hover:underline"
@@ -1225,12 +1277,12 @@ const RecruitmentPost: React.FC<{
               </div>
             )}
 
-            {/* Apply Button - Only show if application type is set */}
-            {applicationType && applicationValue && (
+            {/* Apply Button - Only show if application type is set and job is not expired */}
+            {applicationType && applicationValue && !isExpired && (
               <button
                 onClick={handleApply}
                 disabled={applied}
-                className="w-full bg-[#45BD62] text-white py-3 rounded-lg font-bold text-lg hover:bg-[#3aa34f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-[#1B74E4] text-white py-3 rounded-lg font-bold text-lg hover:bg-[#1A6ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
               >
                 {applied ? (
                   <span className="flex items-center justify-center gap-2">
@@ -1241,6 +1293,13 @@ const RecruitmentPost: React.FC<{
                   'Apply Now'
                 )}
               </button>
+            )}
+            
+            {/* Show message if expired */}
+            {isExpired && (
+              <div className="w-full bg-[#F3425F]/10 text-[#F3425F] py-3 rounded-lg font-bold text-lg text-center border border-[#F3425F]/20">
+                This job posting has expired
+              </div>
             )}
           </div>
         </div>
@@ -1374,9 +1433,19 @@ const BuySellPost: React.FC<{
 
   // Parse item details
   const price = (post as any).price || '0';
+  const currency = (post as any).currency || 'USD';
   const condition = (post as any).condition || 'Used - Good';
   const location = (post as any).location || '';
   const status = (post as any).status || 'available'; // available, pending, sold
+
+  // Get currency symbol
+  const getCurrencySymbol = (currencyCode: string) => {
+    const currency = CURRENCY_OPTIONS.find(c => c.code === currencyCode);
+    return currency ? currency.symbol : currencyCode;
+  };
+
+  // Format price with currency
+  const formattedPrice = `${getCurrencySymbol(currency)} ${price}`;
 
   // Get media for gallery view
   const mediaList = useMemo(() => {
@@ -1587,13 +1656,23 @@ const BuySellPost: React.FC<{
           </div>
         </div>
 
-        {/* Price Tag */}
+        {/* Price Tag with Currency */}
         <div className="px-3 md:px-4 pb-2">
-          <span className="text-[#E4E6EB] font-black text-2xl">${price}</span>
+          <span className="text-[#E4E6EB] font-black text-2xl">{formattedPrice}</span>
           {condition && (
             <span className="ml-2 text-[#B0B3B8] text-sm">• {condition}</span>
           )}
         </div>
+
+        {/* Location - Always show if available */}
+        {location && (
+          <div className="px-3 md:px-4 pb-2">
+            <div className="flex items-center gap-1 text-[#B0B3B8]">
+              <i className="fas fa-map-marker-alt text-xs text-[#F7B928]"></i>
+              <span className="text-xs">{location}</span>
+            </div>
+          </div>
+        )}
 
         {/* Images Grid */}
         {imageMedia.length > 0 && (
@@ -1621,17 +1700,7 @@ const BuySellPost: React.FC<{
         {/* Description - optional */}
         {post.content && (
           <div className="px-3 md:px-4 py-3">
-            <p className="text-[#E4E6EB] text-base">{post.content}</p>
-          </div>
-        )}
-
-        {/* Location - optional */}
-        {location && (
-          <div className="px-3 md:px-4 pb-2">
-            <div className="flex items-center gap-1 text-[#B0B3B8]">
-              <i className="fas fa-map-marker-alt text-xs"></i>
-              <span className="text-xs">{location}</span>
-            </div>
+            <p className="text-[#E4E6EB] text-base whitespace-pre-wrap">{post.content}</p>
           </div>
         )}
 
@@ -1733,12 +1802,12 @@ const BuySellPost: React.FC<{
           <div className="bg-[#1e1e1e] w-full max-w-[400px] rounded-xl border border-[#333] p-4">
             <h3 className="text-[#e4e6eb] font-bold text-lg mb-4">Make an Offer</h3>
             <div className="mb-4">
-              <label className="block text-[#b0b3b8] text-sm mb-1">Your offer ($)</label>
+              <label className="block text-[#b0b3b8] text-sm mb-1">Your offer ({getCurrencySymbol(currency)})</label>
               <input
                 type="number"
                 value={offerAmount}
                 onChange={(e) => setOfferAmount(e.target.value)}
-                placeholder={`Enter amount (max $${price})`}
+                placeholder={`Enter amount (max ${formattedPrice})`}
                 max={price}
                 className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2.5 text-[#e4e6eb] outline-none"
               />
@@ -2079,7 +2148,7 @@ const MusicDramaPost: React.FC<{
         {/* Description - optional */}
         {post.content && (
           <div className="px-3 md:px-4 py-3">
-            <p className="text-[#E4E6EB] text-base">{post.content}</p>
+            <p className="text-[#E4E6EB] text-base whitespace-pre-wrap">{post.content}</p>
           </div>
         )}
 
@@ -2758,6 +2827,7 @@ function normalizePost(post: any): PostType {
     
     // Category-specific fields
     price: post?.price,
+    currency: post?.currency || 'USD',
     condition: post?.condition,
     location: post?.location,
     status: post?.status,
@@ -2771,6 +2841,7 @@ function normalizePost(post: any): PostType {
     country: post?.country,
     application_type: post?.application_type,
     application_value: post?.application_value,
+    expiry_date: post?.expiry_date,
     artist: post?.artist,
     series: post?.series,
     episode: post?.episode,
@@ -3185,6 +3256,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     if (activeGroup.category === 'buy_sell') {
       metadata = {
         price: postMetadata.price,
+        currency: postMetadata.currency || 'USD',
         condition: postMetadata.condition,
         location: postMetadata.location,
       };
@@ -3201,6 +3273,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
         job_type: postMetadata.job_type,
         application_type: postMetadata.application_type,
         application_value: postMetadata.application_value,
+        expiry_date: postMetadata.expiry_date,
       };
     } else if (activeGroup.category === 'music_drama') {
       metadata = {
@@ -4115,12 +4188,12 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
         </div>
 
         <div className="max-w-[700px] mx-auto px-0 md:px-4">
-          {/* Discussion Tab */}
+          {/* Discussion Tab - Full width posts */}
           {groupTab === 'Discussion' && (
             <div className="animate-fade-in">
               {isMember && canPost && (
                 <div
-                  className="bg-[#1e1e1e] rounded-xl p-3 mb-4 border border-[#333] shadow-sm flex gap-3 items-center cursor-pointer mx-2 md:mx-0 transition-colors hover:bg-[#2d2d2d]"
+                  className="bg-[#1e1e1e] rounded-xl p-3 mb-4 border border-[#333] shadow-sm flex gap-3 items-center cursor-pointer mx-0 transition-colors hover:bg-[#2d2d2d]"
                   onClick={() => setShowGroupPostModal(true)}
                 >
                   <img src={avatarFrom(currentUser)} className="w-10 h-10 rounded-full bg-[#2d2d2d] object-cover" alt="" />
@@ -4141,7 +4214,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
 
               <div className="space-y-4">
                 {activeGroup.type === 'private' && !isMember ? (
-                  <div className="bg-[#1e1e1e] rounded-xl p-12 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                  <div className="bg-[#1e1e1e] rounded-xl p-12 text-center border border-[#333] mx-0 shadow-sm">
                     <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
                       <i className="fas fa-lock text-[#b0b3b8] text-2xl"></i>
                     </div>
@@ -4204,14 +4277,14 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     );
                   })
                 ) : loadingPosts ? (
-                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-0 shadow-sm">
                     <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
                       <i className="fas fa-spinner fa-spin text-[#b0b3b8] text-2xl"></i>
                     </div>
                     <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">Loading posts...</h3>
                   </div>
                 ) : (
-                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-0 shadow-sm">
                     <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
                       <i className="fas fa-comments text-[#b0b3b8] text-2xl"></i>
                     </div>
@@ -4227,7 +4300,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
           {groupTab === 'Events' && (
             <div className="animate-fade-in">
               {isMember && (
-                <div className="bg-[#1e1e1e] rounded-xl p-4 mb-4 border border-[#333] mx-2 md:mx-0">
+                <div className="bg-[#1e1e1e] rounded-xl p-4 mb-4 border border-[#333] mx-0">
                   <button
                     onClick={() => setShowEventModal(true)}
                     className="w-full bg-[#1877f2] text-white px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-[#166fe5] transition-all"
@@ -4240,7 +4313,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
 
               <div className="space-y-4">
                 {!isMember && activeGroup.type === 'private' ? (
-                  <div className="bg-[#1e1e1e] rounded-xl p-12 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                  <div className="bg-[#1e1e1e] rounded-xl p-12 text-center border border-[#333] mx-0 shadow-sm">
                     <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
                       <i className="fas fa-lock text-[#b0b3b8] text-2xl"></i>
                     </div>
@@ -4255,7 +4328,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     </button>
                   </div>
                 ) : groupEvents.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mx-2 md:mx-0">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mx-0">
                     {groupEvents.map(event => (
                       <GroupEventCard
                         key={event.id}
@@ -4268,14 +4341,14 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     ))}
                   </div>
                 ) : loadingEvents ? (
-                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-0 shadow-sm">
                     <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
                       <i className="fas fa-spinner fa-spin text-[#b0b3b8] text-2xl"></i>
                     </div>
                     <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">Loading events...</h3>
                   </div>
                 ) : (
-                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-4 md:mx-0 shadow-sm">
+                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-0 shadow-sm">
                     <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
                       <i className="fas fa-calendar text-[#b0b3b8] text-2xl"></i>
                     </div>
@@ -4293,7 +4366,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
 
           {/* About Tab */}
           {groupTab === 'About' && (
-            <div className="bg-[#1e1e1e] rounded-xl p-8 border border-[#333] mx-4 md:mx-0 shadow-sm animate-fade-in">
+            <div className="bg-[#1e1e1e] rounded-xl p-8 border border-[#333] mx-0 shadow-sm animate-fade-in">
               <h3 className="text-xl font-bold text-[#e4e6eb] mb-4">About this group</h3>
               <p className="text-[#e4e6eb] text-base mb-8 leading-relaxed">{activeGroup.description}</p>
 
@@ -4338,7 +4411,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
 
           {/* Members Tab */}
           {groupTab === 'Members' && (
-            <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-4 md:mx-0 overflow-hidden shadow-sm animate-fade-in">
+            <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 overflow-hidden shadow-sm animate-fade-in">
               <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
                 <h3 className="text-[#e4e6eb] font-bold text-lg">Members · {(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)}</h3>
               </div>
@@ -4420,14 +4493,27 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                 <div className="px-6 mb-4 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Price ($)</label>
-                      <input
-                        type="number"
-                        value={postMetadata.price || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, price: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="29.99"
-                      />
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Price</label>
+                      <div className="flex gap-2">
+                        <select
+                          value={postMetadata.currency || 'USD'}
+                          onChange={(e) => setPostMetadata({ ...postMetadata, currency: e.target.value })}
+                          className="w-24 bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                        >
+                          {CURRENCY_OPTIONS.map(currency => (
+                            <option key={currency.code} value={currency.code}>
+                              {currency.code}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          value={postMetadata.price || ''}
+                          onChange={(e) => setPostMetadata({ ...postMetadata, price: e.target.value })}
+                          className="flex-1 bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                          placeholder="29.99"
+                        />
+                      </div>
                     </div>
                     <div>
                       <label className="block text-[#b0b3b8] text-xs mb-1">Condition</label>
@@ -4554,6 +4640,17 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                     </div>
                   </div>
 
+                  {/* Expiry Date */}
+                  <div>
+                    <label className="block text-[#b0b3b8] text-xs mb-1">Expiry Date</label>
+                    <input
+                      type="date"
+                      value={postMetadata.expiry_date || ''}
+                      onChange={(e) => setPostMetadata({ ...postMetadata, expiry_date: e.target.value })}
+                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
+                    />
+                  </div>
+
                   {/* Application Type */}
                   <div>
                     <label className="block text-[#b0b3b8] text-xs mb-1">How should applicants apply?</label>
@@ -4656,7 +4753,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
 
               <div className="p-6 min-h-[200px] flex-1">
                 <textarea
-                  className="w-full bg-transparent outline-none text-[#e4e6eb] placeholder-[#b0b3b8] resize-none text-[28px] font-medium leading-tight"
+                  className="w-full bg-transparent outline-none text-[#e4e6eb] placeholder-[#b0b3b8] resize-none text-[28px] font-medium leading-tight whitespace-pre-wrap"
                   placeholder={
                     activeGroup.category === 'buy_sell' ? "Describe what you're selling (optional)..." :
                     activeGroup.category === 'recruitment' ? "Describe the position and requirements (optional)..." :
