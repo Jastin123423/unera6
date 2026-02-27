@@ -1,5 +1,5 @@
 // components/Chat.tsx (or Chat.tsx)
-// Facebook Messenger-style full-screen chat window (mobile look)
+// Facebook Messenger-style full-screen chat window (mobile look) with dark theme
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { User, Message } from "../types";
@@ -61,11 +61,11 @@ const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; clas
             "data:image/svg+xml;charset=utf-8," +
             encodeURIComponent(
               `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
-                <rect width="100%" height="100%" fill="#E5E7EB"/>
+                <rect width="100%" height="100%" fill="#3A3B3C"/>
                 <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="${Math.max(
                   14,
                   Math.floor(size * 0.38)
-                )}" font-family="Arial" fill="#111827">${initials}</text>
+                )}" font-family="Arial" fill="#E4E6EB">${initials}</text>
               </svg>`
             );
         }}
@@ -75,7 +75,7 @@ const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; clas
 
   return (
     <div
-      className={`rounded-full bg-gray-200 flex items-center justify-center text-gray-800 font-semibold ${className}`}
+      className={`rounded-full bg-[#3A3B3C] flex items-center justify-center text-[#E4E6EB] font-semibold ${className}`}
       style={{ width: size, height: size, fontSize: Math.max(14, Math.floor(size * 0.38)) }}
       aria-label={name}
       title={name}
@@ -106,7 +106,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const pollRef = useRef<number | null>(null);
 
   const scrollToBottom = (smooth = true) => {
-    // If user is near bottom, keep pinned. Otherwise don’t force.
+    // If user is near bottom, keep pinned. Otherwise don't force.
     const el = listRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -223,24 +223,24 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const canSend = inputText.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-[200] bg-white flex flex-col font-sans">
+    <div className="fixed inset-0 z-[200] bg-[#1e1e1e] flex flex-col font-sans">
       {/* Top header like Messenger */}
-      <div className="h-14 px-3 flex items-center justify-between border-b border-gray-200 bg-white">
+      <div className="h-14 px-3 flex items-center justify-between border-b border-[#333] bg-[#1e1e1e]">
         <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-full flex items-center justify-center active:bg-gray-100"
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
             aria-label="Back"
           >
-            <i className="fas fa-arrow-left text-[18px] text-gray-800" />
+            <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb]" />
           </button>
 
           <div className="flex items-center gap-2 min-w-0">
             <Avatar src={(recipient as any)?.profile_image_url} name={(recipient as any)?.name} size={36} />
             <div className="min-w-0">
-              <div className="text-[15px] font-semibold text-gray-900 truncate">{safeStr((recipient as any)?.name)}</div>
-              <div className="text-[12px] text-gray-500 truncate">Active now</div>
+              <div className="text-[15px] font-semibold text-[#e4e6eb] truncate">{safeStr((recipient as any)?.name)}</div>
+              <div className="text-[12px] text-[#b0b3b8] truncate">Active now</div>
             </div>
           </div>
         </div>
@@ -248,39 +248,39 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         <div className="flex items-center gap-1">
           <button
             type="button"
-            className="w-9 h-9 rounded-full flex items-center justify-center active:bg-gray-100"
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
             aria-label="Call"
           >
-            <i className="fas fa-phone text-[18px] text-[#1877F2]" />
+            <i className="fas fa-phone text-[18px] text-[#1B74E4]" />
           </button>
           <button
             type="button"
-            className="w-9 h-9 rounded-full flex items-center justify-center active:bg-gray-100"
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
             aria-label="Video"
           >
-            <i className="fas fa-video text-[18px] text-[#1877F2]" />
+            <i className="fas fa-video text-[18px] text-[#1B74E4]" />
           </button>
           <button
             type="button"
-            className="w-9 h-9 rounded-full flex items-center justify-center active:bg-gray-100"
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
             aria-label="Info"
           >
-            <i className="fas fa-circle-info text-[18px] text-[#1877F2]" />
+            <i className="fas fa-circle-info text-[18px] text-[#1B74E4]" />
           </button>
         </div>
       </div>
 
       {/* Messages */}
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 bg-white">
+      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 bg-[#1e1e1e]">
         {loading && msgs.length === 0 ? (
-          <div className="text-center text-gray-500 text-sm py-6">Loading…</div>
+          <div className="text-center text-[#b0b3b8] text-sm py-6">Loading…</div>
         ) : null}
 
         {rows.map((r) => {
           if (r.type === "day") {
             return (
               <div key={r.key} className="flex items-center justify-center my-3">
-                <div className="text-[12px] text-gray-500">{r.day}</div>
+                <div className="text-[12px] text-[#b0b3b8] bg-[#2d2d2d] px-3 py-1 rounded-full">{r.day}</div>
               </div>
             );
           }
@@ -297,14 +297,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   className={[
                     "px-3 py-2 text-[16px] leading-snug",
                     "rounded-2xl",
-                    mine ? "bg-[#1877F2] text-white rounded-br-md" : "bg-[#E4E6EB] text-gray-900 rounded-bl-md",
+                    mine 
+                      ? "bg-[#1B74E4] text-white rounded-br-md" 
+                      : "bg-[#3A3B3C] text-[#e4e6eb] rounded-bl-md",
                   ].join(" ")}
                 >
                   {text || <span className="opacity-60">…</span>}
                 </div>
 
                 {d ? (
-                  <div className="text-[11px] text-gray-400 mt-0.5 px-1 select-none">{formatTime(d)}</div>
+                  <div className="text-[11px] text-[#b0b3b8] mt-0.5 px-1 select-none">{formatTime(d)}</div>
                 ) : null}
               </div>
             </div>
@@ -316,7 +318,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       {/* Emoji / Stickers panel */}
       {(showEmoji || showStickers) && (
-        <div className="border-t border-gray-200 bg-white">
+        <div className="border-t border-[#333] bg-[#1e1e1e]">
           {showEmoji ? (
             <div className="p-2">
               <EmojiPicker
@@ -342,48 +344,48 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       )}
 
       {/* Composer like Messenger */}
-      <form onSubmit={handleSubmit} className="border-t border-gray-200 bg-white px-2 py-2">
+      <form onSubmit={handleSubmit} className="border-t border-[#333] bg-[#1e1e1e] px-2 py-2">
         <div className="flex items-end gap-2">
           {/* Left quick actions */}
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="w-9 h-9 rounded-full flex items-center justify-center active:bg-gray-100"
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
               aria-label="Camera"
               onClick={() => alert("Camera upload (connect your media picker here)")}
             >
-              <i className="fas fa-camera text-[18px] text-[#1877F2]" />
+              <i className="fas fa-camera text-[18px] text-[#1B74E4]" />
             </button>
 
             <button
               type="button"
-              className="px-2 h-9 rounded-full flex items-center justify-center active:bg-gray-100"
+              className="px-2 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
               aria-label="GIF"
               onClick={() => alert("GIF picker (connect here)")}
             >
-              <span className="text-[13px] font-bold text-[#1877F2]">GIF</span>
+              <span className="text-[13px] font-bold text-[#1B74E4]">GIF</span>
             </button>
 
             <button
               type="button"
-              className="w-9 h-9 rounded-full flex items-center justify-center active:bg-gray-100"
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
               aria-label="Stickers"
               onClick={() => {
                 setShowStickers((v) => !v);
                 setShowEmoji(false);
               }}
             >
-              <i className="fas fa-face-smile text-[18px] text-[#1877F2]" />
+              <i className="fas fa-face-smile text-[18px] text-[#1B74E4]" />
             </button>
           </div>
 
           {/* Input */}
-          <div className="flex-1 bg-[#F0F2F5] rounded-full px-3 py-2 flex items-center gap-2">
+          <div className="flex-1 bg-[#2d2d2d] rounded-full px-3 py-2 flex items-center gap-2">
             <input
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder="Message"
-              className="flex-1 bg-transparent outline-none text-[15px] text-gray-900 placeholder:text-gray-500"
+              className="flex-1 bg-transparent outline-none text-[15px] text-[#e4e6eb] placeholder:text-[#b0b3b8]"
               onFocus={() => {
                 // keep panels, but optional: close when typing
               }}
@@ -391,23 +393,23 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
             <button
               type="button"
-              className="w-8 h-8 rounded-full flex items-center justify-center active:bg-white/60"
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
               aria-label="Emoji"
               onClick={() => {
                 setShowEmoji((v) => !v);
                 setShowStickers(false);
               }}
             >
-              <i className="far fa-smile text-[18px] text-[#1877F2]" />
+              <i className="far fa-smile text-[18px] text-[#1B74E4]" />
             </button>
 
             <button
               type="button"
-              className="w-8 h-8 rounded-full flex items-center justify-center active:bg-white/60"
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
               aria-label="Voice"
               onClick={() => alert("Voice (connect recorder here)")}
             >
-              <i className="fas fa-microphone text-[18px] text-[#1877F2]" />
+              <i className="fas fa-microphone text-[18px] text-[#1B74E4]" />
             </button>
           </div>
 
@@ -415,7 +417,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           {canSend ? (
             <button
               type="submit"
-              className="w-10 h-10 rounded-full bg-[#1877F2] flex items-center justify-center active:opacity-90"
+              className="w-10 h-10 rounded-full bg-[#1B74E4] flex items-center justify-center hover:bg-[#1A6ED8] transition-colors"
               aria-label="Send"
             >
               <i className="fas fa-paper-plane text-[16px] text-white" />
@@ -423,11 +425,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           ) : (
             <button
               type="button"
-              className="w-10 h-10 rounded-full flex items-center justify-center active:bg-gray-100"
+              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
               aria-label="Like"
               onClick={() => sendText("👍")}
             >
-              <i className="fas fa-thumbs-up text-[20px] text-[#1877F2]" />
+              <i className="fas fa-thumbs-up text-[20px] text-[#1B74E4]" />
             </button>
           )}
         </div>
