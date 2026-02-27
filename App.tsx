@@ -1,4 +1,4 @@
-// App.tsx (Complete file with all fixes)
+// App.tsx (Complete file with chat integration)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -30,6 +30,7 @@ import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
 import { TermsOfServicePage } from './components/TermsOfService';
+import { ChatWindow } from './components/Chat'; // ✅ ADDED: Import ChatWindow
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -1321,6 +1322,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
 
+  // ✅ ADDED: Chat state
+  const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
   
@@ -1505,7 +1510,6 @@ export default function App() {
   }, []);
   
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
-  const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
@@ -2275,6 +2279,44 @@ export default function App() {
     setView('profile');
     window.scrollTo(0, 0);
   }, []);
+
+  // ✅ ADDED: Chat handler
+  const handleOpenChat = useCallback((recipient: User) => {
+    if (!requireAuth('Messaging')) return;
+    
+    // If clicking on the same user who's already in chat, toggle chat visibility
+    if (activeChatUser?.id === recipient.id) {
+      setIsChatOpen(prev => !prev);
+    } else {
+      // New chat recipient - open chat with them
+      setActiveChatUser(recipient);
+      setIsChatOpen(true);
+    }
+  }, [activeChatUser?.id, requireAuth]);
+
+  const handleCloseChat = useCallback(() => {
+    setIsChatOpen(false);
+    // Don't clear activeChatUser immediately to allow for smooth re-open
+    // The chat component will still have the user data
+  }, []);
+
+  const handleSendMessage = useCallback(async (text: string, sticker?: string) => {
+    if (!currentUser || !activeChatUser) return;
+    
+    try {
+      // Your API call to send message
+      await apiFetch('/api/messages/send', {
+        method: 'POST',
+        body: JSON.stringify({
+          recipient_id: activeChatUser.id,
+          text_content: text,
+          sticker: sticker
+        }),
+      });
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    }
+  }, [currentUser, activeChatUser]);
 
   const fetchUsersList = useCallback(async () => {
     if (usersInFlightRef.current) return;
@@ -4085,6 +4127,8 @@ export default function App() {
     setSelectedReelSound(null);
     setSongs([]);
     setEvents([]);
+    setActiveChatUser(null); // ✅ Clear chat state on logout
+    setIsChatOpen(false);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -4908,6 +4952,7 @@ export default function App() {
               onMessage={(id) => {
                 if (!requireAuth('Messaging')) return;
                 setActiveChatUser(users.find((u) => u.id === id) || null);
+                setIsChatOpen(true);
               }}
               onProfileClick={(id) => openProfile(id)}
               onFollow={followUser}
@@ -4959,7 +5004,10 @@ export default function App() {
               onShare={(post: any) => handleOpenShareSheet(post)}
               onMessage={(id) => {
                 if (!requireAuth('Messaging')) return;
-                setActiveChatUser(users.find((u) => u.id === id) || null);
+                const recipient = users.find((u) => u.id === id);
+                if (recipient) {
+                  handleOpenChat(recipient);
+                }
               }}
               onCreatePost={createPost as any}
               onUpdateProfileImage={updateProfileImage as any}
@@ -4979,6 +5027,10 @@ export default function App() {
               onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
               isFollowing={checkIsFollowing(Number(profileUser.id))}
               followLoading={followLoading[Number(profileUser.id)] || false}
+              // ✅ ADDED: Chat props
+              onOpenChat={handleOpenChat}
+              isChatOpen={isChatOpen}
+              activeChatRecipient={activeChatUser}
             />
           )}
 
@@ -5021,8 +5073,10 @@ export default function App() {
           onClose={() => setActiveProduct(null)}
           onMessage={(id) => {
             if (!requireAuth('Messaging')) return;
-            setActiveChatUser(users.find((u) => u.id === id) || null);
-            setView('home');
+            const recipient = users.find((u) => u.id === id);
+            if (recipient) {
+              handleOpenChat(recipient);
+            }
           }}
         />
       )}
@@ -5189,6 +5243,16 @@ export default function App() {
       )}
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+
+      {/* ✅ ADDED: Chat Window */}
+      {isChatOpen && activeChatUser && currentUser && (
+        <ChatWindow
+          currentUser={currentUser}
+          recipient={activeChatUser}
+          onClose={handleCloseChat}
+          onSendMessage={handleSendMessage}
+        />
+      )}
     </div>
   );
 }
