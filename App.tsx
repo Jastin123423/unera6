@@ -1,5 +1,3 @@
-
-
 // App.tsx (Complete file with all fixes)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -840,6 +838,7 @@ const normalizeGroup = (g: any): Group => {
     name,
     description,
     type,
+    category: (g?.category as GroupCategory) || 'general',
     cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
     profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
     created_at: g?.created_at ?? new Date().toISOString(),
@@ -3002,7 +3001,7 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // 🔧 FIXED: fetchOtherData with proper group merging
+  // 🔧 FIXED: fetchOtherData with proper group merging - PRESERVE MEMBERSHIP!
   // ============================================================================
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
@@ -3028,7 +3027,7 @@ export default function App() {
 
       setProducts(prList.map(normalizeProduct));
       
-      // 🔧 FIXED: Handle groups response properly - preserve undefined members
+      // 🔧 CRITICAL FIX: Handle groups response properly - PRESERVE MEMBERSHIP!
       const gRaw = g;
       const gList = Array.isArray(gRaw)
         ? gRaw
@@ -3039,22 +3038,40 @@ export default function App() {
       // ✅ FIXED: Merge new groups with existing ones, preserving members when backend doesn't send them
       setGroups(prev => {
         const byId = new Map(prev.map(g => [Number(g.id), g]));
+        
         return gList.map((ng: any) => {
           const old = byId.get(Number(ng.id));
           
           // 🔧 CRITICAL FIX: Check if backend actually sent members
+          // If members is an empty array [], that means "no members" (bad)
+          // If members is undefined/null, that means "backend didn't send members" (preserve old)
           const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
           
           // If backend didn't send members, preserve old members (including undefined)
           // If backend did send members, use them
           // This prevents empty arrays from overwriting real membership data
+          const members = hasMembers ? ng.members : old?.members;
+          
+          // Calculate members_count safely
+          const members_count = hasMembers 
+            ? ng.members.length 
+            : safeNumber(ng.members_count ?? old?.members_count ?? old?.members?.length ?? 0);
+          
+          // ✅ Check is_member flag from backend
+          const is_member = ng.is_member === true ? true : 
+                           ng.is_member === false ? false : 
+                           old?.is_member;
+          
+          // ✅ Preserve category
+          const category = ng.category || old?.category || 'general';
+          
           return normalizeGroup({
             ...old,
             ...ng,
-            members: hasMembers ? ng.members : old?.members,
-            members_count: hasMembers 
-              ? ng.members.length 
-              : safeNumber(ng.members_count ?? old?.members_count ?? old?.members?.length ?? 0),
+            members, // Preserve membership!
+            members_count,
+            is_member, // Preserve is_member flag!
+            category, // Preserve category!
           });
         });
       });
