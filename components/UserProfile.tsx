@@ -1,7 +1,9 @@
-// UserProfile.tsx
+// UserProfile.tsx - Updated with ChatsList integration (Edit Profile button removed)
+
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack } from '../types';
 import { CreatePost, Post, CreatePostModal } from './Feed';
+import { ChatsList } from './ChatsList'; // ✅ ADDED: Import ChatsList
 
 /**
  * Defensive helpers to prevent blank-screen crashes
@@ -222,6 +224,10 @@ interface UserProfileProps {
   onOpenChat?: (recipient: User) => void;
   isChatOpen?: boolean;
   activeChatRecipient?: User | null;
+
+  // ✅ ADDED: ChatsList visibility control
+  onShowChatsList?: () => void;
+  isChatsListOpen?: boolean;
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -261,6 +267,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   onOpenChat,
   isChatOpen,
   activeChatRecipient,
+  // ✅ ADDED: ChatsList props
+  onShowChatsList,
+  isChatsListOpen,
 }) => {
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
@@ -393,13 +402,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }, 300);
   };
 
-  // ✅ ADDED: Message click handler - opens chat directly
+  // ✅ MODIFIED: Message click handler - opens ChatsList
   const handleMessageClick = () => {
     if (!currentUser) return;
-    if (onOpenChat) {
-      onOpenChat(user);
+    if (onShowChatsList) {
+      onShowChatsList();
     } else {
-      // Fallback to original onMessage if onOpenChat not provided
+      // Fallback to original onMessage if onShowChatsList not provided
       onMessage(user.id);
     }
   };
@@ -961,13 +970,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       <i className="fas fa-plus"></i>
                       <span>Add to story</span>
                     </button>
-                    <button
-                      className="bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner"
-                      onClick={() => setShowEditProfile(true)}
-                    >
-                      <i className="fas fa-pen"></i>
-                      <span>Edit profile</span>
-                    </button>
+                    
+                    {/* ✅ REMOVED: Edit profile button - now only Edit Details in Intro */}
                   </>
                 ) : (
                   <>
@@ -993,16 +997,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       )}
                     </button>
                     
-                    {/* ✅ MODIFIED: Message button with direct chat open */}
+                    {/* ✅ MODIFIED: Message button now opens ChatsList */}
                     <button
                       onClick={handleMessageClick}
                       className={`bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner ${
-                        isChatOpen && activeChatRecipient?.id === user.id ? 'ring-2 ring-[#1877F2]' : ''
+                        isChatsListOpen ? 'ring-2 ring-[#1877F2]' : ''
                       }`}
                     >
                       <span className="flex items-center gap-2">
                         <i className="fas fa-comment"></i>
-                        {isChatOpen && activeChatRecipient?.id === user.id ? 'Chat Open' : 'Message'}
+                        {isChatsListOpen ? 'Chats Open' : 'Message'}
                       </span>
                     </button>
                   </>
