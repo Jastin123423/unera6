@@ -2,6 +2,8 @@
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { cors, ok, bad, server } from "./_cors";
 
+type Env = { DB: D1Database };
+
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
@@ -13,10 +15,18 @@ const toInt = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const cleanUrl = (v: any) => {
+const toNumOrNull = (v: any) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const safeStr = (v: any) => {
   const s = String(v ?? "").trim();
-  if (!s) return "";
-  if (s === "null" || s === "undefined") return "";
+  return s === "null" || s === "undefined" ? "" : s;
+};
+
+const cleanUrl = (v: any) => {
+  const s = safeStr(v);
   return s;
 };
 
@@ -27,30 +37,23 @@ const parseMediaUrls = (raw: any): string[] => {
   // - comma-separated string: "a,b"
   // - string url: "a" => ["a"]
   // - null => []
-  if (Array.isArray(raw)) {
-    return raw.map(cleanUrl).filter(Boolean);
-  }
+  if (Array.isArray(raw)) return raw.map(cleanUrl).filter(Boolean);
 
   if (typeof raw === "string") {
     const s = raw.trim();
     if (!s) return [];
 
-    // JSON array string
     if (s.startsWith("[")) {
       try {
         const parsed = JSON.parse(s);
         return Array.isArray(parsed) ? parsed.map(cleanUrl).filter(Boolean) : [];
       } catch {
-        // fallthrough to treat as single
+        // fallthrough
       }
     }
 
-    // comma-separated (safe-ish)
     if (s.includes(",") && !s.includes("://")) {
-      return s
-        .split(",")
-        .map((x) => cleanUrl(x))
-        .filter(Boolean);
+      return s.split(",").map((x) => cleanUrl(x)).filter(Boolean);
     }
 
     const one = cleanUrl(s);
@@ -68,6 +71,29 @@ const normalizeImagesForResponse = (row: any): string[] => {
   return single ? [single] : [];
 };
 
+const normalizeCategory = (v: any) => {
+  const key = safeStr(v).toLowerCase();
+  // keep your real categories here
+  if (key === "buy_sell" || key === "buysell" || key === "buy-sell") return "buy_sell";
+  if (key === "recruitment" || key === "jobs" || key === "job") return "recruitment";
+  return key || "general";
+};
+
+const normalizeVisibility = (v: any) => {
+  const s = safeStr(v).toLowerCase();
+  return s === "private" ? "private" : "public";
+};
+
+const normalizeApplicationType = (v: any) => {
+  const t = safeStr(v).toLowerCase();
+  return t === "email" || t === "link" ? t : "";
+};
+
+const normalizeStatus = (v: any) => {
+  const s = safeStr(v).toLowerCase();
+  return s === "sold" || s === "pending" || s === "available" ? s : "available";
+};
+
 const isMemberOrAdmin = async (env: any, group_id: number, user_id: number) => {
   const mem = await env.DB.prepare(
     `SELECT role FROM group_members WHERE group_id=? AND user_id=? LIMIT 1`
@@ -77,8 +103,23 @@ const isMemberOrAdmin = async (env: any, group_id: number, user_id: number) => {
   return mem ? { ok: true, role: String((mem as any).role || "") } : { ok: false, role: "" };
 };
 
-// CREATE: POST /api/group-posts
-export const onRequestPost: PagesFunction = async ({ request, env }) => {
+const getGroupCategory = async (env: any, group_id: number) => {
+  const g = await env.DB.prepare(`SELECT id, category FROM groups WHERE id=? LIMIT 1`)
+    .bind(group_id)
+    .first();
+  if (!g) return { ok: false as const, category: "general" };
+  return { ok: true as const, category: normalizeCategory((g as any).category) };
+};
+
+/** ============================================================
+ * CREATE: POST /api/group-posts
+ * Supports:
+ * - media_url, media_urls
+ * - recruitment fields
+ * - buy_sell fields
+ * You can send category fields directly or inside body.metadata
+ * ============================================================ */
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env?.DB) return server("DB binding missing (DB)");
 
@@ -86,6 +127,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 
     const group_id = toInt(body.group_id, 0);
     const user_id = toInt(body.user_id, 0);
+
     const content = body.content == null ? null : String(body.content);
 
     const media_url = body.media_url == null ? null : cleanUrl(body.media_url);
@@ -93,9 +135,11 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     const media_urls_arr = parseMediaUrls(body.media_urls);
     const media_urls_json = media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
 
+    const visibility = normalizeVisibility(body.visibility);
+
     if (!group_id || !user_id) return bad("group_id and user_id are required");
 
-    const hasText = !!String(content ?? "").trim();
+    const hasText = !!safeStr(content ?? "");
     const hasSingle = !!media_url;
     const hasMulti = media_urls_arr.length > 0;
 
@@ -106,28 +150,118 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     const mem = await isMemberOrAdmin(env, group_id, user_id);
     if (!mem.ok) return bad("User is not a member of this group", 403);
 
+    // ✅ Read group category (so we know rules)
+    const catRes = await getGroupCategory(env, group_id);
+    if (!catRes.ok) return bad("Group not found", 404);
+    const groupCategory = catRes.category;
+
+    // metadata support
+    const meta = body.metadata && typeof body.metadata === "object" ? body.metadata : {};
+
+    // =========================
+    // Recruitment fields
+    // =========================
+    const job_title = safeStr(meta.job_title ?? body.job_title);
+    const company = safeStr(meta.company ?? body.company);
+    const job_type = safeStr(meta.job_type ?? body.job_type);
+    const salary = safeStr(meta.salary ?? body.salary);
+
+    const street = safeStr(meta.street ?? body.street);
+    const district = safeStr(meta.district ?? body.district);
+    const region = safeStr(meta.region ?? body.region);
+    const country = safeStr(meta.country ?? body.country);
+    const location = safeStr(meta.location ?? body.location);
+
+    const application_type = normalizeApplicationType(meta.application_type ?? body.application_type);
+    const application_value = safeStr(meta.application_value ?? body.application_value);
+    const expiry_date = safeStr(meta.expiry_date ?? body.expiry_date); // store ISO string
+
+    // =========================
+    // Buy/Sell fields
+    // =========================
+    const price = toNumOrNull(meta.price ?? body.price);
+    const currency = safeStr(meta.currency ?? body.currency) || "USD";
+    const condition = safeStr(meta.condition ?? body.condition);
+    const status = normalizeStatus(meta.status ?? body.status);
+
+    // ✅ Category-based validation (recommended)
+    if (groupCategory === "recruitment") {
+      if (!job_title) return bad("job_title is required for recruitment posts");
+      if (application_type && !application_value) {
+        return bad("application_value is required when application_type is set");
+      }
+    }
+
+    if (groupCategory === "buy_sell") {
+      if (price === null) return bad("price is required for buy_sell posts");
+      if (!condition) return bad("condition is required for buy_sell posts");
+    }
+
+    // Insert with new columns (safe even if they are null)
     const result = await env.DB.prepare(
-      `INSERT INTO group_posts (group_id, user_id, content, media_url, media_urls)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO group_posts (
+        group_id, user_id, content, media_url, media_urls, visibility,
+
+        job_title, company, job_type, salary,
+        street, district, region, country, location,
+        application_type, application_value, expiry_date,
+
+        price, currency, condition, status
+      )
+      VALUES (?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?,
+              ?, ?, ?, ?, ?,
+              ?, ?, ?,
+              ?, ?, ?, ?)`
     )
-      .bind(group_id, user_id, content, media_url, media_urls_json)
+      .bind(
+        group_id,
+        user_id,
+        content,
+        media_url,
+        media_urls_json,
+        visibility,
+
+        job_title || null,
+        company || null,
+        job_type || null,
+        salary || null,
+
+        street || null,
+        district || null,
+        region || null,
+        country || null,
+        location || null,
+
+        application_type || null,
+        application_value || null,
+        expiry_date || null,
+
+        price,
+        currency,
+        condition || null,
+        status
+      )
       .run();
 
     return ok({
       success: true,
       post_id: Number(result.meta.last_row_id),
       media_urls: media_urls_arr,
+      group_category: groupCategory,
     });
   } catch (e: any) {
     return server(e?.message || "Failed to create group post");
   }
 };
 
-// LIST:
-// - all: /api/group-posts
-// - by group: /api/group-posts?group_id=123
-// - include viewer: /api/group-posts?group_id=123&viewerId=4
-export const onRequestGet: PagesFunction = async ({ request, env }) => {
+/** ============================================================
+ * LIST:
+ * - all: /api/group-posts
+ * - by group: /api/group-posts?group_id=123
+ * - include viewer: /api/group-posts?group_id=123&viewerId=4
+ * ============================================================ */
+export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env?.DB) return server("DB binding missing (DB)");
 
@@ -139,7 +273,6 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     const binds: any[] = [];
     if (group_id) binds.push(group_id);
 
-    // ✅ UPDATED: likes -> reactions
     const myReactionSelect = viewerId
       ? `(SELECT LOWER(COALESCE(r.type,'like'))
           FROM group_post_reactions r
@@ -148,7 +281,6 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
         ) AS my_reaction`
       : `NULL AS my_reaction`;
 
-    // ✅ UPDATED: counts + preview + by_type like posts table
     const stmt = `
       SELECT
         gp.*,
@@ -227,8 +359,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
       return {
         ...r,
         images,
-        // ✅ keep raw DB column too, but provide array alias for UI
-        media_urls: images,
+        media_urls: images, // UI alias
       };
     });
 
@@ -238,8 +369,11 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
   }
 };
 
-// EDIT: PUT /api/group-posts?post_id=123
-export const onRequestPut: PagesFunction = async ({ request, env }) => {
+/** ============================================================
+ * EDIT: PUT /api/group-posts?post_id=123
+ * Supports updating new category fields too
+ * ============================================================ */
+export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env?.DB) return server("DB binding missing (DB)");
 
@@ -271,31 +405,62 @@ export const onRequestPut: PagesFunction = async ({ request, env }) => {
     const isAuthor = author_id === user_id;
     if (!isAuthor && !isGroupAdmin) return bad("Not allowed to edit this post", 403);
 
+    // metadata support
+    const meta = body.metadata && typeof body.metadata === "object" ? body.metadata : {};
+
     const content = body.content == null ? null : String(body.content).trim();
     const media_url = body.media_url == null ? null : cleanUrl(body.media_url);
 
     const media_urls_arr = body.media_urls == null ? null : parseMediaUrls(body.media_urls);
-    const media_urls_json = media_urls_arr && media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
+    const media_urls_json =
+      media_urls_arr && media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
+
+    const visibility = body.visibility !== undefined ? normalizeVisibility(body.visibility) : undefined;
 
     const sets: string[] = [];
     const binds: any[] = [];
 
-    if (body.content !== undefined) {
-      sets.push(`content=?`);
-      binds.push(content);
-    }
-    if (body.media_url !== undefined) {
-      sets.push(`media_url=?`);
-      binds.push(media_url);
-    }
-    if (body.media_urls !== undefined) {
-      sets.push(`media_urls=?`);
-      binds.push(media_urls_json);
+    const setIf = (key: string, val: any) => {
+      sets.push(`${key}=?`);
+      binds.push(val);
+    };
+
+    if (body.content !== undefined) setIf("content", content);
+    if (body.media_url !== undefined) setIf("media_url", media_url);
+    if (body.media_urls !== undefined) setIf("media_urls", media_urls_json);
+    if (visibility !== undefined) setIf("visibility", visibility);
+
+    // New fields (direct or metadata)
+    const fieldMap: Array<[string, any]> = [
+      ["job_title", safeStr(meta.job_title ?? body.job_title) || null],
+      ["company", safeStr(meta.company ?? body.company) || null],
+      ["job_type", safeStr(meta.job_type ?? body.job_type) || null],
+      ["salary", safeStr(meta.salary ?? body.salary) || null],
+
+      ["street", safeStr(meta.street ?? body.street) || null],
+      ["district", safeStr(meta.district ?? body.district) || null],
+      ["region", safeStr(meta.region ?? body.region) || null],
+      ["country", safeStr(meta.country ?? body.country) || null],
+      ["location", safeStr(meta.location ?? body.location) || null],
+
+      ["application_type", normalizeApplicationType(meta.application_type ?? body.application_type) || null],
+      ["application_value", safeStr(meta.application_value ?? body.application_value) || null],
+      ["expiry_date", safeStr(meta.expiry_date ?? body.expiry_date) || null],
+
+      ["price", body.price !== undefined || meta.price !== undefined ? toNumOrNull(meta.price ?? body.price) : undefined],
+      ["currency", body.currency !== undefined || meta.currency !== undefined ? (safeStr(meta.currency ?? body.currency) || "USD") : undefined],
+      ["condition", body.condition !== undefined || meta.condition !== undefined ? (safeStr(meta.condition ?? body.condition) || null) : undefined],
+      ["status", body.status !== undefined || meta.status !== undefined ? normalizeStatus(meta.status ?? body.status) : undefined],
+    ];
+
+    for (const [col, val] of fieldMap) {
+      if (val !== undefined) setIf(col, val);
     }
 
     if (sets.length === 0) return bad("Nothing to update");
 
-    const willClearText = body.content !== undefined && !String(content ?? "").trim();
+    // Keep your safety check for clearing everything
+    const willClearText = body.content !== undefined && !safeStr(content ?? "");
     const willClearSingle = body.media_url !== undefined && !media_url;
     const willClearMulti = body.media_urls !== undefined && !(media_urls_arr?.length);
 
@@ -314,8 +479,10 @@ export const onRequestPut: PagesFunction = async ({ request, env }) => {
   }
 };
 
-// DELETE: DELETE /api/group-posts?post_id=123&user_id=4
-export const onRequestDelete: PagesFunction = async ({ request, env }) => {
+/** ============================================================
+ * DELETE: DELETE /api/group-posts?post_id=123&user_id=4
+ * ============================================================ */
+export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env?.DB) return server("DB binding missing (DB)");
 
