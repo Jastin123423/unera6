@@ -1,9 +1,9 @@
-// UserProfile.tsx - 
+// UserProfile.tsx - Complete updated file with correct API endpoint
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
 
-// Import everything from Feeds.tsx (note the capital F)
+// Import from Feed.tsx
 import {
   EventPost,
   PeopleYouMayKnowGrid,
@@ -30,25 +30,18 @@ import {
   Post
 } from './Feed';
 
-// Re-export any helpers that might be needed
-export { safeArray, safeNumber, safeString, safePostId, safeUserId };
-
-/**
- * =========================
- * Defensive helpers to prevent blank-screen crashes
- * when backend returns raw D1 rows (missing arrays like reactions/comments).
- * =========================
- */
-// Note: These are already imported from Feeds, so we don't need to redefine them
-// But we'll keep them commented for reference
-// const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
-// const safeNumber = (v: any, fallback = 0) => {
-//   const n = typeof v === 'number' ? v : Number(v);
-//   return Number.isFinite(n) ? n : fallback;
-// };
-// const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
-// const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
-// const safeUserId = (u: any) => safeNumber(u?.id ?? u?.user_id ?? u?.userId, 0);
+// ============================================================================
+// HELPER FUNCTIONS (if not exported from Feed)
+// ============================================================================
+// These are already imported from Feed, but kept as fallbacks
+const safeArrayHelper = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+const safeNumberHelper = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+const safeStringHelper = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+const safePostIdHelper = (p: any) => safeNumberHelper(p?.id ?? p?.post_id ?? p?.postId, 0);
+const safeUserIdHelper = (u: any) => safeNumberHelper(u?.id ?? u?.user_id ?? u?.userId, 0);
 
 interface EditProfileModalProps {
   user: User;
@@ -57,11 +50,11 @@ interface EditProfileModalProps {
 }
 
 const EditProfileModal: React.FC<EditProfileModalProps> = ({ user, onClose, onSave }) => {
-  const [bio, setBio] = useState(safeString((user as any).bio, ''));
-  const [work, setWork] = useState(safeString((user as any).work, ''));
-  const [education, setEducation] = useState(safeString((user as any).education, ''));
-  const [location, setLocation] = useState(safeString((user as any).location, ''));
-  const [website, setWebsite] = useState(safeString((user as any).website, ''));
+  const [bio, setBio] = useState(safeStringHelper((user as any).bio, ''));
+  const [work, setWork] = useState(safeStringHelper((user as any).work, ''));
+  const [education, setEducation] = useState(safeStringHelper((user as any).education, ''));
+  const [location, setLocation] = useState(safeStringHelper((user as any).location, ''));
+  const [website, setWebsite] = useState(safeStringHelper((user as any).website, ''));
 
   const handleSave = () => {
     onSave({ bio, work, education, location, website });
@@ -282,10 +275,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [isLoadingPosts, setIsLoadingPosts] = useState(false);
   
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false);
 
-  // ========== MODAL STATES (MATCHING FEEDS.TSX) ==========
+  // ========== MODAL STATES ==========
   const [showCommentsSheet, setShowCommentsSheet] = useState(false);
   const [selectedPostForComments, setSelectedPostForComments] = useState<any>(null);
   
@@ -305,11 +299,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   // Follow logic
   const isFollowing = useMemo(() => {
     if (!currentUser) return false;
-    const userFollowers = safeArray<number>((user as any)?.followers || []);
+    const userFollowers = safeArrayHelper<number>((user as any)?.followers || []);
     return userFollowers.includes(currentUser.id);
   }, [currentUser, user]);
 
-  const userFollowers = useMemo(() => safeArray<number>((user as any).followers || []), [user]);
+  const userFollowers = useMemo(() => safeArrayHelper<number>((user as any).followers || []), [user]);
   const followerCount = userFollowers.length;
 
   // Role checks
@@ -322,69 +316,211 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   // Local state for profile posts
-  const [profilePosts, setProfilePosts] = useState<PostType[]>(() => safeArray(posts));
+  const [profilePosts, setProfilePosts] = useState<PostType[]>(() => safeArrayHelper(posts));
 
   // Keep in sync when parent provides new posts
   useEffect(() => {
-    setProfilePosts(safeArray(posts));
+    setProfilePosts(safeArrayHelper(posts));
   }, [posts]);
 
-  // Fetch latest profile posts on profile change
+  // ========== API FETCH HELPER ==========
+  const apiFetch = async (url: string, options: RequestInit = {}) => {
+    const token = localStorage.getItem('unera_token');
+    const headers: HeadersInit = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const res = await fetch(url, { 
+        ...options, 
+        headers,
+        signal: controller.signal 
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = null;
+
+      try {
+        if (contentType.includes('application/json')) {
+          data = await res.json();
+        } else {
+          const text = await res.text();
+          try {
+            data = JSON.parse(text);
+          } catch {
+            data = { error: text };
+          }
+        }
+      } catch (e: any) {
+        data = { error: e?.message || 'Failed to parse response' };
+      }
+
+      if (!res.ok) {
+        const msg = data?.error || data?.message || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      return data;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  // ========== FETCH PROFILE POSTS FROM BACKEND ==========
+  // This is the key function that fetches from the correct endpoint
+  const fetchProfilePostsFromBackend = async (profileUserId: number): Promise<PostType[]> => {
+    if (!profileUserId) return [];
+    
+    setIsLoadingPosts(true);
+    
+    try {
+      const viewerId = currentUser?.id ?? 0;
+      
+      // ✅ CORRECT ENDPOINT: /api/posts/by-user?userId=...&viewerId=...
+      const url = `/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`;
+      console.log('📡 Fetching profile posts from:', url);
+      
+      const data = await apiFetch(url);
+      console.log('📥 Profile posts response:', data);
+      
+      // Handle different response formats
+      let postsArray = [];
+      if (Array.isArray(data)) {
+        postsArray = data;
+      } else if (data?.posts && Array.isArray(data.posts)) {
+        postsArray = data.posts;
+      } else if (data?.data && Array.isArray(data.data)) {
+        postsArray = data.data;
+      } else if (data?.results && Array.isArray(data.results)) {
+        postsArray = data.results;
+      }
+      
+      // Normalize posts to ensure consistent format
+      const normalized = postsArray.map((post: any) => ({
+        ...post,
+        id: safeNumberHelper(post?.id ?? post?.post_id),
+        user_id: safeNumberHelper(post?.user_id),
+        content: safeStringHelper(post?.content),
+        media_url: post?.media_url ?? null,
+        media_type: post?.media_type ?? null,
+        media_urls: Array.isArray(post?.media_urls) ? post.media_urls : [],
+        images: Array.isArray(post?.images) ? post.images : [],
+        reactions: safeArrayHelper(post?.reactions),
+        comments: safeArrayHelper(post?.comments),
+        shares: safeNumberHelper(post?.shares),
+        views: safeNumberHelper(post?.views),
+        my_reaction: post?.my_reaction ?? null,
+        reactions_count: safeNumberHelper(post?.reactions_count, 0),
+        comments_count: safeNumberHelper(post?.comments_count, 0),
+        created_at: post?.created_at ?? new Date().toISOString(),
+        type: post?.type || 'post',
+        meta: post?.meta || {}
+      }));
+
+      // Sort by latest first
+      normalized.sort((a: any, b: any) => 
+        String(b.created_at).localeCompare(String(a.created_at))
+      );
+
+      return normalized;
+    } catch (error) {
+      console.error('❌ Failed to fetch profile posts:', error);
+      return [];
+    } finally {
+      setIsLoadingPosts(false);
+    }
+  };
+
+  // ========== LOAD PROFILE POSTS ==========
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    
+    const loadProfilePosts = async () => {
       if (!user?.id) return;
-      if (fetchProfilePosts) {
-        const list = await fetchProfilePosts(Number(user.id), currentUser?.id ?? null);
-        if (!cancelled && list.length) setProfilePosts(list);
+      
+      try {
+        // If fetchProfilePosts prop is provided, use it
+        if (fetchProfilePosts) {
+          const viewerId = currentUser?.id ?? null;
+          const list = await fetchProfilePosts(Number(user.id), viewerId);
+          if (!cancelled && list.length) {
+            setProfilePosts(list);
+          }
+          return;
+        }
+        
+        // Otherwise use our local fetch function with the correct endpoint
+        const list = await fetchProfilePostsFromBackend(Number(user.id));
+        if (!cancelled) {
+          setProfilePosts(list);
+        }
+      } catch (error) {
+        console.error('Error loading profile posts:', error);
       }
-    })();
+    };
+    
+    loadProfilePosts();
+    
     return () => { cancelled = true; };
-  }, [user?.id, currentUser?.id, fetchProfilePosts]);
+  }, [user?.id, currentUser?.id]); // Remove fetchProfilePosts from deps to avoid infinite loops
+
+  // ========== MANUAL REFRESH FUNCTION ==========
+  const refreshProfilePosts = async () => {
+    if (!user?.id) return;
+    
+    const list = await fetchProfilePostsFromBackend(Number(user.id));
+    setProfilePosts(list);
+  };
 
   // User reels
   const userReels = useMemo(
-    () => safeArray<Reel>(reels).filter((reel: any) => Number(reel?.user_id) === Number(user?.id)),
+    () => safeArrayHelper<Reel>(reels).filter((reel: any) => Number(reel?.user_id) === Number(user?.id)),
     [reels, user?.id]
   );
 
   // Stats calculations
   const totalViews = useMemo(
-    () => profilePosts.reduce((acc, curr: any) => acc + safeNumber(curr?.views, 0), 0),
+    () => profilePosts.reduce((acc, curr: any) => acc + safeNumberHelper(curr?.views, 0), 0),
     [profilePosts]
   );
 
   const totalLikes = useMemo(() => {
     const postLikes = profilePosts.reduce((acc, curr: any) => {
-      const reactionsCount = safeNumber((curr as any)?.reactions_count, 0);
-      const reactionsArray = safeArray(curr?.reactions);
+      const reactionsCount = safeNumberHelper((curr as any)?.reactions_count, 0);
+      const reactionsArray = safeArrayHelper(curr?.reactions);
       return acc + (reactionsCount > 0 ? reactionsCount : reactionsArray.length);
     }, 0);
-    const reelLikes = userReels.reduce((acc, curr: any) => acc + safeArray(curr?.reactions).length, 0);
+    const reelLikes = userReels.reduce((acc, curr: any) => acc + safeArrayHelper(curr?.reactions).length, 0);
     return postLikes + reelLikes;
   }, [profilePosts, userReels]);
 
   const totalShares = useMemo(() => {
-    const postShares = profilePosts.reduce((acc, curr: any) => acc + safeNumber(curr?.shares, 0), 0);
-    const reelShares = userReels.reduce((acc, curr: any) => acc + safeNumber((curr as any)?.shares, 0), 0);
+    const postShares = profilePosts.reduce((acc, curr: any) => acc + safeNumberHelper(curr?.shares, 0), 0);
+    const reelShares = userReels.reduce((acc, curr: any) => acc + safeNumberHelper((curr as any)?.shares, 0), 0);
     return postShares + reelShares;
   }, [profilePosts, userReels]);
 
   const totalComments = useMemo(() => {
     const postComments = profilePosts.reduce((acc, curr: any) => {
-      const commentsCount = safeNumber((curr as any)?.comments_count, 0);
-      const commentsArray = safeArray(curr?.comments);
+      const commentsCount = safeNumberHelper((curr as any)?.comments_count, 0);
+      const commentsArray = safeArrayHelper(curr?.comments);
       return acc + (commentsCount > 0 ? commentsCount : commentsArray.length);
     }, 0);
-    const reelComments = userReels.reduce((acc, curr: any) => acc + safeArray((curr as any)?.comments).length, 0);
+    const reelComments = userReels.reduce((acc, curr: any) => acc + safeArrayHelper((curr as any)?.comments).length, 0);
     return postComments + reelComments;
   }, [profilePosts, userReels]);
 
   const totalEngagement = totalLikes + totalComments + totalShares;
 
-  const safeProfileImage = safeString((user as any)?.profile_image_url, '');
-  const safeCoverImage = safeString((user as any)?.cover_image_url, '');
-  const safeBio = safeString((user as any)?.bio, '');
+  const safeProfileImage = safeStringHelper((user as any)?.profile_image_url, '');
+  const safeCoverImage = safeStringHelper((user as any)?.cover_image_url, '');
+  const safeBio = safeStringHelper((user as any)?.bio, '');
 
   // Image validation
   const validateAndUploadImage = (file: File, uploadCallback: (file: File) => void) => {
@@ -429,50 +565,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   };
 
-  // ========== API FETCH HELPER (SAME AS FEEDS) ==========
-  const apiFetch = async (url: string, options: RequestInit = {}) => {
-    const headers: HeadersInit = {
-      Accept: 'application/json',
-      ...(options.headers || {}),
-    };
-
-    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-    if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-    try {
-      const res = await fetch(url, { ...options, headers, signal: controller.signal });
-
-      const contentType = res.headers.get('content-type') || '';
-      let data: any = null;
-
-      try {
-        if (contentType.includes('application/json')) data = await res.json();
-        else {
-          const text = await res.text();
-          try {
-            data = JSON.parse(text);
-          } catch {
-            data = { error: text };
-          }
-        }
-      } catch (e: any) {
-        data = { error: e?.message || 'Failed to parse response' };
-      }
-
-      if (!res.ok) {
-        const msg = data?.error || data?.message || `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-
-      return data;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  };
-
   // ========== PROFILE-SPECIFIC REACT HANDLER WITH OPTIMISTIC UPDATE ==========
   const handleProfileReact = (postId: number, type: ReactionType) => {
     if (!currentUser) return;
@@ -481,7 +573,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
     setProfilePosts(prev =>
       prev.map((p: any) => {
-        if (safePostId(p) !== pid) return p;
+        if (safePostIdHelper(p) !== pid) return p;
 
         const current = (p as any).my_reaction ?? null;
         const nextMy = current === type ? null : type;
@@ -491,7 +583,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           ? (nextMy ? currentCount : Math.max(0, currentCount - 1))
           : (nextMy ? currentCount + 1 : currentCount);
 
-        const prevArr = safeArray<any>((p as any).reactions);
+        const prevArr = safeArrayHelper<any>((p as any).reactions);
         const withoutMe = prevArr.filter((r: any) => Number(r.user_id) !== Number(currentUser.id));
         const nextArr = nextMy ? [...withoutMe, { user_id: currentUser.id, type: nextMy }] : withoutMe;
 
@@ -511,12 +603,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const handleShareComplete = (destination: string, data?: any) => {
     if (selectedPostForShare && data?.success) {
       const newShares = data?.shares || 0;
-      onShare(safePostId(selectedPostForShare), newShares);
+      onShare(safePostIdHelper(selectedPostForShare), newShares);
       
-      // Update local state
       setProfilePosts(prev =>
         prev.map(p => 
-          safePostId(p) === safePostId(selectedPostForShare)
+          safePostIdHelper(p) === safePostIdHelper(selectedPostForShare)
             ? { ...p, shares: newShares }
             : p
         )
@@ -528,7 +619,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
   // ========== OPEN COMMENTS SHEET ==========
   const handleOpenComments = (postId: number) => {
-    const post = profilePosts.find(p => safePostId(p) === postId);
+    const post = profilePosts.find(p => safePostIdHelper(p) === postId);
     if (post) {
       setSelectedPostForComments(post);
       setShowCommentsSheet(true);
@@ -582,7 +673,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       </div>
 
       <p className="text-[#B0B3B8] text-lg italic mb-6">
-        "{safeString((user as any).bio, 'No bio available')}"
+        "{safeStringHelper((user as any).bio, 'No bio available')}"
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -759,7 +850,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         </div>
 
-        {/* Suggested Products Widget - EXACTLY AS IN FEEDS */}
+        {/* Suggested Products Widget */}
         {!isCurrentUser && products.length > 0 && currentUser && (
           <SuggestedProductsWidget
             products={products}
@@ -782,20 +873,30 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         )}
 
+        {/* Loading indicator */}
+        {isLoadingPosts && (
+          <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042] mb-4">
+            <div className="flex justify-center items-center gap-2">
+              <i className="fas fa-spinner fa-spin text-[#1877F2] text-xl"></i>
+              <span className="text-[#B0B3B8]">Loading posts...</span>
+            </div>
+          </div>
+        )}
+
         {/* Stats for current user */}
-        {isCurrentUser && (
+        {isCurrentUser && !isLoadingPosts && (
           <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-[#3A3B3C] p-3 rounded-lg border border-[#3E4042]">
                 <div className="text-[#B0B3B8] text-xs font-medium mb-1">Total Views</div>
                 <div className="text-[#E4E6EB] font-bold text-xl">
-                  {safeNumber(totalViews).toLocaleString()}
+                  {safeNumberHelper(totalViews).toLocaleString()}
                 </div>
               </div>
               <div className="bg-[#3A3B3C] p-3 rounded-lg border border-[#3E4042]">
                 <div className="text-[#B0B3B8] text-xs font-medium mb-1">Engagement</div>
                 <div className="text-[#E4E6EB] font-bold text-xl">
-                  {safeNumber(totalEngagement).toLocaleString()}
+                  {safeNumberHelper(totalEngagement).toLocaleString()}
                 </div>
               </div>
             </div>
@@ -823,7 +924,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </>
         )}
 
-        {/* People You May Know - EXACTLY AS IN FEEDS */}
+        {/* People You May Know */}
         {!isCurrentUser && peopleSuggestions.length > 0 && (
           <PeopleYouMayKnowGrid
             users={peopleSuggestions}
@@ -834,81 +935,89 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           />
         )}
 
-        {/* Posts Feed - Using the SAME Post component as Feeds.tsx */}
-        {filteredProfilePosts.map((post: any) => {
-          // Check if it's an event post
-          const isEventPost =
-            post?.item_type === "event" ||
-            String(post?.feed_key || "").startsWith("event:") ||
-            post?.source === "event" ||
-            post?.type === 'event' ||
-            post?.post_type === 'event' ||
-            !!post?.event_id ||
-            !!post?.meta?.event;
+        {/* Posts Feed */}
+        {!isLoadingPosts && filteredProfilePosts.length > 0 ? (
+          filteredProfilePosts.map((post: any) => {
+            // Check if it's an event post
+            const isEventPost =
+              post?.item_type === "event" ||
+              String(post?.feed_key || "").startsWith("event:") ||
+              post?.source === "event" ||
+              post?.type === 'event' ||
+              post?.post_type === 'event' ||
+              !!post?.event_id ||
+              !!post?.meta?.event;
 
-          if (isEventPost) {
-            const event = normalizeEventFromFeed(post);
+            if (isEventPost) {
+              const event = normalizeEventFromFeed(post);
+              return (
+                <EventPost
+                  key={post.id}
+                  event={event}
+                  author={user}
+                  currentUser={currentUser}
+                  users={users}
+                  onProfileClick={onProfileClick}
+                  onRSVP={onRSVP}
+                  onFollow={onFollow}
+                  isFollowing={isFollowing}
+                  groups={groups}
+                  brands={brands}
+                  onEventClick={(eventId) => console.log('Event clicked:', eventId)}
+                />
+              );
+            }
+
+            // Regular post
             return (
-              <EventPost
+              <Post
                 key={post.id}
-                event={event}
+                post={post}
                 author={user}
                 currentUser={currentUser}
                 users={users}
                 onProfileClick={onProfileClick}
+                onReact={handleProfileReact}
+                onShare={(id, newCount) => {
+                  onShare(id, newCount);
+                  setProfilePosts(prev =>
+                    prev.map(p => safePostIdHelper(p) === id ? { ...p, shares: newCount } : p)
+                  );
+                }}
+                onDelete={onDeletePost}
+                onEdit={onEditPost}
+                onViewImage={onViewImage}
+                onOpenComments={handleOpenComments}
+                onVideoClick={onVideoClick}
+                onPlayAudioTrack={onPlayAudioTrack}
+                onHashtagClick={onHashtagClick}
+                onViewProductFromPost={onViewProductFromPost}
+                onOpenAudio={onOpenAudio}
                 onRSVP={onRSVP}
-                onFollow={onFollow}
-                isFollowing={isFollowing}
                 groups={groups}
                 brands={brands}
-                onEventClick={(eventId) => console.log('Event clicked:', eventId)}
+                isFollowing={isFollowing}
+                onFollow={onFollow}
+                onOpenReactions={handleOpenReactions}
+                getProductData={getProductData}
+                onViewProduct={onViewProduct}
               />
             );
-          }
-
-          // Regular post - use the SAME Post component from Feeds
-          return (
-            <Post
-              key={post.id}
-              post={post}
-              author={user}
-              currentUser={currentUser}
-              users={users}
-              onProfileClick={onProfileClick}
-              onReact={handleProfileReact}
-              onShare={(id, newCount) => {
-                onShare(id, newCount);
-                // Update local state
-                setProfilePosts(prev =>
-                  prev.map(p => safePostId(p) === id ? { ...p, shares: newCount } : p)
-                );
-              }}
-              onDelete={onDeletePost}
-              onEdit={onEditPost}
-              onViewImage={onViewImage}
-              onOpenComments={handleOpenComments}
-              onVideoClick={onVideoClick}
-              onPlayAudioTrack={onPlayAudioTrack}
-              onHashtagClick={onHashtagClick}
-              onViewProductFromPost={onViewProductFromPost}
-              onOpenAudio={onOpenAudio}
-              onRSVP={onRSVP}
-              groups={groups}
-              brands={brands}
-              isFollowing={isFollowing}
-              onFollow={onFollow}
-              onOpenReactions={handleOpenReactions}
-              getProductData={getProductData}
-              onViewProduct={onViewProduct}
-            />
-          );
-        })}
-
-        {/* Empty state */}
-        {filteredProfilePosts.length === 0 && !isCurrentUser && (
+          })
+        ) : !isLoadingPosts && filteredProfilePosts.length === 0 && (
           <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
             <div className="text-[#B0B3B8] text-lg mb-2">No posts yet</div>
-            <p className="text-[#B0B3B8] text-sm">This user hasn't posted anything yet.</p>
+            <p className="text-[#B0B3B8] text-sm">
+              {isCurrentUser ? "Create your first post!" : "This user hasn't posted anything yet."}
+            </p>
+            {isCurrentUser && (
+              <button
+                onClick={() => setShowCreatePostModal(true)}
+                className="mt-4 bg-[#1877F2] text-white px-6 py-2 rounded-lg font-semibold hover:bg-[#166FE5] transition-colors"
+              >
+                Create Post
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -992,7 +1101,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 {safeProfileImage ? (
                   <img
                     src={safeProfileImage}
-                    alt={safeString((user as any).name, 'User')}
+                    alt={safeStringHelper((user as any).name, 'User')}
                     className="w-full h-full object-cover"
                     onClick={() => onViewImage(safeProfileImage)}
                   />
@@ -1028,7 +1137,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
               <div className="flex-1 flex flex-col items-center md:items-start mt-4 md:mt-0 md:ml-6 text-center md:text-left md:mb-4">
                 <h1 className="text-[32px] font-bold text-[#E4E6EB] flex items-center gap-2">
-                  {safeString((user as any).name, 'User')}
+                  {safeStringHelper((user as any).name, 'User')}
                   {(user as any).is_verified && (
                     <i className="fas fa-check-circle text-[#1877F2] text-[20px]"></i>
                   )}
@@ -1279,7 +1388,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         <EditProfileModal user={user} onClose={() => setShowEditProfile(false)} onSave={onUpdateUserDetails} />
       )}
 
-      {/* ========== MODALS FROM FEEDS.TSX ========== */}
+      {/* ========== MODALS FROM FEEDS ========== */}
 
       {/* Comments Sheet */}
       {showCommentsSheet && selectedPostForComments && currentUser && (
@@ -1298,7 +1407,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           onFollow={onFollow}
           checkIsFollowing={(id) => {
             if (!currentUser) return false;
-            const userFollowers = safeArray<number>((users.find(u => u.id === id) as any)?.followers || []);
+            const userFollowers = safeArrayHelper<number>((users.find(u => u.id === id) as any)?.followers || []);
             return userFollowers.includes(currentUser.id);
           }}
           onViewProductFromPost={onViewProductFromPost}
