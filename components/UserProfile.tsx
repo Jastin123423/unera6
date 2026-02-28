@@ -1,4 +1,4 @@
-// UserProfile.tsx - Fixed imports
+// UserProfile.tsx - Fixed imports-
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
