@@ -1,118 +1,54 @@
-// UserProfile.tsx - Complete rewrite to match Feeds.tsx functionality
+// UserProfile.tsx - Fixed imports
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
-import { CreatePost, Post, CreatePostModal } from './Feed';
 import { ChatsList } from './ChatsList';
-import { EventPost, PeopleYouMayKnowGrid, SuggestedProductsWidget, ShareBottomSheet, CommentsSheet, ReactionsSheet, GalleryViewer, avatarFrom, formatRelativeTime, getMediaTypeInfo, safeArray, safeNumber, safeString, safePostId, safeUserId } from './Feeds';
 
-// Re-export the same helpers used in Feeds
-const safeParseJsonArray = (v: any): string[] => {
-  if (!v) return [];
-  if (Array.isArray(v)) return v.filter(Boolean).map(String);
-  if (typeof v === 'string') {
-    try {
-      const arr = JSON.parse(v);
-      if (Array.isArray(arr)) return arr.filter(Boolean).map(String);
-    } catch {}
-  }
-  return [];
-};
+// Import everything from Feeds.tsx (note the capital F)
+import {
+  EventPost,
+  PeopleYouMayKnowGrid,
+  SuggestedProductsWidget,
+  ShareBottomSheet,
+  CommentsSheet,
+  ReactionsSheet,
+  GalleryViewer,
+  CreatePost,
+  CreatePostModal,
+  avatarFrom,
+  formatRelativeTime,
+  getMediaTypeInfo,
+  safeArray,
+  safeNumber,
+  safeString,
+  safePostId,
+  safeUserId,
+  safeParseJsonArray,
+  getMarketplaceProductId,
+  getMarketplaceImages,
+  getMarketplacePriceLine,
+  normalizeEventFromFeed,
+  Post
+} from './Feeds';
 
-/**
- * =========================
- * ✅ MARKETPLACE HELPERS - EXACTLY AS IN FEEDS.TSX
- * =========================
- */
-const getMarketplaceProductId = (p: any) => {
-  const meta = p?.meta;
-  const v =
-    p?.product_id ??
-    p?.productId ??
-    meta?.product_id ??
-    meta?.productId ??
-    meta?.marketplace?.id ??
-    meta?.product?.id;
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : null;
-};
-
-const getMarketplaceImages = (p: any, productData?: any): string[] => {
-  const pdImgs = safeParseJsonArray(productData?.images);
-  if (pdImgs.length) return pdImgs;
-
-  const mediaUrls = safeParseJsonArray(p?.media_urls);
-  if (mediaUrls.length) return mediaUrls;
-
-  const imgs = safeParseJsonArray(p?.images);
-  if (imgs.length) return imgs;
-
-  const single = typeof p?.media_url === "string" && p.media_url ? [p.media_url] : [];
-  return single;
-};
-
-const getMarketplacePriceLine = (productData?: any) => {
-  const priceRaw = productData?.price ?? productData?.main_price ?? null;
-  const currency = productData?.currency || "TZS";
-  const loc =
-    (typeof productData?.location === "string" && productData.location.split(",")[0]) ||
-    (typeof productData?.address === "string" && productData.address.split(",")[0]) ||
-    "Marketplace";
-
-  const priceNum = priceRaw != null ? Number(priceRaw) : NaN;
-  const price = Number.isFinite(priceNum) ? priceNum.toFixed(0) : null;
-
-  return { price, currency, loc };
-};
+// Re-export any helpers that might be needed
+export { safeArray, safeNumber, safeString, safePostId, safeUserId };
 
 /**
  * =========================
- * ✅ EVENT DETECTION AND NORMALIZATION - EXACTLY AS IN FEEDS.TSX
+ * Defensive helpers to prevent blank-screen crashes
+ * when backend returns raw D1 rows (missing arrays like reactions/comments).
  * =========================
  */
-const getEventCover = (item: any, meta?: any) => {
-  const urls = safeParseJsonArray(item?.media_urls);
-  if (urls.length > 0) return urls[0];
-  
-  if (item?.media_url) return item.media_url;
-  if (meta?.cover_url) return meta.cover_url;
-  if (meta?.image) return meta.image;
-  if (meta?.cover) return meta.cover;
-  
-  return '';
-};
-
-const normalizeEventFromFeed = (item: any) => {
-  const metaRaw = item?.meta || {};
-  let meta: any = metaRaw;
-  
-  if (typeof metaRaw === "string") {
-    try { meta = JSON.parse(metaRaw); } catch { meta = {}; }
-  }
-
-  const cover = getEventCover(item, meta);
-
-  const id = Number(item?.event_id ?? item?.id ?? meta?.event_id ?? 0);
-
-  return {
-    id,
-    title: String(item?.content ?? meta?.title ?? "Event"),
-    description: String(item?.event_description ?? meta?.description ?? ""),
-    cover_url: String(cover || ""),
-    location: String(item?.location ?? meta?.location ?? ""),
-    event_date: String(item?.event_date ?? meta?.event_date ?? meta?.start_time ?? ""),
-    created_at: String(item?.created_at ?? meta?.created_at ?? ""),
-    attendees_count: Number(item?.attending_count ?? meta?.attending_count ?? 0),
-    interested_count: Number(item?.interested_count ?? meta?.interested_count ?? 0),
-    user_rsvp_status: String(item?.my_rsvp_status ?? meta?.my_rsvp_status ?? ""),
-    creator_id: Number(item?.user_id ?? meta?.creator_id ?? 0),
-    creator: {
-      id: Number(item?.user_id ?? meta?.creator_id ?? 0),
-      name: String(item?.name ?? meta?.creator_name ?? "Event Organizer"),
-      username: String(item?.username ?? meta?.creator_username ?? ""),
-      profile_image_url: String(item?.profile_image_url ?? meta?.creator_image ?? "")
-    }
-  };
-};
+// Note: These are already imported from Feeds, so we don't need to redefine them
+// But we'll keep them commented for reference
+// const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+// const safeNumber = (v: any, fallback = 0) => {
+//   const n = typeof v === 'number' ? v : Number(v);
+//   return Number.isFinite(n) ? n : fallback;
+// };
+// const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+// const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
+// const safeUserId = (u: any) => safeNumber(u?.id ?? u?.user_id ?? u?.userId, 0);
 
 interface EditProfileModalProps {
   user: User;
@@ -272,27 +208,27 @@ interface UserProfileProps {
   
   fetchProfilePosts?: (profileUserId: number, viewerId: number | null) => Promise<PostType[]>;
   
-  // ✅ Marketplace handlers
+  // Marketplace handlers
   onViewProduct?: (productId: number) => void;
   onViewProductFromPost?: (productId: number) => void;
   getProductData?: (productId: number) => any;
   
-  // ✅ Audio player handler
+  // Audio player handler
   onOpenAudio?: (item: any) => void;
 
-  // ✅ RSVP handler for events
+  // RSVP handler for events
   onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
 
-  // ✅ Chat control props
+  // Chat control props
   onOpenChat?: (recipient: User) => void;
   isChatOpen?: boolean;
   activeChatRecipient?: User | null;
 
-  // ✅ ChatsList control props
+  // ChatsList control props
   onOpenChatsList?: () => void;
   isChatsListOpen?: boolean;
 
-  // ✅ People suggestions
+  // People suggestions
   peopleSuggestions?: any[];
 }
 
@@ -1408,7 +1344,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           urls={galleryUrls}
           startIndex={galleryIndex}
           onClose={() => setGalleryOpen(false)}
-          postId={0} // Not used in gallery-only mode
+          postId={0}
           currentUser={currentUser}
           reactionCount={0}
           commentCount={0}
