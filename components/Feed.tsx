@@ -1324,7 +1324,7 @@ const MediaGrid: React.FC<{
  * ✅ REACTIONS SHEET - FACEBOOK STYLE WITH TABS
  * =========================
  */
-const ReactionsSheet: React.FC<{
+export const ReactionsSheet: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   postId: number;
@@ -1484,7 +1484,7 @@ const ReactionsSheet: React.FC<{
  * AND REACTIONS SHEET SUPPORT
  * =========================
  */
-const GalleryViewer: React.FC<{
+export const GalleryViewer: React.FC<{
   isOpen: boolean;
   urls: string[];
   startIndex: number;
