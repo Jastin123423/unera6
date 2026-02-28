@@ -28,7 +28,7 @@ import {
   getMarketplacePriceLine,
   normalizeEventFromFeed,
   Post
-} from './Feeds';
+} from './Feed';
 
 // Re-export any helpers that might be needed
 export { safeArray, safeNumber, safeString, safePostId, safeUserId };
