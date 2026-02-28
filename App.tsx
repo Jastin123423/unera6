@@ -31,6 +31,7 @@ import { ToolsPage } from './components/Tools';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
 import { TermsOfServicePage } from './components/TermsOfService';
 import { ChatWindow } from './components/Chat';
+import { ChatsList } from './components/ChatsList'; // ✅ IMPORT ADDED
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -1325,6 +1326,9 @@ export default function App() {
   // ✅ ADDED: Chat state
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  
+  // ✅ ADDED: ChatsList state (for message inbox)
+  const [isChatsListOpen, setIsChatsListOpen] = useState(false);
 
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
@@ -2280,9 +2284,14 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
-  // ✅ ADDED: Chat handler
+  // ✅ ADDED: Chat handler for opening direct chat with a user
   const handleOpenChat = useCallback((recipient: User) => {
     if (!requireAuth('Messaging')) return;
+    
+    // Close ChatsList if open
+    if (isChatsListOpen) {
+      setIsChatsListOpen(false);
+    }
     
     // If clicking on the same user who's already in chat, toggle chat visibility
     if (activeChatUser?.id === recipient.id) {
@@ -2292,19 +2301,35 @@ export default function App() {
       setActiveChatUser(recipient);
       setIsChatOpen(true);
     }
-  }, [activeChatUser?.id, requireAuth]);
+  }, [activeChatUser?.id, requireAuth, isChatsListOpen]);
+
+  // ✅ ADDED: Handler for opening ChatsList (message inbox)
+  const handleOpenChatsList = useCallback(() => {
+    if (!requireAuth('Messages')) return;
+    
+    // Close direct chat if open
+    if (isChatOpen) {
+      setIsChatOpen(false);
+    }
+    
+    // Toggle ChatsList
+    setIsChatsListOpen(prev => !prev);
+  }, [requireAuth, isChatOpen]);
 
   const handleCloseChat = useCallback(() => {
     setIsChatOpen(false);
     // Don't clear activeChatUser immediately to allow for smooth re-open
-    // The chat component will still have the user data
+  }, []);
+
+  // ✅ ADDED: Close ChatsList handler
+  const handleCloseChatsList = useCallback(() => {
+    setIsChatsListOpen(false);
   }, []);
 
   const handleSendMessage = useCallback(async (text: string, sticker?: string) => {
     if (!currentUser || !activeChatUser) return;
     
     try {
-      // Your API call to send message
       await apiFetch('/api/messages/send', {
         method: 'POST',
         body: JSON.stringify({
@@ -4169,6 +4194,7 @@ export default function App() {
     setEvents([]);
     setActiveChatUser(null); // ✅ Clear chat state on logout
     setIsChatOpen(false);
+    setIsChatsListOpen(false); // ✅ Clear ChatsList state on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -5090,6 +5116,9 @@ export default function App() {
               onOpenChat={handleOpenChat}
               isChatOpen={isChatOpen}
               activeChatRecipient={activeChatUser}
+              // ✅ ADDED: ChatsList props
+              onOpenChatsList={handleOpenChatsList}
+              isChatsListOpen={isChatsListOpen}
             />
           )}
 
@@ -5310,6 +5339,22 @@ export default function App() {
           recipient={activeChatUser}
           onClose={handleCloseChat}
           onSendMessage={handleSendMessage}
+        />
+      )}
+
+      {/* ✅ ADDED: Chats List (Message Inbox) */}
+      {isChatsListOpen && currentUser && (
+        <ChatsList
+          currentUser={currentUser}
+          onOpenChat={handleOpenChat}
+          onOpenRequests={() => {
+            // Handle opening message requests
+            console.log('Open message requests');
+          }}
+          onNewChat={() => {
+            // Handle creating a new chat
+            console.log('Create new chat');
+          }}
         />
       )}
     </div>
