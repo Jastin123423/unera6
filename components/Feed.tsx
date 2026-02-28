@@ -5525,8 +5525,21 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { getMediaTypeInfo, getMarketplaceImages, getMarketplacePriceLine,
- normalizeEventFromFeed, ReactionsSheet,topReactionEmojis, safeArray, safeNumber, safeString, safePostId, safeUserId, avatarFrom, GalleryViewer,
-  CommentsSheet, CreatePost, CreatePostModal };
+export { getMediaTypeInfo,
+  getMarketplaceImages,
+  getMarketplacePriceLine,
+  normalizeEventFromFeed,
+  ReactionsSheet,
+  topReactionEmojis,
+  safeArray,
+  safeNumber,
+  safeString,
+  safePostId,
+  safeUserId,
+  avatarFrom,
+  GalleryViewer,
+  CommentsSheet,
+  CreatePost,
+  CreatePostModal };
 
     
