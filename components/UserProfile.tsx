@@ -1,60 +1,116 @@
-// UserProfile.tsx - Updated with Message button for self (opens ChatsList) and for others (opens Chat)
-
+// UserProfile.tsx - Complete rewrite to match Feeds.tsx functionality
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { User, Post as PostType, ReactionType, Reel, AudioTrack } from '../types';
+import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { CreatePost, Post, CreatePostModal } from './Feed';
-import { ChatsList } from './ChatsList'; // ✅ ADDED: Import ChatsList
+import { ChatsList } from './ChatsList';
+import { EventPost, PeopleYouMayKnowGrid, SuggestedProductsWidget, ShareBottomSheet, CommentsSheet, ReactionsSheet, GalleryViewer, avatarFrom, formatRelativeTime, getMediaTypeInfo, safeArray, safeNumber, safeString, safePostId, safeUserId } from './Feeds';
 
-/**
- * Defensive helpers to prevent blank-screen crashes
- * when backend returns raw D1 rows (missing arrays like reactions/comments).
- */
-const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
-const safeNumber = (v: any, fallback = 0) => {
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : fallback;
+// Re-export the same helpers used in Feeds
+const safeParseJsonArray = (v: any): string[] => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.filter(Boolean).map(String);
+  if (typeof v === 'string') {
+    try {
+      const arr = JSON.parse(v);
+      if (Array.isArray(arr)) return arr.filter(Boolean).map(String);
+    } catch {}
+  }
+  return [];
 };
-const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 
 /**
- * ✅ ADDED: Robust media type detection for Cloudflare R2
+ * =========================
+ * ✅ MARKETPLACE HELPERS - EXACTLY AS IN FEEDS.TSX
+ * =========================
  */
-const getMediaTypeInfo = (post: any) => {
-  const mediaUrl = String(post?.media_url || '');
-  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
-  const typeRaw = String(post?.type || '').toLowerCase();
+const getMarketplaceProductId = (p: any) => {
+  const meta = p?.meta;
+  const v =
+    p?.product_id ??
+    p?.productId ??
+    meta?.product_id ??
+    meta?.productId ??
+    meta?.marketplace?.id ??
+    meta?.product?.id;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 
-  // Extract file extension from URL (ignoring query params and fragments)
-  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
-  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
+const getMarketplaceImages = (p: any, productData?: any): string[] => {
+  const pdImgs = safeParseJsonArray(productData?.images);
+  if (pdImgs.length) return pdImgs;
 
-  // Check if it's an image
-  const isImage =
-    typeRaw === 'image' ||
-    mediaTypeRaw === 'image' ||
-    mediaTypeRaw.startsWith('image/') ||
-    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
+  const mediaUrls = safeParseJsonArray(p?.media_urls);
+  if (mediaUrls.length) return mediaUrls;
 
-  // Check if it's a video
-  const isVideo =
-    typeRaw === 'video' ||
-    mediaTypeRaw === 'video' ||
-    mediaTypeRaw.startsWith('video/') ||
-    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
+  const imgs = safeParseJsonArray(p?.images);
+  if (imgs.length) return imgs;
 
-  // Check if it's audio
-  const isAudio =
-    typeRaw === 'audio' ||
-    mediaTypeRaw.startsWith('audio/') ||
-    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
+  const single = typeof p?.media_url === "string" && p.media_url ? [p.media_url] : [];
+  return single;
+};
+
+const getMarketplacePriceLine = (productData?: any) => {
+  const priceRaw = productData?.price ?? productData?.main_price ?? null;
+  const currency = productData?.currency || "TZS";
+  const loc =
+    (typeof productData?.location === "string" && productData.location.split(",")[0]) ||
+    (typeof productData?.address === "string" && productData.address.split(",")[0]) ||
+    "Marketplace";
+
+  const priceNum = priceRaw != null ? Number(priceRaw) : NaN;
+  const price = Number.isFinite(priceNum) ? priceNum.toFixed(0) : null;
+
+  return { price, currency, loc };
+};
+
+/**
+ * =========================
+ * ✅ EVENT DETECTION AND NORMALIZATION - EXACTLY AS IN FEEDS.TSX
+ * =========================
+ */
+const getEventCover = (item: any, meta?: any) => {
+  const urls = safeParseJsonArray(item?.media_urls);
+  if (urls.length > 0) return urls[0];
+  
+  if (item?.media_url) return item.media_url;
+  if (meta?.cover_url) return meta.cover_url;
+  if (meta?.image) return meta.image;
+  if (meta?.cover) return meta.cover;
+  
+  return '';
+};
+
+const normalizeEventFromFeed = (item: any) => {
+  const metaRaw = item?.meta || {};
+  let meta: any = metaRaw;
+  
+  if (typeof metaRaw === "string") {
+    try { meta = JSON.parse(metaRaw); } catch { meta = {}; }
+  }
+
+  const cover = getEventCover(item, meta);
+
+  const id = Number(item?.event_id ?? item?.id ?? meta?.event_id ?? 0);
 
   return {
-    mediaUrl,
-    isImage,
-    isVideo,
-    isAudio,
-    extension: ext,
-    mimeType: mediaTypeRaw,
+    id,
+    title: String(item?.content ?? meta?.title ?? "Event"),
+    description: String(item?.event_description ?? meta?.description ?? ""),
+    cover_url: String(cover || ""),
+    location: String(item?.location ?? meta?.location ?? ""),
+    event_date: String(item?.event_date ?? meta?.event_date ?? meta?.start_time ?? ""),
+    created_at: String(item?.created_at ?? meta?.created_at ?? ""),
+    attendees_count: Number(item?.attending_count ?? meta?.attending_count ?? 0),
+    interested_count: Number(item?.interested_count ?? meta?.interested_count ?? 0),
+    user_rsvp_status: String(item?.my_rsvp_status ?? meta?.my_rsvp_status ?? ""),
+    creator_id: Number(item?.user_id ?? meta?.creator_id ?? 0),
+    creator: {
+      id: Number(item?.user_id ?? meta?.creator_id ?? 0),
+      name: String(item?.name ?? meta?.creator_name ?? "Event Organizer"),
+      username: String(item?.username ?? meta?.creator_username ?? ""),
+      profile_image_url: String(item?.profile_image_url ?? meta?.creator_image ?? "")
+    }
   };
 };
 
@@ -181,28 +237,31 @@ interface UserProfileProps {
   users: User[];
   posts: PostType[];
   reels?: Reel[];
+  products?: Product[];
+  groups?: Group[];
+  brands?: Brand[];
   onProfileClick: (id: number) => void;
 
   // FB-logic actions (caller blocks guests)
   onFollow: (id: number) => void;
   onReact: (postId: number, type: ReactionType) => void;
   onComment: (postId: number, text: string) => void;
-  onShare: (postId: number) => void;
-  onMessage: (id: number) => void; // For messaging other users (opens Chat.tsx)
+  onShare: (postId: number, newShareCount: number) => void;
+  onMessage: (id: number) => void;
 
-  onCreatePost: (text: string, file: File | null, type: any, visibility: any) => void;
+  onCreatePost: (text: string, files: File[], meta?: any) => void;
   onUpdateProfileImage: (file: File) => void;
   onUpdateCoverImage: (file: File) => void;
   onUpdateUserDetails: (data: Partial<User>) => void;
   onDeletePost: (postId: number) => void;
   onEditPost: (postId: number, content: string) => void;
 
-  getCommentAuthor: (id: number) => User | undefined;
+  getCommentAuthor?: (id: number) => User | undefined;
   onViewImage: (url: string) => void;
   onCreateEventClick?: () => void;
   onOpenComments: (postId: number) => void;
   onVideoClick: (post: PostType) => void;
-  onPlayAudioTrack: (track: AudioTrack) => void;
+  onPlayAudioTrack?: (track: AudioTrack) => void;
 
   onHashtagClick?: (tag: string) => void;
   onVerifyUser?: (id: number) => void;
@@ -211,23 +270,30 @@ interface UserProfileProps {
   onMakeModerator?: (id: number, make: boolean) => void;
   onCreateStoryClick?: () => void;
   
-  // ✅ ADDED: New prop for fetching profile posts with viewer context
   fetchProfilePosts?: (profileUserId: number, viewerId: number | null) => Promise<PostType[]>;
   
-  // ✅ ADDED: Marketplace product click handler
+  // ✅ Marketplace handlers
+  onViewProduct?: (productId: number) => void;
   onViewProductFromPost?: (productId: number) => void;
+  getProductData?: (productId: number) => any;
   
-  // ✅ ADDED: Audio player handler
+  // ✅ Audio player handler
   onOpenAudio?: (item: any) => void;
 
-  // ✅ ADDED: Chat control props
-  onOpenChat?: (recipient: User) => void; // For opening Chat.tsx with specific user
+  // ✅ RSVP handler for events
+  onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+
+  // ✅ Chat control props
+  onOpenChat?: (recipient: User) => void;
   isChatOpen?: boolean;
   activeChatRecipient?: User | null;
 
-  // ✅ ADDED: ChatsList control props (for profile owner's message inbox)
+  // ✅ ChatsList control props
   onOpenChatsList?: () => void;
   isChatsListOpen?: boolean;
+
+  // ✅ People suggestions
+  peopleSuggestions?: any[];
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -236,6 +302,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   users,
   posts,
   reels = [],
+  products = [],
+  groups = [],
+  brands = [],
   onProfileClick,
   onFollow,
   onReact,
@@ -261,32 +330,45 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   onMakeModerator,
   onCreateStoryClick,
   fetchProfilePosts,
+  onViewProduct,
   onViewProductFromPost,
+  getProductData,
   onOpenAudio,
-  // ✅ ADDED: Chat props
+  onRSVP,
   onOpenChat,
   isChatOpen,
   activeChatRecipient,
-  // ✅ ADDED: ChatsList props
   onOpenChatsList,
   isChatsListOpen,
+  peopleSuggestions = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [loginError, setLoginError] = useState('');
   
-  // ✅ FIXED: Removed cache on follow buttons as requested
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false);
 
-  // ✅ FIXED: Move isCurrentUser to the TOP
+  // ========== MODAL STATES (MATCHING FEEDS.TSX) ==========
+  const [showCommentsSheet, setShowCommentsSheet] = useState(false);
+  const [selectedPostForComments, setSelectedPostForComments] = useState<any>(null);
+  
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [selectedPostForReactions, setSelectedPostForReactions] = useState<number | null>(null);
+  
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [selectedPostForShare, setSelectedPostForShare] = useState<any>(null);
+  
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+
   const isCurrentUser = Boolean(currentUser && Number(user?.id) === Number(currentUser?.id));
   const isSelf = isCurrentUser;
 
-  // ✅ FIXED: Simple and correct follow logic (no caching)
+  // Follow logic
   const isFollowing = useMemo(() => {
     if (!currentUser) return false;
-    
     const userFollowers = safeArray<number>((user as any)?.followers || []);
     return userFollowers.includes(currentUser.id);
   }, [currentUser, user]);
@@ -294,7 +376,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const userFollowers = useMemo(() => safeArray<number>((user as any).followers || []), [user]);
   const followerCount = userFollowers.length;
 
-  // ✅ PROFESSIONALLY FIXED: Check if current user is admin or moderator (with trim)
+  // Role checks
   const roleOf = (u: any) => String(u?.role || "").trim().toLowerCase();
   const isAdmin = currentUser ? roleOf(currentUser) === "admin" : false;
   const isModerator = currentUser ? roleOf(currentUser) === "moderator" : false;
@@ -303,38 +385,34 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ ADDED: Helper for safe post ID extraction
-  const safePostId = (p: any) => {
-    const n = Number(p?.id ?? p?.post_id ?? p?.postId ?? 0);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  // ✅ ADDED: Local state for profile posts with proper reaction handling
+  // Local state for profile posts
   const [profilePosts, setProfilePosts] = useState<PostType[]>(() => safeArray(posts));
 
-  // ✅ ADDED: Keep in sync when parent provides new posts
+  // Keep in sync when parent provides new posts
   useEffect(() => {
     setProfilePosts(safeArray(posts));
   }, [posts]);
 
-  // ✅ ADDED: Fetch latest profile posts on profile change
+  // Fetch latest profile posts on profile change
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!user?.id) return;
-      const list = await fetchProfilePostsWithViewer(Number(user.id));
-      if (!cancelled && list.length) setProfilePosts(list);
+      if (fetchProfilePosts) {
+        const list = await fetchProfilePosts(Number(user.id), currentUser?.id ?? null);
+        if (!cancelled && list.length) setProfilePosts(list);
+      }
     })();
     return () => { cancelled = true; };
-  }, [user?.id, currentUser?.id]);
+  }, [user?.id, currentUser?.id, fetchProfilePosts]);
 
-  // ✅ FIXED: Moved userReels declaration BEFORE it's used in calculations
+  // User reels
   const userReels = useMemo(
     () => safeArray<Reel>(reels).filter((reel: any) => Number(reel?.user_id) === Number(user?.id)),
     [reels, user?.id]
   );
 
-  // ✅ Now these calculations can safely use userReels
+  // Stats calculations
   const totalViews = useMemo(
     () => profilePosts.reduce((acc, curr: any) => acc + safeNumber(curr?.views, 0), 0),
     [profilePosts]
@@ -372,7 +450,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const safeCoverImage = safeString((user as any)?.cover_image_url, '');
   const safeBio = safeString((user as any)?.bio, '');
 
-  // ✅ ADDED: Image validation handler
+  // Image validation
   const validateAndUploadImage = (file: File, uploadCallback: (file: File) => void) => {
     if (!file.type || !file.type.startsWith('image/')) {
       setLoginError('Only image files are allowed.');
@@ -390,19 +468,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     uploadCallback(file);
   };
 
-  // ✅ FIXED: Follow handler without caching (as requested)
   const handleFollowClick = () => {
     if (!currentUser) return;
-    
     setIsFollowButtonClicked(true);
     onFollow(user.id);
-    
     setTimeout(() => {
       setIsFollowButtonClicked(false);
     }, 300);
   };
 
-  // ✅ MODIFIED: Message click handler for self (opens ChatsList)
   const handleSelfMessageClick = () => {
     if (!currentUser) return;
     if (onOpenChatsList) {
@@ -410,18 +484,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   };
 
-  // ✅ MODIFIED: Message click handler for others (opens Chat.tsx with this user)
   const handleOtherMessageClick = () => {
     if (!currentUser) return;
     if (onOpenChat) {
       onOpenChat(user);
     } else {
-      // Fallback to original onMessage if onOpenChat not provided
       onMessage(user.id);
     }
   };
 
-  // ✅ ADDED: Custom API fetch helper for profile posts with viewerId
+  // ========== API FETCH HELPER (SAME AS FEEDS) ==========
   const apiFetch = async (url: string, options: RequestInit = {}) => {
     const headers: HeadersInit = {
       Accept: 'application/json',
@@ -465,53 +537,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   };
 
-  // ✅ MODIFIED: Fetch profile posts with viewerId context
-  const fetchProfilePostsWithViewer = async (profileUserId: number): Promise<PostType[]> => {
-    try {
-      const viewerId = currentUser?.id ?? 0;
-      
-      // Use the provided custom fetch function if available
-      if (fetchProfilePosts) {
-        return await fetchProfilePosts(profileUserId, viewerId);
-      }
-      
-      // Fallback to default implementation with viewerId parameter
-      const data = await apiFetch(`/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=30`);
-      const list = safeArray<any>((data as any)?.posts ?? (data as any)?.results ?? data);
-      const normalized = list.map((post: any) => ({
-        ...post,
-        id: safeNumber(post?.id ?? post?.post_id),
-        user_id: safeNumber(post?.user_id),
-        content: safeString(post?.content),
-        media_url: post?.media_url ?? null,
-        media_type: post?.media_type ?? null,
-        reactions: safeArray(post?.reactions),
-        comments: safeArray(post?.comments),
-        shares: safeNumber(post?.shares),
-        views: safeNumber(post?.views),
-        my_reaction: post?.my_reaction ?? null,
-        reactions_count: safeNumber(post?.reactions_count, 0),
-        comments_count: safeNumber(post?.comments_count, 0),
-        created_at: post?.created_at ?? new Date().toISOString(),
-      }));
-
-      // Always latest-first
-      normalized.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
-
-      return normalized;
-    } catch (error) {
-      console.error('Failed to fetch profile posts with viewer context:', error);
-      return [];
-    }
-  };
-
-  // ✅ PROFESSIONALLY MODIFIED: Profile-specific react handler with ONLY optimistic update
+  // ========== PROFILE-SPECIFIC REACT HANDLER WITH OPTIMISTIC UPDATE ==========
   const handleProfileReact = (postId: number, type: ReactionType) => {
     if (!currentUser) return;
 
     const pid = Number(postId);
 
-    // ✅ Optimistic update: set immediately
     setProfilePosts(prev =>
       prev.map((p: any) => {
         if (safePostId(p) !== pid) return p;
@@ -521,10 +552,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
         const currentCount = Number((p as any).reactions_count ?? 0) || 0;
         const nextCount = current
-          ? (nextMy ? currentCount : Math.max(0, currentCount - 1)) // had reaction already
-          : (nextMy ? currentCount + 1 : currentCount);            // no reaction before
+          ? (nextMy ? currentCount : Math.max(0, currentCount - 1))
+          : (nextMy ? currentCount + 1 : currentCount);
 
-        // ✅ FIXED: Safe reaction array update without duplicates
         const prevArr = safeArray<any>((p as any).reactions);
         const withoutMe = prevArr.filter((r: any) => Number(r.user_id) !== Number(currentUser.id));
         const nextArr = nextMy ? [...withoutMe, { user_id: currentUser.id, type: nextMy }] : withoutMe;
@@ -538,11 +568,53 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       })
     );
 
-    // ✅ ONE backend call only (App.tsx)
     onReact(pid, type);
   };
 
-  // ✅ ADDED: Filter out Group posts from profile posts (Facebook-like behavior)
+  // ========== SHARE HANDLER ==========
+  const handleShareComplete = (destination: string, data?: any) => {
+    if (selectedPostForShare && data?.success) {
+      const newShares = data?.shares || 0;
+      onShare(safePostId(selectedPostForShare), newShares);
+      
+      // Update local state
+      setProfilePosts(prev =>
+        prev.map(p => 
+          safePostId(p) === safePostId(selectedPostForShare)
+            ? { ...p, shares: newShares }
+            : p
+        )
+      );
+    }
+    setShowShareSheet(false);
+    setSelectedPostForShare(null);
+  };
+
+  // ========== OPEN COMMENTS SHEET ==========
+  const handleOpenComments = (postId: number) => {
+    const post = profilePosts.find(p => safePostId(p) === postId);
+    if (post) {
+      setSelectedPostForComments(post);
+      setShowCommentsSheet(true);
+    } else {
+      onOpenComments(postId);
+    }
+  };
+
+  // ========== OPEN REACTIONS SHEET ==========
+  const handleOpenReactions = (postId: number) => {
+    setSelectedPostForReactions(postId);
+    setShowReactionsSheet(true);
+  };
+
+  // ========== OPEN GALLERY ==========
+  const openGallery = (urls: string[], index: number) => {
+    setGalleryUrls(urls);
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  };
+
+  // ========== FILTER OUT GROUP POSTS ==========
   const filteredProfilePosts = useMemo(() => {
     return (profilePosts || []).filter((p: any) => {
       const meta = p?.meta || {};
@@ -554,287 +626,362 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         p?.type === 'group_post' ||
         p?.post_type === 'group_post' ||
         meta?.type === 'group_post';
-      return !hasGroup; // ✅ hide group posts from profile
+      return !hasGroup;
     });
   }, [profilePosts]);
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'About':
-        return (
-          <div className="bg-[#242526] p-6 text-[#E4E6EB] rounded-xl border border-[#3E4042] mx-4 md:mx-0">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold">About</h2>
-              {isCurrentUser && (
-                <button
-                  onClick={() => setShowEditProfile(true)}
-                  className="text-[#1877F2] font-semibold hover:underline"
+  // ========== RENDER ABOUT TAB ==========
+  const renderAbout = () => (
+    <div className="bg-[#242526] p-6 text-[#E4E6EB] rounded-xl border border-[#3E4042] mx-4 md:mx-0">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-bold">About</h2>
+        {isCurrentUser && (
+          <button
+            onClick={() => setShowEditProfile(true)}
+            className="text-[#1877F2] font-semibold hover:underline"
+          >
+            Edit
+          </button>
+        )}
+      </div>
+
+      <p className="text-[#B0B3B8] text-lg italic mb-6">
+        "{safeString((user as any).bio, 'No bio available')}"
+      </p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="flex flex-col gap-4">
+          <h3 className="text-xl font-bold">Work & Education</h3>
+          <div className="flex items-center gap-3">
+            <i className="fas fa-briefcase text-[#B0B3B8] w-6 text-center"></i>
+            <span>
+              {(user as any).work ? `Works at ${(user as any).work}` : 'No workplace to show'}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <i className="fas fa-graduation-cap text-[#B0B3B8] w-6 text-center"></i>
+            <span>
+              {(user as any).education
+                ? `Studied at ${(user as any).education}`
+                : 'No schools to show'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <h3 className="text-xl font-bold">Contact & Basic Info</h3>
+          <div className="flex items-center gap-3">
+            <i className="fas fa-map-marker-alt text-[#B0B3B8] w-6 text-center"></i>
+            <span>{(user as any).location || 'No location to show'}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <i className="fas fa-link text-[#B0B3B8] w-6 text-center"></i>
+            <span>
+              {(user as any).website ? (
+                <a
+                  href={(user as any).website}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[#1877F2] hover:underline"
                 >
-                  Edit
-                </button>
+                  {(user as any).website}
+                </a>
+              ) : (
+                'No website'
               )}
-            </div>
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <i className="fas fa-birthday-cake text-[#B0B3B8] w-6 text-center"></i>
+            <span>{(user as any).birth_date || 'No birth date'}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <i className="fas fa-venus-mars text-[#B0B3B8] w-6 text-center"></i>
+            <span>{(user as any).gender || 'Not specified'}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
-            <p className="text-[#B0B3B8] text-lg italic mb-6">
-              "{safeString((user as any).bio, 'No bio available')}"
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="flex flex-col gap-4">
-                <h3 className="text-xl font-bold">Work & Education</h3>
-                <div className="flex items-center gap-3">
-                  <i className="fas fa-briefcase text-[#B0B3B8] w-6 text-center"></i>
-                  <span>
-                    {(user as any).work ? `Works at ${(user as any).work}` : 'No workplace to show'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <i className="fas fa-graduation-cap text-[#B0B3B8] w-6 text-center"></i>
-                  <span>
-                    {(user as any).education
-                      ? `Studied at ${(user as any).education}`
-                      : 'No schools to show'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-4">
-                <h3 className="text-xl font-bold">Contact & Basic Info</h3>
-                <div className="flex items-center gap-3">
-                  <i className="fas fa-map-marker-alt text-[#B0B3B8] w-6 text-center"></i>
-                  <span>{(user as any).location || 'No location to show'}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <i className="fas fa-link text-[#B0B3B8] w-6 text-center"></i>
-                  <span>
-                    {(user as any).website ? (
-                      <a
-                        href={(user as any).website}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[#1877F2] hover:underline"
-                      >
-                        {(user as any).website}
-                      </a>
-                    ) : (
-                      'No website'
-                    )}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <i className="fas fa-birthday-cake text-[#B0B3B8] w-6 text-center"></i>
-                  <span>{(user as any).birth_date || 'No birth date'}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <i className="fas fa-venus-mars text-[#B0B3B8] w-6 text-center"></i>
-                  <span>{(user as any).gender || 'Not specified'}</span>
-                </div>
+  // ========== RENDER FOLLOWERS TAB ==========
+  const renderFollowers = () => (
+    <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
+      <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Followers</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {users
+          .filter((u) => userFollowers.includes(u.id))
+          .map((follower) => (
+            <div
+              key={follower.id}
+              className="flex items-start gap-3 p-3 border border-[#3E4042] rounded-lg hover:bg-[#3A3B3C] cursor-pointer transition-all duration-200 active:scale-95"
+              onClick={() => onProfileClick(follower.id)}
+            >
+              <img
+                src={avatarFrom(follower)}
+                alt=""
+                className="w-16 h-16 rounded-lg object-cover"
+              />
+              <div>
+                <h4 className="font-semibold text-[#E4E6EB]">{(follower as any).name}</h4>
+                <span className="text-[#B0B3B8] text-sm">{(follower as any).location}</span>
               </div>
             </div>
-          </div>
-        );
+          ))}
+      </div>
+    </div>
+  );
 
-      case 'Followers':
-        return (
-          <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
-            <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Followers</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {users
-                .filter((u) => userFollowers.includes(u.id))
-                .map((follower) => (
-                  <div
-                    key={follower.id}
-                    className="flex items-start gap-3 p-3 border border-[#3E4042] rounded-lg hover:bg-[#3A3B3C] cursor-pointer transition-all duration-200 active:scale-95"
-                    onClick={() => onProfileClick(follower.id)}
-                  >
-                    <img
-                      src={safeString((follower as any).profile_image_url, '')}
-                      alt=""
-                      className="w-16 h-16 rounded-lg object-cover"
-                    />
-                    <div>
-                      <h4 className="font-semibold text-[#E4E6EB]">{(follower as any).name}</h4>
-                      <span className="text-[#B0B3B8] text-sm">{(follower as any).location}</span>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-        );
+  // ========== RENDER PHOTOS TAB ==========
+  const renderPhotos = () => {
+    const photoPosts = filteredProfilePosts.filter((p: any) => {
+      const mediaInfo = getMediaTypeInfo(p);
+      return mediaInfo.isImage && mediaInfo.mediaUrl && mediaInfo.mediaUrl.trim() !== '';
+    });
 
-      case 'Photos':
-        return (
-          <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
-            <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Photos</h2>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1">
-              {filteredProfilePosts
-                .filter((p: any) => {
-                  const mediaInfo = getMediaTypeInfo(p);
-                  return mediaInfo.isImage && mediaInfo.mediaUrl && mediaInfo.mediaUrl.trim() !== '';
-                })
-                .map((p: any) => {
-                  const mediaInfo = getMediaTypeInfo(p);
-                  return (
-                    <div
-                      key={p.id}
-                      className="aspect-square cursor-pointer overflow-hidden relative group"
-                      onClick={() => mediaInfo.mediaUrl && onViewImage(mediaInfo.mediaUrl)}
-                    >
-                      <img
-                        src={mediaInfo.mediaUrl}
-                        alt=""
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        onError={(e) => {
-                          console.error('Failed to load photo in UserProfile:', mediaInfo.mediaUrl);
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  );
-                })}
+    return (
+      <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
+        <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Photos</h2>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1">
+          {photoPosts.map((p: any) => {
+            const mediaInfo = getMediaTypeInfo(p);
+            return (
+              <div
+                key={p.id}
+                className="aspect-square cursor-pointer overflow-hidden relative group"
+                onClick={() => mediaInfo.mediaUrl && onViewImage(mediaInfo.mediaUrl)}
+              >
+                <img
+                  src={mediaInfo.mediaUrl}
+                  alt=""
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  onError={(e) => {
+                    console.error('Failed to load photo in UserProfile:', mediaInfo.mediaUrl);
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+        {photoPosts.length === 0 && (
+          <div className="text-center py-8">
+            <i className="fas fa-images text-[#B0B3B8] text-4xl mb-4"></i>
+            <p className="text-[#B0B3B8]">No photos available</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ========== RENDER POSTS TAB (MAIN FEED) ==========
+  const renderPosts = () => (
+    <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
+      {/* Left Sidebar - Intro */}
+      <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
+        <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-[#3E4042]">
+          <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Intro</h2>
+          <div className="flex flex-col gap-3 text-[#E4E6EB]">
+            <div className="text-center mb-2">
+              <p className="text-[15px]">{safeBio || 'No bio available'}</p>
             </div>
-            {filteredProfilePosts.filter((p: any) => {
-              const mediaInfo = getMediaTypeInfo(p);
-              return mediaInfo.isImage && mediaInfo.mediaUrl && mediaInfo.mediaUrl.trim() !== '';
-            }).length === 0 && (
-              <div className="text-center py-8">
-                <i className="fas fa-images text-[#B0B3B8] text-4xl mb-4"></i>
-                <p className="text-[#B0B3B8]">No photos available</p>
+            <div className="h-[1px] bg-[#3E4042] w-full my-1"></div>
+
+            {(user as any).work && (
+              <div className="flex items-center gap-3">
+                <i className="fas fa-briefcase text-[#B0B3B8] w-5 text-center"></i>
+                <span>{(user as any).work}</span>
               </div>
             )}
+            {(user as any).location && (
+              <div className="flex items-center gap-3">
+                <i className="fas fa-map-marker-alt text-[#B0B3B8] w-5 text-center"></i>
+                <span>{(user as any).location}</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
+              <i className="fas fa-rss text-[#B0B3B8] w-5 text-center"></i>
+              <span>{followerCount} Followers</span>
+            </div>
+
+            {isAdmin && (
+              <div className="flex items-center gap-3">
+                <i className="fas fa-shield-alt text-[#B0B3B8] w-5 text-center"></i>
+                <span className="capitalize">Role: {user.role || 'user'}</span>
+              </div>
+            )}
+
+            {isCurrentUser && (
+              <button
+                className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 rounded-md transition-colors text-[15px] mt-2 active:scale-95 active:shadow-inner"
+                onClick={() => setShowEditProfile(true)}
+              >
+                Edit Details
+              </button>
+            )}
           </div>
-        );
+        </div>
 
-      case 'Posts':
-      default:
-        return (
-          <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
-            <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
-              {/* ✅ FIXED: Intro Section */}
-              <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-[#3E4042]">
-                <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Intro</h2>
-                <div className="flex flex-col gap-3 text-[#E4E6EB]">
-                  <div className="text-center mb-2">
-                    <p className="text-[15px]">{safeBio || 'No bio available'}</p>
-                  </div>
-                  <div className="h-[1px] bg-[#3E4042] w-full my-1"></div>
+        {/* Suggested Products Widget - EXACTLY AS IN FEEDS */}
+        {!isCurrentUser && products.length > 0 && currentUser && (
+          <SuggestedProductsWidget
+            products={products}
+            currentUser={currentUser}
+            onViewProduct={(product) => onViewProduct?.(product.id)}
+            onSeeAll={() => console.log('See all products')}
+          />
+        )}
+      </div>
 
-                  {(user as any).work && (
-                    <div className="flex items-center gap-3">
-                      <i className="fas fa-briefcase text-[#B0B3B8] w-5 text-center"></i>
-                      <span>{(user as any).work}</span>
-                    </div>
-                  )}
-                  {(user as any).location && (
-                    <div className="flex items-center gap-3">
-                      <i className="fas fa-map-marker-alt text-[#B0B3B8] w-5 text-center"></i>
-                      <span>{(user as any).location}</span>
-                    </div>
-                  )}
+      {/* Main Content - Posts Feed */}
+      <div className="flex-1 min-w-0">
+        {/* Error display */}
+        {loginError && (
+          <div className="mb-4 p-3 bg-red-900/80 border border-red-700 rounded-lg text-red-200 text-sm">
+            <div className="flex items-center gap-2">
+              <i className="fas fa-exclamation-circle"></i>
+              <span>{loginError}</span>
+            </div>
+          </div>
+        )}
 
-                  <div className="flex items-center gap-3">
-                    <i className="fas fa-rss text-[#B0B3B8] w-5 text-center"></i>
-                    <span>{followerCount} Followers</span>
-                  </div>
-
-                  {/* ✅ ADDED: Role display for admin users */}
-                  {isAdmin && (
-                    <div className="flex items-center gap-3">
-                      <i className="fas fa-shield-alt text-[#B0B3B8] w-5 text-center"></i>
-                      <span className="capitalize">Role: {user.role || 'user'}</span>
-                    </div>
-                  )}
-
-                  {isCurrentUser && (
-                    <button
-                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 rounded-md transition-colors text-[15px] mt-2 active:scale-95 active:shadow-inner"
-                      onClick={() => setShowEditProfile(true)}
-                    >
-                      Edit Details
-                    </button>
-                  )}
+        {/* Stats for current user */}
+        {isCurrentUser && (
+          <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-[#3A3B3C] p-3 rounded-lg border border-[#3E4042]">
+                <div className="text-[#B0B3B8] text-xs font-medium mb-1">Total Views</div>
+                <div className="text-[#E4E6EB] font-bold text-xl">
+                  {safeNumber(totalViews).toLocaleString()}
+                </div>
+              </div>
+              <div className="bg-[#3A3B3C] p-3 rounded-lg border border-[#3E4042]">
+                <div className="text-[#B0B3B8] text-xs font-medium mb-1">Engagement</div>
+                <div className="text-[#E4E6EB] font-bold text-xl">
+                  {safeNumber(totalEngagement).toLocaleString()}
                 </div>
               </div>
             </div>
-
-            <div className="flex-1 min-w-0">
-              {/* ✅ ADDED: Error display for image validation */}
-              {loginError && (
-                <div className="mb-4 p-3 bg-red-900/80 border border-red-700 rounded-lg text-red-200 text-sm">
-                  <div className="flex items-center gap-2">
-                    <i className="fas fa-exclamation-circle"></i>
-                    <span>{loginError}</span>
-                  </div>
-                </div>
-              )}
-
-              {isCurrentUser && (
-                <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042] shadow-sm">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-[#3A3B3C] p-3 rounded-lg border border-[#3E4042]">
-                      <div className="text-[#B0B3B8] text-xs font-medium mb-1">Total Views</div>
-                      <div className="text-[#E4E6EB] font-bold text-xl">
-                        {safeNumber(totalViews).toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="bg-[#3A3B3C] p-3 rounded-lg border border-[#3E4042]">
-                      <div className="text-[#B0B3B8] text-xs font-medium mb-1">Engagement</div>
-                      <div className="text-[#E4E6EB] font-bold text-xl">
-                        {safeNumber(totalEngagement).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {isCurrentUser && currentUser && (
-                <>
-                  <CreatePost
-                    currentUser={currentUser}
-                    onProfileClick={onProfileClick}
-                    onClick={() => setShowCreatePostModal(true)}
-                  />
-                  {showCreatePostModal && (
-                    <CreatePostModal
-                      currentUser={currentUser}
-                      onClose={() => setShowCreatePostModal(false)}
-                      onCreatePost={onCreatePost}
-                      users={users}
-                    />
-                  )}
-                </>
-              )}
-
-              {/* ✅ MODIFIED: Use filteredProfilePosts (hides group posts) */}
-              {filteredProfilePosts.map((post: any) => (
-                <Post
-                  key={post.id}
-                  post={post}
-                  author={user}
-                  currentUser={currentUser}
-                  onProfileClick={onProfileClick}
-                  onReact={handleProfileReact}
-                  onShare={onShare}
-                  onDelete={onDeletePost}
-                  onEdit={onEditPost}
-                  onViewImage={onViewImage}
-                  onOpenComments={onOpenComments}
-                  onVideoClick={onVideoClick}
-                  onPlayAudioTrack={onPlayAudioTrack}
-                  // ✅ ADDED: Marketplace support
-                  onViewProductFromPost={onViewProductFromPost}
-                  // ✅ ADDED: Audio player support
-                  onOpenAudio={onOpenAudio}
-                />
-              ))}
-            </div>
           </div>
-        );
-    }
-  };
+        )}
+
+        {/* Create Post for current user */}
+        {isCurrentUser && currentUser && (
+          <>
+            <CreatePost
+              currentUser={currentUser}
+              onProfileClick={onProfileClick}
+              onClick={() => setShowCreatePostModal(true)}
+              onCreateEventClick={onCreateEventClick || (() => {})}
+            />
+            {showCreatePostModal && (
+              <CreatePostModal
+                currentUser={currentUser}
+                onClose={() => setShowCreatePostModal(false)}
+                onCreatePost={onCreatePost}
+                users={users}
+                onCreateEventClick={onCreateEventClick}
+              />
+            )}
+          </>
+        )}
+
+        {/* People You May Know - EXACTLY AS IN FEEDS */}
+        {!isCurrentUser && peopleSuggestions.length > 0 && (
+          <PeopleYouMayKnowGrid
+            users={peopleSuggestions}
+            onFollow={onFollow}
+            currentUser={currentUser}
+            onLoginClick={() => alert('Please login to follow users')}
+            maxDisplay={6}
+          />
+        )}
+
+        {/* Posts Feed - Using the SAME Post component as Feeds.tsx */}
+        {filteredProfilePosts.map((post: any) => {
+          // Check if it's an event post
+          const isEventPost =
+            post?.item_type === "event" ||
+            String(post?.feed_key || "").startsWith("event:") ||
+            post?.source === "event" ||
+            post?.type === 'event' ||
+            post?.post_type === 'event' ||
+            !!post?.event_id ||
+            !!post?.meta?.event;
+
+          if (isEventPost) {
+            const event = normalizeEventFromFeed(post);
+            return (
+              <EventPost
+                key={post.id}
+                event={event}
+                author={user}
+                currentUser={currentUser}
+                users={users}
+                onProfileClick={onProfileClick}
+                onRSVP={onRSVP}
+                onFollow={onFollow}
+                isFollowing={isFollowing}
+                groups={groups}
+                brands={brands}
+                onEventClick={(eventId) => console.log('Event clicked:', eventId)}
+              />
+            );
+          }
+
+          // Regular post - use the SAME Post component from Feeds
+          return (
+            <Post
+              key={post.id}
+              post={post}
+              author={user}
+              currentUser={currentUser}
+              users={users}
+              onProfileClick={onProfileClick}
+              onReact={handleProfileReact}
+              onShare={(id, newCount) => {
+                onShare(id, newCount);
+                // Update local state
+                setProfilePosts(prev =>
+                  prev.map(p => safePostId(p) === id ? { ...p, shares: newCount } : p)
+                );
+              }}
+              onDelete={onDeletePost}
+              onEdit={onEditPost}
+              onViewImage={onViewImage}
+              onOpenComments={handleOpenComments}
+              onVideoClick={onVideoClick}
+              onPlayAudioTrack={onPlayAudioTrack}
+              onHashtagClick={onHashtagClick}
+              onViewProductFromPost={onViewProductFromPost}
+              onOpenAudio={onOpenAudio}
+              onRSVP={onRSVP}
+              groups={groups}
+              brands={brands}
+              isFollowing={isFollowing}
+              onFollow={onFollow}
+              onOpenReactions={handleOpenReactions}
+              getProductData={getProductData}
+              onViewProduct={onViewProduct}
+            />
+          );
+        })}
+
+        {/* Empty state */}
+        {filteredProfilePosts.length === 0 && !isCurrentUser && (
+          <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
+            <div className="text-[#B0B3B8] text-lg mb-2">No posts yet</div>
+            <p className="text-[#B0B3B8] text-sm">This user hasn't posted anything yet.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="w-full bg-[#18191A] min-h-screen">
+      {/* File inputs for profile/cover images */}
       <input
         type="file"
         ref={profileInputRef}
@@ -862,8 +1009,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         }}
       />
 
+      {/* Profile Header */}
       <div className="bg-[#242526] shadow-sm">
         <div className="max-w-[1095px] mx-auto w-full relative">
+          {/* Cover Image */}
           <div className="h-[200px] md:h-[350px] w-full bg-gray-700 relative overflow-hidden md:rounded-b-xl">
             {safeCoverImage ? (
               <img
@@ -900,6 +1049,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             )}
           </div>
 
+          {/* Profile Picture and Info */}
           <div className="px-4 pb-0">
             <div className="flex flex-col md:flex-row items-center md:items-end -mt-[84px] md:-mt-[30px] relative z-10 mb-4">
               <div className="w-[168px] h-[168px] rounded-full border-[6px] border-[#242526] bg-[#242526] overflow-hidden cursor-pointer relative group">
@@ -946,7 +1096,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   {(user as any).is_verified && (
                     <i className="fas fa-check-circle text-[#1877F2] text-[20px]"></i>
                   )}
-                  {/* ✅ FIXED: Show role badge based on the profile user's role */}
                   {(user.role === 'admin' || user.role === 'moderator') && (
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
                       user.role === 'admin' 
@@ -962,9 +1111,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 </span>
               </div>
 
+              {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 md:mt-0 md:mb-6">
                 {isCurrentUser ? (
-                  // ✅ PROFILE OWNER - Show "Add to story" and "Messages" (inbox) buttons
+                  // Profile owner buttons
                   <>
                     <button
                       className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner"
@@ -980,7 +1130,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       <span>Add to story</span>
                     </button>
                     
-                    {/* ✅ ADDED: Message button for self (opens ChatsList inbox) */}
                     <button
                       onClick={handleSelfMessageClick}
                       className={`bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner ${
@@ -994,7 +1143,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     </button>
                   </>
                 ) : (
-                  // ✅ OTHER USER - Show "Follow" and "Message" (direct chat) buttons
+                  // Other user buttons
                   <>
                     <button
                       onClick={handleFollowClick}
@@ -1018,7 +1167,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       )}
                     </button>
                     
-                    {/* ✅ MODIFIED: Message button for other users (opens Chat.tsx) */}
                     <button
                       onClick={handleOtherMessageClick}
                       className={`bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner ${
@@ -1035,8 +1183,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               </div>
             </div>
 
+            {/* Tabs */}
             <div className="h-[1px] bg-[#3E4042] w-full mt-4"></div>
-
             <div className="flex items-center gap-1 pt-1 overflow-x-auto">
               {(['Posts', 'About', 'Followers', 'Photos'] as const).map((tab) => (
                 <div
@@ -1056,7 +1204,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         </div>
       </div>
 
-      {/* ✅ PROFESSIONALLY FIXED: ADMIN CONTROLS - Shows on all tabs, properly positioned */}
+      {/* Admin/Moderator Controls */}
       {isAdminOrModerator && (
         <div className="max-w-[1095px] mx-auto mt-6 px-4">
           <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-red-900/50">
@@ -1064,7 +1212,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               {isAdmin ? 'Admin Controls' : 'Moderator Controls'}
             </h2>
             <div className="flex flex-col gap-2">
-              {/* ✅ Verify button (Admin only) */}
               {isAdmin && (
                 <button
                   disabled={isSelf}
@@ -1079,7 +1226,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 </button>
               )}
               
-              {/* ✅ Suspend buttons grid (Admin and Moderator) */}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   disabled={isSelf}
@@ -1127,7 +1273,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 </button>
               </div>
 
-              {/* ✅ Moderator role buttons (Admin only) */}
               {isAdmin && (
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <button
@@ -1155,7 +1300,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 </div>
               )}
 
-              {/* ✅ Delete button (Admin only) */}
               {isAdmin && (
                 <button
                   disabled={isSelf}
@@ -1170,7 +1314,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 </button>
               )}
               
-              {/* ✅ Role info display */}
               <div className="mt-2 pt-2 border-t border-[#3E4042]">
                 <p className="text-[#B0B3B8] text-xs">
                   Viewing as: <span className="font-semibold text-[#E4E6EB]">{isAdmin ? "Admin" : "Moderator"}</span>
@@ -1189,10 +1332,91 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         </div>
       )}
 
-      {renderContent()}
+      {/* Render active tab */}
+      {activeTab === 'About' && renderAbout()}
+      {activeTab === 'Followers' && renderFollowers()}
+      {activeTab === 'Photos' && renderPhotos()}
+      {activeTab === 'Posts' && renderPosts()}
 
+      {/* Edit Profile Modal */}
       {showEditProfile && isCurrentUser && (
         <EditProfileModal user={user} onClose={() => setShowEditProfile(false)} onSave={onUpdateUserDetails} />
+      )}
+
+      {/* ========== MODALS FROM FEEDS.TSX ========== */}
+
+      {/* Comments Sheet */}
+      {showCommentsSheet && selectedPostForComments && currentUser && (
+        <CommentsSheet
+          post={selectedPostForComments}
+          currentUser={currentUser}
+          users={users}
+          onClose={() => {
+            setShowCommentsSheet(false);
+            setSelectedPostForComments(null);
+          }}
+          onComment={onComment}
+          getCommentAuthor={getCommentAuthor}
+          onProfileClick={onProfileClick}
+          onHashtagClick={onHashtagClick}
+          onFollow={onFollow}
+          checkIsFollowing={(id) => {
+            if (!currentUser) return false;
+            const userFollowers = safeArray<number>((users.find(u => u.id === id) as any)?.followers || []);
+            return userFollowers.includes(currentUser.id);
+          }}
+          onViewProductFromPost={onViewProductFromPost}
+          onOpenAudio={onOpenAudio}
+        />
+      )}
+
+      {/* Reactions Sheet */}
+      {showReactionsSheet && selectedPostForReactions && (
+        <ReactionsSheet
+          isOpen={showReactionsSheet}
+          onClose={() => {
+            setShowReactionsSheet(false);
+            setSelectedPostForReactions(null);
+          }}
+          postId={selectedPostForReactions}
+          onProfileClick={onProfileClick}
+          onOpenComments={handleOpenComments}
+        />
+      )}
+
+      {/* Share Bottom Sheet */}
+      {showShareSheet && selectedPostForShare && (
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => {
+            setShowShareSheet(false);
+            setSelectedPostForShare(null);
+          }}
+          post={selectedPostForShare}
+          currentUser={currentUser}
+          users={users}
+          groups={groups}
+          brands={brands}
+          onShareComplete={handleShareComplete}
+        />
+      )}
+
+      {/* Gallery Viewer */}
+      {galleryOpen && (
+        <GalleryViewer
+          isOpen={galleryOpen}
+          urls={galleryUrls}
+          startIndex={galleryIndex}
+          onClose={() => setGalleryOpen(false)}
+          postId={0} // Not used in gallery-only mode
+          currentUser={currentUser}
+          reactionCount={0}
+          commentCount={0}
+          shareCount={0}
+          onReact={() => {}}
+          onOpenComments={() => {}}
+          onShare={() => {}}
+        />
       )}
     </div>
   );
