@@ -5525,4 +5525,4 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { getMediaTypeInfo, topReactionEmojis, avatarFrom };
+export { getMediaTypeInfo, topReactionEmojis, safeString, avatarFrom };
