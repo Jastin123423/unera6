@@ -1,6 +1,4 @@
-// components/Chat.tsx (or Chat.tsx)
-// Facebook Messenger-style full-screen chat window (mobile look) with dark theme
-
+// components/Chat.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
@@ -8,7 +6,12 @@ import { StickerPicker, EmojiPicker } from "./Pickers";
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem("unera_token");
   const headers: HeadersInit = { "Content-Type": "application/json", ...(options.headers || {}) };
+
   if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  // TEMP: if you are not verifying JWT yet, you can pass user id for now (remove once auth is real)
+  // headers["x-user-id"] = String((window as any).__currentUserId || "");
+
   const res = await fetch(url, { ...options, headers });
   if (!res.ok) throw new Error("API Error");
   return res.json();
@@ -31,10 +34,8 @@ const parseDate = (v: any) => {
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
-const formatDayLabel = (d: Date) => {
-  // Simple local label: "Sep 07, 2020"
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
-};
+const formatDayLabel = (d: Date) =>
+  d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
@@ -45,7 +46,13 @@ const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; clas
   className = "",
 }) => {
   const url = safeStr(src);
-  const initials = (safeStr(name).trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("") || "U").slice(0, 2);
+  const initials =
+    (safeStr(name)
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase())
+      .join("") || "U").slice(0, 2);
 
   if (url) {
     return (
@@ -88,15 +95,14 @@ const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; clas
 type ChatWindowProps = {
   currentUser: User;
   recipient: User;
-  messages?: Message[];
   onClose: () => void;
-  onSendMessage?: (t: string, s?: string) => void; // optional external hook
 };
 
-export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, onClose, onSendMessage }) => {
+export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, onClose }) => {
   const [inputText, setInputText] = useState("");
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<number>(0);
 
   const [showEmoji, setShowEmoji] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
@@ -106,7 +112,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const pollRef = useRef<number | null>(null);
 
   const scrollToBottom = (smooth = true) => {
-    // If user is near bottom, keep pinned. Otherwise don't force.
     const el = listRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -114,22 +119,35 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     if (nearBottom) messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
   };
 
+  const markRead = async (convId: number) => {
+    if (!convId) return;
+    try {
+      await apiFetch("/api/messages/mark-read", {
+        method: "POST",
+        body: JSON.stringify({ conversation_id: convId }),
+      });
+    } catch {
+      // ignore
+    }
+  };
+
   const fetchHistory = async () => {
     try {
       setLoading(true);
-      // Find conversation ID
+
       const conversations = await apiFetch("/api/messages/conversations");
       const conv = Array.isArray(conversations)
-        ? conversations.find((c: any) => safeNum(c?.recipient_id) === safeNum(recipient?.id))
+        ? conversations.find((c: any) => safeNum(c?.other_user_id) === safeNum(recipient?.id))
         : null;
 
-      if (conv?.id) {
-        const history = await apiFetch(`/api/messages/conversations/${conv.id}`);
-        if (Array.isArray(history)) {
-          setMsgs(history);
-        } else {
-          setMsgs([]);
-        }
+      const cid = safeNum(conv?.id, 0);
+      setConversationId(cid);
+
+      if (cid) {
+        const history = await apiFetch(`/api/messages/conversations/${cid}`);
+        setMsgs(Array.isArray(history) ? history : []);
+        // mark as read in background
+        markRead(cid);
       } else {
         setMsgs([]);
       }
@@ -154,7 +172,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   }, [recipient?.id]);
 
   useEffect(() => {
-    // initial pin to bottom without animation
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipient?.id]);
@@ -165,7 +182,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   }, [msgs.length]);
 
   const normalized = useMemo(() => {
-    // Sort by created_at if present, else by id (best effort)
     const arr = Array.isArray(msgs) ? [...msgs] : [];
     arr.sort((a: any, b: any) => {
       const da = parseDate(a?.created_at);
@@ -177,7 +193,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   }, [msgs]);
 
   const rows = useMemo(() => {
-    // Insert day separators similar to Messenger
     const out: Array<{ type: "day" | "msg"; key: string; day?: string; msg?: Message }> = [];
     let lastDay = "";
     for (const m of normalized) {
@@ -200,16 +215,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     setShowStickers(false);
 
     try {
-      // Optional external callback
-      onSendMessage?.(trimmed);
-
       const data = await apiFetch("/api/messages/send", {
         method: "POST",
         body: JSON.stringify({ recipient_id: recipient.id, text_content: trimmed }),
       });
 
+      // data is the inserted message row
       setMsgs((prev) => [...prev, data]);
       setInputText("");
+
+      // If conversation was newly created, refresh to get conversation id + receipts
+      if (!conversationId) fetchHistory();
     } catch {
       alert("Failed to send");
     }
@@ -224,7 +240,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   return (
     <div className="fixed inset-0 z-[200] bg-[#1e1e1e] flex flex-col font-sans">
-      {/* Top header like Messenger */}
       <div className="h-14 px-3 flex items-center justify-between border-b border-[#333] bg-[#1e1e1e]">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -246,35 +261,20 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
 
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-            aria-label="Call"
-          >
+          <button type="button" className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Call">
             <i className="fas fa-phone text-[18px] text-[#1B74E4]" />
           </button>
-          <button
-            type="button"
-            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-            aria-label="Video"
-          >
+          <button type="button" className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Video">
             <i className="fas fa-video text-[18px] text-[#1B74E4]" />
           </button>
-          <button
-            type="button"
-            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-            aria-label="Info"
-          >
+          <button type="button" className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Info">
             <i className="fas fa-circle-info text-[18px] text-[#1B74E4]" />
           </button>
         </div>
       </div>
 
-      {/* Messages */}
       <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 bg-[#1e1e1e]">
-        {loading && msgs.length === 0 ? (
-          <div className="text-center text-[#b0b3b8] text-sm py-6">Loading…</div>
-        ) : null}
+        {loading && msgs.length === 0 ? <div className="text-center text-[#b0b3b8] text-sm py-6">Loading…</div> : null}
 
         {rows.map((r) => {
           if (r.type === "day") {
@@ -297,17 +297,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   className={[
                     "px-3 py-2 text-[16px] leading-snug",
                     "rounded-2xl",
-                    mine 
-                      ? "bg-[#1B74E4] text-white rounded-br-md" 
-                      : "bg-[#3A3B3C] text-[#e4e6eb] rounded-bl-md",
+                    mine ? "bg-[#1B74E4] text-white rounded-br-md" : "bg-[#3A3B3C] text-[#e4e6eb] rounded-bl-md",
                   ].join(" ")}
                 >
                   {text || <span className="opacity-60">…</span>}
                 </div>
 
-                {d ? (
-                  <div className="text-[11px] text-[#b0b3b8] mt-0.5 px-1 select-none">{formatTime(d)}</div>
-                ) : null}
+                {d ? <div className="text-[11px] text-[#b0b3b8] mt-0.5 px-1 select-none">{formatTime(d)}</div> : null}
               </div>
             </div>
           );
@@ -316,16 +312,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Emoji / Stickers panel */}
       {(showEmoji || showStickers) && (
         <div className="border-t border-[#333] bg-[#1e1e1e]">
           {showEmoji ? (
             <div className="p-2">
-              <EmojiPicker
-                onSelect={(emoji: string) => {
-                  setInputText((p) => (p ? `${p}${emoji}` : emoji));
-                }}
-              />
+              <EmojiPicker onSelect={(emoji: string) => setInputText((p) => (p ? `${p}${emoji}` : emoji))} />
             </div>
           ) : null}
 
@@ -333,8 +324,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             <div className="p-2">
               <StickerPicker
                 onSelect={(stickerText: string) => {
-                  // If your backend supports stickers separately, pass it via onSendMessage (2nd arg).
-                  // For now we send as text fallback.
                   sendText(stickerText);
                 }}
               />
@@ -343,32 +332,20 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       )}
 
-      {/* Composer like Messenger */}
       <form onSubmit={handleSubmit} className="border-t border-[#333] bg-[#1e1e1e] px-2 py-2">
         <div className="flex items-end gap-2">
-          {/* Left quick actions */}
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-              aria-label="Camera"
-              onClick={() => alert("Camera upload (connect your media picker here)")}
-            >
+            <button type="button" className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Camera">
               <i className="fas fa-camera text-[18px] text-[#1B74E4]" />
             </button>
 
-            <button
-              type="button"
-              className="px-2 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-              aria-label="GIF"
-              onClick={() => alert("GIF picker (connect here)")}
-            >
+            <button type="button" className="px-2 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="GIF">
               <span className="text-[13px] font-bold text-[#1B74E4]">GIF</span>
             </button>
 
             <button
               type="button"
-              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
               aria-label="Stickers"
               onClick={() => {
                 setShowStickers((v) => !v);
@@ -379,21 +356,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             </button>
           </div>
 
-          {/* Input */}
           <div className="flex-1 bg-[#2d2d2d] rounded-full px-3 py-2 flex items-center gap-2">
             <input
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder="Message"
               className="flex-1 bg-transparent outline-none text-[15px] text-[#e4e6eb] placeholder:text-[#b0b3b8]"
-              onFocus={() => {
-                // keep panels, but optional: close when typing
-              }}
             />
 
             <button
               type="button"
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a]"
               aria-label="Emoji"
               onClick={() => {
                 setShowEmoji((v) => !v);
@@ -403,32 +376,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               <i className="far fa-smile text-[18px] text-[#1B74E4]" />
             </button>
 
-            <button
-              type="button"
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
-              aria-label="Voice"
-              onClick={() => alert("Voice (connect recorder here)")}
-            >
+            <button type="button" className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a]" aria-label="Voice">
               <i className="fas fa-microphone text-[18px] text-[#1B74E4]" />
             </button>
           </div>
 
-          {/* Right: Send or Like */}
           {canSend ? (
-            <button
-              type="submit"
-              className="w-10 h-10 rounded-full bg-[#1B74E4] flex items-center justify-center hover:bg-[#1A6ED8] transition-colors"
-              aria-label="Send"
-            >
+            <button type="submit" className="w-10 h-10 rounded-full bg-[#1B74E4] flex items-center justify-center hover:bg-[#1A6ED8]" aria-label="Send">
               <i className="fas fa-paper-plane text-[16px] text-white" />
             </button>
           ) : (
-            <button
-              type="button"
-              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-              aria-label="Like"
-              onClick={() => sendText("👍")}
-            >
+            <button type="button" className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Like" onClick={() => sendText("👍")}>
               <i className="fas fa-thumbs-up text-[20px] text-[#1B74E4]" />
             </button>
           )}
