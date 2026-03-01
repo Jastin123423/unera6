@@ -1,8 +1,11 @@
+// Chat.tsx
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
 
-// ✅ Upload function for R2 (returns rich data)
+/* ============================================================
+   ✅ Upload function for R2 (returns rich data)
+============================================================ */
 const uploadToR2 = async (file: File, folder = "chat"): Promise<any> => {
   const formData = new FormData();
   formData.append("file", file);
@@ -26,7 +29,6 @@ const uploadToR2 = async (file: File, folder = "chat"): Promise<any> => {
   const result = await response.json();
   if (!result?.url) throw new Error("No URL returned from upload");
 
-  // Ensure consistent keys for chat
   return {
     url: result.url,
     file_type: result.file_type || "other",
@@ -37,14 +39,16 @@ const uploadToR2 = async (file: File, folder = "chat"): Promise<any> => {
   };
 };
 
-// ✅ Format file size helper
+/* ============================================================
+   ✅ Helpers
+============================================================ */
 const formatFileSize = (bytes: number): string => {
+  if (!Number.isFinite(bytes)) return "";
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 };
 
-// ✅ Get file icon based on mime type
 const getFileIcon = (mime: string): string => {
   if (mime.startsWith("image/")) return "fas fa-image";
   if (mime.startsWith("video/")) return "fas fa-video";
@@ -57,30 +61,18 @@ const getFileIcon = (mime: string): string => {
   return "fas fa-file";
 };
 
-// ✅ Check if URL is an image
-const isImageUrl = (url: string): boolean => {
-  return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(url.split('?')[0]);
-};
-
-// ✅ Check if URL is a video
-const isVideoUrl = (url: string): boolean => {
-  return /\.(mp4|webm|ogg|mov|avi|mkv)$/i.test(url.split('?')[0]);
-};
-
-// ✅ Extract URLs from text
 const extractUrls = (text: string): string[] => {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   return text.match(urlRegex) || [];
 };
 
-// ✅ Updated apiFetch with userId parameter
 const apiFetch = async (url: string, options: RequestInit = {}, userId?: number) => {
   const token = localStorage.getItem("unera_token");
-  const headers: HeadersInit = { 
-    "Content-Type": "application/json", 
-    ...(options.headers || {}) 
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
   };
-  
+
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (userId) headers["x-user-id"] = String(userId);
 
@@ -116,7 +108,9 @@ const formatDayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
-// ✅ URL Preview Component
+/* ============================================================
+   ✅ URL Preview Component
+============================================================ */
 const URLPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView }) => {
   const [previewData, setPreviewData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -125,9 +119,7 @@ const URLPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView
     const fetchPreview = async () => {
       setLoading(true);
       try {
-        // You can implement a link preview API here
-        // For now, we'll just show the domain
-        const domain = new URL(url).hostname.replace('www.', '');
+        const domain = new URL(url).hostname.replace("www.", "");
         setPreviewData({ domain, url });
       } catch {
         setPreviewData({ domain: url.substring(0, 30), url });
@@ -140,8 +132,8 @@ const URLPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView
 
   if (loading) {
     return (
-      <div className="mt-2 p-3 rounded-xl border border-[#3E4042] bg-[#262626] animate-pulse">
-        <div className="h-4 bg-[#3a3a3a] rounded w-3/4"></div>
+      <div className="mt-1 p-3 rounded-xl border border-[#3E4042] bg-[#262626] animate-pulse">
+        <div className="h-4 bg-[#3a3a3a] rounded w-3/4" />
       </div>
     );
   }
@@ -151,12 +143,12 @@ const URLPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="mt-2 p-3 rounded-xl border border-[#3E4042] bg-[#262626] flex items-center gap-3 hover:bg-[#2f2f2f] transition-colors no-underline"
+      className="mt-1 p-3 rounded-xl border border-[#3E4042] bg-[#262626] flex items-center gap-3 hover:bg-[#2f2f2f] transition-colors no-underline"
       onClick={(e) => e.stopPropagation()}
     >
       <i className="fas fa-link text-xl text-[#1B74E4]" />
       <div className="flex-1 min-w-0">
-        <div className="text-[#e4e6eb] font-medium truncate">{previewData?.domain || 'Link'}</div>
+        <div className="text-[#e4e6eb] font-medium truncate">{previewData?.domain || "Link"}</div>
         <div className="text-[#b0b3b8] text-xs truncate">{url}</div>
       </div>
       <i className="fas fa-external-link-alt text-[#b0b3b8]" />
@@ -164,25 +156,21 @@ const URLPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView
   );
 };
 
-// ✅ GIF Preview Component
+/* ============================================================
+   ✅ GIF Preview Component
+============================================================ */
 const GIFPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView }) => {
-  // Check if it's a Tenor or Giphy URL
-  const isTenor = url.includes('tenor.com');
-  const isGiphy = url.includes('giphy.com');
-  
-  // Extract GIF ID from URL (simplified)
+  const isTenor = url.includes("tenor.com");
+  const isGiphy = url.includes("giphy.com");
+
   const getEmbedUrl = () => {
     if (isTenor) {
       const match = url.match(/tenor\.com\/view\/([^\/]+)/);
-      if (match) {
-        return `https://tenor.com/embed/${match[1]}`;
-      }
+      if (match) return `https://tenor.com/embed/${match[1]}`;
     }
     if (isGiphy) {
       const match = url.match(/giphy\.com\/gifs\/([^\/]+)/);
-      if (match) {
-        return `https://giphy.com/embed/${match[1]}`;
-      }
+      if (match) return `https://giphy.com/embed/${match[1]}`;
     }
     return null;
   };
@@ -191,24 +179,27 @@ const GIFPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView
 
   if (embedUrl) {
     return (
-      <div className="mt-2 rounded-xl overflow-hidden border border-[#3E4042] bg-[#262626]" onClick={(e) => e.stopPropagation()}>
-        <iframe
-          src={embedUrl}
-          className="w-full h-48"
-          frameBorder="0"
-          allowFullScreen
-          title="GIF"
-        />
+      <div
+        className="mt-1 rounded-xl overflow-hidden border border-[#3E4042] bg-[#262626]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <iframe src={embedUrl} className="w-full h-48" frameBorder="0" allowFullScreen title="GIF" />
       </div>
     );
   }
 
-  // If not a known GIF service, treat as regular link
   return <URLPreview url={url} onView={onView} />;
 };
 
-// ✅ Attachment Preview Component
-const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?: boolean }> = ({ attachment, onView, isMine }) => {
+/* ============================================================
+   ✅ Attachment Preview
+   - Voice note: WhatsApp style (no black bar)
+============================================================ */
+const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?: boolean }> = ({
+  attachment,
+  onView,
+  isMine,
+}) => {
   const url = attachment?.url || attachment?.attachment_url;
   const mime = attachment?.mime_type || attachment?.type || attachment?.attachment_type || "";
   const fileType = attachment?.file_type || "";
@@ -224,7 +215,10 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
 
   if (isImage) {
     return (
-      <div className="mt-2 rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer hover:opacity-90 transition-opacity" onClick={onView}>
+      <div
+        className="rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer hover:opacity-90 transition-opacity"
+        onClick={onView}
+      >
         <img src={url} alt={name} className="w-full max-h-[400px] object-contain bg-black/20" />
       </div>
     );
@@ -232,31 +226,34 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
 
   if (isVideo) {
     return (
-      <div className="mt-2 rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer relative" onClick={onView}>
+      <div className="rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer relative" onClick={onView}>
         <video src={url} className="w-full max-h-[400px] object-contain bg-black/20" controls />
       </div>
     );
   }
 
+  // ✅ WhatsApp style: player only
   if (isAudio) {
     return (
-      <div className="mt-2 p-4 rounded-xl border border-[#3E4042] bg-[#262626]" onClick={(e) => { e.stopPropagation(); }}>
-        <div className="flex items-center gap-3 mb-3">
-          <i className="fas fa-music text-2xl text-[#1B74E4]" />
-          <div className="flex-1 min-w-0">
-            <div className="text-[#e4e6eb] font-medium truncate">{name}</div>
-            {size ? <div className="text-[#b0b3b8] text-xs">{formatFileSize(size)}</div> : null}
-          </div>
+      <div className="voiceNotePlayerWrap" onClick={(e) => e.stopPropagation()}>
+        <div className="voiceNotePlayer">
+          <audio src={url} controls preload="metadata" />
         </div>
-        <audio src={url} controls className="w-full" />
+        {/* optional tiny label */}
+        <div className="mt-1 flex items-center justify-between">
+          <div className="text-[11px] text-[#b0b3b8] truncate max-w-[75%]">{name}</div>
+          {size ? <div className="text-[11px] text-[#b0b3b8]">{formatFileSize(size)}</div> : null}
+        </div>
       </div>
     );
   }
 
-  // Document/file preview - WhatsApp style
   return (
     <div
-      className={`mt-2 p-4 rounded-xl border ${isMine ? 'border-[#1B74E4]/30' : 'border-[#3E4042]'} bg-[#262626] flex items-center gap-3 cursor-pointer hover:bg-[#2f2f2f] transition-colors`}
+      className={[
+        "p-4 rounded-xl border bg-[#262626] flex items-center gap-3 cursor-pointer hover:bg-[#2f2f2f] transition-colors",
+        isMine ? "border-[#1B74E4]/30" : "border-[#3E4042]",
+      ].join(" ")}
       onClick={onView}
     >
       <i className={`${getFileIcon(mime || "")} text-3xl text-[#1B74E4]`} />
@@ -269,6 +266,9 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
   );
 };
 
+/* ============================================================
+   ✅ Avatar
+============================================================ */
 const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; className?: string }> = ({
   src,
   name = "",
@@ -338,6 +338,9 @@ type ActionModalState =
       y: number;
     };
 
+/* ============================================================
+   ✅ Main ChatWindow
+============================================================ */
 export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, onClose, onSendMessage }) => {
   const [inputText, setInputText] = useState("");
   const [msgs, setMsgs] = useState<Message[]>([]);
@@ -355,7 +358,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
 
-  // Voice recording states
+  // Voice recording
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [recordingWave, setRecordingWave] = useState<number[]>([]);
@@ -375,17 +378,43 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const longPressTimer = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const currentUserId = safeNum(currentUser?.id);
+  const currentUserId = safeNum((currentUser as any)?.id);
 
-  // Voice recording helper
+  const normalizeMsg = (msg: any) => ({
+    ...msg,
+    attachments: Array.isArray(msg?.attachments) ? msg.attachments : [],
+  });
+
+  // ✅ Preserve existing message references when same (prevents audio from resetting)
+  const mergeByIdPreserveRefs = useCallback((prev: any[], incoming: any[]) => {
+    const map = new Map<number, any>();
+    for (const m of prev) map.set(safeNum(m?.id), m);
+
+    for (const raw of incoming) {
+      const m = normalizeMsg(raw);
+      const id = safeNum(m?.id);
+      const old = map.get(id);
+
+      const same =
+        old &&
+        safeStr(old?.text_content) === safeStr(m?.text_content) &&
+        safeStr(old?.edited_at) === safeStr(m?.edited_at) &&
+        safeStr(old?.created_at) === safeStr(m?.created_at) &&
+        JSON.stringify(old?.attachments || []) === JSON.stringify(m?.attachments || []);
+
+      map.set(id, same ? old : m);
+    }
+
+    return Array.from(map.values()).sort((a: any, b: any) => {
+      const da = parseDate(a?.created_at);
+      const db = parseDate(b?.created_at);
+      if (da && db) return da.getTime() - db.getTime();
+      return safeNum(a?.id) - safeNum(b?.id);
+    });
+  }, []);
+
   const pickBestAudioMime = () => {
-    const candidates = [
-      "audio/webm;codecs=opus",
-      "audio/webm",
-      "audio/mp4",
-      "audio/aac",
-      "audio/mpeg",
-    ];
+    const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac", "audio/mpeg"];
     for (const c of candidates) {
       // @ts-ignore
       if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported?.(c)) return c;
@@ -409,23 +438,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           "/api/messages/mark-read",
           {
             method: "POST",
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               conversation_id: convId,
-              user_id: currentUserId
+              user_id: currentUserId,
             }),
           },
           currentUserId
         );
-      } catch {
-        // ignore
-      }
+      } catch {}
     },
     [currentUserId]
   );
 
   const fetchHistory = useCallback(async () => {
     if (!currentUserId) return;
-    
+
     try {
       setLoading(true);
 
@@ -439,12 +466,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       if (cid) {
         const history = await apiFetch(`/api/messages/conversations/${cid}`, {}, currentUserId);
-        // Ensure each message has attachments array
-        const msgsWithAttachments = (Array.isArray(history) ? history : []).map((msg: any) => ({
-          ...msg,
-          attachments: Array.isArray(msg?.attachments) ? msg.attachments : []
-        }));
-        setMsgs(msgsWithAttachments);
+        const incoming = Array.isArray(history) ? history : [];
+        setMsgs((prev) => mergeByIdPreserveRefs(prev, incoming));
         markRead(cid);
       } else {
         setMsgs([]);
@@ -454,13 +477,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     } finally {
       setLoading(false);
     }
-  }, [recipient?.id, markRead, currentUserId]);
+  }, [recipient?.id, markRead, currentUserId, mergeByIdPreserveRefs]);
 
   useEffect(() => {
     fetchHistory();
 
     if (pollRef.current) window.clearInterval(pollRef.current);
-    pollRef.current = window.setInterval(fetchHistory, 5000);
+    pollRef.current = window.setInterval(() => {
+      if (document.visibilityState === "visible") fetchHistory();
+    }, 5000);
 
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
@@ -473,12 +498,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     return () => {
       if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
       if (waveIntervalRef.current) window.clearInterval(waveIntervalRef.current);
-      try { 
-        mediaRecorderRef.current?.stop(); 
+      try {
+        mediaRecorderRef.current?.stop();
         audioContextRef.current?.close();
         sourceRef.current?.disconnect();
       } catch {}
-      try { recordStreamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
+      try {
+        recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+      } catch {}
     };
   }, []);
 
@@ -493,21 +520,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const normalized = useMemo(() => {
     const arr = Array.isArray(msgs) ? [...msgs] : [];
     arr.sort((a: any, b: any) => {
-      const da = parseDate(a?.created_at);
-      const db = parseDate(b?.created_at);
+      const da = parseDate((a as any)?.created_at);
+      const db = parseDate((b as any)?.created_at);
       if (da && db) return da.getTime() - db.getTime();
-      return safeNum(a?.id) - safeNum(b?.id);
+      return safeNum((a as any)?.id) - safeNum((b as any)?.id);
     });
     return arr;
   }, [msgs]);
 
-  // Map messages by ID for quick lookup (for replies)
   const msgById = useMemo(() => {
     const map = new Map<number, any>();
-    for (const m of normalized as any[]) map.set(safeNum(m?.id), m);
+    for (const m of normalized as any[]) map.set(safeNum((m as any)?.id), m);
     return map;
   }, [normalized]);
 
+  // ✅ IMPORTANT: stable keys only (NO Math.random)
   const rows = useMemo(() => {
     const out: Array<{ type: "day" | "msg"; key: string; day?: string; msg?: any }> = [];
     let lastDay = "";
@@ -518,12 +545,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         lastDay = dk;
         out.push({ type: "day", key: `day:${dk}`, day: formatDayLabel(d!) });
       }
-      out.push({ type: "msg", key: `msg:${safeNum(m?.id)}:${Math.random().toString(16).slice(2)}`, msg: m });
+      out.push({ type: "msg", key: `msg:${safeNum(m?.id)}`, msg: m });
     }
     return out;
   }, [normalized]);
 
-  // Voice recording functions - Stable with wave animation
+  /* ============================================================
+     ✅ Voice record
+  ============================================================ */
   const startVoiceNote = async () => {
     if (uploading) return;
 
@@ -536,7 +565,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recordStreamRef.current = stream;
 
-      // Setup audio analysis for wave animation
       audioContextRef.current = new AudioContext();
       analyserRef.current = audioContextRef.current.createAnalyser();
       analyserRef.current.fftSize = 256;
@@ -546,23 +574,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       const bufferLength = analyserRef.current.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
 
-      // Start wave animation
       if (waveIntervalRef.current) window.clearInterval(waveIntervalRef.current);
       waveIntervalRef.current = window.setInterval(() => {
         if (analyserRef.current) {
           analyserRef.current.getByteFrequencyData(dataArray);
           const average = Array.from(dataArray.slice(0, 20)).reduce((a, b) => a + b, 0) / 20;
-          const normalized = Math.min(100, Math.max(20, average));
-          setRecordingWave(prev => {
-            const newWave = [...prev.slice(-15), normalized];
-            return newWave;
-          });
+          const normalizedWave = Math.min(100, Math.max(20, average));
+          setRecordingWave((prev) => [...prev.slice(-15), normalizedWave]);
         }
       }, 100);
 
       recordChunksRef.current = [];
       const mimeType = pickBestAudioMime();
-
       const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mr;
 
@@ -572,14 +595,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       mr.onstop = async () => {
         try {
-          // Stop wave animation
           if (waveIntervalRef.current) {
             window.clearInterval(waveIntervalRef.current);
             waveIntervalRef.current = null;
           }
           setRecordingWave([]);
 
-          // Stop tracks and audio context
           recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
           audioContextRef.current?.close();
           sourceRef.current?.disconnect();
@@ -591,20 +612,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const blob = new Blob(recordChunksRef.current, { type: mr.mimeType || "audio/webm" });
           recordChunksRef.current = [];
 
-          // Build a File for your upload API
           const ext =
-            (mr.mimeType || "").includes("mp4") ? "m4a" :
-            (mr.mimeType || "").includes("mpeg") ? "mp3" : "webm";
+            (mr.mimeType || "").includes("mp4") ? "m4a" : (mr.mimeType || "").includes("mpeg") ? "mp3" : "webm";
 
           const filename = `voice-${Date.now()}.${ext}`;
           const file = new File([blob], filename, { type: mr.mimeType || "audio/webm" });
 
           setUploading(true);
 
-          // Upload
           const up = await uploadToR2(file, "chat");
 
-          // Send message with attachments array
           await send({
             recipient_id: (recipient as any)?.id,
             text_content: null,
@@ -658,10 +675,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       setRecording(false);
 
-      // If cancel, stop and discard
-      if (cancel) {
-        recordChunksRef.current = [];
-      }
+      if (cancel) recordChunksRef.current = [];
 
       const mr = mediaRecorderRef.current;
       mediaRecorderRef.current = null;
@@ -669,7 +683,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       if (mr && mr.state !== "inactive") {
         mr.stop();
       } else {
-        // Ensure stream stops even if recorder isn't active
         recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
         audioContextRef.current?.close();
         sourceRef.current?.disconnect();
@@ -681,63 +694,38 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     } catch {}
   };
 
-  // ✅ Updated buildForwardPayload with attachments array
-  const buildForwardPayload = (m: any) => {
-    const text = safeStr(m?.text_content);
-    const attachments = Array.isArray(m?.attachments) ? m.attachments : [];
-
-    const payload: any = {
-      sender_id: currentUserId,
-      recipient_id: (recipient as any)?.id,
-    };
-
-    if (attachments.length) {
-      payload.attachments = attachments.map((a: any) => ({
-        url: a.url,
-        file_type: a.file_type,
-        mime_type: a.mime_type,
-        filename: a.filename,
-        size_bytes: a.size_bytes,
-        metadata: a.metadata || {},
-      }));
-      payload.text_content = text ? `Forwarded: ${text}` : "Forwarded attachment";
-    } else {
-      payload.text_content = text ? `Forwarded: ${text}` : "Forwarded message";
-    }
-
-    return payload;
-  };
-
-  // ✅ Updated send function to handle attachments array response
+  /* ============================================================
+     ✅ Sending
+  ============================================================ */
   const send = async (payload: any) => {
     if (!currentUserId) throw new Error("User not authenticated");
-    
+
     const fullPayload = {
       sender_id: currentUserId,
-      ...payload
+      ...payload,
     };
-    
+
     const data = await apiFetch(
-      "/api/messages/send", 
-      { 
-        method: "POST", 
-        body: JSON.stringify(fullPayload) 
+      "/api/messages/send",
+      {
+        method: "POST",
+        body: JSON.stringify(fullPayload),
       },
       currentUserId
     );
-    
-    // Normalize response into one message object with attachments
-    const msg = data?.message ? { 
-      ...data.message, 
-      attachments: Array.isArray(data.attachments) ? data.attachments : [] 
-    } : data;
-    
-    setMsgs((prev) => [...prev, msg]);
+
+    const msg = data?.message
+      ? {
+          ...data.message,
+          attachments: Array.isArray(data.attachments) ? data.attachments : [],
+        }
+      : data;
+
+    setMsgs((prev) => mergeByIdPreserveRefs(prev, [msg]));
     if (!conversationId) fetchHistory();
     return msg;
   };
 
-  // ✅ Updated handleFileSelect for multiple files
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0 || !currentUserId) return;
@@ -754,7 +742,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         uploaded.push(up);
       }
 
-      // ✅ Send ONE message with attachments array
       const payload: any = {
         recipient_id: (recipient as any)?.id,
         text_content: inputText.trim() || null,
@@ -788,15 +775,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     try {
       onSendMessage?.(trimmed);
 
-      // EDIT mode
+      // EDIT
       if (editTarget?.id) {
         const updated = await apiFetch(
           `/api/messages/${editTarget.id}`,
           {
             method: "PUT",
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               text_content: trimmed,
-              user_id: currentUserId
+              user_id: currentUserId,
             }),
           },
           currentUserId
@@ -804,18 +791,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
         const updatedMsg = updated?.message || null;
         if (updatedMsg?.id) {
-          setMsgs((prev) => prev.map((m: any) => (safeNum(m?.id) === safeNum(updatedMsg.id) ? updatedMsg : m)));
+          setMsgs((prev) => mergeByIdPreserveRefs(prev, [updatedMsg]));
         }
         setEditTarget(null);
         setInputText("");
         return;
       }
 
-      // REPLY mode
-      const payload: any = { 
+      // REPLY
+      const payload: any = {
         sender_id: currentUserId,
-        recipient_id: (recipient as any)?.id, 
-        text_content: trimmed 
+        recipient_id: (recipient as any)?.id,
+        text_content: trimmed,
       };
       if (replyTo?.id) payload.parent_message_id = replyTo.id;
 
@@ -835,7 +822,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const canSend = inputText.trim().length > 0;
 
-  // Long-press handling
+  /* ============================================================
+     ✅ Long press actions
+  ============================================================ */
   const startLongPress = (msg: any, mine: boolean, evt: any) => {
     if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
 
@@ -860,36 +849,27 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const doDelete = async (m: any, deleteForEveryone: boolean) => {
     if (!currentUserId) return;
-    
+
     try {
       await apiFetch(
         `/api/messages/${safeNum(m?.id)}`,
         {
           method: "DELETE",
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             delete_for_everyone: deleteForEveryone,
-            user_id: currentUserId
+            user_id: currentUserId,
           }),
         },
         currentUserId
       );
 
-      if (deleteForEveryone) {
-        setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
-      } else {
-        setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
-      }
+      setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
     } catch (e: any) {
       alert(e?.message || "Failed to delete");
     }
   };
 
-  const actionBtn = (
-    icon: string,
-    label: string,
-    onClick: () => void,
-    danger = false
-  ) => (
+  const actionBtn = (icon: string, label: string, onClick: () => void, danger = false) => (
     <button
       type="button"
       onClick={onClick}
@@ -910,6 +890,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   return (
     <div className="fixed inset-0 z-[200] bg-[#1e1e1e] flex flex-col font-sans">
+      {/* ✅ Audio styling (removes black bar / makes WhatsApp-like) */}
+      <style>{`
+        .voiceNotePlayerWrap { width: 100%; }
+        .voiceNotePlayer { background: transparent; border: none; padding: 0; margin: 0; border-radius: 18px; overflow: hidden; }
+        .voiceNotePlayer audio { width: 260px; max-width: 100%; height: 34px; background: transparent !important; }
+        .voiceNotePlayer audio::-webkit-media-controls-panel { background: transparent !important; }
+        .voiceNotePlayer audio::-webkit-media-controls-enclosure { border-radius: 18px; background: #2d2d2d; }
+      `}</style>
+
       {/* Hidden file input */}
       <input
         type="file"
@@ -920,7 +909,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         onChange={handleFileSelect}
       />
 
-      {/* Top header */}
+      {/* Header */}
       <div className="h-14 px-3 flex items-center justify-between border-b border-[#333] bg-[#1e1e1e]">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -929,7 +918,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
             aria-label="Back"
           >
-            <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb]"></i>
+            <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb]" />
           </button>
 
           <div className="flex items-center gap-2 min-w-0">
@@ -959,12 +948,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         <div className="px-3 py-2 border-b border-[#333] bg-[#161616]">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="text-[12px] text-[#b0b3b8]">
-                {editTarget ? "Editing message" : "Replying to"}
-              </div>
-              <div className="text-[13px] text-[#e4e6eb] truncate">
-                {safeStr((editTarget || replyTo)?.text_content) || "…"}
-              </div>
+              <div className="text-[12px] text-[#b0b3b8]">{editTarget ? "Editing message" : "Replying to"}</div>
+              <div className="text-[13px] text-[#e4e6eb] truncate">{safeStr((editTarget || replyTo)?.text_content) || "…"}</div>
             </div>
             <button
               type="button"
@@ -991,7 +976,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       )}
 
-      {/* Recording indicator - WhatsApp style stable */}
+      {/* Recording indicator */}
       {recording && (
         <div className="px-3 py-3 border-b border-[#333] bg-[#161616]">
           <div className="flex items-center justify-between">
@@ -1035,10 +1020,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           <div className="text-center text-[#b0b3b8] text-sm py-6">Loading…</div>
         ) : null}
 
-        {rows.map((r) => {
+        {rows.map((r, index) => {
           if (r.type === "day") {
             return (
-              <div key={r.key} className="flex items-center justify-center my-3">
+              <div key={r.key} className="flex items-center justify-center my-2">
                 <div className="text-[12px] text-[#b0b3b8] bg-[#2d2d2d] px-3 py-1 rounded-full">{r.day}</div>
               </div>
             );
@@ -1050,31 +1035,49 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const d = parseDate(msg?.created_at);
           const edited = !!msg?.edited_at;
           const attachments = Array.isArray(msg?.attachments) ? msg.attachments : [];
-          
-          // Get parent message for reply preview
+
           const parentId = safeNum(msg?.parent_message_id, 0);
           const parent = parentId ? msgById.get(parentId) : null;
 
-          // Extract URLs from text for link previews
+          // Link previews
           const urls = extractUrls(text);
-          const gifUrls = urls.filter(url => 
-            url.includes('giphy.com') || 
-            url.includes('tenor.com') || 
-            url.includes('gif')
-          );
-          const otherUrls = urls.filter(url => !gifUrls.includes(url));
+          const gifUrls = urls.filter((u) => u.includes("giphy.com") || u.includes("tenor.com") || u.includes("gif"));
+          const otherUrls = urls.filter((u) => !gifUrls.includes(u));
+
+          // ✅ WhatsApp-style “connected” bubbles (touch in the middle)
+          const prevRow = rows[index - 1];
+          const nextRow = rows[index + 1];
+          const prevMsg = prevRow?.type === "msg" ? (prevRow as any).msg : null;
+          const nextMsg = nextRow?.type === "msg" ? (nextRow as any).msg : null;
+
+          const sameAsPrev = !!prevMsg && safeNum(prevMsg?.sender_id) === safeNum(msg?.sender_id);
+          const sameAsNext = !!nextMsg && safeNum(nextMsg?.sender_id) === safeNum(msg?.sender_id);
+
+          // Tight row spacing; slightly larger gap when sender changes
+          const rowMb = sameAsNext ? "mb-[1px]" : "mb-[6px]";
+
+          // Bubble radii logic
+          const bubbleRadius = mine
+            ? [
+                "rounded-tl-2xl rounded-bl-2xl",
+                sameAsPrev ? "rounded-tr-md" : "rounded-tr-2xl",
+                sameAsNext ? "rounded-br-md" : "rounded-br-2xl",
+              ].join(" ")
+            : [
+                "rounded-tr-2xl rounded-br-2xl",
+                sameAsPrev ? "rounded-tl-md" : "rounded-tl-2xl",
+                sameAsNext ? "rounded-bl-md" : "rounded-bl-2xl",
+              ].join(" ");
 
           return (
-            <div key={r.key} className={`w-full flex ${mine ? "justify-end" : "justify-start"} mb-2`}>
+            <div key={r.key} className={`w-full flex ${mine ? "justify-end" : "justify-start"} ${rowMb}`}>
               <div className={`max-w-[85%] sm:max-w-[75%] md:max-w-[65%] flex flex-col ${mine ? "items-end" : "items-start"}`}>
                 <div
                   className={[
-                    "px-3.5 py-2.5 text-[16px] sm:text-[17px] leading-snug break-words",
-                    "rounded-2xl",
+                    "px-3 py-2 text-[15px] sm:text-[16px] leading-[1.25] break-words",
                     "select-none",
-                    mine 
-                      ? "bg-[#1B74E4] text-white rounded-tr-md" 
-                      : "bg-[#3A3B3C] text-[#e4e6eb] rounded-tl-md",
+                    mine ? "bg-[#1B74E4] text-white" : "bg-[#3A3B3C] text-[#e4e6eb]",
+                    bubbleRadius,
                   ].join(" ")}
                   onTouchStart={(e) => startLongPress(msg, mine, e)}
                   onTouchEnd={cancelLongPress}
@@ -1082,30 +1085,24 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   onMouseDown={(e) => startLongPress(msg, mine, e)}
                   onMouseUp={cancelLongPress}
                   onMouseLeave={cancelLongPress}
-                  style={{ wordBreak: 'break-word' }}
+                  style={{ wordBreak: "break-word" }}
                 >
-                  {/* Reply preview inside bubble - WhatsApp style */}
                   {parent && (
-                    <div className={`mb-2 px-2 py-1.5 rounded-lg border-l-4 ${
-                      mine ? "bg-white/15 border-white/60" : "bg-black/20 border-[#1B74E4]"
-                    }`}>
-                      <div className={`text-[11px] font-semibold ${mine ? "text-white/90" : "text-[#e4e6eb]"}`}>
-                        Reply
-                      </div>
+                    <div
+                      className={`mb-2 px-2 py-1.5 rounded-lg border-l-4 ${
+                        mine ? "bg-white/15 border-white/60" : "bg-black/20 border-[#1B74E4]"
+                      }`}
+                    >
+                      <div className={`text-[11px] font-semibold ${mine ? "text-white/90" : "text-[#e4e6eb]"}`}>Reply</div>
                       <div className={`text-[12px] truncate max-w-[200px] ${mine ? "text-white/85" : "text-[#b0b3b8]"}`}>
-                        {safeStr(parent?.text_content) || 
-                         (Array.isArray(parent?.attachments) && parent.attachments.length ? "📎 Attachment" : "…")}
+                        {safeStr(parent?.text_content) ||
+                          (Array.isArray(parent?.attachments) && parent.attachments.length ? "📎 Attachment" : "…")}
                       </div>
                     </div>
                   )}
-                  
-                  {text && (
-                    <div className="whitespace-pre-wrap">
-                      {text}
-                    </div>
-                  )}
-                  
-                  {/* Time inside bubble - WhatsApp style */}
+
+                  {text && <div className="whitespace-pre-wrap">{text}</div>}
+
                   {(d || edited) && (
                     <div className="flex justify-end items-center gap-1 mt-1">
                       <span className={`text-[10px] ${mine ? "text-white/70" : "text-[#b0b3b8]"}`}>
@@ -1116,21 +1113,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   )}
                 </div>
 
-                {/* Link Previews */}
-                {gifUrls.length > 0 && gifUrls.map((url, idx) => (
-                  <GIFPreview key={`gif-${idx}`} url={url} onView={() => window.open(url, '_blank')} />
-                ))}
-                
-                {otherUrls.length > 0 && otherUrls.map((url, idx) => (
-                  <URLPreview key={`url-${idx}`} url={url} onView={() => window.open(url, '_blank')} />
-                ))}
+                {/* Previews */}
+                {gifUrls.length > 0 &&
+                  gifUrls.map((url, idx) => <GIFPreview key={`gif:${url}:${idx}`} url={url} onView={() => window.open(url, "_blank")} />)}
 
-                {/* ✅ Render multiple attachments */}
+                {otherUrls.length > 0 &&
+                  otherUrls.map((url, idx) => <URLPreview key={`url:${url}:${idx}`} url={url} onView={() => window.open(url, "_blank")} />)}
+
+                {/* Attachments (tight spacing) */}
                 {attachments.length > 0 && (
-                  <div className="mt-1 space-y-2 w-full">
+                  <div className="mt-[4px] space-y-1 w-full">
                     {attachments.map((a: any) => (
                       <AttachmentPreview
-                        key={`att:${safeNum(a?.id)}:${a?.url || Math.random().toString(16).slice(2)}`}
+                        key={`att:${safeNum(a?.id) || 0}:${safeStr(a?.url || a?.attachment_url)}`}
                         attachment={a}
                         onView={() => setViewingAttachment(a)}
                         isMine={mine}
@@ -1165,7 +1160,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               </div>
               <span className="text-xs text-[#b0b3b8]">Photos</span>
             </button>
-            
+
             <button
               onClick={() => {
                 if (fileInputRef.current) {
@@ -1181,7 +1176,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               </div>
               <span className="text-xs text-[#b0b3b8]">Videos</span>
             </button>
-            
+
             <button
               onClick={() => {
                 if (fileInputRef.current) {
@@ -1197,7 +1192,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               </div>
               <span className="text-xs text-[#b0b3b8]">Audio</span>
             </button>
-            
+
             <button
               onClick={() => {
                 if (fileInputRef.current) {
@@ -1220,7 +1215,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       {/* Emoji / Stickers panel */}
       {(showEmoji || showStickers) && (
         <div className="border-t border-[#333] bg-[#1e1e1e]">
-          {showEmoji ? (
+          {showEmoji && (
             <div className="p-2">
               <EmojiPicker
                 onSelect={(emoji: string) => {
@@ -1228,9 +1223,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 }}
               />
             </div>
-          ) : null}
+          )}
 
-          {showStickers ? (
+          {showStickers && (
             <div className="p-2">
               <StickerPicker
                 onSelect={(stickerText: string) => {
@@ -1238,18 +1233,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 }}
               />
             </div>
-          ) : null}
+          )}
         </div>
       )}
 
       {/* Composer */}
-      <form
-        onSubmit={handleSubmit}
-        className="border-t border-[#333] bg-[#1e1e1e] px-2"
-        style={{ paddingBottom: safeAreaPaddingBottom }}
-      >
+      <form onSubmit={handleSubmit} className="border-t border-[#333] bg-[#1e1e1e] px-2" style={{ paddingBottom: safeAreaPaddingBottom }}>
         <div className="py-2 flex items-end gap-2">
-          {/* Left quick actions */}
+          {/* Left actions */}
           <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
@@ -1264,10 +1255,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               type="button"
               className="px-2 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
               aria-label="GIF"
-              onClick={() => {
-                // Open Tenor or Giphy picker
-                setInputText((prev) => prev + ' https://tenor.com/search/');
-              }}
+              onClick={() => setInputText((prev) => prev + " https://tenor.com/search/")}
             >
               <span className="text-[13px] font-bold text-[#1B74E4]">GIF</span>
             </button>
@@ -1311,7 +1299,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
             <button
               type="button"
-              className={`w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors shrink-0 ${recording ? 'text-[#ff4d4d]' : ''}`}
+              className={`w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors shrink-0 ${
+                recording ? "text-[#ff4d4d]" : ""
+              }`}
               aria-label="Voice"
               onClick={() => {
                 if (recording) stopVoiceNote(false);
@@ -1319,11 +1309,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               }}
               disabled={uploading}
             >
-              <i className={`fas ${recording ? 'fa-stop' : 'fa-microphone'} text-[18px] text-[#1B74E4]`} />
+              <i className={`fas ${recording ? "fa-stop" : "fa-microphone"} text-[18px] text-[#1B74E4]`} />
             </button>
           </div>
 
-          {/* Right: Send or Like */}
+          {/* Send or Like */}
           {canSend || editTarget ? (
             <button
               type="submit"
@@ -1347,14 +1337,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       </form>
 
-      {/* Action Modal (long-press popup) */}
+      {/* Action Modal */}
       {actionModal && (
-        <div
-          className="fixed inset-0 z-[300]"
-          onClick={closeActionModal}
-          onTouchStart={closeActionModal}
-          role="presentation"
-        >
+        <div className="fixed inset-0 z-[300]" onClick={closeActionModal} onTouchStart={closeActionModal} role="presentation">
           <div className="absolute inset-0 bg-black/50" />
 
           <div
@@ -1363,9 +1348,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             onTouchStart={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-2">
-              <div className="text-[13px] text-[#b0b3b8] truncate pr-2">
-                {actionModal.mine ? "Your message" : "Message"}
-              </div>
+              <div className="text-[13px] text-[#b0b3b8] truncate pr-2">{actionModal.mine ? "Your message" : "Message"}</div>
               <button
                 type="button"
                 className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
@@ -1378,24 +1361,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
             <div className="bg-[#141414] border border-[#2b2b2b] rounded-2xl p-3 mb-3">
               <div className="text-[14px] text-[#e4e6eb] break-words">
-                {safeStr(actionModal.msg?.text_content) || 
-                 (Array.isArray(actionModal.msg?.attachments) && actionModal.msg.attachments.length > 0 
-                   ? "📎 Attachment" 
-                   : <span className="opacity-60">…</span>)}
+                {safeStr(actionModal.msg?.text_content) ||
+                  (Array.isArray(actionModal.msg?.attachments) && actionModal.msg.attachments.length > 0 ? "📎 Attachment" : <span className="opacity-60">…</span>)}
               </div>
             </div>
 
             <div className="space-y-1">
-              {actionBtn("fas fa-share", "Forward", async () => {
-                const m = actionModal.msg;
-                closeActionModal();
-                try {
-                  await send(buildForwardPayload(m));
-                } catch (e: any) {
-                  alert(e?.message || "Failed to forward");
-                }
-              })}
-
               {actionBtn("fas fa-reply", "Reply", () => {
                 const m = actionModal.msg;
                 closeActionModal();
@@ -1411,7 +1382,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                     setEditTarget(m);
                     setInputText(safeStr(m?.text_content) || "");
                     setTimeout(() => {
-                      const el = document.querySelector<HTMLInputElement>('input[placeholder="Edit message"], input[placeholder="Message"]');
+                      const el = document.querySelector<HTMLInputElement>(
+                        'input[placeholder="Edit message"], input[placeholder="Message"]'
+                      );
                       el?.focus?.();
                     }, 50);
                   })
@@ -1449,10 +1422,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       {/* Attachment Viewer Modal */}
       {viewingAttachment && (
-        <div
-          className="fixed inset-0 z-[400] bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setViewingAttachment(null)}
-        >
+        <div className="fixed inset-0 z-[400] bg-black/90 flex items-center justify-center p-4" onClick={() => setViewingAttachment(null)}>
           <div className="relative max-w-4xl w-full max-h-[90vh] flex items-center justify-center">
             <button
               onClick={() => setViewingAttachment(null)}
@@ -1473,9 +1443,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               const isVid = fileType === "video" || String(mime).startsWith("video/");
               const isAud = fileType === "audio" || String(mime).startsWith("audio/");
 
-              if (isImg) {
-                return <img src={url} alt={name} className="max-w-full max-h-[90vh] object-contain" />;
-              }
+              if (isImg) return <img src={url} alt={name} className="max-w-full max-h-[90vh] object-contain" />;
 
               if (isVid) {
                 return (
@@ -1497,7 +1465,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                           {size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}
                         </div>
                       </div>
-                      <audio src={url} controls autoPlay className="w-full" />
+                      <div className="voiceNotePlayer">
+                        <audio src={url} controls autoPlay className="w-full" />
+                      </div>
                       <a
                         href={url}
                         download={name}
@@ -1510,7 +1480,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 );
               }
 
-              // Document/file preview
               return (
                 <div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
                   <div className="flex flex-col gap-4">
