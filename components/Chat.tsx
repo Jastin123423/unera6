@@ -57,6 +57,22 @@ const getFileIcon = (mime: string): string => {
   return "fas fa-file";
 };
 
+// ✅ Check if URL is an image
+const isImageUrl = (url: string): boolean => {
+  return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(url.split('?')[0]);
+};
+
+// ✅ Check if URL is a video
+const isVideoUrl = (url: string): boolean => {
+  return /\.(mp4|webm|ogg|mov|avi|mkv)$/i.test(url.split('?')[0]);
+};
+
+// ✅ Extract URLs from text
+const extractUrls = (text: string): string[] => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  return text.match(urlRegex) || [];
+};
+
 // ✅ Updated apiFetch with userId parameter
 const apiFetch = async (url: string, options: RequestInit = {}, userId?: number) => {
   const token = localStorage.getItem("unera_token");
@@ -100,11 +116,102 @@ const formatDayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
-// ✅ Attachment Preview Component (supports new DB attachments + legacy)
+// ✅ URL Preview Component
+const URLPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView }) => {
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchPreview = async () => {
+      setLoading(true);
+      try {
+        // You can implement a link preview API here
+        // For now, we'll just show the domain
+        const domain = new URL(url).hostname.replace('www.', '');
+        setPreviewData({ domain, url });
+      } catch {
+        setPreviewData({ domain: url.substring(0, 30), url });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPreview();
+  }, [url]);
+
+  if (loading) {
+    return (
+      <div className="mt-2 p-3 rounded-xl border border-[#3E4042] bg-[#262626] animate-pulse">
+        <div className="h-4 bg-[#3a3a3a] rounded w-3/4"></div>
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-2 p-3 rounded-xl border border-[#3E4042] bg-[#262626] flex items-center gap-3 hover:bg-[#2f2f2f] transition-colors no-underline"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <i className="fas fa-link text-xl text-[#1B74E4]" />
+      <div className="flex-1 min-w-0">
+        <div className="text-[#e4e6eb] font-medium truncate">{previewData?.domain || 'Link'}</div>
+        <div className="text-[#b0b3b8] text-xs truncate">{url}</div>
+      </div>
+      <i className="fas fa-external-link-alt text-[#b0b3b8]" />
+    </a>
+  );
+};
+
+// ✅ GIF Preview Component
+const GIFPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView }) => {
+  // Check if it's a Tenor or Giphy URL
+  const isTenor = url.includes('tenor.com');
+  const isGiphy = url.includes('giphy.com');
+  
+  // Extract GIF ID from URL (simplified)
+  const getEmbedUrl = () => {
+    if (isTenor) {
+      const match = url.match(/tenor\.com\/view\/([^\/]+)/);
+      if (match) {
+        return `https://tenor.com/embed/${match[1]}`;
+      }
+    }
+    if (isGiphy) {
+      const match = url.match(/giphy\.com\/gifs\/([^\/]+)/);
+      if (match) {
+        return `https://giphy.com/embed/${match[1]}`;
+      }
+    }
+    return null;
+  };
+
+  const embedUrl = getEmbedUrl();
+
+  if (embedUrl) {
+    return (
+      <div className="mt-2 rounded-xl overflow-hidden border border-[#3E4042] bg-[#262626]" onClick={(e) => e.stopPropagation()}>
+        <iframe
+          src={embedUrl}
+          className="w-full h-48"
+          frameBorder="0"
+          allowFullScreen
+          title="GIF"
+        />
+      </div>
+    );
+  }
+
+  // If not a known GIF service, treat as regular link
+  return <URLPreview url={url} onView={onView} />;
+};
+
+// ✅ Attachment Preview Component
 const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?: boolean }> = ({ attachment, onView, isMine }) => {
   const url = attachment?.url || attachment?.attachment_url;
   const mime = attachment?.mime_type || attachment?.type || attachment?.attachment_type || "";
-  const fileType = attachment?.file_type || ""; // image/video/audio/document/...
+  const fileType = attachment?.file_type || "";
 
   const name = attachment?.filename || attachment?.name || "Attachment";
   const size = attachment?.size_bytes ?? attachment?.size ?? attachment?.file_size;
@@ -117,25 +224,25 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
 
   if (isImage) {
     return (
-      <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer" onClick={onView}>
-        <img src={url} alt={name} className="max-w-full max-h-80 object-contain bg-black/20" />
+      <div className="mt-2 rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer hover:opacity-90 transition-opacity" onClick={onView}>
+        <img src={url} alt={name} className="w-full max-h-[400px] object-contain bg-black/20" />
       </div>
     );
   }
 
   if (isVideo) {
     return (
-      <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer relative" onClick={onView}>
-        <video src={url} className="max-w-full max-h-80 object-contain bg-black/20" controls />
+      <div className="mt-2 rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer relative" onClick={onView}>
+        <video src={url} className="w-full max-h-[400px] object-contain bg-black/20" controls />
       </div>
     );
   }
 
   if (isAudio) {
     return (
-      <div className="mt-2 p-3.5 rounded-xl border border-[#3E4042] bg-[#262626]" onClick={(e) => { e.stopPropagation(); }}>
-        <div className="flex items-center gap-3 mb-2">
-          <i className="fas fa-music text-xl text-[#1B74E4]" />
+      <div className="mt-2 p-4 rounded-xl border border-[#3E4042] bg-[#262626]" onClick={(e) => { e.stopPropagation(); }}>
+        <div className="flex items-center gap-3 mb-3">
+          <i className="fas fa-music text-2xl text-[#1B74E4]" />
           <div className="flex-1 min-w-0">
             <div className="text-[#e4e6eb] font-medium truncate">{name}</div>
             {size ? <div className="text-[#b0b3b8] text-xs">{formatFileSize(size)}</div> : null}
@@ -149,10 +256,10 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
   // Document/file preview - WhatsApp style
   return (
     <div
-      className={`mt-2 p-3.5 rounded-xl border ${isMine ? 'border-[#1B74E4]/30' : 'border-[#3E4042]'} bg-[#262626] flex items-center gap-3 cursor-pointer hover:bg-[#2f2f2f] transition-colors`}
+      className={`mt-2 p-4 rounded-xl border ${isMine ? 'border-[#1B74E4]/30' : 'border-[#3E4042]'} bg-[#262626] flex items-center gap-3 cursor-pointer hover:bg-[#2f2f2f] transition-colors`}
       onClick={onView}
     >
-      <i className={`${getFileIcon(mime || "")} text-2xl text-[#1B74E4]`} />
+      <i className={`${getFileIcon(mime || "")} text-3xl text-[#1B74E4]`} />
       <div className="flex-1 min-w-0">
         <div className="text-[#e4e6eb] font-medium truncate">{name}</div>
         {size ? <div className="text-[#b0b3b8] text-xs">{formatFileSize(size)}</div> : null}
@@ -251,11 +358,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   // Voice recording states
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
+  const [recordingWave, setRecordingWave] = useState<number[]>([]);
   const recordTimerRef = useRef<number | null>(null);
+  const waveIntervalRef = useRef<number | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordChunksRef = useRef<BlobPart[]>([]);
   const recordStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
 
   const listRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -360,7 +472,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   useEffect(() => {
     return () => {
       if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
-      try { mediaRecorderRef.current?.stop(); } catch {}
+      if (waveIntervalRef.current) window.clearInterval(waveIntervalRef.current);
+      try { 
+        mediaRecorderRef.current?.stop(); 
+        audioContextRef.current?.close();
+        sourceRef.current?.disconnect();
+      } catch {}
       try { recordStreamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
     };
   }, []);
@@ -406,7 +523,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     return out;
   }, [normalized]);
 
-  // Voice recording functions
+  // Voice recording functions - Stable with wave animation
   const startVoiceNote = async () => {
     if (uploading) return;
 
@@ -418,6 +535,30 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recordStreamRef.current = stream;
+
+      // Setup audio analysis for wave animation
+      audioContextRef.current = new AudioContext();
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      analyserRef.current.fftSize = 256;
+      sourceRef.current = audioContextRef.current.createMediaStreamSource(stream);
+      sourceRef.current.connect(analyserRef.current);
+
+      const bufferLength = analyserRef.current.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      // Start wave animation
+      if (waveIntervalRef.current) window.clearInterval(waveIntervalRef.current);
+      waveIntervalRef.current = window.setInterval(() => {
+        if (analyserRef.current) {
+          analyserRef.current.getByteFrequencyData(dataArray);
+          const average = Array.from(dataArray.slice(0, 20)).reduce((a, b) => a + b, 0) / 20;
+          const normalized = Math.min(100, Math.max(20, average));
+          setRecordingWave(prev => {
+            const newWave = [...prev.slice(-15), normalized];
+            return newWave;
+          });
+        }
+      }, 100);
 
       recordChunksRef.current = [];
       const mimeType = pickBestAudioMime();
@@ -431,9 +572,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       mr.onstop = async () => {
         try {
-          // stop tracks
+          // Stop wave animation
+          if (waveIntervalRef.current) {
+            window.clearInterval(waveIntervalRef.current);
+            waveIntervalRef.current = null;
+          }
+          setRecordingWave([]);
+
+          // Stop tracks and audio context
           recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+          audioContextRef.current?.close();
+          sourceRef.current?.disconnect();
           recordStreamRef.current = null;
+          audioContextRef.current = null;
+          analyserRef.current = null;
+          sourceRef.current = null;
 
           const blob = new Blob(recordChunksRef.current, { type: mr.mimeType || "audio/webm" });
           recordChunksRef.current = [];
@@ -485,8 +638,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       alert(e?.message || "Microphone permission denied");
       try {
         recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+        audioContextRef.current?.close();
       } catch {}
       recordStreamRef.current = null;
+      audioContextRef.current = null;
     }
   };
 
@@ -494,6 +649,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     try {
       if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
       recordTimerRef.current = null;
+
+      if (waveIntervalRef.current) {
+        window.clearInterval(waveIntervalRef.current);
+        waveIntervalRef.current = null;
+      }
+      setRecordingWave([]);
 
       setRecording(false);
 
@@ -510,7 +671,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       } else {
         // Ensure stream stops even if recorder isn't active
         recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+        audioContextRef.current?.close();
+        sourceRef.current?.disconnect();
         recordStreamRef.current = null;
+        audioContextRef.current = null;
+        analyserRef.current = null;
+        sourceRef.current = null;
       }
     } catch {}
   };
@@ -763,7 +929,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
             aria-label="Back"
           >
-            <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb]" />
+            <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb] />
           </button>
 
           <div className="flex items-center gap-2 min-w-0">
@@ -825,18 +991,29 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       )}
 
-      {/* Recording indicator */}
+      {/* Recording indicator - WhatsApp style stable */}
       {recording && (
-        <div className="px-3 py-2 border-b border-[#333] bg-[#161616]">
+        <div className="px-3 py-3 border-b border-[#333] bg-[#161616]">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-[#e4e6eb]">
-              <i className="fas fa-circle text-[#ff4d4d] text-[10px]" />
-              <span className="text-[14px]">Recording… {recordSeconds}s</span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <i className="fas fa-circle text-[#ff4d4d] text-[8px] animate-pulse" />
+                <span className="text-[#e4e6eb] text-sm font-medium">{recordSeconds}s</span>
+              </div>
+              <div className="flex items-center gap-[2px] h-6">
+                {recordingWave.map((height, i) => (
+                  <div
+                    key={i}
+                    className="w-[3px] bg-[#1B74E4] rounded-full transition-all duration-75"
+                    style={{ height: `${height / 2}px` }}
+                  />
+                ))}
+              </div>
             </div>
             <button
               type="button"
-              className="text-[#ff6b6b] font-semibold text-sm"
               onClick={() => stopVoiceNote(true)}
+              className="px-3 py-1 rounded-full bg-[#2d2d2d] text-[#ff6b6b] text-sm font-medium hover:bg-[#3a3a3a] transition-colors"
             >
               Cancel
             </button>
@@ -847,7 +1024,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       {/* Messages */}
       <div
         ref={listRef}
-        className="flex-1 overflow-y-auto px-3 py-3 bg-[#1e1e1e]"
+        className="flex-1 overflow-y-auto px-2 sm:px-3 py-3 bg-[#1e1e1e]"
         onClick={() => {
           setShowEmoji(false);
           setShowStickers(false);
@@ -878,12 +1055,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const parentId = safeNum(msg?.parent_message_id, 0);
           const parent = parentId ? msgById.get(parentId) : null;
 
+          // Extract URLs from text for link previews
+          const urls = extractUrls(text);
+          const gifUrls = urls.filter(url => 
+            url.includes('giphy.com') || 
+            url.includes('tenor.com') || 
+            url.includes('gif')
+          );
+          const otherUrls = urls.filter(url => !gifUrls.includes(url));
+
           return (
-            <div key={r.key} className={`w-full flex ${mine ? "justify-end" : "justify-start"} mb-1.5`}>
-              <div className={`max-w-[82%] flex flex-col ${mine ? "items-end" : "items-start"}`}>
+            <div key={r.key} className={`w-full flex ${mine ? "justify-end" : "justify-start"} mb-2`}>
+              <div className={`max-w-[85%] sm:max-w-[75%] md:max-w-[65%] flex flex-col ${mine ? "items-end" : "items-start"}`}>
                 <div
                   className={[
-                    "px-3.5 py-2.5 text-[17px] leading-snug",
+                    "px-3.5 py-2.5 text-[16px] sm:text-[17px] leading-snug break-words",
                     "rounded-2xl",
                     "select-none",
                     mine 
@@ -896,6 +1082,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   onMouseDown={(e) => startLongPress(msg, mine, e)}
                   onMouseUp={cancelLongPress}
                   onMouseLeave={cancelLongPress}
+                  style={{ wordBreak: 'break-word' }}
                 >
                   {/* Reply preview inside bubble - WhatsApp style */}
                   {parent && (
@@ -912,18 +1099,31 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                     </div>
                   )}
                   
-                  {text || (attachments.length > 0 ? null : <span className="opacity-60">…</span>)}
+                  {text && (
+                    <div className="whitespace-pre-wrap">
+                      {text}
+                    </div>
+                  )}
                   
                   {/* Time inside bubble - WhatsApp style */}
                   {(d || edited) && (
-                    <div className="flex justify-end mt-1">
+                    <div className="flex justify-end items-center gap-1 mt-1">
                       <span className={`text-[10px] ${mine ? "text-white/70" : "text-[#b0b3b8]"}`}>
                         {d ? formatTime(d) : ""}
-                        {edited ? <span className="ml-1">✓</span> : null}
+                        {edited && <span className="ml-1">✓</span>}
                       </span>
                     </div>
                   )}
                 </div>
+
+                {/* Link Previews */}
+                {gifUrls.length > 0 && gifUrls.map((url, idx) => (
+                  <GIFPreview key={`gif-${idx}`} url={url} onView={() => window.open(url, '_blank')} />
+                ))}
+                
+                {otherUrls.length > 0 && otherUrls.map((url, idx) => (
+                  <URLPreview key={`url-${idx}`} url={url} onView={() => window.open(url, '_blank')} />
+                ))}
 
                 {/* ✅ Render multiple attachments */}
                 {attachments.length > 0 && (
@@ -1064,7 +1264,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               type="button"
               className="px-2 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
               aria-label="GIF"
-              onClick={() => alert("GIF picker (connect here)")}
+              onClick={() => {
+                // Open Tenor or Giphy picker
+                setInputText((prev) => prev + ' https://tenor.com/search/');
+              }}
             >
               <span className="text-[13px] font-bold text-[#1B74E4]">GIF</span>
             </button>
@@ -1090,7 +1293,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               onChange={(e) => setInputText(e.target.value)}
               placeholder={editTarget ? "Edit message" : "Message"}
               className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-[#e4e6eb] placeholder:text-[#b0b3b8]"
-              disabled={uploading}
+              disabled={uploading || recording}
             />
 
             <button
@@ -1114,6 +1317,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 if (recording) stopVoiceNote(false);
                 else startVoiceNote();
               }}
+              disabled={uploading}
             >
               <i className={`fas ${recording ? 'fa-stop' : 'fa-microphone'} text-[18px] text-[#1B74E4]`} />
             </button>
@@ -1125,7 +1329,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               type="submit"
               className="w-10 h-10 rounded-full bg-[#1B74E4] flex items-center justify-center hover:bg-[#1A6ED8] transition-colors shrink-0"
               aria-label="Send"
-              disabled={uploading}
+              disabled={uploading || recording}
             >
               <i className="fas fa-paper-plane text-[16px] text-white" />
             </button>
@@ -1135,7 +1339,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors shrink-0"
               aria-label="Like"
               onClick={() => sendText("👍")}
-              disabled={uploading}
+              disabled={uploading || recording}
             >
               <i className="fas fa-thumbs-up text-[20px] text-[#1B74E4]" />
             </button>
