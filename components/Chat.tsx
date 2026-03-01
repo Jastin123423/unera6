@@ -1,23 +1,19 @@
-// components/Chat.tsx
-// Messenger-style full-screen chat window (mobile) with:
-// ✅ Backend integration (conversations list + messages + send + mark-read)
-// ✅ Long-press message actions popup:
-//    - Other's message: Forward, Reply, Delete (for me)
-//    - My message: Forward, Reply, Edit, Delete (for me), Delete for everyone
-// ✅ Composer fixed for mobile: buttons always visible (safe-area + no overflow)
+
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
 
-const apiFetch = async (url: string, options: RequestInit = {}) => {
+// ✅ FIXED: Updated apiFetch to accept userId and set x-user-id header
+const apiFetch = async (url: string, options: RequestInit = {}, userId?: number) => {
   const token = localStorage.getItem("unera_token");
-  const headers: HeadersInit = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const headers: HeadersInit = { 
+    "Content-Type": "application/json", 
+    ...(options.headers || {}) 
+  };
+  
   if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  // TEMP (only if you still test with x-user-id):
-  // const testId = (window as any).__currentUserId;
-  // if (testId) headers["x-user-id"] = String(testId);
+  if (userId) headers["x-user-id"] = String(userId); // ✅ Add x-user-id header for backend
 
   const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
@@ -139,6 +135,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const pollRef = useRef<number | null>(null);
   const longPressTimer = useRef<number | null>(null);
 
+  const currentUserId = safeNum(currentUser?.id);
+
   const scrollToBottom = (smooth = true) => {
     const el = listRef.current;
     if (!el) return;
@@ -149,24 +147,34 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const markRead = useCallback(
     async (convId: number) => {
-      if (!convId) return;
+      if (!convId || !currentUserId) return;
       try {
-        await apiFetch("/api/messages/mark-read", {
-          method: "POST",
-          body: JSON.stringify({ conversation_id: convId }),
-        });
+        await apiFetch(
+          "/api/messages/mark-read",
+          {
+            method: "POST",
+            body: JSON.stringify({ 
+              conversation_id: convId,
+              user_id: currentUserId // ✅ Added sender_id
+            }),
+          },
+          currentUserId // ✅ Pass userId for x-user-id header
+        );
       } catch {
         // ignore
       }
     },
-    []
+    [currentUserId]
   );
 
   const fetchHistory = useCallback(async () => {
+    if (!currentUserId) return;
+    
     try {
       setLoading(true);
 
-      const conversations = await apiFetch("/api/messages/conversations");
+      // ✅ Pass userId for x-user-id header
+      const conversations = await apiFetch("/api/messages/conversations", {}, currentUserId);
       const conv = Array.isArray(conversations)
         ? conversations.find((c: any) => safeNum(c?.other_user_id) === safeNum((recipient as any)?.id))
         : null;
@@ -175,7 +183,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       setConversationId(cid);
 
       if (cid) {
-        const history = await apiFetch(`/api/messages/conversations/${cid}`);
+        // ✅ Pass userId for x-user-id header
+        const history = await apiFetch(`/api/messages/conversations/${cid}`, {}, currentUserId);
         setMsgs(Array.isArray(history) ? history : []);
         markRead(cid);
       } else {
@@ -186,7 +195,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     } finally {
       setLoading(false);
     }
-  }, [recipient?.id, markRead]);
+  }, [recipient?.id, markRead, currentUserId]);
 
   useEffect(() => {
     fetchHistory();
@@ -199,7 +208,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       pollRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipient?.id]);
+  }, [recipient?.id, currentUserId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
@@ -247,6 +256,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
     if (attUrl) {
       return {
+        sender_id: currentUserId, // ✅ Added sender_id
         recipient_id: (recipient as any)?.id,
         text_content: text ? `Forwarded: ${text}` : null,
         attachment_url: attUrl,
@@ -254,11 +264,33 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         attachment_metadata: attMeta,
       };
     }
-    return { recipient_id: (recipient as any)?.id, text_content: text ? `Forwarded: ${text}` : "Forwarded message" };
+    return { 
+      sender_id: currentUserId, // ✅ Added sender_id
+      recipient_id: (recipient as any)?.id, 
+      text_content: text ? `Forwarded: ${text}` : "Forwarded message" 
+    };
   };
 
+  // ✅ FIXED: send function with sender_id
   const send = async (payload: any) => {
-    const data = await apiFetch("/api/messages/send", { method: "POST", body: JSON.stringify(payload) });
+    if (!currentUserId) throw new Error("User not authenticated");
+    
+    // Ensure sender_id is always present
+    const fullPayload = {
+      sender_id: currentUserId,
+      ...payload
+    };
+    
+    // ✅ Pass userId for x-user-id header
+    const data = await apiFetch(
+      "/api/messages/send", 
+      { 
+        method: "POST", 
+        body: JSON.stringify(fullPayload) 
+      },
+      currentUserId
+    );
+    
     // append optimistically
     setMsgs((prev) => [...prev, data]);
     // If conversation just created, refresh to get its id
@@ -266,6 +298,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     return data;
   };
 
+  // ✅ FIXED: sendText with sender_id
   const sendText = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed && !replyTo && !editTarget) return;
@@ -279,10 +312,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       // EDIT mode
       if (editTarget?.id) {
-        const updated = await apiFetch(`/api/messages/${editTarget.id}`, {
-          method: "PUT",
-          body: JSON.stringify({ text_content: trimmed }),
-        });
+        // ✅ Pass userId for x-user-id header and in body
+        const updated = await apiFetch(
+          `/api/messages/${editTarget.id}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({ 
+              text_content: trimmed,
+              user_id: currentUserId // ✅ Added user_id
+            }),
+          },
+          currentUserId
+        );
 
         // update local list
         const updatedMsg = updated?.message || null;
@@ -295,7 +336,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       }
 
       // REPLY mode (uses parent_message_id)
-      const payload: any = { recipient_id: (recipient as any)?.id, text_content: trimmed };
+      const payload: any = { 
+        sender_id: currentUserId, // ✅ Added sender_id
+        recipient_id: (recipient as any)?.id, 
+        text_content: trimmed 
+      };
       if (replyTo?.id) payload.parent_message_id = replyTo.id;
 
       await send(payload);
@@ -338,12 +383,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     longPressTimer.current = null;
   };
 
+  // ✅ FIXED: doDelete with sender_id
   const doDelete = async (m: any, deleteForEveryone: boolean) => {
+    if (!currentUserId) return;
+    
     try {
-      await apiFetch(`/api/messages/${safeNum(m?.id)}`, {
-        method: "DELETE",
-        body: JSON.stringify({ delete_for_everyone: deleteForEveryone }),
-      });
+      await apiFetch(
+        `/api/messages/${safeNum(m?.id)}`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ 
+            delete_for_everyone: deleteForEveryone,
+            user_id: currentUserId // ✅ Added user_id
+          }),
+        },
+        currentUserId
+      );
 
       if (deleteForEveryone) {
         setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
