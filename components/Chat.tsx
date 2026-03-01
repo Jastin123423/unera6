@@ -1,16 +1,17 @@
 // components/Chat.tsx
-// Messenger-style full-screen chat window with attachment support
-// ✅ Photos, Videos, GIFs, Documents (PDF, DOC, XLS, etc.)
-// ✅ R2 upload via media.unera.social/api/upload
-// ✅ Attachment preview in messages
-// ✅ Long-press actions for attachments
+// Messenger-style full-screen chat window (mobile) with:
+// ✅ Multiple image/video/audio/document attachments per message
+// ✅ Backend integration (conversations list + messages + send + mark-read)
+// ✅ Long-press message actions popup
+// ✅ Attachment viewer modal
+// ✅ Fixed: attachments array format, upload returns rich data
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
 
-// ✅ Upload function for R2
-const uploadToR2 = async (file: File, folder = "chat"): Promise<string> => {
+// ✅ Upload function for R2 (returns rich data)
+const uploadToR2 = async (file: File, folder = "chat"): Promise<any> => {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("filename", file.name);
@@ -31,37 +32,40 @@ const uploadToR2 = async (file: File, folder = "chat"): Promise<string> => {
   }
 
   const result = await response.json();
-  if (!result.url) throw new Error("No URL returned from upload");
-  
-  return result.url;
+  if (!result?.url) throw new Error("No URL returned from upload");
+
+  // Ensure consistent keys for chat
+  return {
+    url: result.url,
+    file_type: result.file_type || "other",
+    mime_type: result.mime_type || result.contentType || file.type || "",
+    filename: result.filename || file.name || "Attachment",
+    size_bytes: result.size_bytes ?? file.size ?? null,
+    metadata: result.metadata || {},
+  };
 };
 
-// ✅ Helper to get file icon based on mime type
-const getFileIcon = (mimeType: string): string => {
-  if (mimeType.startsWith("image/")) return "fas fa-image";
-  if (mimeType.startsWith("video/")) return "fas fa-video";
-  if (mimeType.startsWith("audio/")) return "fas fa-music";
-  if (mimeType.includes("pdf")) return "fas fa-file-pdf";
-  if (mimeType.includes("word") || mimeType.includes("document")) return "fas fa-file-word";
-  if (mimeType.includes("excel") || mimeType.includes("sheet")) return "fas fa-file-excel";
-  if (mimeType.includes("powerpoint") || mimeType.includes("presentation")) return "fas fa-file-powerpoint";
-  if (mimeType.includes("zip") || mimeType.includes("compressed")) return "fas fa-file-zipper";
+// ✅ Format file size helper
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+};
+
+// ✅ Get file icon based on mime type
+const getFileIcon = (mime: string): string => {
+  if (mime.startsWith("image/")) return "fas fa-image";
+  if (mime.startsWith("video/")) return "fas fa-video";
+  if (mime.startsWith("audio/")) return "fas fa-music";
+  if (mime.startsWith("application/pdf")) return "fas fa-file-pdf";
+  if (mime.includes("word")) return "fas fa-file-word";
+  if (mime.includes("excel") || mime.includes("spreadsheet")) return "fas fa-file-excel";
+  if (mime.includes("presentation") || mime.includes("powerpoint")) return "fas fa-file-powerpoint";
+  if (mime.startsWith("text/")) return "fas fa-file-lines";
   return "fas fa-file";
 };
 
-// ✅ Format file size
-const formatFileSize = (bytes?: number): string => {
-  if (!bytes) return "";
-  const units = ["B", "KB", "MB", "GB"];
-  let size = bytes;
-  let unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex++;
-  }
-  return `${size.toFixed(1)} ${units[unitIndex]}`;
-};
-
+// ✅ Updated apiFetch with userId parameter
 const apiFetch = async (url: string, options: RequestInit = {}, userId?: number) => {
   const token = localStorage.getItem("unera_token");
   const headers: HeadersInit = { 
@@ -103,6 +107,68 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2
 const formatDayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+// ✅ Attachment Preview Component (supports new DB attachments + legacy)
+const AttachmentPreview: React.FC<{ attachment: any; onView: () => void }> = ({ attachment, onView }) => {
+  const url = attachment?.url || attachment?.attachment_url;
+  const mime = attachment?.mime_type || attachment?.type || attachment?.attachment_type || "";
+  const fileType = attachment?.file_type || ""; // image/video/audio/document/...
+
+  const name = attachment?.filename || attachment?.name || "Attachment";
+  const size = attachment?.size_bytes ?? attachment?.size ?? attachment?.file_size;
+
+  if (!url) return null;
+
+  const isImage = fileType === "image" || String(mime).startsWith("image/");
+  const isVideo = fileType === "video" || String(mime).startsWith("video/");
+  const isAudio = fileType === "audio" || String(mime).startsWith("audio/");
+
+  if (isImage) {
+    return (
+      <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer" onClick={onView}>
+        <img src={url} alt={name} className="max-w-full max-h-64 object-contain bg-black/20" />
+      </div>
+    );
+  }
+
+  if (isVideo) {
+    return (
+      <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer relative" onClick={onView}>
+        <video src={url} className="max-w-full max-h-64 object-contain bg-black/20" controls />
+      </div>
+    );
+  }
+
+  if (isAudio) {
+    return (
+      <div className="mt-2 p-3 rounded-lg border border-[#3E4042] bg-[#2d2d2d]" onClick={(e) => { e.stopPropagation(); }}>
+        <div className="flex items-center gap-3 mb-2">
+          <i className="fas fa-music text-xl text-[#1B74E4]" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[#e4e6eb] font-medium truncate">{name}</div>
+            {size ? <div className="text-[#b0b3b8] text-xs">{formatFileSize(size)}</div> : null}
+          </div>
+        </div>
+        <audio src={url} controls className="w-full" />
+      </div>
+    );
+  }
+
+  // Document/file preview
+  return (
+    <div
+      className="mt-2 p-3 rounded-lg border border-[#3E4042] bg-[#2d2d2d] flex items-center gap-3 cursor-pointer hover:bg-[#333] transition-colors"
+      onClick={onView}
+    >
+      <i className={`${getFileIcon(mime || "")} text-2xl text-[#1B74E4]`} />
+      <div className="flex-1 min-w-0">
+        <div className="text-[#e4e6eb] font-medium truncate">{name}</div>
+        {size ? <div className="text-[#b0b3b8] text-xs">{formatFileSize(size)}</div> : null}
+      </div>
+      <i className="fas fa-download text-[#b0b3b8]" />
+    </div>
+  );
+};
 
 const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; className?: string }> = ({
   src,
@@ -157,49 +223,6 @@ const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; clas
   );
 };
 
-// ✅ Attachment Preview Component
-const AttachmentPreview: React.FC<{ attachment: any; onView: () => void }> = ({ attachment, onView }) => {
-  const url = attachment?.url || attachment?.attachment_url;
-  const type = attachment?.type || attachment?.attachment_type;
-  const name = attachment?.name || attachment?.filename || "Attachment";
-  const size = attachment?.size || attachment?.file_size;
-
-  if (!url) return null;
-
-  // Image preview
-  if (type?.startsWith("image/")) {
-    return (
-      <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer" onClick={onView}>
-        <img src={url} alt={name} className="max-w-full max-h-64 object-contain bg-black/20" />
-      </div>
-    );
-  }
-
-  // Video preview
-  if (type?.startsWith("video/")) {
-    return (
-      <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer relative" onClick={onView}>
-        <video src={url} className="max-w-full max-h-64 object-contain bg-black/20" controls />
-      </div>
-    );
-  }
-
-  // Document/file preview
-  return (
-    <div 
-      className="mt-2 p-3 rounded-lg border border-[#3E4042] bg-[#2d2d2d] flex items-center gap-3 cursor-pointer hover:bg-[#333] transition-colors"
-      onClick={onView}
-    >
-      <i className={`${getFileIcon(type || "")} text-2xl text-[#1B74E4]`} />
-      <div className="flex-1 min-w-0">
-        <div className="text-[#e4e6eb] font-medium truncate">{name}</div>
-        {size && <div className="text-[#b0b3b8] text-xs">{formatFileSize(size)}</div>}
-      </div>
-      <i className="fas fa-download text-[#b0b3b8]" />
-    </div>
-  );
-};
-
 type ChatWindowProps = {
   currentUser: User;
   recipient: User;
@@ -220,24 +243,24 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const [inputText, setInputText] = useState("");
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
-  const [conversationId, setConversationId] = useState<number>(0);
   const [uploading, setUploading] = useState(false);
+  const [conversationId, setConversationId] = useState<number>(0);
+  const [viewingAttachment, setViewingAttachment] = useState<any>(null);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
 
   const [showEmoji, setShowEmoji] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
-  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
 
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [editTarget, setEditTarget] = useState<any | null>(null);
 
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
-  const [viewingAttachment, setViewingAttachment] = useState<any | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<number | null>(null);
   const longPressTimer = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentUserId = safeNum(currentUser?.id);
 
@@ -287,7 +310,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       if (cid) {
         const history = await apiFetch(`/api/messages/conversations/${cid}`, {}, currentUserId);
-        setMsgs(Array.isArray(history) ? history : []);
+        // Ensure each message has attachments array
+        const msgsWithAttachments = (Array.isArray(history) ? history : []).map((msg: any) => ({
+          ...msg,
+          attachments: Array.isArray(msg?.attachments) ? msg.attachments : []
+        }));
+        setMsgs(msgsWithAttachments);
         markRead(cid);
       } else {
         setMsgs([]);
@@ -345,56 +373,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     return out;
   }, [normalized]);
 
-  // ✅ Handle file selection and upload
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0 || !currentUserId) return;
-
-    setUploading(true);
-    setShowAttachmentMenu(false);
-
-    try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        
-        // Upload to R2
-        const url = await uploadToR2(file, "chat");
-        
-        // Send message with attachment
-        const payload = {
-          sender_id: currentUserId,
-          recipient_id: (recipient as any)?.id,
-          text_content: inputText.trim() || null,
-          attachment: {
-            url,
-            type: file.type,
-            name: file.name,
-            size: file.size
-          }
-        };
-
-        await send(payload);
-        setInputText(""); // Clear text after sending
-      }
-    } catch (error: any) {
-      alert(error?.message || "Failed to upload file");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
+  // ✅ Updated buildForwardPayload with attachments array
   const buildForwardPayload = (m: any) => {
     const text = safeStr(m?.text_content);
-    const attachment = m?.attachment;
+    const attachments = Array.isArray(m?.attachments) ? m.attachments : [];
 
     const payload: any = {
       sender_id: currentUserId,
       recipient_id: (recipient as any)?.id,
     };
 
-    if (attachment) {
-      payload.attachment = attachment;
+    if (attachments.length) {
+      payload.attachments = attachments.map((a: any) => ({
+        url: a.url,
+        file_type: a.file_type,
+        mime_type: a.mime_type,
+        filename: a.filename,
+        size_bytes: a.size_bytes,
+        metadata: a.metadata || {},
+      }));
       payload.text_content = text ? `Forwarded: ${text}` : "Forwarded attachment";
     } else {
       payload.text_content = text ? `Forwarded: ${text}` : "Forwarded message";
@@ -403,6 +400,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     return payload;
   };
 
+  // ✅ Updated send function to handle attachments array response
   const send = async (payload: any) => {
     if (!currentUserId) throw new Error("User not authenticated");
     
@@ -420,9 +418,56 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       currentUserId
     );
     
-    setMsgs((prev) => [...prev, data]);
+    // Normalize response into one message object with attachments
+    const msg = data?.message ? { 
+      ...data.message, 
+      attachments: Array.isArray(data.attachments) ? data.attachments : [] 
+    } : data;
+    
+    setMsgs((prev) => [...prev, msg]);
     if (!conversationId) fetchHistory();
-    return data;
+    return msg;
+  };
+
+  // ✅ Updated handleFileSelect for multiple files
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !currentUserId) return;
+
+    setUploading(true);
+    setShowAttachmentMenu(false);
+
+    try {
+      const uploaded: any[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const up = await uploadToR2(file, "chat");
+        uploaded.push(up);
+      }
+
+      // ✅ Send ONE message with attachments array
+      const payload: any = {
+        recipient_id: (recipient as any)?.id,
+        text_content: inputText.trim() || null,
+        attachments: uploaded.map((u) => ({
+          url: u.url,
+          file_type: u.file_type,
+          mime_type: u.mime_type,
+          filename: u.filename,
+          size_bytes: u.size_bytes,
+          metadata: u.metadata || {},
+        })),
+      };
+
+      await send(payload);
+      setInputText("");
+    } catch (error: any) {
+      alert(error?.message || "Failed to upload file");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const sendText = async (text: string) => {
@@ -435,6 +480,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     try {
       onSendMessage?.(trimmed);
 
+      // EDIT mode
       if (editTarget?.id) {
         const updated = await apiFetch(
           `/api/messages/${editTarget.id}`,
@@ -457,6 +503,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         return;
       }
 
+      // REPLY mode
       const payload: any = { 
         sender_id: currentUserId,
         recipient_id: (recipient as any)?.id, 
@@ -480,6 +527,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const canSend = inputText.trim().length > 0;
 
+  // Long-press handling
   const startLongPress = (msg: any, mine: boolean, evt: any) => {
     if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
 
@@ -518,7 +566,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         currentUserId
       );
 
-      setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
+      if (deleteForEveryone) {
+        setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
+      } else {
+        setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
+      }
     } catch (e: any) {
       alert(e?.message || "Failed to delete");
     }
@@ -556,7 +608,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         ref={fileInputRef}
         className="hidden"
         multiple
-        accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
+        accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
         onChange={handleFileSelect}
       />
 
@@ -603,8 +655,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 {editTarget ? "Editing message" : "Replying to"}
               </div>
               <div className="text-[13px] text-[#e4e6eb] truncate">
-                {safeStr((editTarget || replyTo)?.text_content) || 
-                 (replyTo?.attachment ? "📎 Attachment" : "…")}
+                {safeStr((editTarget || replyTo)?.text_content) || "…"}
               </div>
             </div>
             <button
@@ -618,6 +669,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             >
               <i className="fas fa-xmark text-[#e4e6eb]" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Uploading indicator */}
+      {uploading && (
+        <div className="px-3 py-2 bg-[#1B74E4]/20 border-b border-[#333]">
+          <div className="flex items-center gap-2 text-[#1B74E4]">
+            <i className="fas fa-spinner fa-spin" />
+            <span className="text-sm">Uploading...</span>
           </div>
         </div>
       )}
@@ -648,9 +709,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const msg = r.msg as any;
           const mine = safeNum(msg?.sender_id) === safeNum((currentUser as any)?.id);
           const text = safeStr(msg?.text_content);
-          const attachment = msg?.attachment;
           const d = parseDate(msg?.created_at);
           const edited = !!msg?.edited_at;
+          const attachments = Array.isArray(msg?.attachments) ? msg.attachments : [];
 
           return (
             <div key={r.key} className={`w-full flex ${mine ? "justify-end" : "justify-start"} mb-1.5`}>
@@ -661,7 +722,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                     "rounded-2xl",
                     "select-none",
                     mine ? "bg-[#1B74E4] text-white rounded-br-md" : "bg-[#3A3B3C] text-[#e4e6eb] rounded-bl-md",
-                    attachment ? "pb-2" : "",
                   ].join(" ")}
                   onTouchStart={(e) => startLongPress(msg, mine, e)}
                   onTouchEnd={cancelLongPress}
@@ -670,16 +730,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   onMouseUp={cancelLongPress}
                   onMouseLeave={cancelLongPress}
                 >
-                  {text && <div className="break-words">{text}</div>}
-                  
-                  {/* Attachment preview */}
-                  {attachment && (
-                    <AttachmentPreview 
-                      attachment={attachment} 
-                      onView={() => setViewingAttachment(attachment)}
-                    />
-                  )}
+                  {text || (attachments.length > 0 ? <span className="opacity-60">📎 Attachment</span> : <span className="opacity-60">…</span>)}
                 </div>
+
+                {/* ✅ Render multiple attachments */}
+                {attachments.length > 0 && (
+                  <div className="mt-1 space-y-2 w-full">
+                    {attachments.map((a: any) => (
+                      <AttachmentPreview
+                        key={`att:${safeNum(a?.id)}:${a?.url || Math.random().toString(16).slice(2)}`}
+                        attachment={a}
+                        onView={() => setViewingAttachment(a)}
+                      />
+                    ))}
+                  </div>
+                )}
 
                 {(d || edited) && (
                   <div className="text-[11px] text-[#b0b3b8] mt-0.5 px-1 select-none">
@@ -692,27 +757,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           );
         })}
 
-        {/* Uploading indicator */}
-        {uploading && (
-          <div className="flex justify-start mb-1.5">
-            <div className="bg-[#3A3B3C] text-[#e4e6eb] px-4 py-2 rounded-2xl rounded-bl-md">
-              <div className="flex items-center gap-2">
-                <i className="fas fa-spinner fa-spin" />
-                <span>Uploading...</span>
-              </div>
-            </div>
-          </div>
-        )}
-
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Attachment Menu */}
+      {/* Attachment menu */}
       {showAttachmentMenu && (
-        <div className="border-t border-[#333] bg-[#1e1e1e] p-2">
-          <div className="grid grid-cols-4 gap-2">
+        <div className="border-t border-[#333] bg-[#1e1e1e] p-3">
+          <div className="grid grid-cols-4 gap-3">
             <button
-              type="button"
               onClick={() => {
                 if (fileInputRef.current) {
                   fileInputRef.current.accept = "image/*";
@@ -720,16 +772,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   fileInputRef.current.click();
                 }
               }}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-[#2d2d2d]"
+              className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-[#2d2d2d] transition-colors"
             >
-              <div className="w-12 h-12 rounded-full bg-[#2d2d2d] flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-[#1B74E4]/20 flex items-center justify-center">
                 <i className="fas fa-image text-2xl text-[#1B74E4]" />
               </div>
               <span className="text-xs text-[#b0b3b8]">Photos</span>
             </button>
-
+            
             <button
-              type="button"
               onClick={() => {
                 if (fileInputRef.current) {
                   fileInputRef.current.accept = "video/*";
@@ -737,16 +788,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   fileInputRef.current.click();
                 }
               }}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-[#2d2d2d]"
+              className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-[#2d2d2d] transition-colors"
             >
-              <div className="w-12 h-12 rounded-full bg-[#2d2d2d] flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-[#1B74E4]/20 flex items-center justify-center">
                 <i className="fas fa-video text-2xl text-[#1B74E4]" />
               </div>
-              <span className="text-xs text-[#b0b3b8]">Video</span>
+              <span className="text-xs text-[#b0b3b8]">Videos</span>
             </button>
-
+            
             <button
-              type="button"
               onClick={() => {
                 if (fileInputRef.current) {
                   fileInputRef.current.accept = "audio/*";
@@ -754,29 +804,28 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   fileInputRef.current.click();
                 }
               }}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-[#2d2d2d]"
+              className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-[#2d2d2d] transition-colors"
             >
-              <div className="w-12 h-12 rounded-full bg-[#2d2d2d] flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-[#1B74E4]/20 flex items-center justify-center">
                 <i className="fas fa-music text-2xl text-[#1B74E4]" />
               </div>
               <span className="text-xs text-[#b0b3b8]">Audio</span>
             </button>
-
+            
             <button
-              type="button"
               onClick={() => {
                 if (fileInputRef.current) {
-                  fileInputRef.current.accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip";
+                  fileInputRef.current.accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt";
                   fileInputRef.current.multiple = true;
                   fileInputRef.current.click();
                 }
               }}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-[#2d2d2d]"
+              className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-[#2d2d2d] transition-colors"
             >
-              <div className="w-12 h-12 rounded-full bg-[#2d2d2d] flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-[#1B74E4]/20 flex items-center justify-center">
                 <i className="fas fa-file text-2xl text-[#1B74E4]" />
               </div>
-              <span className="text-xs text-[#b0b3b8]">Document</span>
+              <span className="text-xs text-[#b0b3b8]">Documents</span>
             </button>
           </div>
         </div>
@@ -807,7 +856,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       )}
 
-      {/* Composer (mobile safe) */}
+      {/* Composer */}
       <form
         onSubmit={handleSubmit}
         className="border-t border-[#333] bg-[#1e1e1e] px-2"
@@ -819,19 +868,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             <button
               type="button"
               className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-              aria-label="Add attachment"
+              aria-label="Attach"
               onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
             >
-              <i className="fas fa-plus-circle text-[22px] text-[#1B74E4]" />
+              <i className="fas fa-plus text-[18px] text-[#1B74E4]" />
             </button>
 
             <button
               type="button"
-              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-              aria-label="Camera"
-              onClick={() => alert("Camera capture (implement with getUserMedia)")}
+              className="px-2 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
+              aria-label="GIF"
+              onClick={() => alert("GIF picker (connect here)")}
             >
-              <i className="fas fa-camera text-[18px] text-[#1B74E4]" />
+              <span className="text-[13px] font-bold text-[#1B74E4]">GIF</span>
             </button>
 
             <button
@@ -855,9 +904,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               onChange={(e) => setInputText(e.target.value)}
               placeholder={editTarget ? "Edit message" : "Message"}
               className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-[#e4e6eb] placeholder:text-[#b0b3b8]"
-              onFocus={() => {
-                setShowAttachmentMenu(false);
-              }}
+              disabled={uploading}
             />
 
             <button
@@ -877,7 +924,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               type="button"
               className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors shrink-0"
               aria-label="Voice"
-              onClick={() => alert("Voice recording (implement with MediaRecorder)")}
+              onClick={() => alert("Voice (connect recorder here)")}
             >
               <i className="fas fa-microphone text-[18px] text-[#1B74E4]" />
             </button>
@@ -939,7 +986,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             <div className="bg-[#141414] border border-[#2b2b2b] rounded-2xl p-3 mb-3">
               <div className="text-[14px] text-[#e4e6eb] break-words">
                 {safeStr(actionModal.msg?.text_content) || 
-                 (actionModal.msg?.attachment ? "📎 Attachment" : "…")}
+                 (Array.isArray(actionModal.msg?.attachments) && actionModal.msg.attachments.length > 0 
+                   ? "📎 Attachment" 
+                   : <span className="opacity-60">…</span>)}
               </div>
             </div>
 
@@ -961,17 +1010,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 setReplyTo(m);
               })}
 
-              {actionModal.mine && actionBtn("fas fa-pen", "Edit", () => {
-                const m = actionModal.msg;
-                closeActionModal();
-                setReplyTo(null);
-                setEditTarget(m);
-                setInputText(safeStr(m?.text_content));
-                setTimeout(() => {
-                  const el = document.querySelector<HTMLInputElement>('input[placeholder="Edit message"], input[placeholder="Message"]');
-                  el?.focus?.();
-                }, 50);
-              })}
+              {actionModal.mine
+                ? actionBtn("fas fa-pen", "Edit", () => {
+                    const m = actionModal.msg;
+                    closeActionModal();
+                    setReplyTo(null);
+                    setEditTarget(m);
+                    setInputText(safeStr(m?.text_content) || "");
+                    setTimeout(() => {
+                      const el = document.querySelector<HTMLInputElement>('input[placeholder="Edit message"], input[placeholder="Message"]');
+                      el?.focus?.();
+                    }, 50);
+                  })
+                : null}
 
               {actionBtn("fas fa-trash", "Delete", async () => {
                 const m = actionModal.msg;
@@ -979,11 +1030,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 await doDelete(m, false);
               }, true)}
 
-              {actionModal.mine && actionBtn("fas fa-trash-can", "Delete for everyone", async () => {
-                const m = actionModal.msg;
-                closeActionModal();
-                await doDelete(m, true);
-              }, true)}
+              {actionModal.mine
+                ? actionBtn("fas fa-trash-can", "Delete for everyone", async () => {
+                    const m = actionModal.msg;
+                    closeActionModal();
+                    await doDelete(m, true);
+                  }, true)
+                : null}
             </div>
 
             <div className="mt-3">
@@ -1007,51 +1060,89 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           className="fixed inset-0 z-[400] bg-black/90 flex items-center justify-center p-4"
           onClick={() => setViewingAttachment(null)}
         >
-          <button
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/50 flex items-center justify-center hover:bg-black/70 z-10"
-            onClick={() => setViewingAttachment(null)}
-          >
-            <i className="fas fa-times text-white text-xl" />
-          </button>
-
-          {viewingAttachment.type?.startsWith("image/") ? (
-            <img
-              src={viewingAttachment.url}
-              alt={viewingAttachment.name}
-              className="max-w-full max-h-full object-contain"
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : viewingAttachment.type?.startsWith("video/") ? (
-            <video
-              src={viewingAttachment.url}
-              controls
-              autoPlay
-              className="max-w-full max-h-full"
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <div
-              className="bg-[#242526] rounded-xl p-8 max-w-md w-full"
-              onClick={(e) => e.stopPropagation()}
+          <div className="relative max-w-4xl w-full max-h-[90vh] flex items-center justify-center">
+            <button
+              onClick={() => setViewingAttachment(null)}
+              className="absolute top-4 right-4 z-10 w-10 h-10 bg-black/60 rounded-full flex items-center justify-center hover:bg-black/80"
             >
-              <div className="flex flex-col items-center gap-4">
-                <i className={`${getFileIcon(viewingAttachment.type || "")} text-6xl text-[#1B74E4]`} />
-                <div className="text-center">
-                  <div className="text-white font-semibold mb-1">{viewingAttachment.name}</div>
-                  {viewingAttachment.size && (
-                    <div className="text-[#b0b3b8] text-sm">{formatFileSize(viewingAttachment.size)}</div>
-                  )}
+              <i className="fas fa-times text-white text-xl" />
+            </button>
+
+            {(() => {
+              const att = viewingAttachment;
+              const url = att?.url || att?.attachment_url;
+              const mime = att?.mime_type || att?.type || att?.attachment_type || "";
+              const fileType = att?.file_type || "";
+              const name = att?.filename || att?.name || "Attachment";
+              const size = att?.size_bytes ?? att?.size ?? att?.file_size;
+
+              const isImg = fileType === "image" || String(mime).startsWith("image/");
+              const isVid = fileType === "video" || String(mime).startsWith("video/");
+              const isAud = fileType === "audio" || String(mime).startsWith("audio/");
+
+              if (isImg) {
+                return <img src={url} alt={name} className="max-w-full max-h-[90vh] object-contain" />;
+              }
+
+              if (isVid) {
+                return (
+                  <video src={url} controls autoPlay className="max-w-full max-h-[90vh]">
+                    <source src={url} type={mime} />
+                    Your browser does not support the video tag.
+                  </video>
+                );
+              }
+
+              if (isAud) {
+                return (
+                  <div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-center gap-3">
+                        <i className="fas fa-music text-3xl text-[#1B74E4]" />
+                        <div className="min-w-0">
+                          <div className="text-white font-semibold truncate">{name}</div>
+                          {size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}
+                        </div>
+                      </div>
+                      <audio src={url} controls autoPlay className="w-full" />
+                      <a
+                        href={url}
+                        download={name}
+                        className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center"
+                      >
+                        Download
+                      </a>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Document/file preview
+              return (
+                <div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-3">
+                      <i className={`${getFileIcon(mime)} text-3xl text-[#1B74E4]`} />
+                      <div className="min-w-0">
+                        <div className="text-white font-semibold truncate">{name}</div>
+                        {size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}
+                      </div>
+                    </div>
+                    {mime.startsWith("text/") || mime === "application/pdf" ? (
+                      <iframe src={url} className="w-full h-[60vh] rounded-lg" title={name} />
+                    ) : null}
+                    <a
+                      href={url}
+                      download={name}
+                      className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center"
+                    >
+                      Download
+                    </a>
+                  </div>
                 </div>
-                <a
-                  href={viewingAttachment.url}
-                  download={viewingAttachment.name}
-                  className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8]"
-                >
-                  Download
-                </a>
-              </div>
-            </div>
-          )}
+              );
+            })()}
+          </div>
         </div>
       )}
     </div>
