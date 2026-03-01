@@ -1,11 +1,3 @@
-// components/Chat.tsx
-// Messenger-style full-screen chat window (mobile) with:
-// ✅ Multiple image/video/audio/document attachments per message
-// ✅ Backend integration (conversations list + messages + send + mark-read)
-// ✅ Long-press message actions popup
-// ✅ Attachment viewer modal
-// ✅ Fixed: attachments array format, upload returns rich data
-
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
@@ -109,7 +101,7 @@ const formatDayLabel = (d: Date) =>
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
 // ✅ Attachment Preview Component (supports new DB attachments + legacy)
-const AttachmentPreview: React.FC<{ attachment: any; onView: () => void }> = ({ attachment, onView }) => {
+const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?: boolean }> = ({ attachment, onView, isMine }) => {
   const url = attachment?.url || attachment?.attachment_url;
   const mime = attachment?.mime_type || attachment?.type || attachment?.attachment_type || "";
   const fileType = attachment?.file_type || ""; // image/video/audio/document/...
@@ -126,7 +118,7 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void }> = ({ 
   if (isImage) {
     return (
       <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer" onClick={onView}>
-        <img src={url} alt={name} className="max-w-full max-h-64 object-contain bg-black/20" />
+        <img src={url} alt={name} className="max-w-full max-h-80 object-contain bg-black/20" />
       </div>
     );
   }
@@ -134,14 +126,14 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void }> = ({ 
   if (isVideo) {
     return (
       <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer relative" onClick={onView}>
-        <video src={url} className="max-w-full max-h-64 object-contain bg-black/20" controls />
+        <video src={url} className="max-w-full max-h-80 object-contain bg-black/20" controls />
       </div>
     );
   }
 
   if (isAudio) {
     return (
-      <div className="mt-2 p-3 rounded-lg border border-[#3E4042] bg-[#2d2d2d]" onClick={(e) => { e.stopPropagation(); }}>
+      <div className="mt-2 p-3.5 rounded-xl border border-[#3E4042] bg-[#262626]" onClick={(e) => { e.stopPropagation(); }}>
         <div className="flex items-center gap-3 mb-2">
           <i className="fas fa-music text-xl text-[#1B74E4]" />
           <div className="flex-1 min-w-0">
@@ -154,10 +146,10 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void }> = ({ 
     );
   }
 
-  // Document/file preview
+  // Document/file preview - WhatsApp style
   return (
     <div
-      className="mt-2 p-3 rounded-lg border border-[#3E4042] bg-[#2d2d2d] flex items-center gap-3 cursor-pointer hover:bg-[#333] transition-colors"
+      className={`mt-2 p-3.5 rounded-xl border ${isMine ? 'border-[#1B74E4]/30' : 'border-[#3E4042]'} bg-[#262626] flex items-center gap-3 cursor-pointer hover:bg-[#2f2f2f] transition-colors`}
       onClick={onView}
     >
       <i className={`${getFileIcon(mime || "")} text-2xl text-[#1B74E4]`} />
@@ -256,6 +248,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
 
+  // Voice recording states
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const recordTimerRef = useRef<number | null>(null);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<BlobPart[]>([]);
+  const recordStreamRef = useRef<MediaStream | null>(null);
+
   const listRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<number | null>(null);
@@ -263,6 +264,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentUserId = safeNum(currentUser?.id);
+
+  // Voice recording helper
+  const pickBestAudioMime = () => {
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/mp4",
+      "audio/aac",
+      "audio/mpeg",
+    ];
+    for (const c of candidates) {
+      // @ts-ignore
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported?.(c)) return c;
+    }
+    return "";
+  };
 
   const scrollToBottom = (smooth = true) => {
     const el = listRef.current;
@@ -339,6 +356,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     };
   }, [recipient?.id, currentUserId, fetchHistory]);
 
+  // Cleanup voice recording on unmount
+  useEffect(() => {
+    return () => {
+      if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
+      try { mediaRecorderRef.current?.stop(); } catch {}
+      try { recordStreamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
+    };
+  }, []);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [recipient?.id]);
@@ -358,6 +384,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     return arr;
   }, [msgs]);
 
+  // Map messages by ID for quick lookup (for replies)
+  const msgById = useMemo(() => {
+    const map = new Map<number, any>();
+    for (const m of normalized as any[]) map.set(safeNum(m?.id), m);
+    return map;
+  }, [normalized]);
+
   const rows = useMemo(() => {
     const out: Array<{ type: "day" | "msg"; key: string; day?: string; msg?: any }> = [];
     let lastDay = "";
@@ -372,6 +405,115 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     }
     return out;
   }, [normalized]);
+
+  // Voice recording functions
+  const startVoiceNote = async () => {
+    if (uploading) return;
+
+    try {
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        alert("Voice recording not supported on this device/browser.");
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordStreamRef.current = stream;
+
+      recordChunksRef.current = [];
+      const mimeType = pickBestAudioMime();
+
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaRecorderRef.current = mr;
+
+      mr.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) recordChunksRef.current.push(ev.data);
+      };
+
+      mr.onstop = async () => {
+        try {
+          // stop tracks
+          recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+          recordStreamRef.current = null;
+
+          const blob = new Blob(recordChunksRef.current, { type: mr.mimeType || "audio/webm" });
+          recordChunksRef.current = [];
+
+          // Build a File for your upload API
+          const ext =
+            (mr.mimeType || "").includes("mp4") ? "m4a" :
+            (mr.mimeType || "").includes("mpeg") ? "mp3" : "webm";
+
+          const filename = `voice-${Date.now()}.${ext}`;
+          const file = new File([blob], filename, { type: mr.mimeType || "audio/webm" });
+
+          setUploading(true);
+
+          // Upload
+          const up = await uploadToR2(file, "chat");
+
+          // Send message with attachments array
+          await send({
+            recipient_id: (recipient as any)?.id,
+            text_content: null,
+            attachments: [
+              {
+                url: up.url,
+                file_type: up.file_type || "audio",
+                mime_type: up.mime_type || file.type,
+                filename: up.filename || filename,
+                size_bytes: up.size_bytes ?? file.size,
+                metadata: up.metadata || {},
+              },
+            ],
+          });
+
+          setRecordSeconds(0);
+        } catch (e: any) {
+          alert(e?.message || "Failed to send voice note");
+        } finally {
+          setUploading(false);
+        }
+      };
+
+      mr.start(250);
+      setRecording(true);
+      setRecordSeconds(0);
+
+      if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = window.setInterval(() => setRecordSeconds((s) => s + 1), 1000);
+    } catch (e: any) {
+      alert(e?.message || "Microphone permission denied");
+      try {
+        recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+      } catch {}
+      recordStreamRef.current = null;
+    }
+  };
+
+  const stopVoiceNote = async (cancel = false) => {
+    try {
+      if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+
+      setRecording(false);
+
+      // If cancel, stop and discard
+      if (cancel) {
+        recordChunksRef.current = [];
+      }
+
+      const mr = mediaRecorderRef.current;
+      mediaRecorderRef.current = null;
+
+      if (mr && mr.state !== "inactive") {
+        mr.stop();
+      } else {
+        // Ensure stream stops even if recorder isn't active
+        recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+        recordStreamRef.current = null;
+      }
+    } catch {}
+  };
 
   // ✅ Updated buildForwardPayload with attachments array
   const buildForwardPayload = (m: any) => {
@@ -683,6 +825,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       )}
 
+      {/* Recording indicator */}
+      {recording && (
+        <div className="px-3 py-2 border-b border-[#333] bg-[#161616]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-[#e4e6eb]">
+              <i className="fas fa-circle text-[#ff4d4d] text-[10px]" />
+              <span className="text-[14px]">Recording… {recordSeconds}s</span>
+            </div>
+            <button
+              type="button"
+              className="text-[#ff6b6b] font-semibold text-sm"
+              onClick={() => stopVoiceNote(true)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div
         ref={listRef}
@@ -712,16 +873,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const d = parseDate(msg?.created_at);
           const edited = !!msg?.edited_at;
           const attachments = Array.isArray(msg?.attachments) ? msg.attachments : [];
+          
+          // Get parent message for reply preview
+          const parentId = safeNum(msg?.parent_message_id, 0);
+          const parent = parentId ? msgById.get(parentId) : null;
 
           return (
             <div key={r.key} className={`w-full flex ${mine ? "justify-end" : "justify-start"} mb-1.5`}>
               <div className={`max-w-[82%] flex flex-col ${mine ? "items-end" : "items-start"}`}>
                 <div
                   className={[
-                    "px-3 py-2 text-[16px] leading-snug",
+                    "px-3.5 py-2.5 text-[17px] leading-snug",
                     "rounded-2xl",
                     "select-none",
-                    mine ? "bg-[#1B74E4] text-white rounded-br-md" : "bg-[#3A3B3C] text-[#e4e6eb] rounded-bl-md",
+                    mine 
+                      ? "bg-[#1B74E4] text-white rounded-tr-md" 
+                      : "bg-[#3A3B3C] text-[#e4e6eb] rounded-tl-md",
                   ].join(" ")}
                   onTouchStart={(e) => startLongPress(msg, mine, e)}
                   onTouchEnd={cancelLongPress}
@@ -730,7 +897,32 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   onMouseUp={cancelLongPress}
                   onMouseLeave={cancelLongPress}
                 >
-                  {text || (attachments.length > 0 ? <span className="opacity-60">📎 Attachment</span> : <span className="opacity-60">…</span>)}
+                  {/* Reply preview inside bubble - WhatsApp style */}
+                  {parent && (
+                    <div className={`mb-2 px-2 py-1.5 rounded-lg border-l-4 ${
+                      mine ? "bg-white/15 border-white/60" : "bg-black/20 border-[#1B74E4]"
+                    }`}>
+                      <div className={`text-[11px] font-semibold ${mine ? "text-white/90" : "text-[#e4e6eb]"}`}>
+                        Reply
+                      </div>
+                      <div className={`text-[12px] truncate max-w-[200px] ${mine ? "text-white/85" : "text-[#b0b3b8]"}`}>
+                        {safeStr(parent?.text_content) || 
+                         (Array.isArray(parent?.attachments) && parent.attachments.length ? "📎 Attachment" : "…")}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {text || (attachments.length > 0 ? null : <span className="opacity-60">…</span>)}
+                  
+                  {/* Time inside bubble - WhatsApp style */}
+                  {(d || edited) && (
+                    <div className="flex justify-end mt-1">
+                      <span className={`text-[10px] ${mine ? "text-white/70" : "text-[#b0b3b8]"}`}>
+                        {d ? formatTime(d) : ""}
+                        {edited ? <span className="ml-1">✓</span> : null}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* ✅ Render multiple attachments */}
@@ -741,15 +933,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                         key={`att:${safeNum(a?.id)}:${a?.url || Math.random().toString(16).slice(2)}`}
                         attachment={a}
                         onView={() => setViewingAttachment(a)}
+                        isMine={mine}
                       />
                     ))}
-                  </div>
-                )}
-
-                {(d || edited) && (
-                  <div className="text-[11px] text-[#b0b3b8] mt-0.5 px-1 select-none">
-                    {d ? formatTime(d) : ""}
-                    {edited ? <span className="ml-2 opacity-80">(edited)</span> : null}
                   </div>
                 )}
               </div>
@@ -922,11 +1108,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
             <button
               type="button"
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors shrink-0"
+              className={`w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors shrink-0 ${recording ? 'text-[#ff4d4d]' : ''}`}
               aria-label="Voice"
-              onClick={() => alert("Voice (connect recorder here)")}
+              onClick={() => {
+                if (recording) stopVoiceNote(false);
+                else startVoiceNote();
+              }}
             >
-              <i className="fas fa-microphone text-[18px] text-[#1B74E4]" />
+              <i className={`fas ${recording ? 'fa-stop' : 'fa-microphone'} text-[18px] text-[#1B74E4]`} />
             </button>
           </div>
 
