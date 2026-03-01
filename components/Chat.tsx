@@ -20,7 +20,7 @@ const uploadToR2 = async (file: File, folder = "chat"): Promise<any> => {
   formData.append("timestamp", Date.now().toString());
 
   const token = localStorage.getItem("unera_token");
-  const response = await fetch("https://media.unera.social/api/upload", {
+  const response = await fetch("/api/upload", {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
