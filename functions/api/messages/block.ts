@@ -1,4 +1,4 @@
-// functions/api/messages/block.ts
+// functions/api/messages/block.ts-
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { cors, json, getAuthUserId, safeNum } from "./_utils";
 
