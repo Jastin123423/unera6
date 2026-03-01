@@ -1,19 +1,33 @@
 // components/Chat.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+// Messenger-style full-screen chat window (mobile) with:
+// ✅ Backend integration (conversations list + messages + send + mark-read)
+// ✅ Long-press message actions popup:
+//    - Other's message: Forward, Reply, Delete (for me)
+//    - My message: Forward, Reply, Edit, Delete (for me), Delete for everyone
+// ✅ Composer fixed for mobile: buttons always visible (safe-area + no overflow)
+
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
 
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem("unera_token");
   const headers: HeadersInit = { "Content-Type": "application/json", ...(options.headers || {}) };
-
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  // TEMP: if you are not verifying JWT yet, you can pass user id for now (remove once auth is real)
-  // headers["x-user-id"] = String((window as any).__currentUserId || "");
+  // TEMP (only if you still test with x-user-id):
+  // const testId = (window as any).__currentUserId;
+  // if (testId) headers["x-user-id"] = String(testId);
 
   const res = await fetch(url, { ...options, headers });
-  if (!res.ok) throw new Error("API Error");
+  if (!res.ok) {
+    let msg = "API Error";
+    try {
+      const j = await res.json();
+      msg = j?.error || j?.message || msg;
+    } catch {}
+    throw new Error(msg);
+  }
   return res.json();
 };
 
@@ -33,10 +47,8 @@ const parseDate = (v: any) => {
 };
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-
 const formatDayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
-
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
 const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; className?: string }> = ({
@@ -96,9 +108,19 @@ type ChatWindowProps = {
   currentUser: User;
   recipient: User;
   onClose: () => void;
+  onSendMessage?: (t: string, s?: string) => void; // optional external hook (kept)
 };
 
-export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, onClose }) => {
+type ActionModalState =
+  | null
+  | {
+      msg: any;
+      mine: boolean;
+      x: number;
+      y: number;
+    };
+
+export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, onClose, onSendMessage }) => {
   const [inputText, setInputText] = useState("");
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -107,9 +129,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const [showEmoji, setShowEmoji] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
 
+  const [replyTo, setReplyTo] = useState<any | null>(null);
+  const [editTarget, setEditTarget] = useState<any | null>(null);
+
+  const [actionModal, setActionModal] = useState<ActionModalState>(null);
+
   const listRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<number | null>(null);
+  const longPressTimer = useRef<number | null>(null);
 
   const scrollToBottom = (smooth = true) => {
     const el = listRef.current;
@@ -119,25 +147,28 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     if (nearBottom) messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
   };
 
-  const markRead = async (convId: number) => {
-    if (!convId) return;
-    try {
-      await apiFetch("/api/messages/mark-read", {
-        method: "POST",
-        body: JSON.stringify({ conversation_id: convId }),
-      });
-    } catch {
-      // ignore
-    }
-  };
+  const markRead = useCallback(
+    async (convId: number) => {
+      if (!convId) return;
+      try {
+        await apiFetch("/api/messages/mark-read", {
+          method: "POST",
+          body: JSON.stringify({ conversation_id: convId }),
+        });
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     try {
       setLoading(true);
 
       const conversations = await apiFetch("/api/messages/conversations");
       const conv = Array.isArray(conversations)
-        ? conversations.find((c: any) => safeNum(c?.other_user_id) === safeNum(recipient?.id))
+        ? conversations.find((c: any) => safeNum(c?.other_user_id) === safeNum((recipient as any)?.id))
         : null;
 
       const cid = safeNum(conv?.id, 0);
@@ -146,7 +177,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       if (cid) {
         const history = await apiFetch(`/api/messages/conversations/${cid}`);
         setMsgs(Array.isArray(history) ? history : []);
-        // mark as read in background
         markRead(cid);
       } else {
         setMsgs([]);
@@ -156,7 +186,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     } finally {
       setLoading(false);
     }
-  };
+  }, [recipient?.id, markRead]);
 
   useEffect(() => {
     fetchHistory();
@@ -193,41 +223,87 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   }, [msgs]);
 
   const rows = useMemo(() => {
-    const out: Array<{ type: "day" | "msg"; key: string; day?: string; msg?: Message }> = [];
+    const out: Array<{ type: "day" | "msg"; key: string; day?: string; msg?: any }> = [];
     let lastDay = "";
-    for (const m of normalized) {
-      const d = parseDate((m as any)?.created_at) || null;
+    for (const m of normalized as any[]) {
+      const d = parseDate(m?.created_at) || null;
       const dk = d ? dayKey(d) : "";
       if (dk && dk !== lastDay) {
         lastDay = dk;
         out.push({ type: "day", key: `day:${dk}`, day: formatDayLabel(d!) });
       }
-      out.push({ type: "msg", key: `msg:${safeNum((m as any)?.id)}:${Math.random().toString(16).slice(2)}`, msg: m });
+      out.push({ type: "msg", key: `msg:${safeNum(m?.id)}:${Math.random().toString(16).slice(2)}`, msg: m });
     }
     return out;
   }, [normalized]);
 
+  const buildForwardPayload = (m: any) => {
+    // Forward as best-effort:
+    // If has attachment_url, send attachment too; else forward text.
+    const text = safeStr(m?.text_content);
+    const attUrl = safeStr(m?.attachment_url);
+    const attType = safeStr(m?.attachment_type);
+    const attMeta = m?.attachment_metadata ?? null;
+
+    if (attUrl) {
+      return {
+        recipient_id: (recipient as any)?.id,
+        text_content: text ? `Forwarded: ${text}` : null,
+        attachment_url: attUrl,
+        attachment_type: attType || null,
+        attachment_metadata: attMeta,
+      };
+    }
+    return { recipient_id: (recipient as any)?.id, text_content: text ? `Forwarded: ${text}` : "Forwarded message" };
+  };
+
+  const send = async (payload: any) => {
+    const data = await apiFetch("/api/messages/send", { method: "POST", body: JSON.stringify(payload) });
+    // append optimistically
+    setMsgs((prev) => [...prev, data]);
+    // If conversation just created, refresh to get its id
+    if (!conversationId) fetchHistory();
+    return data;
+  };
+
   const sendText = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed && !replyTo && !editTarget) return;
 
     setShowEmoji(false);
     setShowStickers(false);
 
     try {
-      const data = await apiFetch("/api/messages/send", {
-        method: "POST",
-        body: JSON.stringify({ recipient_id: recipient.id, text_content: trimmed }),
-      });
+      // external hook (optional)
+      onSendMessage?.(trimmed);
 
-      // data is the inserted message row
-      setMsgs((prev) => [...prev, data]);
+      // EDIT mode
+      if (editTarget?.id) {
+        const updated = await apiFetch(`/api/messages/${editTarget.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ text_content: trimmed }),
+        });
+
+        // update local list
+        const updatedMsg = updated?.message || null;
+        if (updatedMsg?.id) {
+          setMsgs((prev) => prev.map((m: any) => (safeNum(m?.id) === safeNum(updatedMsg.id) ? updatedMsg : m)));
+        }
+        setEditTarget(null);
+        setInputText("");
+        return;
+      }
+
+      // REPLY mode (uses parent_message_id)
+      const payload: any = { recipient_id: (recipient as any)?.id, text_content: trimmed };
+      if (replyTo?.id) payload.parent_message_id = replyTo.id;
+
+      await send(payload);
+
       setInputText("");
-
-      // If conversation was newly created, refresh to get conversation id + receipts
-      if (!conversationId) fetchHistory();
-    } catch {
-      alert("Failed to send");
+      setReplyTo(null);
+    } catch (e: any) {
+      alert(e?.message || "Failed to send");
     }
   };
 
@@ -238,8 +314,77 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const canSend = inputText.trim().length > 0;
 
+  // Long-press handling (touch + mouse)
+  const startLongPress = (msg: any, mine: boolean, evt: any) => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+
+    const { clientX, clientY } = (() => {
+      const t = evt?.touches?.[0] || evt?.changedTouches?.[0];
+      if (t) return { clientX: t.clientX, clientY: t.clientY };
+      return { clientX: evt?.clientX ?? 0, clientY: evt?.clientY ?? 0 };
+    })();
+
+    longPressTimer.current = window.setTimeout(() => {
+      setActionModal({ msg, mine, x: clientX, y: clientY });
+      // haptics if available
+      try {
+        (navigator as any).vibrate?.(10);
+      } catch {}
+    }, 420);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+
+  const doDelete = async (m: any, deleteForEveryone: boolean) => {
+    try {
+      await apiFetch(`/api/messages/${safeNum(m?.id)}`, {
+        method: "DELETE",
+        body: JSON.stringify({ delete_for_everyone: deleteForEveryone }),
+      });
+
+      if (deleteForEveryone) {
+        setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
+      } else {
+        // delete for me just hides; remove locally for instant UI
+        setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
+      }
+    } catch (e: any) {
+      alert(e?.message || "Failed to delete");
+    }
+  };
+
+  const actionBtn = (
+    icon: string,
+    label: string,
+    onClick: () => void,
+    danger = false
+  ) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "w-full flex items-center gap-3 px-3 py-3 rounded-xl",
+        "hover:bg-[#2d2d2d] active:bg-[#333] transition-colors",
+        danger ? "text-[#ff6b6b]" : "text-[#e4e6eb]",
+      ].join(" ")}
+    >
+      <i className={`${icon} text-[18px]`} />
+      <span className="text-[15px] font-medium">{label}</span>
+    </button>
+  );
+
+  const closeActionModal = () => setActionModal(null);
+
+  // Mobile composer sizing: keep visible
+  // - add safe-area padding using inline style
+  const safeAreaPaddingBottom = "max(env(safe-area-inset-bottom), 8px)";
+
   return (
     <div className="fixed inset-0 z-[200] bg-[#1e1e1e] flex flex-col font-sans">
+      {/* Top header */}
       <div className="h-14 px-3 flex items-center justify-between border-b border-[#333] bg-[#1e1e1e]">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -273,8 +418,46 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       </div>
 
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 bg-[#1e1e1e]">
-        {loading && msgs.length === 0 ? <div className="text-center text-[#b0b3b8] text-sm py-6">Loading…</div> : null}
+      {/* Reply/Edit banner */}
+      {(replyTo || editTarget) && (
+        <div className="px-3 py-2 border-b border-[#333] bg-[#161616]">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[12px] text-[#b0b3b8]">
+                {editTarget ? "Editing message" : "Replying to"}
+              </div>
+              <div className="text-[13px] text-[#e4e6eb] truncate">
+                {safeStr((editTarget || replyTo)?.text_content) || "…"}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setReplyTo(null);
+                setEditTarget(null);
+              }}
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
+              aria-label="Cancel"
+            >
+              <i className="fas fa-xmark text-[#e4e6eb]" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Messages */}
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto px-3 py-3 bg-[#1e1e1e]"
+        onClick={() => {
+          // close pickers on tap on list
+          setShowEmoji(false);
+          setShowStickers(false);
+        }}
+      >
+        {loading && msgs.length === 0 ? (
+          <div className="text-center text-[#b0b3b8] text-sm py-6">Loading…</div>
+        ) : null}
 
         {rows.map((r) => {
           if (r.type === "day") {
@@ -289,21 +472,34 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const mine = safeNum(msg?.sender_id) === safeNum((currentUser as any)?.id);
           const text = safeStr(msg?.text_content);
           const d = parseDate(msg?.created_at);
+          const edited = !!msg?.edited_at;
 
           return (
             <div key={r.key} className={`w-full flex ${mine ? "justify-end" : "justify-start"} mb-1.5`}>
-              <div className={`max-w-[78%] flex flex-col ${mine ? "items-end" : "items-start"}`}>
+              <div className={`max-w-[82%] flex flex-col ${mine ? "items-end" : "items-start"}`}>
                 <div
                   className={[
                     "px-3 py-2 text-[16px] leading-snug",
                     "rounded-2xl",
+                    "select-none",
                     mine ? "bg-[#1B74E4] text-white rounded-br-md" : "bg-[#3A3B3C] text-[#e4e6eb] rounded-bl-md",
                   ].join(" ")}
+                  onTouchStart={(e) => startLongPress(msg, mine, e)}
+                  onTouchEnd={cancelLongPress}
+                  onTouchMove={cancelLongPress}
+                  onMouseDown={(e) => startLongPress(msg, mine, e)}
+                  onMouseUp={cancelLongPress}
+                  onMouseLeave={cancelLongPress}
                 >
                   {text || <span className="opacity-60">…</span>}
                 </div>
 
-                {d ? <div className="text-[11px] text-[#b0b3b8] mt-0.5 px-1 select-none">{formatTime(d)}</div> : null}
+                {(d || edited) && (
+                  <div className="text-[11px] text-[#b0b3b8] mt-0.5 px-1 select-none">
+                    {d ? formatTime(d) : ""}
+                    {edited ? <span className="ml-2 opacity-80">(edited)</span> : null}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -312,11 +508,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Emoji / Stickers panel */}
       {(showEmoji || showStickers) && (
         <div className="border-t border-[#333] bg-[#1e1e1e]">
           {showEmoji ? (
             <div className="p-2">
-              <EmojiPicker onSelect={(emoji: string) => setInputText((p) => (p ? `${p}${emoji}` : emoji))} />
+              <EmojiPicker
+                onSelect={(emoji: string) => {
+                  setInputText((p) => (p ? `${p}${emoji}` : emoji));
+                }}
+              />
             </div>
           ) : null}
 
@@ -332,20 +533,36 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="border-t border-[#333] bg-[#1e1e1e] px-2 py-2">
-        <div className="flex items-end gap-2">
-          <div className="flex items-center gap-1">
-            <button type="button" className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Camera">
+      {/* Composer (mobile safe) */}
+      <form
+        onSubmit={handleSubmit}
+        className="border-t border-[#333] bg-[#1e1e1e] px-2"
+        style={{ paddingBottom: safeAreaPaddingBottom }}
+      >
+        <div className="py-2 flex items-end gap-2">
+          {/* Left quick actions */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
+              aria-label="Camera"
+              onClick={() => alert("Camera upload (connect your media picker here)")}
+            >
               <i className="fas fa-camera text-[18px] text-[#1B74E4]" />
             </button>
 
-            <button type="button" className="px-2 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="GIF">
+            <button
+              type="button"
+              className="px-2 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
+              aria-label="GIF"
+              onClick={() => alert("GIF picker (connect here)")}
+            >
               <span className="text-[13px] font-bold text-[#1B74E4]">GIF</span>
             </button>
 
             <button
               type="button"
-              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
               aria-label="Stickers"
               onClick={() => {
                 setShowStickers((v) => !v);
@@ -356,17 +573,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             </button>
           </div>
 
-          <div className="flex-1 bg-[#2d2d2d] rounded-full px-3 py-2 flex items-center gap-2">
+          {/* Input */}
+          <div className="flex-1 min-w-0 bg-[#2d2d2d] rounded-full px-3 py-2 flex items-center gap-2">
             <input
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Message"
-              className="flex-1 bg-transparent outline-none text-[15px] text-[#e4e6eb] placeholder:text-[#b0b3b8]"
+              placeholder={editTarget ? "Edit message" : "Message"}
+              className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-[#e4e6eb] placeholder:text-[#b0b3b8]"
+              onFocus={() => {
+                // keep panels optional
+              }}
             />
 
             <button
               type="button"
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a]"
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors shrink-0"
               aria-label="Emoji"
               onClick={() => {
                 setShowEmoji((v) => !v);
@@ -376,22 +597,143 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               <i className="far fa-smile text-[18px] text-[#1B74E4]" />
             </button>
 
-            <button type="button" className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a]" aria-label="Voice">
+            <button
+              type="button"
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors shrink-0"
+              aria-label="Voice"
+              onClick={() => alert("Voice (connect recorder here)")}
+            >
               <i className="fas fa-microphone text-[18px] text-[#1B74E4]" />
             </button>
           </div>
 
-          {canSend ? (
-            <button type="submit" className="w-10 h-10 rounded-full bg-[#1B74E4] flex items-center justify-center hover:bg-[#1A6ED8]" aria-label="Send">
+          {/* Right: Send or Like */}
+          {canSend || editTarget ? (
+            <button
+              type="submit"
+              className="w-10 h-10 rounded-full bg-[#1B74E4] flex items-center justify-center hover:bg-[#1A6ED8] transition-colors shrink-0"
+              aria-label="Send"
+            >
               <i className="fas fa-paper-plane text-[16px] text-white" />
             </button>
           ) : (
-            <button type="button" className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Like" onClick={() => sendText("👍")}>
+            <button
+              type="button"
+              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors shrink-0"
+              aria-label="Like"
+              onClick={() => sendText("👍")}
+            >
               <i className="fas fa-thumbs-up text-[20px] text-[#1B74E4]" />
             </button>
           )}
         </div>
       </form>
+
+      {/* Action Modal (long-press popup) */}
+      {actionModal && (
+        <div
+          className="fixed inset-0 z-[300]"
+          onClick={closeActionModal}
+          onTouchStart={closeActionModal}
+          role="presentation"
+        >
+          {/* dim */}
+          <div className="absolute inset-0 bg-black/50" />
+
+          {/* sheet */}
+          <div
+            className="absolute left-1/2 -translate-x-1/2 bottom-0 w-full max-w-md bg-[#1e1e1e] border-t border-[#333] rounded-t-2xl p-3"
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[13px] text-[#b0b3b8] truncate pr-2">
+                {actionModal.mine ? "Your message" : "Message"}
+              </div>
+              <button
+                type="button"
+                className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
+                aria-label="Close"
+                onClick={closeActionModal}
+              >
+                <i className="fas fa-xmark text-[#e4e6eb]" />
+              </button>
+            </div>
+
+            <div className="bg-[#141414] border border-[#2b2b2b] rounded-2xl p-3 mb-3">
+              <div className="text-[14px] text-[#e4e6eb] break-words">
+                {safeStr(actionModal.msg?.text_content) || <span className="opacity-60">…</span>}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              {/* Forward */}
+              {actionBtn("fas fa-share", "Forward", async () => {
+                const m = actionModal.msg;
+                closeActionModal();
+                try {
+                  await send(buildForwardPayload(m));
+                } catch (e: any) {
+                  alert(e?.message || "Failed to forward");
+                }
+              })}
+
+              {/* Reply */}
+              {actionBtn("fas fa-reply", "Reply", () => {
+                const m = actionModal.msg;
+                closeActionModal();
+                setEditTarget(null);
+                setReplyTo(m);
+              })}
+
+              {/* Edit (mine only) */}
+              {actionModal.mine
+                ? actionBtn("fas fa-pen", "Edit", () => {
+                    const m = actionModal.msg;
+                    closeActionModal();
+                    setReplyTo(null);
+                    setEditTarget(m);
+                    setInputText(safeStr(m?.text_content));
+                    // focus input best-effort
+                    setTimeout(() => {
+                      const el = document.querySelector<HTMLInputElement>('input[placeholder="Edit message"], input[placeholder="Message"]');
+                      el?.focus?.();
+                    }, 50);
+                  })
+                : null}
+
+              {/* Delete for me */}
+              {actionBtn("fas fa-trash", "Delete", async () => {
+                const m = actionModal.msg;
+                closeActionModal();
+                await doDelete(m, false);
+              }, true)}
+
+              {/* Delete for everyone (mine only) */}
+              {actionModal.mine
+                ? actionBtn("fas fa-trash-can", "Delete for everyone", async () => {
+                    const m = actionModal.msg;
+                    closeActionModal();
+                    await doDelete(m, true);
+                  }, true)
+                : null}
+            </div>
+
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={closeActionModal}
+                className="w-full py-3 rounded-xl bg-[#2d2d2d] text-[#e4e6eb] font-semibold hover:bg-[#333]"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {/* Safe-area bottom space */}
+            <div style={{ height: "max(env(safe-area-inset-bottom), 8px)" }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
