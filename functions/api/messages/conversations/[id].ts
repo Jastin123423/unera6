@@ -1,3 +1,4 @@
+// api/messages/conversations/[id].ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
@@ -20,7 +21,6 @@ const safeNum = (v: any, fb = 0) => {
 };
 
 const getAuthUserId = async (request: Request): Promise<number> => {
-  // TEMP testing. Later replace with JWT.
   const hdr = request.headers.get("x-user-id");
   const id = safeNum(hdr, 0);
   return id > 0 ? id : 0;
@@ -73,7 +73,46 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       .bind(userId, conversationId)
       .all();
 
-    return json(rows.results || []);
+    const messages = (rows.results || []) as any[];
+    if (!messages.length) return json([]);
+
+    // Pull attachments for all messages in one query
+    const ids = messages.map((m) => safeNum(m.id, 0)).filter((n) => n > 0);
+    if (!ids.length) return json(messages);
+
+    const placeholders = ids.map(() => "?").join(",");
+
+    let attResults: any[] = [];
+    try {
+      const aRes = await env.DB
+        .prepare(
+          `SELECT
+             id, message_id, url, mime_type, file_type, filename, size_bytes,
+             width, height, duration_ms, page_count, metadata, created_at
+           FROM message_attachments
+           WHERE message_id IN (${placeholders})
+           ORDER BY id ASC`
+        )
+        .bind(...ids)
+        .all();
+      attResults = (aRes.results || []) as any[];
+    } catch {
+      // If table doesn't exist yet, just return messages without attachments
+      attResults = [];
+    }
+
+    const byMsg: Record<string, any[]> = {};
+    for (const a of attResults) {
+      const mid = String(a.message_id);
+      (byMsg[mid] ||= []).push(a);
+    }
+
+    // Attach array to each message
+    for (const m of messages) {
+      m.attachments = byMsg[String(m.id)] || [];
+    }
+
+    return json(messages);
   } catch (e: any) {
     return json({ success: false, error: e?.message || "Server error" }, 500);
   }
