@@ -1,11 +1,10 @@
-// functions/api/messages/conversations.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id",
 };
 
@@ -21,10 +20,19 @@ const safeNum = (v: any, fb = 0) => {
 };
 
 const getAuthUserId = async (request: Request): Promise<number> => {
-  // TEMP testing header (remove once JWT auth wired)
   const hdr = request.headers.get("x-user-id");
   const id = safeNum(hdr, 0);
   return id > 0 ? id : 0;
+};
+
+const colCache = new Map<string, Set<string>>();
+const hasColumn = async (db: D1Database, table: string, column: string) => {
+  if (!colCache.has(table)) {
+    const info = await db.prepare(`PRAGMA table_info(${table})`).all();
+    const cols = new Set<string>((info.results || []).map((r: any) => String(r?.name || "")));
+    colCache.set(table, cols);
+  }
+  return colCache.get(table)!.has(column);
 };
 
 export const onRequestOptions: PagesFunction = async () =>
@@ -35,25 +43,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
     const userId = await getAuthUserId(request);
-    if (!userId) return json({ success: false, error: "Unauthorized: missing user id" }, 401);
+    if (!userId) return json({ success: false, error: "Unauthorized" }, 401);
 
-    /**
-     * We treat a "DM conversation" as any conversation where:
-     * - current user is a participant
-     * - there is exactly 1 other participant (the "other user")
-     *
-     * We also compute:
-     * - last_text_preview (latest message text)
-     * - unread_count for messages sent by other user with no receipt for current user
-     */
+    const hasLast = await hasColumn(env.DB, "conversations", "last_message_at");
+    const lastExpr = hasLast ? "c.last_message_at" : "NULL";
+    const orderExpr = hasLast ? "c.last_message_at DESC, c.id DESC" : "c.id DESC";
 
-    const q = await env.DB.prepare(
+    const rows = await env.DB.prepare(
       `
       SELECT
         c.id AS id,
-
-        -- pick your ordering timestamp (works if last_message_at exists)
-        COALESCE(c.last_message_at, c.created_at) AS last_message_at,
+        ${lastExpr} AS last_message_at,
 
         u.id AS other_user_id,
         u.name AS other_name,
@@ -72,38 +72,35 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           FROM messages m2
           LEFT JOIN message_receipts r
             ON r.message_id = m2.id AND r.user_id = ?
+          LEFT JOIN message_deletes md
+            ON md.message_id = m2.id AND md.user_id = ?
           WHERE m2.conversation_id = c.id
             AND m2.sender_id != ?
             AND r.id IS NULL
+            AND md.message_id IS NULL
         ) AS unread_count
 
       FROM conversations c
-
-      -- I am a participant
       JOIN conversation_participants me
         ON me.conversation_id = c.id AND me.user_id = ?
-
-      -- the other participant
       JOIN conversation_participants other
         ON other.conversation_id = c.id AND other.user_id != ?
-
       JOIN users u
         ON u.id = other.user_id
 
-      -- ensure DM (exactly 2 participants)
       WHERE (
         SELECT COUNT(*)
         FROM conversation_participants cp
         WHERE cp.conversation_id = c.id
       ) = 2
 
-      ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
+      ORDER BY ${orderExpr}
       `
     )
-      .bind(userId, userId, userId, userId)
+      .bind(userId, userId, userId, userId, userId)
       .all();
 
-    return json(q.results || []);
+    return json(rows.results || []);
   } catch (e: any) {
     return json({ success: false, error: e?.message || "Server error" }, 500);
   }
