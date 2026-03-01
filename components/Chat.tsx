@@ -1,10 +1,67 @@
-
+// components/Chat.tsx
+// Messenger-style full-screen chat window with attachment support
+// ✅ Photos, Videos, GIFs, Documents (PDF, DOC, XLS, etc.)
+// ✅ R2 upload via media.unera.social/api/upload
+// ✅ Attachment preview in messages
+// ✅ Long-press actions for attachments
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
 
-// ✅ FIXED: Updated apiFetch to accept userId and set x-user-id header
+// ✅ Upload function for R2
+const uploadToR2 = async (file: File, folder = "chat"): Promise<string> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("filename", file.name);
+  formData.append("type", file.type);
+  formData.append("folder", folder);
+  formData.append("timestamp", Date.now().toString());
+
+  const token = localStorage.getItem("unera_token");
+  const response = await fetch("https://media.unera.social/api/upload", {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Upload failed: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (!result.url) throw new Error("No URL returned from upload");
+  
+  return result.url;
+};
+
+// ✅ Helper to get file icon based on mime type
+const getFileIcon = (mimeType: string): string => {
+  if (mimeType.startsWith("image/")) return "fas fa-image";
+  if (mimeType.startsWith("video/")) return "fas fa-video";
+  if (mimeType.startsWith("audio/")) return "fas fa-music";
+  if (mimeType.includes("pdf")) return "fas fa-file-pdf";
+  if (mimeType.includes("word") || mimeType.includes("document")) return "fas fa-file-word";
+  if (mimeType.includes("excel") || mimeType.includes("sheet")) return "fas fa-file-excel";
+  if (mimeType.includes("powerpoint") || mimeType.includes("presentation")) return "fas fa-file-powerpoint";
+  if (mimeType.includes("zip") || mimeType.includes("compressed")) return "fas fa-file-zipper";
+  return "fas fa-file";
+};
+
+// ✅ Format file size
+const formatFileSize = (bytes?: number): string => {
+  if (!bytes) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `${size.toFixed(1)} ${units[unitIndex]}`;
+};
+
 const apiFetch = async (url: string, options: RequestInit = {}, userId?: number) => {
   const token = localStorage.getItem("unera_token");
   const headers: HeadersInit = { 
@@ -13,7 +70,7 @@ const apiFetch = async (url: string, options: RequestInit = {}, userId?: number)
   };
   
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  if (userId) headers["x-user-id"] = String(userId); // ✅ Add x-user-id header for backend
+  if (userId) headers["x-user-id"] = String(userId);
 
   const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
@@ -100,11 +157,54 @@ const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; clas
   );
 };
 
+// ✅ Attachment Preview Component
+const AttachmentPreview: React.FC<{ attachment: any; onView: () => void }> = ({ attachment, onView }) => {
+  const url = attachment?.url || attachment?.attachment_url;
+  const type = attachment?.type || attachment?.attachment_type;
+  const name = attachment?.name || attachment?.filename || "Attachment";
+  const size = attachment?.size || attachment?.file_size;
+
+  if (!url) return null;
+
+  // Image preview
+  if (type?.startsWith("image/")) {
+    return (
+      <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer" onClick={onView}>
+        <img src={url} alt={name} className="max-w-full max-h-64 object-contain bg-black/20" />
+      </div>
+    );
+  }
+
+  // Video preview
+  if (type?.startsWith("video/")) {
+    return (
+      <div className="mt-2 rounded-lg overflow-hidden border border-[#3E4042] cursor-pointer relative" onClick={onView}>
+        <video src={url} className="max-w-full max-h-64 object-contain bg-black/20" controls />
+      </div>
+    );
+  }
+
+  // Document/file preview
+  return (
+    <div 
+      className="mt-2 p-3 rounded-lg border border-[#3E4042] bg-[#2d2d2d] flex items-center gap-3 cursor-pointer hover:bg-[#333] transition-colors"
+      onClick={onView}
+    >
+      <i className={`${getFileIcon(type || "")} text-2xl text-[#1B74E4]`} />
+      <div className="flex-1 min-w-0">
+        <div className="text-[#e4e6eb] font-medium truncate">{name}</div>
+        {size && <div className="text-[#b0b3b8] text-xs">{formatFileSize(size)}</div>}
+      </div>
+      <i className="fas fa-download text-[#b0b3b8]" />
+    </div>
+  );
+};
+
 type ChatWindowProps = {
   currentUser: User;
   recipient: User;
   onClose: () => void;
-  onSendMessage?: (t: string, s?: string) => void; // optional external hook (kept)
+  onSendMessage?: (t: string, s?: string) => void;
 };
 
 type ActionModalState =
@@ -121,15 +221,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<number>(0);
+  const [uploading, setUploading] = useState(false);
 
   const [showEmoji, setShowEmoji] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
 
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [editTarget, setEditTarget] = useState<any | null>(null);
 
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
+  const [viewingAttachment, setViewingAttachment] = useState<any | null>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<number | null>(null);
@@ -155,10 +259,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             method: "POST",
             body: JSON.stringify({ 
               conversation_id: convId,
-              user_id: currentUserId // ✅ Added sender_id
+              user_id: currentUserId
             }),
           },
-          currentUserId // ✅ Pass userId for x-user-id header
+          currentUserId
         );
       } catch {
         // ignore
@@ -173,7 +277,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     try {
       setLoading(true);
 
-      // ✅ Pass userId for x-user-id header
       const conversations = await apiFetch("/api/messages/conversations", {}, currentUserId);
       const conv = Array.isArray(conversations)
         ? conversations.find((c: any) => safeNum(c?.other_user_id) === safeNum((recipient as any)?.id))
@@ -183,7 +286,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       setConversationId(cid);
 
       if (cid) {
-        // ✅ Pass userId for x-user-id header
         const history = await apiFetch(`/api/messages/conversations/${cid}`, {}, currentUserId);
         setMsgs(Array.isArray(history) ? history : []);
         markRead(cid);
@@ -207,17 +309,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipient?.id, currentUserId]);
+  }, [recipient?.id, currentUserId, fetchHistory]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipient?.id]);
 
   useEffect(() => {
     scrollToBottom(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msgs.length]);
 
   const normalized = useMemo(() => {
@@ -246,42 +345,72 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     return out;
   }, [normalized]);
 
-  const buildForwardPayload = (m: any) => {
-    // Forward as best-effort:
-    // If has attachment_url, send attachment too; else forward text.
-    const text = safeStr(m?.text_content);
-    const attUrl = safeStr(m?.attachment_url);
-    const attType = safeStr(m?.attachment_type);
-    const attMeta = m?.attachment_metadata ?? null;
+  // ✅ Handle file selection and upload
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !currentUserId) return;
 
-    if (attUrl) {
-      return {
-        sender_id: currentUserId, // ✅ Added sender_id
-        recipient_id: (recipient as any)?.id,
-        text_content: text ? `Forwarded: ${text}` : null,
-        attachment_url: attUrl,
-        attachment_type: attType || null,
-        attachment_metadata: attMeta,
-      };
+    setUploading(true);
+    setShowAttachmentMenu(false);
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Upload to R2
+        const url = await uploadToR2(file, "chat");
+        
+        // Send message with attachment
+        const payload = {
+          sender_id: currentUserId,
+          recipient_id: (recipient as any)?.id,
+          text_content: inputText.trim() || null,
+          attachment: {
+            url,
+            type: file.type,
+            name: file.name,
+            size: file.size
+          }
+        };
+
+        await send(payload);
+        setInputText(""); // Clear text after sending
+      }
+    } catch (error: any) {
+      alert(error?.message || "Failed to upload file");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
-    return { 
-      sender_id: currentUserId, // ✅ Added sender_id
-      recipient_id: (recipient as any)?.id, 
-      text_content: text ? `Forwarded: ${text}` : "Forwarded message" 
-    };
   };
 
-  // ✅ FIXED: send function with sender_id
+  const buildForwardPayload = (m: any) => {
+    const text = safeStr(m?.text_content);
+    const attachment = m?.attachment;
+
+    const payload: any = {
+      sender_id: currentUserId,
+      recipient_id: (recipient as any)?.id,
+    };
+
+    if (attachment) {
+      payload.attachment = attachment;
+      payload.text_content = text ? `Forwarded: ${text}` : "Forwarded attachment";
+    } else {
+      payload.text_content = text ? `Forwarded: ${text}` : "Forwarded message";
+    }
+
+    return payload;
+  };
+
   const send = async (payload: any) => {
     if (!currentUserId) throw new Error("User not authenticated");
     
-    // Ensure sender_id is always present
     const fullPayload = {
       sender_id: currentUserId,
       ...payload
     };
     
-    // ✅ Pass userId for x-user-id header
     const data = await apiFetch(
       "/api/messages/send", 
       { 
@@ -291,14 +420,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       currentUserId
     );
     
-    // append optimistically
     setMsgs((prev) => [...prev, data]);
-    // If conversation just created, refresh to get its id
     if (!conversationId) fetchHistory();
     return data;
   };
 
-  // ✅ FIXED: sendText with sender_id
   const sendText = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed && !replyTo && !editTarget) return;
@@ -307,25 +433,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     setShowStickers(false);
 
     try {
-      // external hook (optional)
       onSendMessage?.(trimmed);
 
-      // EDIT mode
       if (editTarget?.id) {
-        // ✅ Pass userId for x-user-id header and in body
         const updated = await apiFetch(
           `/api/messages/${editTarget.id}`,
           {
             method: "PUT",
             body: JSON.stringify({ 
               text_content: trimmed,
-              user_id: currentUserId // ✅ Added user_id
+              user_id: currentUserId
             }),
           },
           currentUserId
         );
 
-        // update local list
         const updatedMsg = updated?.message || null;
         if (updatedMsg?.id) {
           setMsgs((prev) => prev.map((m: any) => (safeNum(m?.id) === safeNum(updatedMsg.id) ? updatedMsg : m)));
@@ -335,9 +457,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         return;
       }
 
-      // REPLY mode (uses parent_message_id)
       const payload: any = { 
-        sender_id: currentUserId, // ✅ Added sender_id
+        sender_id: currentUserId,
         recipient_id: (recipient as any)?.id, 
         text_content: trimmed 
       };
@@ -359,7 +480,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const canSend = inputText.trim().length > 0;
 
-  // Long-press handling (touch + mouse)
   const startLongPress = (msg: any, mine: boolean, evt: any) => {
     if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
 
@@ -371,7 +491,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
     longPressTimer.current = window.setTimeout(() => {
       setActionModal({ msg, mine, x: clientX, y: clientY });
-      // haptics if available
       try {
         (navigator as any).vibrate?.(10);
       } catch {}
@@ -383,7 +502,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     longPressTimer.current = null;
   };
 
-  // ✅ FIXED: doDelete with sender_id
   const doDelete = async (m: any, deleteForEveryone: boolean) => {
     if (!currentUserId) return;
     
@@ -394,18 +512,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           method: "DELETE",
           body: JSON.stringify({ 
             delete_for_everyone: deleteForEveryone,
-            user_id: currentUserId // ✅ Added user_id
+            user_id: currentUserId
           }),
         },
         currentUserId
       );
 
-      if (deleteForEveryone) {
-        setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
-      } else {
-        // delete for me just hides; remove locally for instant UI
-        setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
-      }
+      setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
     } catch (e: any) {
       alert(e?.message || "Failed to delete");
     }
@@ -433,12 +546,20 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const closeActionModal = () => setActionModal(null);
 
-  // Mobile composer sizing: keep visible
-  // - add safe-area padding using inline style
   const safeAreaPaddingBottom = "max(env(safe-area-inset-bottom), 8px)";
 
   return (
     <div className="fixed inset-0 z-[200] bg-[#1e1e1e] flex flex-col font-sans">
+      {/* Hidden file input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        multiple
+        accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
+        onChange={handleFileSelect}
+      />
+
       {/* Top header */}
       <div className="h-14 px-3 flex items-center justify-between border-b border-[#333] bg-[#1e1e1e]">
         <div className="flex items-center gap-2 min-w-0">
@@ -482,7 +603,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 {editTarget ? "Editing message" : "Replying to"}
               </div>
               <div className="text-[13px] text-[#e4e6eb] truncate">
-                {safeStr((editTarget || replyTo)?.text_content) || "…"}
+                {safeStr((editTarget || replyTo)?.text_content) || 
+                 (replyTo?.attachment ? "📎 Attachment" : "…")}
               </div>
             </div>
             <button
@@ -505,9 +627,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         ref={listRef}
         className="flex-1 overflow-y-auto px-3 py-3 bg-[#1e1e1e]"
         onClick={() => {
-          // close pickers on tap on list
           setShowEmoji(false);
           setShowStickers(false);
+          setShowAttachmentMenu(false);
         }}
       >
         {loading && msgs.length === 0 ? (
@@ -526,6 +648,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const msg = r.msg as any;
           const mine = safeNum(msg?.sender_id) === safeNum((currentUser as any)?.id);
           const text = safeStr(msg?.text_content);
+          const attachment = msg?.attachment;
           const d = parseDate(msg?.created_at);
           const edited = !!msg?.edited_at;
 
@@ -538,6 +661,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                     "rounded-2xl",
                     "select-none",
                     mine ? "bg-[#1B74E4] text-white rounded-br-md" : "bg-[#3A3B3C] text-[#e4e6eb] rounded-bl-md",
+                    attachment ? "pb-2" : "",
                   ].join(" ")}
                   onTouchStart={(e) => startLongPress(msg, mine, e)}
                   onTouchEnd={cancelLongPress}
@@ -546,7 +670,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   onMouseUp={cancelLongPress}
                   onMouseLeave={cancelLongPress}
                 >
-                  {text || <span className="opacity-60">…</span>}
+                  {text && <div className="break-words">{text}</div>}
+                  
+                  {/* Attachment preview */}
+                  {attachment && (
+                    <AttachmentPreview 
+                      attachment={attachment} 
+                      onView={() => setViewingAttachment(attachment)}
+                    />
+                  )}
                 </div>
 
                 {(d || edited) && (
@@ -560,8 +692,95 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           );
         })}
 
+        {/* Uploading indicator */}
+        {uploading && (
+          <div className="flex justify-start mb-1.5">
+            <div className="bg-[#3A3B3C] text-[#e4e6eb] px-4 py-2 rounded-2xl rounded-bl-md">
+              <div className="flex items-center gap-2">
+                <i className="fas fa-spinner fa-spin" />
+                <span>Uploading...</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Attachment Menu */}
+      {showAttachmentMenu && (
+        <div className="border-t border-[#333] bg-[#1e1e1e] p-2">
+          <div className="grid grid-cols-4 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.accept = "image/*";
+                  fileInputRef.current.multiple = true;
+                  fileInputRef.current.click();
+                }
+              }}
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-[#2d2d2d]"
+            >
+              <div className="w-12 h-12 rounded-full bg-[#2d2d2d] flex items-center justify-center">
+                <i className="fas fa-image text-2xl text-[#1B74E4]" />
+              </div>
+              <span className="text-xs text-[#b0b3b8]">Photos</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.accept = "video/*";
+                  fileInputRef.current.multiple = true;
+                  fileInputRef.current.click();
+                }
+              }}
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-[#2d2d2d]"
+            >
+              <div className="w-12 h-12 rounded-full bg-[#2d2d2d] flex items-center justify-center">
+                <i className="fas fa-video text-2xl text-[#1B74E4]" />
+              </div>
+              <span className="text-xs text-[#b0b3b8]">Video</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.accept = "audio/*";
+                  fileInputRef.current.multiple = true;
+                  fileInputRef.current.click();
+                }
+              }}
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-[#2d2d2d]"
+            >
+              <div className="w-12 h-12 rounded-full bg-[#2d2d2d] flex items-center justify-center">
+                <i className="fas fa-music text-2xl text-[#1B74E4]" />
+              </div>
+              <span className="text-xs text-[#b0b3b8]">Audio</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip";
+                  fileInputRef.current.multiple = true;
+                  fileInputRef.current.click();
+                }
+              }}
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-[#2d2d2d]"
+            >
+              <div className="w-12 h-12 rounded-full bg-[#2d2d2d] flex items-center justify-center">
+                <i className="fas fa-file text-2xl text-[#1B74E4]" />
+              </div>
+              <span className="text-xs text-[#b0b3b8]">Document</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Emoji / Stickers panel */}
       {(showEmoji || showStickers) && (
@@ -600,19 +819,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             <button
               type="button"
               className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-              aria-label="Camera"
-              onClick={() => alert("Camera upload (connect your media picker here)")}
+              aria-label="Add attachment"
+              onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
             >
-              <i className="fas fa-camera text-[18px] text-[#1B74E4]" />
+              <i className="fas fa-plus-circle text-[22px] text-[#1B74E4]" />
             </button>
 
             <button
               type="button"
-              className="px-2 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
-              aria-label="GIF"
-              onClick={() => alert("GIF picker (connect here)")}
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
+              aria-label="Camera"
+              onClick={() => alert("Camera capture (implement with getUserMedia)")}
             >
-              <span className="text-[13px] font-bold text-[#1B74E4]">GIF</span>
+              <i className="fas fa-camera text-[18px] text-[#1B74E4]" />
             </button>
 
             <button
@@ -622,6 +841,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               onClick={() => {
                 setShowStickers((v) => !v);
                 setShowEmoji(false);
+                setShowAttachmentMenu(false);
               }}
             >
               <i className="fas fa-face-smile text-[18px] text-[#1B74E4]" />
@@ -636,7 +856,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               placeholder={editTarget ? "Edit message" : "Message"}
               className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-[#e4e6eb] placeholder:text-[#b0b3b8]"
               onFocus={() => {
-                // keep panels optional
+                setShowAttachmentMenu(false);
               }}
             />
 
@@ -647,6 +867,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               onClick={() => {
                 setShowEmoji((v) => !v);
                 setShowStickers(false);
+                setShowAttachmentMenu(false);
               }}
             >
               <i className="far fa-smile text-[18px] text-[#1B74E4]" />
@@ -656,7 +877,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               type="button"
               className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors shrink-0"
               aria-label="Voice"
-              onClick={() => alert("Voice (connect recorder here)")}
+              onClick={() => alert("Voice recording (implement with MediaRecorder)")}
             >
               <i className="fas fa-microphone text-[18px] text-[#1B74E4]" />
             </button>
@@ -668,6 +889,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               type="submit"
               className="w-10 h-10 rounded-full bg-[#1B74E4] flex items-center justify-center hover:bg-[#1A6ED8] transition-colors shrink-0"
               aria-label="Send"
+              disabled={uploading}
             >
               <i className="fas fa-paper-plane text-[16px] text-white" />
             </button>
@@ -677,6 +899,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors shrink-0"
               aria-label="Like"
               onClick={() => sendText("👍")}
+              disabled={uploading}
             >
               <i className="fas fa-thumbs-up text-[20px] text-[#1B74E4]" />
             </button>
@@ -692,10 +915,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           onTouchStart={closeActionModal}
           role="presentation"
         >
-          {/* dim */}
           <div className="absolute inset-0 bg-black/50" />
 
-          {/* sheet */}
           <div
             className="absolute left-1/2 -translate-x-1/2 bottom-0 w-full max-w-md bg-[#1e1e1e] border-t border-[#333] rounded-t-2xl p-3"
             onClick={(e) => e.stopPropagation()}
@@ -717,12 +938,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
             <div className="bg-[#141414] border border-[#2b2b2b] rounded-2xl p-3 mb-3">
               <div className="text-[14px] text-[#e4e6eb] break-words">
-                {safeStr(actionModal.msg?.text_content) || <span className="opacity-60">…</span>}
+                {safeStr(actionModal.msg?.text_content) || 
+                 (actionModal.msg?.attachment ? "📎 Attachment" : "…")}
               </div>
             </div>
 
             <div className="space-y-1">
-              {/* Forward */}
               {actionBtn("fas fa-share", "Forward", async () => {
                 const m = actionModal.msg;
                 closeActionModal();
@@ -733,7 +954,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 }
               })}
 
-              {/* Reply */}
               {actionBtn("fas fa-reply", "Reply", () => {
                 const m = actionModal.msg;
                 closeActionModal();
@@ -741,37 +961,29 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 setReplyTo(m);
               })}
 
-              {/* Edit (mine only) */}
-              {actionModal.mine
-                ? actionBtn("fas fa-pen", "Edit", () => {
-                    const m = actionModal.msg;
-                    closeActionModal();
-                    setReplyTo(null);
-                    setEditTarget(m);
-                    setInputText(safeStr(m?.text_content));
-                    // focus input best-effort
-                    setTimeout(() => {
-                      const el = document.querySelector<HTMLInputElement>('input[placeholder="Edit message"], input[placeholder="Message"]');
-                      el?.focus?.();
-                    }, 50);
-                  })
-                : null}
+              {actionModal.mine && actionBtn("fas fa-pen", "Edit", () => {
+                const m = actionModal.msg;
+                closeActionModal();
+                setReplyTo(null);
+                setEditTarget(m);
+                setInputText(safeStr(m?.text_content));
+                setTimeout(() => {
+                  const el = document.querySelector<HTMLInputElement>('input[placeholder="Edit message"], input[placeholder="Message"]');
+                  el?.focus?.();
+                }, 50);
+              })}
 
-              {/* Delete for me */}
               {actionBtn("fas fa-trash", "Delete", async () => {
                 const m = actionModal.msg;
                 closeActionModal();
                 await doDelete(m, false);
               }, true)}
 
-              {/* Delete for everyone (mine only) */}
-              {actionModal.mine
-                ? actionBtn("fas fa-trash-can", "Delete for everyone", async () => {
-                    const m = actionModal.msg;
-                    closeActionModal();
-                    await doDelete(m, true);
-                  }, true)
-                : null}
+              {actionModal.mine && actionBtn("fas fa-trash-can", "Delete for everyone", async () => {
+                const m = actionModal.msg;
+                closeActionModal();
+                await doDelete(m, true);
+              }, true)}
             </div>
 
             <div className="mt-3">
@@ -784,9 +996,62 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
               </button>
             </div>
 
-            {/* Safe-area bottom space */}
             <div style={{ height: "max(env(safe-area-inset-bottom), 8px)" }} />
           </div>
+        </div>
+      )}
+
+      {/* Attachment Viewer Modal */}
+      {viewingAttachment && (
+        <div
+          className="fixed inset-0 z-[400] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setViewingAttachment(null)}
+        >
+          <button
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/50 flex items-center justify-center hover:bg-black/70 z-10"
+            onClick={() => setViewingAttachment(null)}
+          >
+            <i className="fas fa-times text-white text-xl" />
+          </button>
+
+          {viewingAttachment.type?.startsWith("image/") ? (
+            <img
+              src={viewingAttachment.url}
+              alt={viewingAttachment.name}
+              className="max-w-full max-h-full object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : viewingAttachment.type?.startsWith("video/") ? (
+            <video
+              src={viewingAttachment.url}
+              controls
+              autoPlay
+              className="max-w-full max-h-full"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <div
+              className="bg-[#242526] rounded-xl p-8 max-w-md w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col items-center gap-4">
+                <i className={`${getFileIcon(viewingAttachment.type || "")} text-6xl text-[#1B74E4]`} />
+                <div className="text-center">
+                  <div className="text-white font-semibold mb-1">{viewingAttachment.name}</div>
+                  {viewingAttachment.size && (
+                    <div className="text-[#b0b3b8] text-sm">{formatFileSize(viewingAttachment.size)}</div>
+                  )}
+                </div>
+                <a
+                  href={viewingAttachment.url}
+                  download={viewingAttachment.name}
+                  className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8]"
+                >
+                  Download
+                </a>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
