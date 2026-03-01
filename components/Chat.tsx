@@ -929,7 +929,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"
             aria-label="Back"
           >
-            <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb] />
+            <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb]"></i>
           </button>
 
           <div className="flex items-center gap-2 min-w-0">
