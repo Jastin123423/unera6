@@ -4,12 +4,25 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { User } from "../types";
 
-const apiFetch = async (url: string, options: RequestInit = {}) => {
+const apiFetch = async (url: string, options: RequestInit = {}, userId?: number) => {
   const token = localStorage.getItem("unera_token");
-  const headers: HeadersInit = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const headers: HeadersInit = { 
+    "Content-Type": "application/json", 
+    ...(options.headers || {}) 
+  };
+  
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (userId) headers["x-user-id"] = String(userId);
+
   const res = await fetch(url, { ...options, headers });
-  if (!res.ok) throw new Error("API Error");
+  if (!res.ok) {
+    let msg = "API Error";
+    try {
+      const j = await res.json();
+      msg = j?.error || j?.message || msg;
+    } catch {}
+    throw new Error(msg);
+  }
   return res.json();
 };
 
@@ -138,12 +151,18 @@ export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, o
   const [loading, setLoading] = useState(false);
   const [requestCount, setRequestCount] = useState(0);
 
+  const currentUserId = safeNum(currentUser?.id);
+
   const fetchConversations = async () => {
+    if (!currentUserId) return;
+    
     try {
       setLoading(true);
 
-      // Fetch conversations from API
-      const data = await apiFetch("/api/messages/conversations");
+      // Fetch conversations from API with user ID in headers
+      const data = await apiFetch("/api/messages/conversations", {}, currentUserId);
+
+      console.log("Conversations data:", data); // Debug log
 
       const arr: ConversationRow[] = Array.isArray(data)
         ? data.map((c: any) => {
@@ -151,21 +170,21 @@ export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, o
             const lastMessage = c.last_message || {};
             
             return {
-              id: safeNum(c?.id),
-              // Other user details
-              other_user_id: safeNum(c?.other_user_id || c?.recipient_id),
-              other_user_name: safeStr(c?.other_user_name || c?.recipient_name || c?.name || "User"),
-              other_user_profile_image_url: safeStr(c?.other_user_profile_image_url || c?.recipient_profile_image_url || c?.profile_image_url) || null,
+              id: safeNum(c?.id || c?.conversation_id),
+              // Other user details - check various possible field names
+              other_user_id: safeNum(c?.other_user_id || c?.recipient_id || c?.user_id),
+              other_user_name: safeStr(c?.other_user_name || c?.recipient_name || c?.name || c?.user_name || "User"),
+              other_user_profile_image_url: safeStr(c?.other_user_profile_image_url || c?.recipient_profile_image_url || c?.profile_image_url || c?.avatar) || null,
               
               // Last message details
               last_message_id: safeNum(lastMessage?.id || c?.last_message_id),
               last_message_text: safeStr(lastMessage?.text_content || c?.last_message_text || c?.last_message || c?.preview),
               last_message_created_at: safeStr(lastMessage?.created_at || c?.last_message_at || c?.updated_at || c?.created_at),
               last_message_sender_id: safeNum(lastMessage?.sender_id || c?.last_message_sender_id),
-              last_message_has_attachments: !!(lastMessage?.attachments?.length > 0 || c?.has_attachments),
+              last_message_has_attachments: !!(lastMessage?.attachments?.length > 0 || c?.has_attachments || c?.has_media),
               
               // Unread count
-              unread_count: safeNum(c?.unread_count, 0),
+              unread_count: safeNum(c?.unread_count || c?.unread, 0),
               
               // Keep raw data
               raw: c,
@@ -180,11 +199,12 @@ export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, o
         return tb - ta;
       });
 
+      console.log("Processed conversations:", arr); // Debug log
       setRows(arr);
       
-      // Count message requests (you can implement this based on your API)
-      // For now, set a random number or fetch from a separate endpoint
-      setRequestCount(3);
+      // Count message requests - you might want to fetch this from a separate endpoint
+      // For now, we'll set it to 0 or implement based on your API
+      setRequestCount(0);
     } catch (error) {
       console.error("Failed to fetch conversations:", error);
       setRows([]);
@@ -197,7 +217,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, o
     fetchConversations();
     const t = window.setInterval(fetchConversations, 5000); // Poll every 5 seconds
     return () => window.clearInterval(t);
-  }, []);
+  }, [currentUserId]); // Add currentUserId as dependency
 
   const totalUnread = useMemo(() => rows.reduce((sum, r) => sum + safeNum(r.unread_count, 0), 0), [rows]);
 
@@ -328,7 +348,10 @@ export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, o
         {/* List */}
         <div className="overflow-y-auto h-[calc(100%-118px)] bg-[#242526]">
           {loading && rows.length === 0 ? (
-            <div className="text-center text-[#B0B3B8] text-sm py-6">Loading…</div>
+            <div className="text-center text-[#B0B3B8] text-sm py-6">
+              <i className="fas fa-spinner fa-spin text-2xl mb-2" />
+              <p>Loading conversations...</p>
+            </div>
           ) : null}
 
           {rows.map((r) => {
@@ -343,7 +366,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, o
                 : "No messages yet";
             
             // Check if the last message was sent by current user
-            const isLastMessageFromMe = r.last_message_sender_id === safeNum(currentUser?.id);
+            const isLastMessageFromMe = r.last_message_sender_id === currentUserId;
             const fromMePrefix = isLastMessageFromMe ? "You: " : "";
             
             const time = r.last_message_created_at ? formatRelative(r.last_message_created_at) : "";
@@ -411,4 +434,4 @@ export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, o
       </button>
     </div>
   );
-};
+}; e
