@@ -1,4 +1,4 @@
-// Chat.tsx
+// components/Chat.tsx
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
@@ -73,6 +73,12 @@ const extractUrls = (text: string): string[] => {
   return text.match(urlRegex) || [];
 };
 
+// ✅ Hide URL text from message bubble (professional)
+const stripUrlsFromText = (text: string) => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  return (text || "").replace(urlRegex, "").replace(/\s+/g, " ").trim();
+};
+
 const isGifUrl = (url: string) => {
   const u = (url || "").toLowerCase();
   if (!u) return false;
@@ -80,11 +86,11 @@ const isGifUrl = (url: string) => {
   // direct gif files
   if (u.split("?")[0].endsWith(".gif")) return true;
 
-  // known gif hosts
+  // common gif cdns
   if (u.includes("media.tenor.com") || u.includes("c.tenor.com")) return true;
   if (u.includes("i.giphy.com") || u.includes("media.giphy.com")) return true;
 
-  // page urls that should embed as gif
+  // gif pages that can embed
   if (u.includes("tenor.com/view/")) return true;
   if (u.includes("giphy.com/gifs/")) return true;
 
@@ -133,10 +139,26 @@ const formatDayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
+const downloadUrl = (url: string, filename?: string) => {
+  if (!url) return;
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    if (filename) a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch {
+    window.open(url, "_blank");
+  }
+};
+
 /* ============================================================
    ✅ URL Preview Component (NO horizontal overflow)
 ============================================================ */
-const URLPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView }) => {
+const URLPreview: React.FC<{ url: string }> = ({ url }) => {
   const [previewData, setPreviewData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
@@ -183,13 +205,21 @@ const URLPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView
 };
 
 /* ============================================================
-   ✅ GIF Preview Component
-   - Direct .gif => render as image (professional)
-   - Tenor/Giphy page => iframe embed
+   ✅ GIF Preview (hide link; show only gif; WhatsApp-like size)
 ============================================================ */
-const GIFPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView }) => {
+const GIFPreview: React.FC<{
+  url: string;
+  onView: () => void;
+  onHold: (evt: any) => void;
+}> = ({ url, onView, onHold }) => {
   const u = (url || "").toLowerCase();
-  const directGif = u.split("?")[0].endsWith(".gif") || u.includes("media.tenor.com") || u.includes("i.giphy.com") || u.includes("media.giphy.com");
+
+  const directGif =
+    u.split("?")[0].endsWith(".gif") ||
+    u.includes("media.tenor.com") ||
+    u.includes("i.giphy.com") ||
+    u.includes("media.giphy.com") ||
+    u.includes("c.tenor.com");
 
   const isTenorPage = u.includes("tenor.com/view/");
   const isGiphyPage = u.includes("giphy.com/gifs/");
@@ -206,53 +236,68 @@ const GIFPreview: React.FC<{ url: string; onView: () => void }> = ({ url, onView
     return null;
   };
 
+  const embedUrl = getEmbedUrl();
+  const wrapCls =
+    "mt-1 rounded-2xl overflow-hidden border border-[#3E4042] bg-[#262626] w-[220px] max-w-full";
+
   if (directGif) {
     return (
       <div
-        className="mt-1 rounded-xl overflow-hidden border border-[#3E4042] bg-[#262626] w-full max-w-full"
+        className={wrapCls}
         onClick={(e) => {
           e.stopPropagation();
           onView();
         }}
+        onTouchStart={onHold}
+        onMouseDown={onHold}
       >
-        <img src={url} alt="GIF" className="w-full max-h-[360px] object-contain bg-black/20" />
+        <img src={url} alt="GIF" className="w-full h-[150px] object-cover" />
       </div>
     );
   }
 
-  const embedUrl = getEmbedUrl();
   if (embedUrl) {
     return (
-      <div
-        className="mt-1 rounded-xl overflow-hidden border border-[#3E4042] bg-[#262626] w-full max-w-full"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <iframe src={embedUrl} className="w-full h-52" frameBorder="0" allowFullScreen title="GIF" />
+      <div className={wrapCls} onClick={(e) => e.stopPropagation()} onTouchStart={onHold} onMouseDown={onHold}>
+        <iframe src={embedUrl} className="w-full h-[150px]" frameBorder="0" allowFullScreen title="GIF" />
       </div>
     );
   }
 
-  return <URLPreview url={url} onView={onView} />;
+  return <URLPreview url={url} />;
 };
 
 /* ============================================================
-   ✅ Facebook-like Voice Note (professional)
+   ✅ Facebook-like Voice Note Player
 ============================================================ */
-const VoiceNote: React.FC<{
+const hashToWave = (key: string, count = 26) => {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) {
+    h = (h * 1103515245 + 12345) >>> 0;
+    const v = 18 + (h % 42); // 18..59
+    out.push(v);
+  }
+  return out;
+};
+
+const VoiceNoteFB: React.FC<{
   src: string;
   isMine?: boolean;
   filename?: string;
-  sizeBytes?: number;
-}> = ({ src, isMine, filename, sizeBytes }) => {
+}> = ({ src, isMine, filename }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
 
-  const pct = duration > 0 ? Math.min(100, Math.max(0, (current / duration) * 100)) : 0;
+  const wave = useMemo(() => hashToWave(src), [src]);
 
   const tick = useCallback(() => {
     const a = audioRef.current;
@@ -271,71 +316,53 @@ const VoiceNote: React.FC<{
   const toggle = () => {
     const a = audioRef.current;
     if (!a) return;
-    if (a.paused) {
-      a.play().catch(() => {});
-    } else {
-      a.pause();
-    }
+    if (a.paused) a.play().catch(() => {});
+    else a.pause();
   };
 
-  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
-    const a = audioRef.current;
-    if (!a || !duration) return;
-    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const p = Math.min(1, Math.max(0, x / rect.width));
-    a.currentTime = p * duration;
-    setCurrent(a.currentTime);
-  };
+  const pct = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
+  const activeBars = Math.floor(pct * wave.length);
+
+  const bg = isMine ? "#1877F2" : "#F0F2F5";
+  const fg = isMine ? "#fff" : "#111";
+  const sub = isMine ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.65)";
+  const waveOff = isMine ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.25)";
+  const waveOn = isMine ? "rgba(255,255,255,0.95)" : "#1877F2";
 
   return (
-    <div
-      className={[
-        "w-full max-w-full rounded-2xl border overflow-hidden",
-        "px-3 py-2",
-        isMine ? "border-white/20 bg-white/10" : "border-black/20 bg-black/10",
-      ].join(" ")}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center gap-3">
+    <div className="w-full max-w-full" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-3 px-3 py-2 rounded-2xl" style={{ background: bg }}>
         <button
           type="button"
           onClick={toggle}
-          className={[
-            "w-10 h-10 rounded-full flex items-center justify-center shrink-0",
-            isMine ? "bg-white/20 hover:bg-white/25" : "bg-black/20 hover:bg-black/25",
-          ].join(" ")}
+          className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+          style={{ background: isMine ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.08)" }}
           aria-label={playing ? "Pause" : "Play"}
         >
-          <i className={`fas ${playing ? "fa-pause" : "fa-play"} text-[16px] ${isMine ? "text-white" : "text-[#e4e6eb]"}`} />
+          <i className={`fas ${playing ? "fa-pause" : "fa-play"} text-[16px]`} style={{ color: fg }} />
         </button>
 
         <div className="flex-1 min-w-0">
-          {/* progress bar */}
-          <div
-            className={[
-              "w-full h-[10px] rounded-full cursor-pointer overflow-hidden",
-              isMine ? "bg-white/15" : "bg-black/20",
-            ].join(" ")}
-            onClick={seek}
-            role="presentation"
-          >
-            <div
-              className="h-full rounded-full"
-              style={{
-                width: `${pct}%`,
-                background: isMine ? "rgba(255,255,255,0.85)" : "#1B74E4",
-              }}
-            />
+          <div className="flex items-end gap-[2px] h-[22px]">
+            {wave.map((h, i) => (
+              <div
+                key={i}
+                className="w-[3px] rounded-full"
+                style={{
+                  height: `${Math.min(22, Math.max(6, Math.round(h / 3)))}px`,
+                  background: i <= activeBars ? waveOn : waveOff,
+                  transition: "background 120ms linear",
+                }}
+              />
+            ))}
           </div>
 
           <div className="mt-1 flex items-center justify-between gap-2">
-            <div className={`text-[11px] ${isMine ? "text-white/80" : "text-[#b0b3b8]"} truncate`}>
-              {filename || "Voice note"}
-              {sizeBytes ? <span className="ml-2 opacity-70">{formatFileSize(sizeBytes)}</span> : null}
+            <div className="text-[11px] truncate" style={{ color: sub }}>
+              {filename || "Voice message"}
             </div>
-            <div className={`text-[11px] ${isMine ? "text-white/80" : "text-[#b0b3b8]"} shrink-0 tabular-nums`}>
-              {ready ? `${formatDuration(current)} / ${formatDuration(duration)}` : "…"}
+            <div className="text-[12px] font-semibold tabular-nums" style={{ color: fg }}>
+              {formatDuration(Math.max(0, Math.floor(duration - current)))}
             </div>
           </div>
         </div>
@@ -349,7 +376,6 @@ const VoiceNote: React.FC<{
           const a = audioRef.current;
           if (!a) return;
           setDuration(a.duration || 0);
-          setReady(true);
         }}
         onPlay={() => {
           setPlaying(true);
@@ -412,9 +438,9 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
     );
   }
 
-  // ✅ Professional voice note
   if (isAudio) {
-    return <VoiceNote src={url} isMine={isMine} filename={name} sizeBytes={Number(size) || undefined} />;
+    // Facebook-like voice note
+    return <VoiceNoteFB src={url} isMine={isMine} filename={name} />;
   }
 
   return (
@@ -492,38 +518,39 @@ const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; clas
   );
 };
 
-type ChatWindowProps = {
-  currentUser: User;
-  recipient: User;
-  onClose: () => void;
-  onSendMessage?: (t: string, s?: string) => void;
-};
-
-type ActionModalState =
-  | null
-  | {
-      msg: any;
-      mine: boolean;
-      x: number;
-      y: number;
-    };
-
 /* ============================================================
-   ✅ Simple GIF panel (select => sends as GIF, not link)
+   ✅ GIF Panel (loved WhatsApp GIFs)
 ============================================================ */
 const QUICK_GIFS: Array<{ title: string; url: string }> = [
+  // Love
+  { title: "Love", url: "https://media.tenor.com/5tQq5R6kB6YAAAAC/love-hearts.gif" },
+  { title: "Kiss", url: "https://media.tenor.com/2b8y0xKx2j0AAAAC/kiss-love.gif" },
+  { title: "Hug", url: "https://media.tenor.com/0Qy2Z4nC7yEAAAAC/hug.gif" },
+
+  // Flowers
+  { title: "Flowers", url: "https://media.tenor.com/HX1k6yJwTQkAAAAC/flowers-rose.gif" },
+  { title: "Rose", url: "https://media.tenor.com/2q4m8Qj0pGkAAAAC/rose.gif" },
+
+  // Birthday
+  { title: "Birthday", url: "https://media.tenor.com/9u1bQ0nPZfEAAAAC/happy-birthday.gif" },
+  { title: "Cake", url: "https://media.tenor.com/Q9y6jB4yG2QAAAAC/birthday-cake.gif" },
+
+  // Hype / Congrats
+  { title: "Clap", url: "https://media.tenor.com/6Y5bRr7x0ZgAAAAC/clap-applause.gif" },
+  { title: "Hype", url: "https://media.tenor.com/5F3p8Gv6k9AAAAAC/hype-excited.gif" },
+  { title: "Fire", url: "https://media.tenor.com/0fQm8q2x2qkAAAAC/fire-lit.gif" },
+
+  // Sad
+  { title: "Sad", url: "https://media.tenor.com/eJ2s8a4mYt0AAAAC/crying-sad.gif" },
+  { title: "Sorry", url: "https://media.tenor.com/3j5cN3j9h8AAAAAC/sorry.gif" },
+
+  // Funny
   { title: "LOL", url: "https://media.tenor.com/2roX3uxz_68AAAAC/lol-laugh.gif" },
   { title: "Wow", url: "https://media.tenor.com/3k9VQqvK9xgAAAAC/wow-amazed.gif" },
-  { title: "Love", url: "https://media.tenor.com/5tQq5R6kB6YAAAAC/love-hearts.gif" },
-  { title: "Clap", url: "https://media.tenor.com/6Y5bRr7x0ZgAAAAC/clap-applause.gif" },
-  { title: "Ok", url: "https://media.tenor.com/3kJQ2n6H1oAAAAAC/ok-okay.gif" },
-  { title: "No", url: "https://media.tenor.com/9tQyE0wQmQ8AAAAC/no-nope.gif" },
+
+  // Yes / No
   { title: "Yes", url: "https://media.tenor.com/7j4fB4bDgqQAAAAC/yes-nod.gif" },
-  { title: "Dance", url: "https://media.tenor.com/0xY2b3Yw0oQAAAAC/dance-happy.gif" },
-  { title: "Fire", url: "https://media.tenor.com/0fQm8q2x2qkAAAAC/fire-lit.gif" },
-  { title: "Crying", url: "https://media.tenor.com/eJ2s8a4mYt0AAAAC/crying-sad.gif" },
-  { title: "Hype", url: "https://media.tenor.com/5F3p8Gv6k9AAAAAC/hype-excited.gif" },
-  { title: "Thumbs", url: "https://media.tenor.com/0y8v4mAqY0cAAAAC/thumbs-up-ok.gif" },
+  { title: "No", url: "https://media.tenor.com/9tQyE0wQmQ8AAAAC/no-nope.gif" },
 ];
 
 const GifPanel: React.FC<{ onSelect: (url: string) => void }> = ({ onSelect }) => {
@@ -538,13 +565,32 @@ const GifPanel: React.FC<{ onSelect: (url: string) => void }> = ({ onSelect }) =
             className="rounded-xl overflow-hidden border border-[#333] bg-[#262626] hover:opacity-90 transition-opacity"
             onClick={() => onSelect(g.url)}
           >
-            <img src={g.url} alt={g.title} className="w-full h-[90px] object-cover" />
+            <img src={g.url} alt={g.title} className="w-full h-[86px] object-cover" />
           </button>
         ))}
       </div>
     </div>
   );
 };
+
+type ChatWindowProps = {
+  currentUser: User;
+  recipient: User;
+  onClose: () => void;
+  onSendMessage?: (t: string, s?: string) => void;
+};
+
+type ActionModalState =
+  | null
+  | {
+      mine: boolean;
+      msg: any;
+      kind: "message" | "attachment" | "gif";
+      attachment?: any;
+      gifUrl?: string;
+      x: number;
+      y: number;
+    };
 
 /* ============================================================
    ✅ Main ChatWindow
@@ -594,7 +640,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     attachments: Array.isArray(msg?.attachments) ? msg.attachments : [],
   });
 
-  // ✅ Preserve existing message references when same (prevents audio from resetting)
+  // ✅ Preserve existing message references when same (prevents players from resetting)
   const mergeByIdPreserveRefs = useCallback((prev: any[], incoming: any[]) => {
     const map = new Map<number, any>();
     for (const m of prev) map.set(safeNum(m?.id), m);
@@ -743,7 +789,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     return map;
   }, [normalized]);
 
-  // ✅ IMPORTANT: stable keys only (NO Math.random)
+  // ✅ stable keys only
   const rows = useMemo(() => {
     const out: Array<{ type: "day" | "msg"; key: string; day?: string; msg?: any }> = [];
     let lastDay = "";
@@ -758,6 +804,40 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     }
     return out;
   }, [normalized]);
+
+  /* ============================================================
+     ✅ Long press unified (message / gif / attachment)
+  ============================================================ */
+  const cancelLongPress = () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+
+  const startLongPressAny = (args: {
+    msg: any;
+    mine: boolean;
+    kind: "message" | "attachment" | "gif";
+    attachment?: any;
+    gifUrl?: string;
+    evt: any;
+  }) => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+
+    const { evt, msg, mine, kind, attachment, gifUrl } = args;
+
+    const { clientX, clientY } = (() => {
+      const t = evt?.touches?.[0] || evt?.changedTouches?.[0];
+      if (t) return { clientX: t.clientX, clientY: t.clientY };
+      return { clientX: evt?.clientX ?? 0, clientY: evt?.clientY ?? 0 };
+    })();
+
+    longPressTimer.current = window.setTimeout(() => {
+      setActionModal({ msg, mine, kind, attachment, gifUrl, x: clientX, y: clientY });
+      try {
+        (navigator as any).vibrate?.(10);
+      } catch {}
+    }, 420);
+  };
 
   /* ============================================================
      ✅ Voice record
@@ -1033,30 +1113,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const canSend = inputText.trim().length > 0;
 
   /* ============================================================
-     ✅ Long press actions
+     ✅ Delete
   ============================================================ */
-  const startLongPress = (msg: any, mine: boolean, evt: any) => {
-    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
-
-    const { clientX, clientY } = (() => {
-      const t = evt?.touches?.[0] || evt?.changedTouches?.[0];
-      if (t) return { clientX: t.clientX, clientY: t.clientY };
-      return { clientX: evt?.clientX ?? 0, clientY: evt?.clientY ?? 0 };
-    })();
-
-    longPressTimer.current = window.setTimeout(() => {
-      setActionModal({ msg, mine, x: clientX, y: clientY });
-      try {
-        (navigator as any).vibrate?.(10);
-      } catch {}
-    }, 420);
-  };
-
-  const cancelLongPress = () => {
-    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
-    longPressTimer.current = null;
-  };
-
   const doDelete = async (m: any, deleteForEveryone: boolean) => {
     if (!currentUserId) return;
 
@@ -1100,15 +1158,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   return (
     <div className="fixed inset-0 z-[200] bg-[#1e1e1e] flex flex-col font-sans overflow-x-hidden">
-      {/* ✅ Global anti-horizontal scroll + better url breaking */}
+      {/* ✅ anti horizontal scroll + long link breaking */}
       <style>{`
-        /* stop any horizontal scroll */
         html, body { overflow-x: hidden; }
-        /* break very long links inside bubbles */
-        .msgText, .msgText a {
-          overflow-wrap: anywhere;
-          word-break: break-word;
-        }
+        .msgText, .msgText a { overflow-wrap: anywhere; word-break: break-word; }
       `}</style>
 
       {/* Hidden file input */}
@@ -1244,7 +1297,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
           const msg = r.msg as any;
           const mine = safeNum(msg?.sender_id) === safeNum((currentUser as any)?.id);
-          const text = safeStr(msg?.text_content);
+
+          const rawText = safeStr(msg?.text_content);
+          const urls = extractUrls(rawText);
+          const gifUrls = urls.filter((u) => isGifUrl(u));
+          const otherUrls = urls.filter((u) => !gifUrls.includes(u));
+
+          // ✅ bubble text WITHOUT urls
+          const text = stripUrlsFromText(rawText);
+
           const d = parseDate(msg?.created_at);
           const edited = !!msg?.edited_at;
           const attachments = Array.isArray(msg?.attachments) ? msg.attachments : [];
@@ -1252,12 +1313,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const parentId = safeNum(msg?.parent_message_id, 0);
           const parent = parentId ? msgById.get(parentId) : null;
 
-          // Link previews
-          const urls = extractUrls(text);
-          const gifUrls = urls.filter((u) => isGifUrl(u));
-          const otherUrls = urls.filter((u) => !gifUrls.includes(u));
-
-          // ✅ WhatsApp-style “connected” bubbles (touch in the middle)
+          // bubble connection
           const prevRow = rows[index - 1];
           const nextRow = rows[index + 1];
           const prevMsg = prevRow?.type === "msg" ? (prevRow as any).msg : null;
@@ -1266,10 +1322,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const sameAsPrev = !!prevMsg && safeNum(prevMsg?.sender_id) === safeNum(msg?.sender_id);
           const sameAsNext = !!nextMsg && safeNum(nextMsg?.sender_id) === safeNum(msg?.sender_id);
 
-          // Tight row spacing; slightly larger gap when sender changes
           const rowMb = sameAsNext ? "mb-[1px]" : "mb-[6px]";
 
-          // Bubble radii logic
           const bubbleRadius = mine
             ? [
                 "rounded-tl-2xl rounded-bl-2xl",
@@ -1285,64 +1339,79 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           return (
             <div key={r.key} className={`w-full flex ${mine ? "justify-end" : "justify-start"} ${rowMb}`}>
               <div className={`max-w-[85%] sm:max-w-[75%] md:max-w-[65%] flex flex-col ${mine ? "items-end" : "items-start"} min-w-0`}>
-                <div
-                  className={[
-                    "px-3 py-2 text-[15px] sm:text-[16px] leading-[1.25] break-words overflow-hidden",
-                    "select-none",
-                    mine ? "bg-[#1B74E4] text-white" : "bg-[#3A3B3C] text-[#e4e6eb]",
-                    bubbleRadius,
-                  ].join(" ")}
-                  onTouchStart={(e) => startLongPress(msg, mine, e)}
-                  onTouchEnd={cancelLongPress}
-                  onTouchMove={cancelLongPress}
-                  onMouseDown={(e) => startLongPress(msg, mine, e)}
-                  onMouseUp={cancelLongPress}
-                  onMouseLeave={cancelLongPress}
-                  style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
-                >
-                  {parent && (
-                    <div
-                      className={`mb-2 px-2 py-1.5 rounded-lg border-l-4 ${
-                        mine ? "bg-white/15 border-white/60" : "bg-black/20 border-[#1B74E4]"
-                      }`}
-                    >
-                      <div className={`text-[11px] font-semibold ${mine ? "text-white/90" : "text-[#e4e6eb]"}`}>Reply</div>
-                      <div className={`text-[12px] truncate max-w-[200px] ${mine ? "text-white/85" : "text-[#b0b3b8]"}`}>
-                        {safeStr(parent?.text_content) ||
-                          (Array.isArray(parent?.attachments) && parent.attachments.length ? "📎 Attachment" : "…")}
+                {/* Bubble (long press) */}
+                {(text || parent || d || edited) && (
+                  <div
+                    className={[
+                      "px-3 py-2 text-[15px] sm:text-[16px] leading-[1.25] break-words overflow-hidden",
+                      "select-none",
+                      mine ? "bg-[#1B74E4] text-white" : "bg-[#3A3B3C] text-[#e4e6eb]",
+                      bubbleRadius,
+                    ].join(" ")}
+                    onTouchStart={(e) => startLongPressAny({ msg, mine, kind: "message", evt: e })}
+                    onTouchEnd={cancelLongPress}
+                    onTouchMove={cancelLongPress}
+                    onMouseDown={(e) => startLongPressAny({ msg, mine, kind: "message", evt: e })}
+                    onMouseUp={cancelLongPress}
+                    onMouseLeave={cancelLongPress}
+                    style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+                  >
+                    {parent && (
+                      <div
+                        className={`mb-2 px-2 py-1.5 rounded-lg border-l-4 ${
+                          mine ? "bg-white/15 border-white/60" : "bg-black/20 border-[#1B74E4]"
+                        }`}
+                      >
+                        <div className={`text-[11px] font-semibold ${mine ? "text-white/90" : "text-[#e4e6eb]"}`}>Reply</div>
+                        <div className={`text-[12px] truncate max-w-[200px] ${mine ? "text-white/85" : "text-[#b0b3b8]"}`}>
+                          {safeStr(parent?.text_content) ||
+                            (Array.isArray(parent?.attachments) && parent.attachments.length ? "📎 Attachment" : "…")}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {text && <div className="whitespace-pre-wrap msgText">{text}</div>}
+                    {text && <div className="whitespace-pre-wrap msgText">{text}</div>}
 
-                  {(d || edited) && (
-                    <div className="flex justify-end items-center gap-1 mt-1">
-                      <span className={`text-[10px] ${mine ? "text-white/70" : "text-[#b0b3b8]"}`}>
-                        {d ? formatTime(d) : ""}
-                        {edited && <span className="ml-1">✓</span>}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                    {(d || edited) && (
+                      <div className="flex justify-end items-center gap-1 mt-1">
+                        <span className={`text-[10px] ${mine ? "text-white/70" : "text-[#b0b3b8]"}`}>
+                          {d ? formatTime(d) : ""}
+                          {edited && <span className="ml-1">✓</span>}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                {/* Previews */}
+                {/* GIF previews (no link text; long press works) */}
                 {gifUrls.length > 0 &&
-                  gifUrls.map((url, idx) => <GIFPreview key={`gif:${url}:${idx}`} url={url} onView={() => window.open(url, "_blank")} />)}
+                  gifUrls.map((url, idx) => (
+                    <GIFPreview
+                      key={`gif:${url}:${idx}`}
+                      url={url}
+                      onView={() => window.open(url, "_blank")}
+                      onHold={(e) => startLongPressAny({ msg, mine, kind: "gif", gifUrl: url, evt: e })}
+                    />
+                  ))}
 
-                {otherUrls.length > 0 &&
-                  otherUrls.map((url, idx) => <URLPreview key={`url:${url}:${idx}`} url={url} onView={() => window.open(url, "_blank")} />)}
+                {/* Other URL previews */}
+                {otherUrls.length > 0 && otherUrls.map((url, idx) => <URLPreview key={`url:${url}:${idx}`} url={url} />)}
 
-                {/* Attachments (tight spacing) */}
+                {/* Attachments (long press works) */}
                 {attachments.length > 0 && (
                   <div className="mt-[4px] space-y-1 w-full max-w-full">
                     {attachments.map((a: any) => (
-                      <AttachmentPreview
+                      <div
                         key={`att:${safeNum(a?.id) || 0}:${safeStr(a?.url || a?.attachment_url)}`}
-                        attachment={a}
-                        onView={() => setViewingAttachment(a)}
-                        isMine={mine}
-                      />
+                        onTouchStart={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })}
+                        onTouchEnd={cancelLongPress}
+                        onTouchMove={cancelLongPress}
+                        onMouseDown={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })}
+                        onMouseUp={cancelLongPress}
+                        onMouseLeave={cancelLongPress}
+                      >
+                        <AttachmentPreview attachment={a} onView={() => setViewingAttachment(a)} isMine={mine} />
+                      </div>
                     ))}
                   </div>
                 )}
@@ -1451,7 +1520,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           {showGifs && (
             <GifPanel
               onSelect={(gifUrl) => {
-                // send as text, but it will render as GIF (not link)
+                // ✅ send URL (bubble hides it) and preview shows GIF only
                 sendText(gifUrl);
               }}
             />
@@ -1582,7 +1651,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             onTouchStart={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-2">
-              <div className="text-[13px] text-[#b0b3b8] truncate pr-2">{actionModal.mine ? "Your message" : "Message"}</div>
+              <div className="text-[13px] text-[#b0b3b8] truncate pr-2">
+                {actionModal.mine ? "Your message" : "Message"}
+              </div>
               <button
                 type="button"
                 className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
@@ -1595,16 +1666,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
             <div className="bg-[#141414] border border-[#2b2b2b] rounded-2xl p-3 mb-3">
               <div className="text-[14px] text-[#e4e6eb] break-words" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
-                {safeStr(actionModal.msg?.text_content) ||
-                  (Array.isArray(actionModal.msg?.attachments) && actionModal.msg.attachments.length > 0 ? (
-                    "📎 Attachment"
-                  ) : (
-                    <span className="opacity-60">…</span>
-                  ))}
+                {(() => {
+                  if (actionModal.kind === "gif") return "🖼️ GIF";
+                  if (actionModal.kind === "attachment") return "📎 Attachment";
+                  return safeStr(actionModal.msg?.text_content) || "…";
+                })()}
               </div>
             </div>
 
             <div className="space-y-1">
+              {/* Reply (everyone) */}
               {actionBtn("fas fa-reply", "Reply", () => {
                 const m = actionModal.msg;
                 closeActionModal();
@@ -1612,7 +1683,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 setReplyTo(m);
               })}
 
-              {actionModal.mine
+              {/* Download (only for gif/attachment) */}
+              {actionModal.kind !== "message" &&
+                actionBtn("fas fa-download", "Download", () => {
+                  const url =
+                    actionModal.kind === "gif"
+                      ? safeStr(actionModal.gifUrl)
+                      : safeStr(actionModal.attachment?.url || actionModal.attachment?.attachment_url);
+
+                  const name =
+                    actionModal.kind === "attachment"
+                      ? safeStr(actionModal.attachment?.filename || actionModal.attachment?.name || "download")
+                      : "gif";
+
+                  closeActionModal();
+                  if (url) downloadUrl(url, name);
+                })}
+
+              {/* Edit (mine only, only message bubble) */}
+              {actionModal.mine && actionModal.kind === "message"
                 ? actionBtn("fas fa-pen", "Edit", () => {
                     const m = actionModal.msg;
                     closeActionModal();
@@ -1628,12 +1717,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   })
                 : null}
 
+              {/* Delete (everyone can delete for self) */}
               {actionBtn("fas fa-trash", "Delete", async () => {
                 const m = actionModal.msg;
                 closeActionModal();
                 await doDelete(m, false);
               }, true)}
 
+              {/* Delete for everyone (mine only) */}
               {actionModal.mine
                 ? actionBtn("fas fa-trash-can", "Delete for everyone", async () => {
                     const m = actionModal.msg;
@@ -1704,15 +1795,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                         </div>
                       </div>
 
-                      <VoiceNote src={url} isMine={false} filename={name} sizeBytes={Number(size) || undefined} />
+                      <VoiceNoteFB src={url} isMine={false} filename={name} />
 
-                      <a
-                        href={url}
-                        download={name}
+                      <button
+                        type="button"
+                        onClick={() => downloadUrl(url, name)}
                         className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center"
                       >
                         Download
-                      </a>
+                      </button>
                     </div>
                   </div>
                 );
@@ -1728,16 +1819,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                         {size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}
                       </div>
                     </div>
+
                     {mime.startsWith("text/") || mime === "application/pdf" ? (
                       <iframe src={url} className="w-full h-[60vh] rounded-lg" title={name} />
                     ) : null}
-                    <a
-                      href={url}
-                      download={name}
+
+                    <button
+                      type="button"
+                      onClick={() => downloadUrl(url, name)}
                       className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center"
                     >
                       Download
-                    </a>
+                    </button>
                   </div>
                 </div>
               );
