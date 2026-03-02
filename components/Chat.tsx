@@ -83,14 +83,9 @@ const isGifUrl = (url: string) => {
   const u = (url || "").toLowerCase();
   if (!u) return false;
 
-  // direct gif files
   if (u.split("?")[0].endsWith(".gif")) return true;
-
-  // common gif cdns
   if (u.includes("media.tenor.com") || u.includes("c.tenor.com")) return true;
   if (u.includes("i.giphy.com") || u.includes("media.giphy.com")) return true;
-
-  // gif pages that can embed
   if (u.includes("tenor.com/view/")) return true;
   if (u.includes("giphy.com/gifs/")) return true;
 
@@ -139,19 +134,49 @@ const formatDayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
-const downloadUrl = (url: string, filename?: string) => {
+/* ============================================================
+   ✅ REAL DOWNLOAD (forces file download, not just open)
+   - Uses fetch -> blob -> ObjectURL -> <a download>
+   - Falls back to simple <a download> / new tab if blocked by CORS
+============================================================ */
+const forceDownload = async (url: string, filename = "download") => {
   if (!url) return;
-  try {
+
+  const cleanName = (filename || "download").replace(/[\/\\?%*:|"<>]/g, "_");
+
+  const clickAnchor = (href: string, name?: string) => {
     const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
+    a.href = href;
+    a.download = name || cleanName;
     a.rel = "noopener noreferrer";
-    if (filename) a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
+  };
+
+  // Best-case: fetch as blob (forces real download)
+  try {
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok) throw new Error("fetch failed");
+
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    try {
+      clickAnchor(blobUrl, cleanName);
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
+    }
+    return;
   } catch {
-    window.open(url, "_blank");
+    // Fallback 1: try direct anchor download (works if same-origin or proper headers)
+    try {
+      clickAnchor(url, cleanName);
+      return;
+    } catch {
+      // Fallback 2: last resort open new tab
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
   }
 };
 
@@ -268,9 +293,9 @@ const GIFPreview: React.FC<{
 };
 
 /* ============================================================
-   ✅ Facebook-like Voice Note Player
+   ✅ WhatsApp-style Voice Note Player (matches your screenshot)
 ============================================================ */
-const hashToWave = (key: string, count = 26) => {
+const hashToWave = (key: string, count = 34) => {
   let h = 2166136261;
   for (let i = 0; i < key.length; i++) {
     h ^= key.charCodeAt(i);
@@ -279,17 +304,16 @@ const hashToWave = (key: string, count = 26) => {
   const out: number[] = [];
   for (let i = 0; i < count; i++) {
     h = (h * 1103515245 + 12345) >>> 0;
-    const v = 18 + (h % 42); // 18..59
+    const v = 12 + (h % 55); // 12..66
     out.push(v);
   }
   return out;
 };
 
-const VoiceNoteFB: React.FC<{
+const VoiceNoteWA: React.FC<{
   src: string;
   isMine?: boolean;
-  filename?: string;
-}> = ({ src, isMine, filename }) => {
+}> = ({ src, isMine }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -323,48 +347,47 @@ const VoiceNoteFB: React.FC<{
   const pct = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
   const activeBars = Math.floor(pct * wave.length);
 
-  const bg = isMine ? "#1877F2" : "#F0F2F5";
-  const fg = isMine ? "#fff" : "#111";
-  const sub = isMine ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.65)";
-  const waveOff = isMine ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.25)";
-  const waveOn = isMine ? "rgba(255,255,255,0.95)" : "#1877F2";
+  // bubble colors (screenshot = blue outgoing)
+  const bg = isMine ? "#1B74E4" : "#3A3B3C";
+  const waveOff = "rgba(255,255,255,0.45)";
+  const waveOn = "rgba(255,255,255,0.95)";
+  const timeColor = "rgba(255,255,255,0.92)";
+  const iconBg = "rgba(255,255,255,0.18)";
 
   return (
-    <div className="w-full max-w-full" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center gap-3 px-3 py-2 rounded-2xl" style={{ background: bg }}>
+    <div className="w-full max-w-full select-none" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex items-center gap-3 px-3 py-2 rounded-2xl w-full"
+        style={{ background: bg }}
+      >
         <button
           type="button"
           onClick={toggle}
           className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-          style={{ background: isMine ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.08)" }}
+          style={{ background: iconBg }}
           aria-label={playing ? "Pause" : "Play"}
         >
-          <i className={`fas ${playing ? "fa-pause" : "fa-play"} text-[16px]`} style={{ color: fg }} />
+          <i className={`fas ${playing ? "fa-pause" : "fa-play"} text-[16px]`} style={{ color: "#fff" }} />
         </button>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-end gap-[2px] h-[22px]">
+          <div className="flex items-center gap-[2px] h-[22px]">
             {wave.map((h, i) => (
               <div
                 key={i}
                 className="w-[3px] rounded-full"
                 style={{
-                  height: `${Math.min(22, Math.max(6, Math.round(h / 3)))}px`,
+                  height: `${Math.min(22, Math.max(5, Math.round(h / 3.2)))}px`,
                   background: i <= activeBars ? waveOn : waveOff,
                   transition: "background 120ms linear",
                 }}
               />
             ))}
           </div>
+        </div>
 
-          <div className="mt-1 flex items-center justify-between gap-2">
-            <div className="text-[11px] truncate" style={{ color: sub }}>
-              {filename || "Voice message"}
-            </div>
-            <div className="text-[12px] font-semibold tabular-nums" style={{ color: fg }}>
-              {formatDuration(Math.max(0, Math.floor(duration - current)))}
-            </div>
-          </div>
+        <div className="text-[13px] font-semibold tabular-nums shrink-0" style={{ color: timeColor }}>
+          {formatDuration(duration || 0)}
         </div>
       </div>
 
@@ -432,15 +455,18 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
 
   if (isVideo) {
     return (
-      <div className="rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer relative w-full max-w-full" onClick={onView}>
+      <div
+        className="rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer relative w-full max-w-full"
+        onClick={onView}
+      >
         <video src={url} className="w-full max-h-[400px] object-contain bg-black/20" controls />
       </div>
     );
   }
 
   if (isAudio) {
-    // Facebook-like voice note
-    return <VoiceNoteFB src={url} isMine={isMine} filename={name} />;
+    // ✅ WhatsApp-style voice note (screenshot)
+    return <VoiceNoteWA src={url} isMine={isMine} />;
   }
 
   return (
@@ -519,36 +545,23 @@ const Avatar: React.FC<{ src?: string | null; name?: string; size?: number; clas
 };
 
 /* ============================================================
-   ✅ GIF Panel (loved WhatsApp GIFs)
+   ✅ GIF Panel
 ============================================================ */
 const QUICK_GIFS: Array<{ title: string; url: string }> = [
-  // Love
   { title: "Love", url: "https://media.tenor.com/5tQq5R6kB6YAAAAC/love-hearts.gif" },
   { title: "Kiss", url: "https://media.tenor.com/2b8y0xKx2j0AAAAC/kiss-love.gif" },
   { title: "Hug", url: "https://media.tenor.com/0Qy2Z4nC7yEAAAAC/hug.gif" },
-
-  // Flowers
   { title: "Flowers", url: "https://media.tenor.com/HX1k6yJwTQkAAAAC/flowers-rose.gif" },
   { title: "Rose", url: "https://media.tenor.com/2q4m8Qj0pGkAAAAC/rose.gif" },
-
-  // Birthday
   { title: "Birthday", url: "https://media.tenor.com/9u1bQ0nPZfEAAAAC/happy-birthday.gif" },
   { title: "Cake", url: "https://media.tenor.com/Q9y6jB4yG2QAAAAC/birthday-cake.gif" },
-
-  // Hype / Congrats
   { title: "Clap", url: "https://media.tenor.com/6Y5bRr7x0ZgAAAAC/clap-applause.gif" },
   { title: "Hype", url: "https://media.tenor.com/5F3p8Gv6k9AAAAAC/hype-excited.gif" },
   { title: "Fire", url: "https://media.tenor.com/0fQm8q2x2qkAAAAC/fire-lit.gif" },
-
-  // Sad
   { title: "Sad", url: "https://media.tenor.com/eJ2s8a4mYt0AAAAC/crying-sad.gif" },
   { title: "Sorry", url: "https://media.tenor.com/3j5cN3j9h8AAAAAC/sorry.gif" },
-
-  // Funny
   { title: "LOL", url: "https://media.tenor.com/2roX3uxz_68AAAAC/lol-laugh.gif" },
   { title: "Wow", url: "https://media.tenor.com/3k9VQqvK9xgAAAAC/wow-amazed.gif" },
-
-  // Yes / No
   { title: "Yes", url: "https://media.tenor.com/7j4fB4bDgqQAAAAC/yes-nod.gif" },
   { title: "No", url: "https://media.tenor.com/9tQyE0wQmQ8AAAAC/no-nope.gif" },
 ];
@@ -1303,7 +1316,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const gifUrls = urls.filter((u) => isGifUrl(u));
           const otherUrls = urls.filter((u) => !gifUrls.includes(u));
 
-          // ✅ bubble text WITHOUT urls
           const text = stripUrlsFromText(rawText);
 
           const d = parseDate(msg?.created_at);
@@ -1313,7 +1325,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const parentId = safeNum(msg?.parent_message_id, 0);
           const parent = parentId ? msgById.get(parentId) : null;
 
-          // bubble connection
           const prevRow = rows[index - 1];
           const nextRow = rows[index + 1];
           const prevMsg = prevRow?.type === "msg" ? (prevRow as any).msg : null;
@@ -1383,7 +1394,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   </div>
                 )}
 
-                {/* GIF previews (no link text; long press works) */}
+                {/* GIF previews */}
                 {gifUrls.length > 0 &&
                   gifUrls.map((url, idx) => (
                     <GIFPreview
@@ -1397,7 +1408,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 {/* Other URL previews */}
                 {otherUrls.length > 0 && otherUrls.map((url, idx) => <URLPreview key={`url:${url}:${idx}`} url={url} />)}
 
-                {/* Attachments (long press works) */}
+                {/* Attachments */}
                 {attachments.length > 0 && (
                   <div className="mt-[4px] space-y-1 w-full max-w-full">
                     {attachments.map((a: any) => (
@@ -1520,7 +1531,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           {showGifs && (
             <GifPanel
               onSelect={(gifUrl) => {
-                // ✅ send URL (bubble hides it) and preview shows GIF only
                 sendText(gifUrl);
               }}
             />
@@ -1675,7 +1685,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             </div>
 
             <div className="space-y-1">
-              {/* Reply (everyone) */}
+              {/* Reply */}
               {actionBtn("fas fa-reply", "Reply", () => {
                 const m = actionModal.msg;
                 closeActionModal();
@@ -1683,9 +1693,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 setReplyTo(m);
               })}
 
-              {/* Download (only for gif/attachment) */}
+              {/* ✅ Download (REAL) */}
               {actionModal.kind !== "message" &&
-                actionBtn("fas fa-download", "Download", () => {
+                actionBtn("fas fa-download", "Download", async () => {
                   const url =
                     actionModal.kind === "gif"
                       ? safeStr(actionModal.gifUrl)
@@ -1694,13 +1704,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   const name =
                     actionModal.kind === "attachment"
                       ? safeStr(actionModal.attachment?.filename || actionModal.attachment?.name || "download")
-                      : "gif";
+                      : "gif.gif";
 
                   closeActionModal();
-                  if (url) downloadUrl(url, name);
+                  if (url) await forceDownload(url, name);
                 })}
 
-              {/* Edit (mine only, only message bubble) */}
+              {/* Edit */}
               {actionModal.mine && actionModal.kind === "message"
                 ? actionBtn("fas fa-pen", "Edit", () => {
                     const m = actionModal.msg;
@@ -1717,14 +1727,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   })
                 : null}
 
-              {/* Delete (everyone can delete for self) */}
+              {/* Delete */}
               {actionBtn("fas fa-trash", "Delete", async () => {
                 const m = actionModal.msg;
                 closeActionModal();
                 await doDelete(m, false);
               }, true)}
 
-              {/* Delete for everyone (mine only) */}
+              {/* Delete for everyone */}
               {actionModal.mine
                 ? actionBtn("fas fa-trash-can", "Delete for everyone", async () => {
                     const m = actionModal.msg;
@@ -1795,11 +1805,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                         </div>
                       </div>
 
-                      <VoiceNoteFB src={url} isMine={false} filename={name} />
+                      <VoiceNoteWA src={url} isMine={false} />
 
                       <button
                         type="button"
-                        onClick={() => downloadUrl(url, name)}
+                        onClick={() => forceDownload(url, name)}
                         className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center"
                       >
                         Download
@@ -1826,7 +1836,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
                     <button
                       type="button"
-                      onClick={() => downloadUrl(url, name)}
+                      onClick={() => forceDownload(url, name)}
                       className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center"
                     >
                       Download
