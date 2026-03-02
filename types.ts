@@ -389,43 +389,115 @@ export interface Notification {
   createdAt?: string;
   isRead?: boolean;
 }
+// =========================
+// MESSAGING (FULLY COMPATIBLE WITH Chat.tsx)
+// =========================
 
-// =========================
-// MESSAGING
-// =========================
+export type AttachmentFileType =
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'document'
+  | 'gif'
+  | 'other';
+
+export interface MessageAttachment {
+  id?: number;
+
+  // Main URL
+  url?: string;
+  attachment_url?: string;
+
+  // File classification
+  file_type?: AttachmentFileType;
+  attachment_type?: AttachmentFileType;
+
+  // Mime & metadata
+  mime_type?: string;
+  type?: string;
+
+  filename?: string;
+  name?: string;
+
+  size_bytes?: number;
+  size?: number;
+  file_size?: number;
+
+  metadata?: Record<string, any>;
+
+  created_at?: string;
+
+  // Aliases
+  attachmentUrl?: string;
+  fileType?: AttachmentFileType;
+  mimeType?: string;
+  createdAt?: string;
+}
+
 export interface Message {
   id: number;
+
   conversation_id: number;
   sender_id: number;
 
-  text_content?: string;
+  // Text
+  text_content?: string | null;
 
+  // Multi-attachment support (NEW)
+  attachments?: MessageAttachment[];
+
+  // Legacy single attachment support (backward compatible)
   attachment_url?: string;
-  attachment_type?: 'image' | 'video' | 'gif' | 'document';
+  attachment_type?: AttachmentFileType;
 
+  // Threading
+  parent_message_id?: number | null;
+
+  // Timestamps
   created_at: string;
-  parent_message_id?: number;
+  edited_at?: string | null;
 
-  // aliases
+  // Soft delete (optional future support)
+  deleted_for_everyone?: boolean;
+  deleted_for?: number[];
+
+  // Aliases (tolerate mixed API responses)
   conversationId?: number;
   senderId?: number;
+
   text?: string;
+  content?: string;
+
+  parentMessageId?: number;
+
   createdAt?: string;
+  editedAt?: string;
+
+  attachmentUrl?: string;
+  attachmentType?: AttachmentFileType;
 }
 
 export interface Conversation {
   id: number;
+
   type: 'one_on_one' | 'group';
 
   created_at: string;
   last_message_at?: string;
 
+  // For 1:1 chats
+  other_user_id?: number;
+  other_user?: User;
+
+  // Group chats
   group_name?: string;
   group_avatar_url?: string;
 
   participants?: User[];
 
-  // aliases
+  unread_count?: number;
+
+  // Aliases
   createdAt?: string;
   lastMessageAt?: string;
   groupName?: string;
