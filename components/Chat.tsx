@@ -293,9 +293,9 @@ const GIFPreview: React.FC<{
 };
 
 /* ============================================================
-   ✅ WhatsApp-style Voice Note Player (matches your screenshot)
+   ✅ WhatsApp-style Voice Note Player (MATCHES SCREENSHOT)
 ============================================================ */
-const hashToWave = (key: string, count = 34) => {
+const hashToWave = (key: string, count = 28) => {
   let h = 2166136261;
   for (let i = 0; i < key.length; i++) {
     h ^= key.charCodeAt(i);
@@ -304,7 +304,8 @@ const hashToWave = (key: string, count = 34) => {
   const out: number[] = [];
   for (let i = 0; i < count; i++) {
     h = (h * 1103515245 + 12345) >>> 0;
-    const v = 12 + (h % 55); // 12..66
+    // Tall bars like screenshot
+    const v = 18 + (h % 70); // 18..87
     out.push(v);
   }
   return out;
@@ -313,12 +314,13 @@ const hashToWave = (key: string, count = 34) => {
 const VoiceNoteWA: React.FC<{
   src: string;
   isMine?: boolean;
-}> = ({ src, isMine }) => {
+  durationHint?: number; // optional if backend provides duration
+}> = ({ src, isMine = true, durationHint }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number | null>(null);
 
   const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(durationHint || 0);
   const [current, setCurrent] = useState(0);
 
   const wave = useMemo(() => hashToWave(src), [src]);
@@ -347,37 +349,37 @@ const VoiceNoteWA: React.FC<{
   const pct = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
   const activeBars = Math.floor(pct * wave.length);
 
-  // bubble colors (screenshot = blue outgoing)
+  // Screenshot is blue outgoing bubble
   const bg = isMine ? "#1B74E4" : "#3A3B3C";
-  const waveOff = "rgba(255,255,255,0.45)";
+  const waveOff = "rgba(255,255,255,0.35)";
   const waveOn = "rgba(255,255,255,0.95)";
-  const timeColor = "rgba(255,255,255,0.92)";
-  const iconBg = "rgba(255,255,255,0.18)";
 
   return (
-    <div className="w-full max-w-full select-none" onClick={(e) => e.stopPropagation()}>
+    <div className="w-full max-w-full" onClick={(e) => e.stopPropagation()}>
       <div
         className="flex items-center gap-3 px-3 py-2 rounded-2xl w-full"
         style={{ background: bg }}
       >
+        {/* Play button circle */}
         <button
           type="button"
           onClick={toggle}
           className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-          style={{ background: iconBg }}
+          style={{ background: "rgba(255,255,255,0.18)" }}
           aria-label={playing ? "Pause" : "Play"}
         >
           <i className={`fas ${playing ? "fa-pause" : "fa-play"} text-[16px]`} style={{ color: "#fff" }} />
         </button>
 
+        {/* Waveform */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-[2px] h-[22px]">
+          <div className="flex items-center gap-[2px] h-[24px]">
             {wave.map((h, i) => (
               <div
                 key={i}
                 className="w-[3px] rounded-full"
                 style={{
-                  height: `${Math.min(22, Math.max(5, Math.round(h / 3.2)))}px`,
+                  height: `${Math.min(24, Math.max(6, Math.round(h / 3.2)))}px`,
                   background: i <= activeBars ? waveOn : waveOff,
                   transition: "background 120ms linear",
                 }}
@@ -386,7 +388,8 @@ const VoiceNoteWA: React.FC<{
           </div>
         </div>
 
-        <div className="text-[13px] font-semibold tabular-nums shrink-0" style={{ color: timeColor }}>
+        {/* Duration on right (like screenshot) */}
+        <div className="text-[13px] font-semibold tabular-nums shrink-0 text-white">
           {formatDuration(duration || 0)}
         </div>
       </div>
@@ -398,7 +401,7 @@ const VoiceNoteWA: React.FC<{
         onLoadedMetadata={() => {
           const a = audioRef.current;
           if (!a) return;
-          setDuration(a.duration || 0);
+          setDuration(a.duration || durationHint || 0);
         }}
         onPlay={() => {
           setPlaying(true);
@@ -429,18 +432,31 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
   onView,
   isMine,
 }) => {
-  const url = attachment?.url || attachment?.attachment_url;
-  const mime = attachment?.mime_type || attachment?.type || attachment?.attachment_type || "";
-  const fileType = attachment?.file_type || "";
+  const url = attachment?.url || attachment?.attachment_url || attachment?.attachmentUrl;
+  const mime = attachment?.mime_type || attachment?.mimeType || attachment?.type || attachment?.attachment_type || "";
+  const fileType = attachment?.file_type || attachment?.fileType || attachment?.attachment_type || attachment?.attachmentType || "";
 
   const name = attachment?.filename || attachment?.name || "Attachment";
   const size = attachment?.size_bytes ?? attachment?.size ?? attachment?.file_size;
 
   if (!url) return null;
 
-  const isImage = fileType === "image" || String(mime).startsWith("image/");
-  const isVideo = fileType === "video" || String(mime).startsWith("video/");
-  const isAudio = fileType === "audio" || String(mime).startsWith("audio/");
+  const isImage =
+    fileType === "image" || String(mime).startsWith("image/");
+
+  const isVideo =
+    fileType === "video" || String(mime).startsWith("video/");
+
+  // ✅ IMPORTANT: strong audio detection (fixes your issue)
+  const isAudio =
+    fileType === "audio" ||
+    fileType === "voice" ||
+    String(mime).startsWith("audio/") ||
+    String(mime).includes("opus") ||
+    String(url).toLowerCase().includes(".webm") ||
+    String(url).toLowerCase().includes(".m4a") ||
+    String(url).toLowerCase().includes(".mp3") ||
+    String(url).toLowerCase().includes(".aac");
 
   if (isImage) {
     return (
