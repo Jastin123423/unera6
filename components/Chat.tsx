@@ -49,8 +49,15 @@ const formatFileSize = (bytes: number): string => {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 };
 
+// ✅ Safe duration formatter - FIX for "Infinity:NaN"
+const safeDuration = (n: any): number => {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v < 0) return 0;
+  return v;
+};
+
 const formatDuration = (seconds: number) => {
-  const s = Math.max(0, Math.floor(seconds || 0));
+  const s = Math.max(0, Math.floor(safeDuration(seconds) || 0));
   const mm = Math.floor(s / 60);
   const ss = s % 60;
   return `${mm}:${ss < 10 ? "0" : ""}${ss}`;
@@ -294,6 +301,8 @@ const GIFPreview: React.FC<{
 
 /* ============================================================
    ✅ WhatsApp-style Voice Note Player (MATCHES SCREENSHOT)
+   - FIXED: Infinity/NaN issue with safeDuration
+   - FIXED: Auto-stop other voice notes when playing
 ============================================================ */
 const hashToWave = (key: string, count = 28) => {
   let h = 2166136261;
@@ -311,6 +320,54 @@ const hashToWave = (key: string, count = 28) => {
   return out;
 };
 
+// Global audio manager to ensure only one voice note plays at a time
+const audioManager = {
+  currentAudio: null as HTMLAudioElement | null,
+  currentKey: null as string | null,
+  listeners: new Map<string, (isPlaying: boolean) => void>(),
+  
+  register(key: string, audio: HTMLAudioElement, onPlayStateChange: (isPlaying: boolean) => void) {
+    this.listeners.set(key, onPlayStateChange);
+    
+    // Override play to stop others
+    const originalPlay = audio.play;
+    audio.play = function() {
+      if (audioManager.currentAudio && audioManager.currentAudio !== audio) {
+        audioManager.currentAudio.pause();
+        audioManager.currentAudio.currentTime = 0;
+        // Notify the previous audio that it's stopped
+        if (audioManager.currentKey) {
+          const listener = audioManager.listeners.get(audioManager.currentKey);
+          listener?.(false);
+        }
+      }
+      audioManager.currentAudio = audio;
+      audioManager.currentKey = key;
+      onPlayStateChange(true);
+      return originalPlay.call(this);
+    }.bind(audio);
+    
+    // Override pause
+    const originalPause = audio.pause;
+    audio.pause = function() {
+      if (audioManager.currentAudio === audio) {
+        audioManager.currentAudio = null;
+        audioManager.currentKey = null;
+        onPlayStateChange(false);
+      }
+      return originalPause.call(this);
+    }.bind(audio);
+  },
+  
+  unregister(key: string) {
+    this.listeners.delete(key);
+    if (this.currentKey === key) {
+      this.currentAudio = null;
+      this.currentKey = null;
+    }
+  }
+};
+
 const VoiceNoteWA: React.FC<{
   src: string;
   isMine?: boolean;
@@ -318,9 +375,10 @@ const VoiceNoteWA: React.FC<{
 }> = ({ src, isMine = true, durationHint }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number | null>(null);
+  const keyRef = useRef<string>(`voice-${src}-${Math.random()}`);
 
   const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(durationHint || 0);
+  const [duration, setDuration] = useState(safeDuration(durationHint));
   const [current, setCurrent] = useState(0);
 
   const wave = useMemo(() => hashToWave(src), [src]);
@@ -336,6 +394,7 @@ const VoiceNoteWA: React.FC<{
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+      audioManager.unregister(keyRef.current);
     };
   }, []);
 
@@ -346,7 +405,7 @@ const VoiceNoteWA: React.FC<{
     else a.pause();
   };
 
-  const pct = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
+  const pct = safeDuration(duration) > 0 ? Math.min(1, Math.max(0, current / safeDuration(duration))) : 0;
   const activeBars = Math.floor(pct * wave.length);
 
   // Screenshot is blue outgoing bubble
@@ -390,18 +449,23 @@ const VoiceNoteWA: React.FC<{
 
         {/* Duration on right (like screenshot) */}
         <div className="text-[13px] font-semibold tabular-nums shrink-0 text-white">
-          {formatDuration(duration || 0)}
+          {formatDuration(safeDuration(duration))}
         </div>
       </div>
 
       <audio
-        ref={audioRef}
+        ref={(el) => {
+          audioRef.current = el;
+          if (el) {
+            audioManager.register(keyRef.current, el, setPlaying);
+          }
+        }}
         src={src}
         preload="metadata"
         onLoadedMetadata={() => {
           const a = audioRef.current;
           if (!a) return;
-          setDuration(a.duration || durationHint || 0);
+          setDuration(safeDuration(a.duration || durationHint || 0));
         }}
         onPlay={() => {
           setPlaying(true);
@@ -756,6 +820,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       } else {
         setMsgs([]);
       }
+
+      // ✅ Auto-scroll to bottom after messages load
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      }, 0);
     } catch {
       // ignore
     } finally {
@@ -793,6 +862,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     };
   }, []);
 
+  // ✅ Auto-scroll when chat opens
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [recipient?.id]);
