@@ -15,6 +15,7 @@ const json = (data: any, status = 200) =>
     headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
+const safeStr = (v: any) => (typeof v === "string" ? v : "");
 const safeNum = (v: any, fb = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fb;
@@ -24,6 +25,100 @@ const getAuthUserId = async (request: Request): Promise<number> => {
   const hdr = request.headers.get("x-user-id");
   const id = safeNum(hdr, 0);
   return id > 0 ? id : 0;
+};
+
+/* ============================================================
+   ✅ Attachment normalization (same idea as send.ts)
+============================================================ */
+
+const urlExt = (url: string) => {
+  const u = (url || "").split("?")[0].toLowerCase();
+  const dot = u.lastIndexOf(".");
+  if (dot === -1) return "";
+  return u.slice(dot + 1);
+};
+
+const mimeFromExt = (ext: string) => {
+  const e = (ext || "").toLowerCase();
+  if (e === "mp3") return "audio/mpeg";
+  if (e === "wav") return "audio/wav";
+  if (e === "ogg" || e === "oga") return "audio/ogg";
+  if (e === "aac") return "audio/aac";
+  if (e === "m4a") return "audio/mp4";
+  if (e === "webm") return "audio/webm"; // ✅ voice notes commonly
+  if (e === "mp4") return "video/mp4";
+  if (e === "jpg" || e === "jpeg") return "image/jpeg";
+  if (e === "png") return "image/png";
+  if (e === "webp") return "image/webp";
+  if (e === "gif") return "image/gif";
+  if (e === "pdf") return "application/pdf";
+  return "";
+};
+
+const inferFileType = (mime: string, url: string, provided: string) => {
+  const m = (mime || "").toLowerCase();
+  const p = (provided || "").toLowerCase();
+  const ext = urlExt(url);
+
+  if (p === "audio" || p === "voice" || p === "voicenote") return "audio";
+
+  if (
+    m.startsWith("audio/") ||
+    m.includes("opus") ||
+    ["webm", "mp3", "wav", "ogg", "aac", "m4a"].includes(ext)
+  ) {
+    return "audio";
+  }
+
+  if (m.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(ext)) return "image";
+  if (m.includes("gif") || ext === "gif") return "gif";
+  if (m.startsWith("video/") || ["mp4", "mov"].includes(ext)) return "video";
+
+  if (m === "application/pdf" || ext === "pdf") return "document";
+  if (m.includes("officedocument") || m.includes("msword")) return "document";
+
+  return p || "other";
+};
+
+const normalizeOneAttachment = (a: any) => {
+  const url = safeStr(a?.url ?? a?.attachment_url ?? a?.attachmentUrl ?? "").trim();
+  if (!url) return null;
+
+  let mime_type = safeStr(a?.mime_type ?? a?.mimeType ?? a?.mime ?? "").trim();
+  const providedType = safeStr(a?.file_type ?? a?.fileType ?? a?.type ?? a?.attachment_type ?? "").trim();
+
+  // backfill mime if missing
+  if (!mime_type) {
+    const guessed = mimeFromExt(urlExt(url));
+    if (guessed) mime_type = guessed;
+  }
+
+  const file_type = inferFileType(mime_type, url, providedType);
+
+  const filename = safeStr(a?.filename ?? a?.name ?? "").trim();
+  const size_bytes =
+    a?.size_bytes != null ? safeNum(a.size_bytes, 0) : a?.size != null ? safeNum(a.size, 0) : null;
+
+  return {
+    id: a?.id != null ? safeNum(a.id, 0) : undefined,
+    message_id: a?.message_id != null ? safeNum(a.message_id, 0) : undefined,
+    url,
+    mime_type: mime_type || null,
+    file_type: file_type || "other",
+    filename: filename || null,
+    size_bytes,
+    width: a?.width != null ? safeNum(a.width, 0) : null,
+    height: a?.height != null ? safeNum(a.height, 0) : null,
+    duration_ms: a?.duration_ms != null ? safeNum(a.duration_ms, 0) : null,
+    page_count: a?.page_count != null ? safeNum(a.page_count, 0) : null,
+    metadata:
+      a?.metadata != null
+        ? typeof a.metadata === "string"
+          ? a.metadata
+          : JSON.stringify(a.metadata)
+        : null,
+    created_at: a?.created_at ?? undefined,
+  };
 };
 
 export const onRequestOptions: PagesFunction = async () =>
@@ -97,19 +192,37 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         .all();
       attResults = (aRes.results || []) as any[];
     } catch {
-      // If table doesn't exist yet, just return messages without attachments
       attResults = [];
     }
 
     const byMsg: Record<string, any[]> = {};
     for (const a of attResults) {
-      const mid = String(a.message_id);
-      (byMsg[mid] ||= []).push(a);
+      const norm = normalizeOneAttachment(a);
+      if (!norm) continue;
+      const mid = String(norm.message_id || a.message_id);
+      (byMsg[mid] ||= []).push(norm);
     }
 
-    // Attach array to each message
+    // Attach normalized attachments (and legacy fallback if empty)
     for (const m of messages) {
-      m.attachments = byMsg[String(m.id)] || [];
+      const mid = String(m.id);
+      const list = byMsg[mid] || [];
+
+      // ✅ legacy fallback -> convert to attachment if attachments table empty
+      if (!list.length) {
+        const legacyUrl = safeStr(m.attachment_url).trim();
+        if (legacyUrl) {
+          const legacyAtt = normalizeOneAttachment({
+            url: legacyUrl,
+            file_type: safeStr(m.attachment_type).trim(),
+            metadata: m.attachment_metadata ?? null,
+            message_id: m.id,
+          });
+          if (legacyAtt) list.push(legacyAtt);
+        }
+      }
+
+      m.attachments = list;
     }
 
     return json(messages);
