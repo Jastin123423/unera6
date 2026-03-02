@@ -49,7 +49,7 @@ const mimeFromExt = (ext: string) => {
   if (e === "aac") return "audio/aac";
   if (e === "m4a") return "audio/mp4";
   if (e === "mp4") return "video/mp4";
-  if (e === "webm") return "audio/webm"; // ✅ for voice notes recorded as webm/opus
+  if (e === "webm") return "audio/webm"; // ✅ voice notes recorded as webm/opus
   if (e === "jpg" || e === "jpeg") return "image/jpeg";
   if (e === "png") return "image/png";
   if (e === "webp") return "image/webp";
@@ -63,7 +63,7 @@ const inferFileType = (mime: string, url: string, provided: string) => {
   const p = (provided || "").toLowerCase();
   const ext = urlExt(url);
 
-  // if user already said audio/voice, trust it
+  // trust explicit voice/audio labels
   if (p === "audio" || p === "voice" || p === "voicenote") return "audio";
 
   // strong audio detection
@@ -92,7 +92,14 @@ const normalizeOneAttachment = (a: any) => {
   if (!url) return null;
 
   let mime_type = safeStr(a?.mime_type ?? a?.mimeType ?? a?.mime ?? "").trim();
-  const providedType = safeStr(a?.file_type ?? a?.fileType ?? a?.type ?? a?.attachment_type ?? a?.attachmentType ?? "").trim();
+  const providedType = safeStr(
+    a?.file_type ??
+      a?.fileType ??
+      a?.type ??
+      a?.attachment_type ??
+      a?.attachmentType ??
+      ""
+  ).trim();
 
   // backfill mime if missing
   if (!mime_type) {
@@ -104,7 +111,12 @@ const normalizeOneAttachment = (a: any) => {
   const file_type = inferFileType(mime_type, url, providedType);
 
   const filename = safeStr(a?.filename ?? a?.name ?? "").trim();
-  const size_bytes = a?.size_bytes != null ? safeNum(a.size_bytes, 0) : a?.size != null ? safeNum(a.size, 0) : null;
+  const size_bytes =
+    a?.size_bytes != null
+      ? safeNum(a.size_bytes, 0)
+      : a?.size != null
+      ? safeNum(a.size, 0)
+      : null;
 
   const width = a?.width != null ? safeNum(a.width, 0) : null;
   const height = a?.height != null ? safeNum(a.height, 0) : null;
@@ -134,9 +146,7 @@ const normalizeOneAttachment = (a: any) => {
 
 const normalizeAttachments = (body: any) => {
   const arr = Array.isArray(body?.attachments) ? body.attachments : [];
-  const cleaned = arr
-    .map(normalizeOneAttachment)
-    .filter(Boolean) as any[];
+  const cleaned = arr.map(normalizeOneAttachment).filter(Boolean) as any[];
 
   // legacy single attachment support
   const legacyUrl = safeStr(body?.attachment_url ?? "").trim();
@@ -149,17 +159,27 @@ const normalizeAttachments = (body: any) => {
       : null;
 
   if (!cleaned.length && legacyUrl) {
-    cleaned.push(
-      normalizeOneAttachment({
-        url: legacyUrl,
-        file_type: legacyType || "other",
-        metadata: legacyMeta,
-      })
-    );
+    const one = normalizeOneAttachment({
+      url: legacyUrl,
+      file_type: legacyType || "other",
+      metadata: legacyMeta,
+    });
+    if (one) cleaned.push(one);
   }
 
-  // remove any nulls just in case
   return cleaned.filter(Boolean);
+};
+
+/* ============================================================
+   ✅ Legacy-safe type mapping (prevents CHECK constraint crash)
+   Old messages.attachment_type often allows ONLY:
+   ('image','video','gif','document','sticker')
+============================================================ */
+const legacySafeAttachmentType = (t: string | null) => {
+  const x = (t || "").toLowerCase();
+  if (x === "image" || x === "video" || x === "gif" || x === "document" || x === "sticker") return x;
+  // audio/other/unknown => store as document for legacy column, real type stays in message_attachments
+  return "document";
 };
 
 export const onRequestOptions: PagesFunction = async () =>
@@ -215,7 +235,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         .run();
 
       try {
-        await env.DB.prepare(`UPDATE conversations SET last_message_at = CURRENT_TIMESTAMP WHERE id = ?`)
+        await env.DB
+          .prepare(`UPDATE conversations SET last_message_at = CURRENT_TIMESTAMP WHERE id = ?`)
           .bind(conversationId)
           .run();
       } catch {}
@@ -223,6 +244,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     // 3) Insert message (keep legacy single columns set for compatibility)
     const firstAtt = attachments[0] || null;
+
+    const legacyType = firstAtt ? legacySafeAttachmentType(firstAtt.file_type) : null;
 
     const mRes = await env.DB
       .prepare(
@@ -238,7 +261,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         parentMessageId,
         textContent || null,
         firstAtt ? firstAtt.url : null,
-        firstAtt ? firstAtt.file_type : null,
+        legacyType,
         firstAtt ? firstAtt.metadata : null
       )
       .run();
@@ -276,7 +299,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     // 5) Update conversation last_message_at (best-effort)
     try {
-      await env.DB.prepare(`UPDATE conversations SET last_message_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      await env.DB
+        .prepare(`UPDATE conversations SET last_message_at = CURRENT_TIMESTAMP WHERE id = ?`)
         .bind(conversationId)
         .run();
     } catch {}
@@ -302,10 +326,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .bind(messageId)
       .all();
 
-    // ✅ normalize outgoing attachments too (important for old/missing mime/file_type)
-    const outgoing = (attRows.results || [])
-      .map((r: any) => normalizeOneAttachment(r))
-      .filter(Boolean);
+    // normalize outgoing attachments too (helps old rows missing mime/file_type)
+    const outgoing = (attRows.results || []).map((r: any) => normalizeOneAttachment(r)).filter(Boolean);
 
     return json({ success: true, message: msg, attachments: outgoing });
   } catch (e: any) {
