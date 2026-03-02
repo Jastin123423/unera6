@@ -27,7 +27,9 @@ const safeExtFromType = (ct: string) => {
   if (t.includes("webm")) return "webm";
   if (t.includes("quicktime")) return "mov";
 
-  // audio
+  // audio (IMPORTANT: opus/webm)
+  if (t.includes("opus")) return "webm";
+  if (t.includes("audio/webm")) return "webm";
   if (t === "audio/mpeg" || t.includes("mpeg")) return "mp3";
   if (t.includes("wav")) return "wav";
   if (t.includes("ogg")) return "ogg";
@@ -69,6 +71,7 @@ const contentTypeFromExt = (ext: string) => {
   if (e === "ogg") return "audio/ogg";
   if (e === "aac") return "audio/aac";
   if (e === "m4a") return "audio/mp4";
+  if (e === "webm") return "audio/webm"; // ✅ important for voice notes
 
   // docs
   if (e === "pdf") return "application/pdf";
@@ -91,10 +94,12 @@ const fileTypeFromMimeOrExt = (mime: string, ext: string) => {
   if (m.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(e)) return "image";
   if (m.includes("gif") || e === "gif") return "gif";
   if (m.startsWith("video/") || ["mp4", "webm", "mov"].includes(e)) return "video";
-  if (m.startsWith("audio/") || ["mp3", "wav", "ogg", "aac", "m4a"].includes(e)) return "audio";
+
+  // ✅ audio: accept codecs too
+  if (m.startsWith("audio/") || m.includes("opus") || ["mp3", "wav", "ogg", "aac", "m4a", "webm"].includes(e)) return "audio";
+
   if (m === "application/pdf" || e === "pdf") return "document";
 
-  // treat common office types as document
   if (
     m.includes("officedocument") ||
     m.includes("msword") ||
@@ -121,7 +126,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const ct = request.headers.get("content-type") || "";
 
-    // ✅ Preferred: multipart/form-data
+    // ✅ multipart/form-data
     if (ct.includes("multipart/form-data")) {
       const form = await request.formData();
       const file = form.get("file");
@@ -132,13 +137,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const filename = String(file.name || "").trim();
 
-      // ext
-      const nameExt =
-        filename && filename.includes(".") ? filename.split(".").pop() || "" : "";
+      const nameExt = filename && filename.includes(".") ? filename.split(".").pop() || "" : "";
       const fallbackExt = safeExtFromType(file.type || "");
       const ext = String(nameExt || fallbackExt || "bin").toLowerCase();
 
-      // mime type for storage/playback
       let mime_type = (file.type || "").trim();
       if (!mime_type || mime_type === "application/octet-stream") {
         mime_type = contentTypeFromExt(ext);
@@ -151,6 +153,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       await env.R2.put(key, bytes, {
         httpMetadata: { contentType: mime_type },
+        customMetadata: {
+          filename: filename || "upload." + ext,
+          mime_type,
+          file_type,
+        },
       });
 
       const url = `${PUBLIC_BASE}/${key}`;
@@ -163,11 +170,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         size_bytes: bytes.byteLength,
         mime_type,
         file_type,
-        metadata: {}, // keep for future: image sizes, duration, pdf pages
+        metadata: {},
       });
     }
 
-    // ✅ Fallback: JSON base64 (small files only)
+    // ✅ JSON base64 fallback
     const body = await request.json().catch(() => ({} as any));
     const filename = String(body.filename || "").trim();
     const incomingType = String(body.contentType || body.mime_type || "").trim();
@@ -202,6 +209,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     await env.R2.put(key, bytes, {
       httpMetadata: { contentType: mime_type },
+      customMetadata: {
+        filename: filename || "upload." + ext,
+        mime_type,
+        file_type,
+      },
     });
 
     const url = `${PUBLIC_BASE}/${key}`;
