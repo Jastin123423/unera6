@@ -30,30 +30,115 @@ const getAuthUserId = async (request: Request): Promise<number> => {
   return id > 0 ? id : 0;
 };
 
+/* ============================================================
+   ✅ Better type inference (voice notes)
+============================================================ */
+
+const urlExt = (url: string) => {
+  const u = (url || "").split("?")[0].toLowerCase();
+  const dot = u.lastIndexOf(".");
+  if (dot === -1) return "";
+  return u.slice(dot + 1);
+};
+
+const mimeFromExt = (ext: string) => {
+  const e = (ext || "").toLowerCase();
+  if (e === "mp3") return "audio/mpeg";
+  if (e === "wav") return "audio/wav";
+  if (e === "ogg" || e === "oga") return "audio/ogg";
+  if (e === "aac") return "audio/aac";
+  if (e === "m4a") return "audio/mp4";
+  if (e === "mp4") return "video/mp4";
+  if (e === "webm") return "audio/webm"; // ✅ for voice notes recorded as webm/opus
+  if (e === "jpg" || e === "jpeg") return "image/jpeg";
+  if (e === "png") return "image/png";
+  if (e === "webp") return "image/webp";
+  if (e === "gif") return "image/gif";
+  if (e === "pdf") return "application/pdf";
+  return "";
+};
+
+const inferFileType = (mime: string, url: string, provided: string) => {
+  const m = (mime || "").toLowerCase();
+  const p = (provided || "").toLowerCase();
+  const ext = urlExt(url);
+
+  // if user already said audio/voice, trust it
+  if (p === "audio" || p === "voice" || p === "voicenote") return "audio";
+
+  // strong audio detection
+  if (
+    m.startsWith("audio/") ||
+    m.includes("opus") ||
+    ["webm", "mp3", "wav", "ogg", "aac", "m4a"].includes(ext)
+  ) {
+    return "audio";
+  }
+
+  // media
+  if (m.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(ext)) return "image";
+  if (m.includes("gif") || ext === "gif") return "gif";
+  if (m.startsWith("video/") || ["mp4", "mov"].includes(ext)) return "video";
+
+  // docs
+  if (m === "application/pdf" || ext === "pdf") return "document";
+  if (m.includes("officedocument") || m.includes("msword")) return "document";
+
+  return p || "other";
+};
+
+const normalizeOneAttachment = (a: any) => {
+  const url = safeStr(a?.url ?? a?.attachment_url ?? a?.attachmentUrl ?? "").trim();
+  if (!url) return null;
+
+  let mime_type = safeStr(a?.mime_type ?? a?.mimeType ?? a?.mime ?? "").trim();
+  const providedType = safeStr(a?.file_type ?? a?.fileType ?? a?.type ?? a?.attachment_type ?? a?.attachmentType ?? "").trim();
+
+  // backfill mime if missing
+  if (!mime_type) {
+    const ext = urlExt(url);
+    const guessed = mimeFromExt(ext);
+    if (guessed) mime_type = guessed;
+  }
+
+  const file_type = inferFileType(mime_type, url, providedType);
+
+  const filename = safeStr(a?.filename ?? a?.name ?? "").trim();
+  const size_bytes = a?.size_bytes != null ? safeNum(a.size_bytes, 0) : a?.size != null ? safeNum(a.size, 0) : null;
+
+  const width = a?.width != null ? safeNum(a.width, 0) : null;
+  const height = a?.height != null ? safeNum(a.height, 0) : null;
+  const duration_ms = a?.duration_ms != null ? safeNum(a.duration_ms, 0) : null;
+  const page_count = a?.page_count != null ? safeNum(a.page_count, 0) : null;
+
+  const metadata =
+    a?.metadata != null
+      ? typeof a.metadata === "string"
+        ? a.metadata
+        : JSON.stringify(a.metadata)
+      : null;
+
+  return {
+    url,
+    file_type,
+    mime_type: mime_type || null,
+    filename: filename || null,
+    size_bytes,
+    width,
+    height,
+    duration_ms,
+    page_count,
+    metadata,
+  };
+};
+
 const normalizeAttachments = (body: any) => {
-  // New format: attachments: [{url, file_type, mime_type, filename, size_bytes, metadata, ...}]
   const arr = Array.isArray(body?.attachments) ? body.attachments : [];
   const cleaned = arr
-    .map((a: any) => ({
-      url: safeStr(a?.url ?? "").trim(),
-      file_type: safeStr(a?.file_type ?? a?.type ?? "other").trim(),
-      mime_type: safeStr(a?.mime_type ?? a?.mime ?? "").trim(),
-      filename: safeStr(a?.filename ?? "").trim(),
-      size_bytes: a?.size_bytes != null ? safeNum(a.size_bytes, 0) : null,
-      width: a?.width != null ? safeNum(a.width, 0) : null,
-      height: a?.height != null ? safeNum(a.height, 0) : null,
-      duration_ms: a?.duration_ms != null ? safeNum(a.duration_ms, 0) : null,
-      page_count: a?.page_count != null ? safeNum(a.page_count, 0) : null,
-      metadata:
-        a?.metadata != null
-          ? typeof a.metadata === "string"
-            ? a.metadata
-            : JSON.stringify(a.metadata)
-          : null,
-    }))
-    .filter((a: any) => !!a.url);
+    .map(normalizeOneAttachment)
+    .filter(Boolean) as any[];
 
-  // Backward compatibility: single attachment_url
+  // legacy single attachment support
   const legacyUrl = safeStr(body?.attachment_url ?? "").trim();
   const legacyType = safeStr(body?.attachment_type ?? "").trim();
   const legacyMeta =
@@ -63,23 +148,18 @@ const normalizeAttachments = (body: any) => {
         : JSON.stringify(body.attachment_metadata)
       : null;
 
-  // If no attachments[] provided but legacy exists, convert it to one attachment row too
   if (!cleaned.length && legacyUrl) {
-    cleaned.push({
-      url: legacyUrl,
-      file_type: legacyType || "other",
-      mime_type: "",
-      filename: "",
-      size_bytes: null,
-      width: null,
-      height: null,
-      duration_ms: null,
-      page_count: null,
-      metadata: legacyMeta,
-    });
+    cleaned.push(
+      normalizeOneAttachment({
+        url: legacyUrl,
+        file_type: legacyType || "other",
+        metadata: legacyMeta,
+      })
+    );
   }
 
-  return cleaned;
+  // remove any nulls just in case
+  return cleaned.filter(Boolean);
 };
 
 export const onRequestOptions: PagesFunction = async () =>
@@ -141,7 +221,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       } catch {}
     }
 
-    // 3) Insert message (keep old single columns set for compatibility)
+    // 3) Insert message (keep legacy single columns set for compatibility)
     const firstAtt = attachments[0] || null;
 
     const mRes = await env.DB
@@ -222,7 +302,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .bind(messageId)
       .all();
 
-    return json({ success: true, message: msg, attachments: attRows.results || [] });
+    // ✅ normalize outgoing attachments too (important for old/missing mime/file_type)
+    const outgoing = (attRows.results || [])
+      .map((r: any) => normalizeOneAttachment(r))
+      .filter(Boolean);
+
+    return json({ success: true, message: msg, attachments: outgoing });
   } catch (e: any) {
     return json({ success: false, error: e?.message || "Server error" }, 500);
   }
