@@ -122,9 +122,9 @@ const normalizeMedia = (row: any) => {
 
   return {
     media_url: single || null,
-    media_urls: outUrls,      // ✅ ALWAYS array
-    media_types: outTypes,    // ✅ ALWAYS array (best-effort)
-    images: outUrls,          // ✅ alias for your UI
+    media_urls: outUrls, // ✅ ALWAYS array
+    media_types: outTypes, // ✅ ALWAYS array (best-effort)
+    images: outUrls, // ✅ alias for your UI
   };
 };
 
@@ -256,6 +256,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE p.media_types
         END AS media_types,
 
+        -- ✅ NEW: comments count for feed cards
+        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
+
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
         (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -346,7 +349,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) REELS (unchanged)
+    // 2) REELS (unchanged) + comments_count=0
     // ============================================================
     const whereReels: string[] = [];
     const bindsReels: any[] = [];
@@ -405,6 +408,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS media_urls,
         NULL AS media_types,
 
+        0 AS comments_count,
+
         (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
         (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -450,7 +455,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 3) SONGS (unchanged)
+    // 3) SONGS (unchanged) + comments_count=0
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -522,6 +527,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE NULL
         END AS media_types,
 
+        0 AS comments_count,
+
         (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS reactions_count,
         (SELECT 'like' FROM song_likes sl WHERE sl.song_id = s.id AND sl.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -572,7 +579,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) PODCASTS (unchanged)
+    // 4) PODCASTS (unchanged) + comments_count=0
     // ============================================================
     const wherePodcasts: string[] = [];
     const bindsPodcasts: any[] = [];
@@ -638,6 +645,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE NULL
         END AS media_types,
 
+        0 AS comments_count,
+
         0 AS reactions_count,
         NULL AS my_reaction,
 
@@ -683,7 +692,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS (unchanged)
+    // 5) EVENTS (unchanged) + comments_count=0
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -758,6 +767,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE NULL
         END AS media_types,
 
+        0 AS comments_count,
+
         0 AS reactions_count,
         NULL AS my_reaction,
 
@@ -815,7 +826,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 6) GROUP POSTS ✅ multi-images + ✅ full reaction types
+    // 6) GROUP POSTS ✅ multi-images + ✅ full reaction types + comments_count=0
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -900,6 +911,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         -- if you add gp.media_types later, select it here
         NULL AS media_types,
+
+        0 AS comments_count,
 
         -- ✅ reactions like posts (group_post_reactions)
         (SELECT COUNT(*) FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id) AS reactions_count,
@@ -993,7 +1006,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS feed-injection
+    // 7) PRODUCTS feed-injection + comments_count=0
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -1048,6 +1061,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         pr.images AS media_urls,
         NULL AS media_types,
+
+        0 AS comments_count,
 
         0 AS reactions_count,
         NULL AS my_reaction,
@@ -1143,44 +1158,54 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     // ============================================================
     const freshPostsRes = await env.DB.prepare(
       `${baseSelectPosts} ${wherePostsSql} ORDER BY p.created_at DESC LIMIT ?`
-    ).bind(reactionUserId, ...bindsPosts, freshCount).all();
+    )
+      .bind(reactionUserId, ...bindsPosts, freshCount)
+      .all();
     const freshPosts = Array.isArray(freshPostsRes?.results) ? freshPostsRes.results : [];
 
     const freshReelsRes = await env.DB.prepare(
       `${baseSelectReels} ${whereReelsSql} ORDER BY r.created_at DESC LIMIT ?`
-    ).bind(reactionUserId, ...bindsReels, freshCount).all();
+    )
+      .bind(reactionUserId, ...bindsReels, freshCount)
+      .all();
     const freshReels = Array.isArray(freshReelsRes?.results) ? freshReelsRes.results : [];
 
     const freshSongsRes = await env.DB.prepare(
       `${baseSelectSongs} ${whereSongsSql} ORDER BY s.created_at DESC LIMIT ?`
-    ).bind(reactionUserId, ...bindsSongs, freshCount).all();
+    )
+      .bind(reactionUserId, ...bindsSongs, freshCount)
+      .all();
     const freshSongs = Array.isArray(freshSongsRes?.results) ? freshSongsRes.results : [];
 
     const freshPodcastsRes = await env.DB.prepare(
       `${baseSelectPodcasts} ${wherePodcastsSql} ORDER BY pc.created_at DESC LIMIT ?`
-    ).bind(...bindsPodcasts, freshCount).all();
+    )
+      .bind(...bindsPodcasts, freshCount)
+      .all();
     const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
 
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
-    ).bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount).all();
+    )
+      .bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount)
+      .all();
     const freshEvents = Array.isArray(freshEventsRes?.results) ? freshEventsRes.results : [];
 
     const freshGroupPostsRes = await env.DB.prepare(
       `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY gp.created_at DESC LIMIT ?`
-    ).bind(reactionUserId, ...bindsGroupPosts, freshCount).all();
+    )
+      .bind(reactionUserId, ...bindsGroupPosts, freshCount)
+      .all();
     const freshGroupPosts = Array.isArray(freshGroupPostsRes?.results) ? freshGroupPostsRes.results : [];
 
     const freshProductsFeedRes = await env.DB.prepare(
       `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY pr.created_at DESC LIMIT ?`
-    ).bind(...bindsProductsFeed, freshCount).all();
-    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results)
-      ? freshProductsFeedRes.results
-      : [];
-
-    const freshProductsRes = await env.DB.prepare(selectProducts)
-      .bind(...bindsProducts, freshCount)
+    )
+      .bind(...bindsProductsFeed, freshCount)
       .all();
+    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results) ? freshProductsFeedRes.results : [];
+
+    const freshProductsRes = await env.DB.prepare(selectProducts).bind(...bindsProducts, freshCount).all();
     const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
 
     // ============================================================
@@ -1198,40 +1223,52 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     if (exploreCount > 0) {
       const explorePostsRes = await env.DB.prepare(
         `${baseSelectPosts} ${wherePostsSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(reactionUserId, ...bindsPosts, exploreCount).all();
+      )
+        .bind(reactionUserId, ...bindsPosts, exploreCount)
+        .all();
       explorePosts = Array.isArray(explorePostsRes?.results) ? explorePostsRes.results : [];
 
       const exploreReelsRes = await env.DB.prepare(
         `${baseSelectReels} ${whereReelsSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(reactionUserId, ...bindsReels, exploreCount).all();
+      )
+        .bind(reactionUserId, ...bindsReels, exploreCount)
+        .all();
       exploreReels = Array.isArray(exploreReelsRes?.results) ? exploreReelsRes.results : [];
 
       const exploreSongsRes = await env.DB.prepare(
         `${baseSelectSongs} ${whereSongsSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(reactionUserId, ...bindsSongs, exploreCount).all();
+      )
+        .bind(reactionUserId, ...bindsSongs, exploreCount)
+        .all();
       exploreSongs = Array.isArray(exploreSongsRes?.results) ? exploreSongsRes.results : [];
 
       const explorePodcastsRes = await env.DB.prepare(
         `${baseSelectPodcasts} ${wherePodcastsSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(...bindsPodcasts, exploreCount).all();
+      )
+        .bind(...bindsPodcasts, exploreCount)
+        .all();
       explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
 
       const exploreEventsRes = await env.DB.prepare(
         `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount).all();
+      )
+        .bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount)
+        .all();
       exploreEvents = Array.isArray(exploreEventsRes?.results) ? exploreEventsRes.results : [];
 
       const exploreGroupPostsRes = await env.DB.prepare(
         `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(reactionUserId, ...bindsGroupPosts, exploreCount).all();
+      )
+        .bind(reactionUserId, ...bindsGroupPosts, exploreCount)
+        .all();
       exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results) ? exploreGroupPostsRes.results : [];
 
       const exploreProductsFeedRes = await env.DB.prepare(
         `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
-      ).bind(...bindsProductsFeed, exploreCount).all();
-      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results)
-        ? exploreProductsFeedRes.results
-        : [];
+      )
+        .bind(...bindsProductsFeed, exploreCount)
+        .all();
+      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results) ? exploreProductsFeedRes.results : [];
 
       const exploreProductsRes = await env.DB.prepare(
         `
@@ -1243,7 +1280,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ORDER BY RANDOM()
           LIMIT ?
         `
-      ).bind(...bindsProducts, exploreCount).all();
+      )
+        .bind(...bindsProducts, exploreCount)
+        .all();
       exploreProducts = Array.isArray(exploreProductsRes?.results) ? exploreProductsRes.results : [];
     }
 
@@ -1292,7 +1331,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const orderedRaw = seededShuffle(merged, seed);
 
     // ✅ Normalize media for ALL feed items
-    const ordered = orderedRaw.map((item: any) => ({ ...item, ...normalizeMedia(item) }));
+    const ordered = orderedRaw.map((item: any) => ({
+      ...item,
+      ...normalizeMedia(item),
+      // ensure numeric count
+      comments_count: Number((item as any)?.comments_count ?? 0),
+    }));
 
     // ============================================================
     // Merge + dedup PRODUCTS (separate list) + normalize images
