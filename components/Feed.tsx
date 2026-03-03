@@ -893,7 +893,7 @@ const ExpandableRichText: React.FC<{
   users,
   onProfileClick,
   onHashtagClick,
-  maxWords = 25,
+  maxWords = 14, // ✅ CHANGED: Default max words to 14 (was 25)
   fontSizePx = 21,
   forceExpanded = false,
 }) => {
@@ -1538,7 +1538,7 @@ export const ReactionsSheet: React.FC<{
             }}
             className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-bold rounded-lg transition-colors"
           >
-            View Comments
+            View Discussions
           </button>
         </div>
       )}
@@ -1706,7 +1706,7 @@ export const GalleryViewer: React.FC<{
               className="hover:underline cursor-pointer" 
               onClick={onOpenComments}
             >
-              {formatCount(commentCount)} Comments
+              {formatCount(commentCount)} Discussions
             </span>
             {shareCount > 0 && (
               <span className="hover:underline cursor-pointer" onClick={onShare}>
@@ -3713,7 +3713,7 @@ export const Post: React.FC<{
                 users={users}
                 onProfileClick={onProfileClick}
                 onHashtagClick={onHashtagClick}
-                maxWords={25}
+                maxWords={14} // ✅ CHANGED: Show 14 words then See More
                 fontSizePx={21}
               />
             </div>
@@ -4010,13 +4010,13 @@ export const Post: React.FC<{
               )}
             </div>
 
-            {/* Comments and Shares counts */}
+            {/* Comments and Shares counts - CHANGED "Comments" to "Discussions" */}
             <div className="flex gap-4">
               <span
                 className="hover:underline cursor-pointer"
                 onClick={() => onOpenComments(Number(postId))}
               >
-                {formatCount(commentCount)} Comments
+                {formatCount(commentCount)} Discussions
               </span>
               {shareCount > 0 && (
                 <span className="hover:underline">
@@ -5174,7 +5174,7 @@ export const CommentsSheet: React.FC<{
 
         <div className="flex items-center gap-4">
           <div className="text-[#B0B3B8] text-[14px]">
-            {formatCount(comments.length)} comments
+            {formatCount(comments.length)} discussions
           </div>
           <button
             type="button"
@@ -5400,7 +5400,7 @@ export const CommentsSheet: React.FC<{
               {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
             </div>
             <div className="flex items-center gap-4">
-              <span>{formatCount(comments.length)} comments</span>
+              <span>{formatCount(comments.length)} discussions</span>
               {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
             </div>
           </div>
@@ -5442,8 +5442,8 @@ export const CommentsSheet: React.FC<{
 
           {comments.length === 0 ? (
             <div className="text-center py-10">
-              <div className="text-[#B0B3B8] text-lg mb-2">No comments yet</div>
-              <p className="text-[#B0B3B8] text-sm">Be the first to comment!</p>
+              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>
+              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>
             </div>
           ) : (
             <div className="space-y-6">
