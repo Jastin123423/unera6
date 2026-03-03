@@ -1,7 +1,8 @@
-// UserProfile.tsx - Complete updated file with correct API endpoint
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+// UserProfile.tsx - Complete updated file with marketplace product support matching Feed.tsx
+import React, { useEffect, useState, useRef, useMemo, useContext } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
+import { MarketplaceContext } from '../App';
 
 // Import from Feed.tsx
 import {
@@ -31,9 +32,8 @@ import {
 } from './Feed';
 
 // ============================================================================
-// HELPER FUNCTIONS (if not exported from Feed)
+// HELPER FUNCTIONS
 // ============================================================================
-// These are already imported from Feed, but kept as fallbacks
 const safeArrayHelper = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumberHelper = (v: any, fallback = 0) => {
   const n = typeof v === 'number' ? v : Number(v);
@@ -201,7 +201,7 @@ interface UserProfileProps {
   
   fetchProfilePosts?: (profileUserId: number, viewerId: number | null) => Promise<PostType[]>;
   
-  // Marketplace handlers
+  // Marketplace handlers - EXACTLY as in Feed.tsx
   onViewProduct?: (productId: number) => void;
   onViewProductFromPost?: (productId: number) => void;
   getProductData?: (productId: number) => any;
@@ -271,6 +271,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   isChatsListOpen,
   peopleSuggestions = [],
 }) => {
+  // Get MarketplaceContext - IMPORTANT for product data
+  const marketplaceContext = useContext(MarketplaceContext);
+  
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -373,7 +376,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   };
 
   // ========== FETCH PROFILE POSTS FROM BACKEND ==========
-  // This is the key function that fetches from the correct endpoint
   const fetchProfilePostsFromBackend = async (profileUserId: number): Promise<PostType[]> => {
     if (!profileUserId) return [];
     
@@ -382,7 +384,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     try {
       const viewerId = currentUser?.id ?? 0;
       
-      // ✅ CORRECT ENDPOINT: /api/posts/by-user?userId=...&viewerId=...
+      // CORRECT ENDPOINT: /api/posts/by-user?userId=...&viewerId=...
       const url = `/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`;
       console.log('📡 Fetching profile posts from:', url);
       
@@ -401,7 +403,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         postsArray = data.results;
       }
       
-      // Normalize posts to ensure consistent format
+      // Normalize posts to ensure consistent format - CRITICAL for marketplace detection
       const normalized = postsArray.map((post: any) => ({
         ...post,
         id: safeNumberHelper(post?.id ?? post?.post_id),
@@ -419,8 +421,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         reactions_count: safeNumberHelper(post?.reactions_count, 0),
         comments_count: safeNumberHelper(post?.comments_count, 0),
         created_at: post?.created_at ?? new Date().toISOString(),
-        type: post?.type || 'post',
-        meta: post?.meta || {}
+        type: post?.type || post?.post_type || 'post',
+        // Preserve meta data - IMPORTANT for marketplace detection
+        meta: post?.meta || {},
+        // Preserve product-specific fields
+        product_id: post?.product_id,
+        marketplace: post?.marketplace,
+        // Preserve event-specific fields
+        event_id: post?.event_id,
+        event: post?.event
       }));
 
       // Sort by latest first
@@ -657,6 +666,24 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     });
   }, [profilePosts]);
 
+  // ========== DEBUG MARKETPLACE POSTS ==========
+  useEffect(() => {
+    const marketplacePosts = filteredProfilePosts.filter((p: any) => {
+      const meta = p?.meta || {};
+      return p?.type === "marketplace" ||
+             p?.post_type === "product" ||
+             p?.type === 'product' ||
+             !!p?.product_id ||
+             !!meta?.marketplace?.id ||
+             !!meta?.product?.id;
+    });
+    
+    if (marketplacePosts.length > 0) {
+      console.log('📱 Marketplace posts found in profile:', marketplacePosts.length);
+      console.log('📱 Sample marketplace post:', marketplacePosts[0]);
+    }
+  }, [filteredProfilePosts]);
+
   // ========== RENDER ABOUT TAB ==========
   const renderAbout = () => (
     <div className="bg-[#242526] p-6 text-[#E4E6EB] rounded-xl border border-[#3E4042] mx-4 md:mx-0">
@@ -850,7 +877,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         </div>
 
-        {/* Suggested Products Widget */}
+        {/* Suggested Products Widget - EXACTLY as in Feed */}
         {!isCurrentUser && products.length > 0 && currentUser && (
           <SuggestedProductsWidget
             products={products}
@@ -935,7 +962,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           />
         )}
 
-        {/* Posts Feed */}
+        {/* Posts Feed - EXACTLY as in Feed.tsx with all marketplace props */}
         {!isLoadingPosts && filteredProfilePosts.length > 0 ? (
           filteredProfilePosts.map((post: any) => {
             // Check if it's an event post
@@ -968,7 +995,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               );
             }
 
-            // Regular post
+            // Regular post with ALL marketplace props passed exactly as in Feed
             return (
               <Post
                 key={post.id}
@@ -991,7 +1018,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 onVideoClick={onVideoClick}
                 onPlayAudioTrack={onPlayAudioTrack}
                 onHashtagClick={onHashtagClick}
+                // Marketplace props - CRITICAL for product display
                 onViewProductFromPost={onViewProductFromPost}
+                onViewProduct={onViewProduct}
+                getProductData={getProductData || marketplaceContext?.getProductData}
                 onOpenAudio={onOpenAudio}
                 onRSVP={onRSVP}
                 groups={groups}
@@ -999,8 +1029,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 isFollowing={isFollowing}
                 onFollow={onFollow}
                 onOpenReactions={handleOpenReactions}
-                getProductData={getProductData}
-                onViewProduct={onViewProduct}
               />
             );
           })
