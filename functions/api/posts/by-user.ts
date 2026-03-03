@@ -16,7 +16,9 @@ const json = (data: any, status = 200) =>
   });
 
 const toInt = (v: any, fallback = 0) => {
-  const n = Number(v);
+  const s = String(v ?? "").trim();
+  if (!s || s === "undefined" || s === "null") return fallback;
+  const n = Number(s);
   return Number.isFinite(n) ? n : fallback;
 };
 
@@ -51,7 +53,6 @@ const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
     const s = raw.trim();
     if (!s) return [];
     if (s.length > 10000) return [];
-
     if (s.startsWith("[")) {
       try {
         const parsed = JSON.parse(s);
@@ -59,7 +60,6 @@ const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
       } catch {}
       return [];
     }
-
     const one = cleanUrl(s);
     return one ? [one] : [];
   }
@@ -79,7 +79,6 @@ const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
     const s = raw.trim();
     if (!s) return [];
     if (s.length > 10000) return [];
-
     if (s.startsWith("[")) {
       try {
         const parsed = JSON.parse(s);
@@ -133,8 +132,7 @@ export const onRequestOptions: PagesFunction = async () =>
 
 /* ============================================================
    GET /api/by-user  ✅ feeds-compatible (NO groups)
-   ✅ tolerant userId parsing + fallback to viewerId
-   ✅ includes Songs (music) + Podcasts
+   ✅ never errors on missing ids: returns empty feed
 ============================================================ */
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
@@ -145,38 +143,41 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
-    // ✅ accept multiple keys + fallback to viewerId (my profile)
-    const userId =
+    // ✅ accept multiple keys
+    const explicitUserId =
       toInt(url.searchParams.get("userId"), 0) ||
       toInt(url.searchParams.get("id"), 0) ||
       toInt(url.searchParams.get("profileId"), 0) ||
-      toInt(url.searchParams.get("profileUserId"), 0) ||
-      (viewerId > 0 ? viewerId : 0);
+      toInt(url.searchParams.get("profileUserId"), 0);
+
+    // ✅ fallback to viewerId (my profile)
+    const userId = explicitUserId || (viewerId > 0 ? viewerId : 0);
 
     const limit = clamp(toInt(url.searchParams.get("limit"), 30), 1, 50);
 
+    // ✅ IMPORTANT: don't crash UI
     if (!userId) {
       return json(
         {
-          success: false,
-          error:
-            "Missing userId. Pass ?userId=123 (or id/profileId/profileUserId). If viewing your own profile, pass viewerId or ensure userId is set.",
+          success: true,
+          userId: 0,
+          viewerId: viewerId || 0,
+          feed: [],
+          warning:
+            "Missing userId/viewerId in request. Pass ?userId=123 (or viewerId for own profile). Returning empty feed to avoid UI crash.",
         },
-        400
+        200
       );
     }
 
     const perType = clamp(Math.ceil(limit * 1.7), 10, 80);
     const reactionUserId = viewerId || 0;
 
-    // ============================================================
     // POSTS
-    // ============================================================
     const qPosts = `
       SELECT
         'post' AS source,
         'post' AS item_type,
-
         p.id AS id,
         ('post:' || CAST(p.id AS TEXT)) AS feed_key,
         p.created_at AS created_at,
@@ -284,14 +285,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ============================================================
     // REELS
-    // ============================================================
     const qReels = `
       SELECT
         'reel' AS source,
         'reel' AS item_type,
-
         r.id AS id,
         ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
         r.created_at AS created_at,
@@ -374,14 +372,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ============================================================
-    // SONGS ✅ music info (same as feeds.ts)
-    // ============================================================
+    // SONGS (music)
     const qSongs = `
       SELECT
         'song' AS source,
         'song' AS item_type,
-
         s.id AS id,
         ('song:' || CAST(s.id AS TEXT)) AS feed_key,
         s.created_at AS created_at,
@@ -486,14 +481,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ============================================================
-    // PODCASTS (same as feeds.ts)
-    // ============================================================
+    // PODCASTS
     const qPodcasts = `
       SELECT
         'podcast' AS source,
         'podcast' AS item_type,
-
         pc.id AS id,
         ('podcast:' || CAST(pc.id AS TEXT)) AS feed_key,
         pc.created_at AS created_at,
@@ -587,14 +579,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ============================================================
-    // EVENTS (feeds-like)
-    // ============================================================
+    // EVENTS
     const qEvents = `
       SELECT
         'event' AS source,
         'event' AS item_type,
-
         e.id AS id,
         ('event:' || CAST(e.id AS TEXT)) AS feed_key,
         e.created_at AS created_at,
@@ -706,14 +695,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ============================================================
-    // PRODUCTS (feeds-like injection)
-    // ============================================================
+    // PRODUCTS (feed injection)
     const qProductsFeed = `
       SELECT
         'product' AS source,
         'product' AS item_type,
-
         pr.id AS id,
         ('product:' || CAST(pr.id AS TEXT)) AS feed_key,
         pr.created_at AS created_at,
@@ -823,7 +809,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...(Array.isArray(productsFeedRes.results) ? productsFeedRes.results : []),
     ];
 
-    // dedupe by feed_key
     const map = new Map<string, any>();
     for (const it of items) {
       const k = safeStr(it?.feed_key) || `${safeStr(it?.source)}:${Number(it?.id)}`;
