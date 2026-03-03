@@ -1,4 +1,4 @@
-// functions/api/by-user.ts
+// functions/api/posts/by-user.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
@@ -32,6 +32,96 @@ const normCreatedAt = (v: any) => {
 const sortDescByCreatedAt = (a: any, b: any) =>
   normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at));
 
+// --------------------
+// ✅ Multi-media helpers (same as feeds.ts behavior)
+// --------------------
+const cleanUrl = (v: any) => {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  if (s === "null" || s === "undefined") return "";
+  if (s.startsWith("data:")) return ""; // block base64
+  return s;
+};
+
+const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
+  if (Array.isArray(raw)) return raw.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    if (s.length > 10000) return [];
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+        return [];
+      } catch {}
+    }
+    const one = cleanUrl(s);
+    return one ? [one] : [];
+  }
+
+  return [];
+};
+
+const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((x) => String(x ?? "").trim())
+      .filter((x) => x && x !== "null" && x !== "undefined")
+      .slice(0, maxItems);
+  }
+
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    if (s.length > 10000) return [];
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((x) => String(x ?? "").trim())
+            .filter((x) => x && x !== "null" && x !== "undefined")
+            .slice(0, maxItems);
+        }
+        return [];
+      } catch {}
+    }
+    const one = String(s).trim();
+    return one ? [one] : [];
+  }
+
+  return [];
+};
+
+const guessTypeFromUrl = (url: string) => {
+  const u = url.toLowerCase();
+  if (u.includes(".mp4") || u.includes(".webm") || u.includes(".mov")) return "video";
+  if (u.includes(".mp3") || u.includes(".wav") || u.includes(".m4a")) return "audio";
+  return "image";
+};
+
+const normalizeMedia = (row: any) => {
+  const single = cleanUrl(row?.media_url);
+  const urls = parseJsonArrayUrls(row?.media_urls);
+  const outUrls = urls.length ? urls : single ? [single] : [];
+
+  const types = parseJsonArrayStrings(row?.media_types);
+  let outTypes = types.length ? types : [];
+
+  if (outUrls.length && outTypes.length !== outUrls.length) {
+    outTypes = outUrls.map(guessTypeFromUrl);
+  }
+
+  return {
+    media_url: single || null,
+    media_urls: outUrls, // ✅ ALWAYS array
+    media_types: outTypes, // ✅ ALWAYS array
+    images: outUrls, // ✅ alias for UI
+  };
+};
+
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
@@ -47,14 +137,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!userId) return json({ success: false, error: "Missing userId" }, 400);
 
-    // We fetch a bit more per type, then merge/sort and slice
+    // fetch more per type then merge
     const perType = clamp(Math.ceil(limit * 1.5), 10, 60);
 
-    // ---------------- POSTS ----------------
+    // ============================================================
+    // 1) POSTS (match feeds.ts: comments_count + reactions_preview + reactions_by_type)
+    // ============================================================
     const qPosts = `
       SELECT
         'post' AS source,
         'post' AS item_type,
+
         p.id AS id,
         ('post:' || CAST(p.id AS TEXT)) AS feed_key,
         p.created_at AS created_at,
@@ -69,7 +162,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         p.user_id AS user_id,
         COALESCE(u.username,'user') AS username,
-        COALESCE(u.username,'User') AS name,
+        COALESCE(u.name, u.username,'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -106,18 +199,93 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE p.media_types
         END AS media_types,
 
+        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
+
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
         (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
 
-        /* ✅ pick one deterministic “reactor name” (latest reaction) */
         (
-          SELECT COALESCE(ru.username, '')
+          SELECT COALESCE(u2.name, u2.username, '')
           FROM post_reactions pr2
-          LEFT JOIN users ru ON ru.id = pr2.user_id
+          JOIN users u2 ON u2.id = pr2.user_id
           WHERE pr2.post_id = p.id
           ORDER BY pr2.created_at DESC, pr2.id DESC
           LIMIT 1
-        ) AS reactor_name
+        ) AS reactor_name,
+
+        (
+          SELECT json_group_array(
+            json_object(
+              'user_id', x.user_id,
+              'type', x.type,
+              'name', x.name,
+              'profile_image_url', x.profile_image_url
+            )
+          )
+          FROM (
+            SELECT
+              pr3.user_id AS user_id,
+              LOWER(COALESCE(pr3.type,'like')) AS type,
+              COALESCE(u3.name, u3.username, '') AS name,
+              CASE
+                WHEN u3.profile_image_url LIKE 'data:%' THEN NULL
+                WHEN length(u3.profile_image_url) > 300 THEN NULL
+                ELSE u3.profile_image_url
+              END AS profile_image_url
+            FROM post_reactions pr3
+            LEFT JOIN users u3 ON u3.id = pr3.user_id
+            WHERE pr3.post_id = p.id
+            ORDER BY pr3.created_at DESC, pr3.id DESC
+            LIMIT 30
+          ) x
+        ) AS reactions_preview,
+
+        (
+          SELECT json_group_array(
+            json_object('type', t.type, 'count', t.c)
+          )
+          FROM (
+            SELECT LOWER(COALESCE(type,'like')) AS type, COUNT(*) AS c
+            FROM post_reactions
+            WHERE post_id = p.id
+            GROUP BY LOWER(COALESCE(type,'like'))
+            ORDER BY c DESC
+          ) t
+        ) AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
 
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
@@ -126,11 +294,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ---------------- REELS ----------------
+    // ============================================================
+    // 2) REELS (match feeds.ts extra fields)
+    // ============================================================
     const qReels = `
       SELECT
         'reel' AS source,
         'reel' AS item_type,
+
         r.id AS id,
         ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
         r.created_at AS created_at,
@@ -145,7 +316,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         r.user_id AS user_id,
         COALESCE(u.username,'user') AS username,
-        COALESCE(u.username,'User') AS name,
+        COALESCE(u.name, u.username,'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -164,10 +335,48 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS media_urls,
         NULL AS media_types,
 
+        0 AS comments_count,
+
         (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
         (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
 
-        NULL AS reactor_name
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
+
+        r.video_url AS video_url,
+        r.caption AS caption,
+        r.song_name AS song_name,
+        r.audio_url AS audio_url,
+        COALESCE(r.audio_start, 0) AS audio_start,
+        COALESCE(r.audio_end, 0) AS audio_end,
+        r.location AS location,
+        r.sound_key AS sound_key,
+        r.sound_id AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
 
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
@@ -176,11 +385,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ---------------- SONGS ----------------
+    // ============================================================
+    // 3) SONGS (match feeds.ts extra fields)
+    // ============================================================
     const qSongs = `
       SELECT
         'song' AS source,
         'song' AS item_type,
+
         s.id AS id,
         ('song:' || CAST(s.id AS TEXT)) AS feed_key,
         s.created_at AS created_at,
@@ -195,7 +407,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         s.uploader_id AS user_id,
         COALESCE(u.username,'user') AS username,
-        COALESCE(u.username,'User') AS name,
+        COALESCE(u.name, u.username,'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -204,7 +416,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        (COALESCE(s.title,'') || CASE WHEN s.artist_name IS NOT NULL AND s.artist_name!='' THEN ' — '||s.artist_name ELSE '' END) AS content,
+        (
+          COALESCE(s.title,'')
+          || CASE
+               WHEN s.artist_name IS NOT NULL AND s.artist_name != '' THEN ' — ' || s.artist_name
+               ELSE ''
+             END
+        ) AS content,
+
         'public' AS visibility,
         0 AS views,
         0 AS shares,
@@ -224,10 +443,53 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE NULL
         END AS media_types,
 
+        0 AS comments_count,
+
         (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS reactions_count,
         (SELECT 'like' FROM song_likes sl WHERE sl.song_id = s.id AND sl.user_id = ? LIMIT 1) AS my_reaction,
 
-        NULL AS reactor_name
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        s.audio_url AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        s.title AS song_title,
+        s.artist_name AS song_artist_name,
+        s.album_name AS song_album_name,
+        s.cover_image_url AS song_cover_image_url,
+        s.duration_seconds AS song_duration_seconds,
+        s.genre AS song_genre,
+
+        (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS song_likes_count,
+        (
+          (SELECT COUNT(*) FROM song_play_events spe WHERE spe.song_id = s.id)
+          +
+          (SELECT COUNT(*) FROM song_plays sp WHERE sp.song_id = s.id)
+        ) AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
 
       FROM songs s
       LEFT JOIN users u ON u.id = s.uploader_id
@@ -236,11 +498,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ---------------- PODCASTS ----------------
+    // ============================================================
+    // 4) PODCASTS (match feeds.ts style: audio as media_url + cover in media_urls)
+    // ============================================================
     const qPodcasts = `
       SELECT
         'podcast' AS source,
         'podcast' AS item_type,
+
         pc.id AS id,
         ('podcast:' || CAST(pc.id AS TEXT)) AS feed_key,
         pc.created_at AS created_at,
@@ -255,7 +520,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         pc.creator_id AS user_id,
         COALESCE(u.username,'user') AS username,
-        COALESCE(u.username,'User') AS name,
+        COALESCE(u.name, u.username,'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -264,20 +529,68 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        pc.title AS content,
+        COALESCE(pc.title,'Podcast') AS content,
         'public' AS visibility,
         0 AS views,
         0 AS shares,
 
-        pc.cover_url AS media_url,
-        'image' AS media_type,
-        NULL AS media_urls,
-        NULL AS media_types,
+        pc.audio_url AS media_url,
+        'audio/mpeg' AS media_type,
+
+        CASE
+          WHEN pc.cover_url IS NOT NULL AND pc.cover_url != ''
+          THEN json_array(pc.cover_url)
+          ELSE NULL
+        END AS media_urls,
+
+        CASE
+          WHEN pc.cover_url IS NOT NULL AND pc.cover_url != ''
+          THEN json_array('image')
+          ELSE NULL
+        END AS media_types,
+
+        0 AS comments_count,
 
         0 AS reactions_count,
         NULL AS my_reaction,
 
-        NULL AS reactor_name
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        pc.audio_url AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        pc.title AS podcast_title,
+        pc.description AS podcast_description,
+        pc.audio_url AS podcast_audio_url,
+        pc.cover_url AS podcast_cover_url,
+        COALESCE(pc.plays_count, 0) AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
 
       FROM podcasts pc
       LEFT JOIN users u ON u.id = pc.creator_id
@@ -286,11 +599,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ---------------- PRODUCTS ----------------
+    // ============================================================
+    // 5) PRODUCTS (normalize images like feed)
+    // ============================================================
     const qProducts = `
       SELECT
         'product' AS source,
         'product' AS item_type,
+
         pr.id AS id,
         ('product:' || CAST(pr.id AS TEXT)) AS feed_key,
         pr.created_at AS created_at,
@@ -305,7 +621,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         pr.seller_id AS user_id,
         COALESCE(u.username,'seller') AS username,
-        COALESCE(u.username,'Seller') AS name,
+        COALESCE(u.name, u.username,'Seller') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -324,10 +640,48 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         pr.images AS media_urls,
         NULL AS media_types,
 
+        0 AS comments_count,
+
         0 AS reactions_count,
         NULL AS my_reaction,
 
-        NULL AS reactor_name
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        NULL AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
+
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
+
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
+
+        NULL AS type,
+        NULL AS post_type,
+        NULL AS kind,
+        NULL AS meta,
+
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
 
       FROM products pr
       LEFT JOIN users u ON u.id = pr.seller_id
@@ -359,9 +713,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       if (!map.has(k)) map.set(k, it);
     }
 
+    // sort + slice
     const merged = Array.from(map.values()).sort(sortDescByCreatedAt).slice(0, limit);
 
-    return json(merged, 200);
+    // ✅ normalize media (same as feeds.ts)
+    const normalized = merged.map((item: any) => ({
+      ...item,
+      ...normalizeMedia(item),
+      comments_count: Number(item?.comments_count ?? 0),
+    }));
+
+    return json(normalized, 200);
   } catch (e: any) {
     return json({ success: false, error: e?.message || String(e) }, 500);
   }
