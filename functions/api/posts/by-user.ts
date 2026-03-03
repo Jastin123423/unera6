@@ -1,4 +1,4 @@
-// functions/api/by-user.ts
+// functions/api/posts/by-user.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
@@ -8,6 +8,9 @@ const cors = {
   "Access-Control-Allow-Methods": "GET,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
+
+export const onRequestOptions: PagesFunction = async () =>
+  new Response(null, { status: 204, headers: cors });
 
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -23,21 +26,14 @@ const toInt = (v: any, fallback = 0) => {
 };
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
-
 const safeStr = (v: any) => String(v ?? "");
-
-const normCreatedAt = (v: any) => {
-  const s = safeStr(v).trim();
-  return s || "1970-01-01 00:00:00";
-};
-
+const normCreatedAt = (v: any) => (safeStr(v).trim() || "1970-01-01 00:00:00");
 const sortDescByCreatedAt = (a: any, b: any) =>
   normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at));
 
 /* ============================================================
-   ✅ Multi-media helpers (same as feeds.ts)
+   ✅ Media normalize (same idea as feeds.ts)
 ============================================================ */
-
 const cleanUrl = (v: any) => {
   const s = String(v ?? "").trim();
   if (!s) return "";
@@ -91,7 +87,6 @@ const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
       } catch {}
       return [];
     }
-
     const one = String(s).trim();
     return one ? [one] : [];
   }
@@ -108,7 +103,6 @@ const guessTypeFromUrl = (url: string) => {
 
 const normalizeMedia = (row: any) => {
   const single = cleanUrl(row?.media_url);
-
   const urls = parseJsonArrayUrls(row?.media_urls);
   const outUrls = urls.length ? urls : single ? [single] : [];
 
@@ -127,14 +121,6 @@ const normalizeMedia = (row: any) => {
   };
 };
 
-export const onRequestOptions: PagesFunction = async () =>
-  new Response(null, { status: 204, headers: cors });
-
-/* ============================================================
-   GET /api/by-user  ✅ feeds-compatible (NO groups)
-   ✅ never errors on missing ids: returns empty feed
-============================================================ */
-
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
@@ -143,37 +129,32 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
-    // ✅ accept multiple keys
+    // ✅ accept many keys
     const explicitUserId =
       toInt(url.searchParams.get("userId"), 0) ||
       toInt(url.searchParams.get("id"), 0) ||
       toInt(url.searchParams.get("profileId"), 0) ||
       toInt(url.searchParams.get("profileUserId"), 0);
 
-    // ✅ fallback to viewerId (my profile)
+    // ✅ fallback to viewerId if viewing own profile
     const userId = explicitUserId || (viewerId > 0 ? viewerId : 0);
 
-    const limit = clamp(toInt(url.searchParams.get("limit"), 30), 1, 50);
-
-    // ✅ IMPORTANT: don't crash UI
-    if (!userId) {
-      return json(
-        {
-          success: true,
-          userId: 0,
-          viewerId: viewerId || 0,
-          feed: [],
-          warning:
-            "Missing userId/viewerId in request. Pass ?userId=123 (or viewerId for own profile). Returning empty feed to avoid UI crash.",
-        },
-        200
-      );
-    }
-
+    const limit = clamp(toInt(url.searchParams.get("limit"), 50), 1, 50);
     const perType = clamp(Math.ceil(limit * 1.7), 10, 80);
     const reactionUserId = viewerId || 0;
 
-    // POSTS
+    if (!userId) {
+      return json(
+        {
+          success: false,
+          error:
+            "Missing userId. Pass ?userId=123 (or id/profileId/profileUserId). If viewing your own profile, pass viewerId.",
+        },
+        400
+      );
+    }
+
+    // ---------------- POSTS (✅ includes comments_count) ----------------
     const qPosts = `
       SELECT
         'post' AS source,
@@ -285,7 +266,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // REELS
+    // ---------------- REELS ----------------
     const qReels = `
       SELECT
         'reel' AS source,
@@ -372,7 +353,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // SONGS (music)
+    // ---------------- SONGS (music info) ----------------
     const qSongs = `
       SELECT
         'song' AS source,
@@ -481,7 +462,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // PODCASTS
+    // ---------------- PODCASTS ----------------
     const qPodcasts = `
       SELECT
         'podcast' AS source,
@@ -579,7 +560,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // EVENTS
+    // ---------------- EVENTS ----------------
     const qEvents = `
       SELECT
         'event' AS source,
@@ -695,7 +676,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // PRODUCTS (feed injection)
+    // ---------------- PRODUCTS (feed injection) ----------------
     const qProductsFeed = `
       SELECT
         'product' AS source,
@@ -790,15 +771,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    const [postsRes, reelsRes, songsRes, podcastsRes, eventsRes, productsFeedRes] =
-      await Promise.all([
-        env.DB.prepare(qPosts).bind(reactionUserId, userId, perType).all(),
-        env.DB.prepare(qReels).bind(reactionUserId, userId, perType).all(),
-        env.DB.prepare(qSongs).bind(reactionUserId, userId, perType).all(),
-        env.DB.prepare(qPodcasts).bind(userId, perType).all(),
-        env.DB.prepare(qEvents).bind(reactionUserId, reactionUserId, userId, perType).all(),
-        env.DB.prepare(qProductsFeed).bind(userId, perType).all(),
-      ]);
+    const [postsRes, reelsRes, songsRes, podcastsRes, eventsRes, productsRes] = await Promise.all([
+      env.DB.prepare(qPosts).bind(reactionUserId, userId, perType).all(),
+      env.DB.prepare(qReels).bind(reactionUserId, userId, perType).all(),
+      env.DB.prepare(qSongs).bind(reactionUserId, userId, perType).all(),
+      env.DB.prepare(qPodcasts).bind(userId, perType).all(),
+      env.DB.prepare(qEvents).bind(reactionUserId, reactionUserId, userId, perType).all(),
+      env.DB.prepare(qProductsFeed).bind(userId, perType).all(),
+    ]);
 
     const items = [
       ...(Array.isArray(postsRes.results) ? postsRes.results : []),
@@ -806,9 +786,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...(Array.isArray(songsRes.results) ? songsRes.results : []),
       ...(Array.isArray(podcastsRes.results) ? podcastsRes.results : []),
       ...(Array.isArray(eventsRes.results) ? eventsRes.results : []),
-      ...(Array.isArray(productsFeedRes.results) ? productsFeedRes.results : []),
+      ...(Array.isArray(productsRes.results) ? productsRes.results : []),
     ];
 
+    // dedupe by feed_key
     const map = new Map<string, any>();
     for (const it of items) {
       const k = safeStr(it?.feed_key) || `${safeStr(it?.source)}:${Number(it?.id)}`;
@@ -816,7 +797,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     const mergedRaw = Array.from(map.values()).sort(sortDescByCreatedAt).slice(0, limit);
-
     const feed = mergedRaw.map((it: any) => ({
       ...it,
       ...normalizeMedia(it),
