@@ -1,4 +1,3 @@
-//
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -95,10 +94,8 @@ const avatarFrom = (u: any) => {
  * =========================
  */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
-  const token = localStorage.getItem('unera_token');
   const headers: HeadersInit = {
     Accept: 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
 
@@ -714,6 +711,68 @@ const ensureReactionStyles = () => {
 
 /**
  * =========================
+ * ✅ NEW ICONS FOR REACT/DISCUSS UI
+ * =========================
+ */
+
+// ✅ Spark icon (React) - orange/coral gradient like the screenshot
+const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <defs>
+      <linearGradient id="uneraSparkGrad" x1="12" y1="52" x2="52" y2="12">
+        <stop offset="0%" stopColor="#FF7A45" />
+        <stop offset="55%" stopColor="#FF5A6A" />
+        <stop offset="100%" stopColor="#FF8A3D" />
+      </linearGradient>
+      <filter id="uneraSparkGlow" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="2.2" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+
+    {/* soft glow */}
+    <circle cx="32" cy="32" r="18" fill="url(#uneraSparkGrad)" opacity="0.14" />
+
+    {/* spark rays */}
+    <g stroke="url(#uneraSparkGrad)" strokeWidth="5.2" strokeLinecap="round" filter="url(#uneraSparkGlow)">
+      <line x1="32" y1="10" x2="32" y2="18" />
+      <line x1="32" y1="46" x2="32" y2="54" />
+      <line x1="10" y1="32" x2="18" y2="32" />
+      <line x1="46" y1="32" x2="54" y2="32" />
+
+      <line x1="17" y1="17" x2="22.8" y2="22.8" />
+      <line x1="41.2" y1="41.2" x2="47" y2="47" />
+      <line x1="47" y1="17" x2="41.2" y2="22.8" />
+      <line x1="22.8" y1="41.2" x2="17" y2="47" />
+    </g>
+
+    {/* center dot */}
+    <circle cx="32" cy="32" r="6.2" fill="url(#uneraSparkGrad)" />
+  </svg>
+);
+
+// ✅ Discuss icon - same "chat + signal" style, colored with UNERA blue
+const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size = 26, color = "#1877F2" }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <g fill="none" stroke={color} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
+      {/* bubble */}
+      <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
+      {/* dots */}
+      <circle cx="27" cy="30" r="2.2" />
+      <circle cx="33" cy="30" r="2.2" />
+      <circle cx="39" cy="30" r="2.2" />
+      {/* signal arcs */}
+      <path d="M48 18c3 2 5 5 6 9" />
+      <path d="M44 22c2 1 3 3 4 6" />
+    </g>
+  </svg>
+);
+
+/**
+ * =========================
  * ✅ GROUP POST HEADER - FACEBOOK STYLE WITH GROUP + USER OVERLAY
  * =========================
  */
@@ -946,7 +1005,7 @@ export const RichText = ({
 
 /**
  * =========================
- * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON
+ * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON - NOW SHOWS "React" LABEL
  * =========================
  */
 export const ReactionButton: React.FC<{
@@ -1102,20 +1161,26 @@ export const ReactionButton: React.FC<{
       >
         {activeReaction ? (
           <>
+            {/* keep emoji when reacted */}
             <span className="text-[20px] transition-transform duration-300">
               {activeReaction.icon}
             </span>
+
+            {/* ✅ ALWAYS show label "React" (not Like/Love/etc), but keep active color */}
             <span
-              className="text-[17px] font-medium capitalize transition-colors duration-300"
+              className="text-[17px] font-medium transition-colors duration-300"
               style={{ color: activeReaction.color }}
             >
-              {activeReaction.label}
+              React
             </span>
           </>
         ) : (
           <>
-            <i className="far fa-thumbs-up text-[20px] text-[#B0B3B8]"></i>
-            <span className="text-[17px] font-medium text-[#B0B3B8]">Like</span>
+            {/* ✅ Spark-style icon + label React */}
+            <span className="flex items-center justify-center -mt-[1px]">
+              <SparkReactIcon size={26} />
+            </span>
+            <span className="text-[17px] font-medium text-[#B0B3B8]">React</span>
           </>
         )}
       </button>
@@ -1660,14 +1725,16 @@ export const GalleryViewer: React.FC<{
             isGuest={!currentUser}
           />
           <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
             onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}
           >
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
+            <DiscussSignalIcon size={26} color="#1877F2" />
+            <span className="text-[17px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+              Discuss
+            </span>
           </button>
           <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
+            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
             onClick={() => (currentUser ? onShare() : alert("Please login to share posts."))}
           >
             <i className="fas fa-share text-[20px]"></i>
@@ -2890,13 +2957,15 @@ export const EventPost: React.FC<{
               />
             </div>
             
-            {/* Comment Button */}
+            {/* Comment Button - UPDATED TO DISCUSS */}
             <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
               onClick={handleOpenComments}
             >
-              <i className="far fa-comment-alt text-[20px]"></i>
-              <span className="text-[17px] font-medium">Comment</span>
+              <DiscussSignalIcon size={26} color="#1877F2" />
+              <span className="text-[17px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                Discuss
+              </span>
             </button>
             
             {/* Share Button */}
@@ -3286,7 +3355,6 @@ export const Post: React.FC<{
   followLoading?: boolean;
   onEventClick?: (eventId: number) => void;
   onOpenReactions?: (postId: number) => void;
-  onEdit?: (postId: number, content: string) => void;
 }> = ({
   post,
   author,
@@ -3313,7 +3381,6 @@ export const Post: React.FC<{
   followLoading = false,
   onEventClick,
   onOpenReactions,
-  onEdit,
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -3335,8 +3402,8 @@ export const Post: React.FC<{
 
   // ========== EVENT DETECTION ==========
   const isEventPost =
-    p?.item_type === "event" ||
-    String(p?.feed_key || "").startsWith("event:") ||
+    p?.item_type === "event" ||                    // From your API feed response
+    String(p?.feed_key || "").startsWith("event:") || // Feed key pattern
     p?.source === "event" ||
     p?.type === 'event' ||
     p?.post_type === 'event' ||
@@ -3384,10 +3451,6 @@ export const Post: React.FC<{
   // Reactions sheet state
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
 
-  // Comments sheet state
-  const [selectedPostForComments, setSelectedPostForComments] = useState<any>(null);
-  const [showCommentsSheet, setShowCommentsSheet] = useState(false);
-
   // Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
   const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
@@ -3406,14 +3469,14 @@ export const Post: React.FC<{
   // Count from various possible fields
   const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
 
-  // IMPORTANT: never make it null; fallback to preview list if available
+  // ✅ IMPORTANT: never make it null; fallback to preview list if available
   const reactionsArr: any[] = Array.isArray(p.reactions)
     ? p.reactions
     : Array.isArray(p.reactions_preview)
       ? p.reactions_preview
       : [];
 
-  // Optional name provided by backend
+  // ✅ Optional name provided by backend (we'll use this when reactions array is missing)
   const reactorNameFromApi = String(
     p.reactor_name ?? p.reactorName ?? ""
   ).trim();
@@ -3428,19 +3491,9 @@ export const Post: React.FC<{
   const finalReactionCount =
     likesCount > 0 ? likesCount : reactionsArr.length;
   
-  // ========== COMMENT COUNT STATE ==========
   const [commentCount, setCommentCount] = useState(() => {
-    // Try to get from post.comments_count first (API)
-    if (typeof p.comments_count === 'number') {
-      console.log('📊 Post initial comment count from API:', p.id, p.comments_count);
-      return p.comments_count;
-    }
-    // Fallback to comments array length
-    if (Array.isArray(p.comments)) {
-      console.log('📊 Post initial comment count from array:', p.id, p.comments.length);
-      return p.comments.length;
-    }
-    console.log('📊 Post initial comment count default 0:', p.id);
+    if (typeof p.comment_count === 'number') return p.comment_count;
+    if (Array.isArray(p.comments)) return p.comments.length;
     return 0;
   });
 
@@ -3477,7 +3530,7 @@ export const Post: React.FC<{
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
 
-  // STABLE REACTOR NAME WITH BACKEND FALLBACK
+  // ✅ STABLE REACTOR NAME WITH BACKEND FALLBACK - VISIBLE ON ALL DEVICES
   const reactorName = useMemo(() => {
     if (!finalReactionCount) return "";
 
@@ -3491,21 +3544,20 @@ export const Post: React.FC<{
     return reactorNameFromApi;
   }, [postId, finalReactionCount, reactionsArr, users, reactorNameFromApi]);
 
-  // PROFESSIONAL REACTION TEXT
+  // ✅ PROFESSIONAL REACTION TEXT
   const reactionText = useMemo(() => {
     if (!finalReactionCount || !reactorName) return '';
     return formatReactionText(finalReactionCount, reactorName);
   }, [finalReactionCount, reactorName]);
 
   useEffect(() => {
-    const newCommentCount = typeof p.comments_count === 'number' 
-      ? p.comments_count 
+    const newCommentCount = typeof p.comment_count === 'number' 
+      ? p.comment_count 
       : Array.isArray(p.comments) 
         ? p.comments.length 
         : 0;
     
     if (newCommentCount !== commentCount) {
-      console.log('📊 Syncing comment count from props:', p.id, newCommentCount);
       setCommentCount(newCommentCount);
     }
 
@@ -3513,46 +3565,7 @@ export const Post: React.FC<{
     if (newShareCount !== shareCount) {
       setShareCount(newShareCount);
     }
-  }, [p.comments_count, p.comments, p.shares, p.shares_count]);
-
-  // ========== FETCH UPDATED POST DATA ==========
-  const fetchUpdatedPost = useCallback(async () => {
-    try {
-      const viewerId = currentUser?.id ?? 0;
-      const url = `/api/posts/${postId}?viewerId=${viewerId}`;
-      console.log('📡 Fetching updated post:', url);
-      
-      const token = localStorage.getItem('unera_token');
-      const headers: HeadersInit = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      };
-
-      const res = await fetch(url, { headers });
-      const data = await res.json();
-      
-      if (data) {
-        console.log('📥 Received updated post data:', data);
-        
-        // Update comment count
-        if (typeof data.comments_count === 'number') {
-          console.log('📊 Updating comment count from', commentCount, 'to', data.comments_count);
-          setCommentCount(data.comments_count);
-        }
-        
-        // Update share count if available
-        if (typeof data.shares === 'number') {
-          setShareCount(data.shares);
-        }
-        
-        // Update reaction count if needed
-        // You could also update other post data here
-      }
-    } catch (error) {
-      console.error('❌ Failed to fetch updated post:', error);
-    }
-  }, [postId, currentUser?.id, commentCount]);
+  }, [p.comment_count, p.comments, p.shares, p.shares_count, commentCount, shareCount]);
 
   const handleShareComplete = (destination: string, data?: any) => {
     const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
@@ -3581,20 +3594,6 @@ export const Post: React.FC<{
   // Split media by type for rendering
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
-
-  // ========== OPEN COMMENTS WITH REFRESH ==========
-  const handleOpenComments = () => {
-    if (currentUser) {
-      // Pass the fetchUpdatedPost function to CommentsSheet
-      setSelectedPostForComments({
-        ...post,
-        onCommentAdded: fetchUpdatedPost
-      });
-      setShowCommentsSheet(true);
-    } else {
-      alert('Please login to comment');
-    }
-  };
 
   // ========== REGULAR POST RENDERING ==========
   return (
@@ -3810,7 +3809,7 @@ export const Post: React.FC<{
             ) : null
           ) : (
             <>
-              {/* Images Grid */}
+              {/* Images Grid - KEEP AS IS */}
               {!p.background && imageMedia.length > 0 && (
                 <MediaGrid
                   media={imageMedia.map((m) => ({ url: m.url }))}
@@ -4015,9 +4014,9 @@ export const Post: React.FC<{
             <div className="flex gap-4">
               <span
                 className="hover:underline cursor-pointer"
-                onClick={() => handleOpenComments()}
+                onClick={() => onOpenComments(Number(postId))}
               >
-                {formatCount(commentCount)} Comments  {/* 👈 THIS UPDATES NOW! */}
+                {formatCount(commentCount)} Comments
               </span>
               {shareCount > 0 && (
                 <span className="hover:underline">
@@ -4027,7 +4026,7 @@ export const Post: React.FC<{
             </div>
           </div>
 
-          {/* ===== ACTION BUTTONS ===== */}
+          {/* ===== ACTION BUTTONS - UPDATED TO REACT, DISCUSS, SHARE ===== */}
           <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
             <ReactionButton
               currentUserReactions={finalMyReaction}
@@ -4036,11 +4035,13 @@ export const Post: React.FC<{
               isGuest={!currentUser}
             />
             <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => (currentUser ? handleOpenComments() : alert('Login first'))}
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
+              onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
             >
-              <i className="far fa-comment-alt text-[20px]"></i>
-              <span className="text-[17px] font-medium">Comment</span>
+              <DiscussSignalIcon size={26} color="#1877F2" />
+              <span className="text-[17px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                Discuss
+              </span>
             </button>
             <button
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -4083,34 +4084,6 @@ export const Post: React.FC<{
         onOpenComments={onOpenComments}
       />
 
-      {/* Comments Sheet */}
-      {showCommentsSheet && selectedPostForComments && currentUser && (
-        <CommentsSheet
-          post={selectedPostForComments}
-          currentUser={currentUser}
-          users={users}
-          onClose={() => {
-            setShowCommentsSheet(false);
-            setSelectedPostForComments(null);
-          }}
-          onComment={(postId, text) => {
-            // This will be handled by the CommentsSheet itself
-          }}
-          onCommentAdded={selectedPostForComments?.onCommentAdded}
-          getCommentAuthor={(id) => users.find(u => u.id === id)}
-          onProfileClick={onProfileClick}
-          onHashtagClick={onHashtagClick}
-          onFollow={onFollow}
-          checkIsFollowing={(id) => {
-            if (!currentUser) return false;
-            const userFollowers = safeArrayHelper<number>((users.find(u => u.id === id) as any)?.followers || []);
-            return userFollowers.includes(currentUser.id);
-          }}
-          onViewProductFromPost={onViewProductFromPost}
-          onOpenAudio={onOpenAudio}
-        />
-      )}
-
       {/* Gallery Viewer for multi-image swiping - WITH ACTIONS AND REACTIONS SHEET SUPPORT */}
       <GalleryViewer
         isOpen={galleryOpen}
@@ -4124,7 +4097,7 @@ export const Post: React.FC<{
         shareCount={shareCount}
         myReaction={finalMyReaction}
         onReact={(type) => onReact(postId, type)}
-        onOpenComments={() => handleOpenComments()}
+        onOpenComments={() => onOpenComments(postId)}
         onShare={() => setShowShareSheet(true)}
         onOpenReactions={() => {
           if (onOpenReactions) {
@@ -4136,12 +4109,6 @@ export const Post: React.FC<{
       />
     </>
   );
-};
-
-// Helper function for safeArrayHelper
-const safeArrayHelper = <T,>(arr: any): T[] => {
-  if (Array.isArray(arr)) return arr;
-  return [];
 };
 
 /**
@@ -4758,7 +4725,6 @@ export const CommentsSheet: React.FC<{
   users: User[];
   onClose: () => void;
   onComment?: (postId: number, text: string) => void;
-  onCommentAdded?: () => void; // 👈 NEW PROP for refreshing parent
   onLikeComment?: (commentId: number) => void;
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
@@ -4773,7 +4739,6 @@ export const CommentsSheet: React.FC<{
   users, 
   onClose, 
   onComment, 
-  onCommentAdded, // 👈 Added
   onLikeComment, 
   getCommentAuthor, 
   onProfileClick, 
@@ -5070,12 +5035,6 @@ export const CommentsSheet: React.FC<{
           parent_comment_id: replyTo?.id || null,
         }),
       });
-
-      // 👇 CRITICAL: Call onCommentAdded to refresh the post in the feed
-      if (onCommentAdded) {
-        console.log('🔄 Calling onCommentAdded to refresh post:', postId);
-        onCommentAdded();
-      }
 
       fetchCommentsSilently();
     } catch (err: any) {
