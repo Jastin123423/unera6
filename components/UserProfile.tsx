@@ -1,5 +1,5 @@
-// UserProfile.tsx - Complete updated file with proper comment counting
-import React, { useEffect, useState, useRef, useMemo, useContext } from 'react';
+// UserProfile.tsx - Complete updated file with refetch approach
+import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
 import { MarketplaceContext } from '../App';
@@ -375,6 +375,46 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   };
 
+  // ========== FETCH SINGLE POST FROM BACKEND ==========
+  const fetchPostById = useCallback(async (postId: number): Promise<any | null> => {
+    if (!postId) return null;
+    
+    try {
+      const viewerId = currentUser?.id ?? 0;
+      const url = `/api/posts/${postId}?viewerId=${viewerId}`;
+      console.log('📡 Fetching single post:', url);
+      
+      const data = await apiFetch(url);
+      return data;
+    } catch (error) {
+      console.error('❌ Failed to fetch post:', error);
+      return null;
+    }
+  }, [currentUser?.id]);
+
+  // ========== REFRESH A SINGLE POST IN THE PROFILE ==========
+  const refreshPost = useCallback(async (postId: number) => {
+    console.log('🔄 Refreshing post:', postId);
+    const updatedPost = await fetchPostById(postId);
+    
+    if (updatedPost) {
+      setProfilePosts(prev => 
+        prev.map(p => 
+          safePostIdHelper(p) === postId 
+            ? { 
+                ...p, 
+                ...updatedPost,
+                comments_count: updatedPost.comments_count || 0,
+                reactions_count: updatedPost.reactions_count || 0,
+                shares: updatedPost.shares || 0
+              } 
+            : p
+        )
+      );
+      console.log('✅ Post refreshed:', postId);
+    }
+  }, [fetchPostById]);
+
   // ========== FETCH PROFILE POSTS FROM BACKEND ==========
   const fetchProfilePostsFromBackend = async (profileUserId: number): Promise<PostType[]> => {
     if (!profileUserId) return [];
@@ -416,7 +456,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         views: safeNumberHelper(post?.views),
         my_reaction: post?.my_reaction ?? null,
         reactions_count: safeNumberHelper(post?.reactions_count, 0),
-        comments_count: safeNumberHelper(post?.comments_count, 0), // 👈 CRITICAL: Preserve comment count
+        comments_count: safeNumberHelper(post?.comments_count, 0),
         created_at: post?.created_at ?? new Date().toISOString(),
         type: post?.type || post?.post_type || 'post',
         meta: post?.meta || {},
@@ -617,25 +657,18 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     setSelectedPostForShare(null);
   };
 
-  // ========== OPEN COMMENTS SHEET WITH COMMENT COUNT CALLBACK ==========
+  // ========== OPEN COMMENTS SHEET WITH REFRESH FUNCTION ==========
   const handleOpenComments = (postId: number) => {
     const post = profilePosts.find(p => safePostIdHelper(p) === postId);
     if (post) {
-      // 👇 CRITICAL: Create callback to update comment count in main feed
-      const handleCommentSuccess = (id: number, newCount: number) => {
-        console.log('🔄 Updating comment count for post', id, 'to', newCount);
-        setProfilePosts(prev =>
-          prev.map(p => 
-            safePostIdHelper(p) === id 
-              ? { ...p, comments_count: newCount } 
-              : p
-          )
-        );
-      };
+      console.log('📝 Opening comments for post:', postId);
       
       setSelectedPostForComments({
         ...post,
-        onCommentSuccess: handleCommentSuccess  // 👈 Pass callback to CommentsSheet
+        onCommentAdded: () => {
+          console.log('🔄 Comment added, refreshing post:', postId);
+          refreshPost(postId);
+        }
       });
       setShowCommentsSheet(true);
     } else {
@@ -1019,7 +1052,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 onDelete={onDeletePost}
                 onEdit={onEditPost}
                 onViewImage={onViewImage}
-                onOpenComments={handleOpenComments} // 👈 This now handles comment count updates
+                onOpenComments={handleOpenComments} // 👈 Now uses refresh approach
                 onVideoClick={onVideoClick}
                 onPlayAudioTrack={onPlayAudioTrack}
                 onHashtagClick={onHashtagClick}
@@ -1433,7 +1466,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             setSelectedPostForComments(null);
           }}
           onComment={onComment}
-          onCommentSuccess={selectedPostForComments.onCommentSuccess} // 👈 Pass the callback
+          onCommentAdded={selectedPostForComments?.onCommentAdded} // 👈 Pass the refresh function
           getCommentAuthor={getCommentAuthor}
           onProfileClick={onProfileClick}
           onHashtagClick={onHashtagClick}
