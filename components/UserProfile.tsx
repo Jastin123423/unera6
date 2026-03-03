@@ -1,4 +1,4 @@
-// UserProfile.tsx - Complete updated file with marketplace product support matching Feed.tsx
+// UserProfile.tsx - Complete updated file with proper comment counting
 import React, { useEffect, useState, useRef, useMemo, useContext } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
@@ -201,7 +201,7 @@ interface UserProfileProps {
   
   fetchProfilePosts?: (profileUserId: number, viewerId: number | null) => Promise<PostType[]>;
   
-  // Marketplace handlers - EXACTLY as in Feed.tsx
+  // Marketplace handlers
   onViewProduct?: (productId: number) => void;
   onViewProductFromPost?: (productId: number) => void;
   getProductData?: (productId: number) => any;
@@ -271,7 +271,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   isChatsListOpen,
   peopleSuggestions = [],
 }) => {
-  // Get MarketplaceContext - IMPORTANT for product data
+  // Get MarketplaceContext
   const marketplaceContext = useContext(MarketplaceContext);
   
   const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
@@ -384,14 +384,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     try {
       const viewerId = currentUser?.id ?? 0;
       
-      // CORRECT ENDPOINT: /api/posts/by-user?userId=...&viewerId=...
       const url = `/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`;
       console.log('📡 Fetching profile posts from:', url);
       
       const data = await apiFetch(url);
       console.log('📥 Profile posts response:', data);
       
-      // Handle different response formats
       let postsArray = [];
       if (Array.isArray(data)) {
         postsArray = data;
@@ -403,7 +401,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         postsArray = data.results;
       }
       
-      // Normalize posts to ensure consistent format - CRITICAL for marketplace detection
       const normalized = postsArray.map((post: any) => ({
         ...post,
         id: safeNumberHelper(post?.id ?? post?.post_id),
@@ -419,20 +416,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         views: safeNumberHelper(post?.views),
         my_reaction: post?.my_reaction ?? null,
         reactions_count: safeNumberHelper(post?.reactions_count, 0),
-        comments_count: safeNumberHelper(post?.comments_count, 0),
+        comments_count: safeNumberHelper(post?.comments_count, 0), // 👈 CRITICAL: Preserve comment count
         created_at: post?.created_at ?? new Date().toISOString(),
         type: post?.type || post?.post_type || 'post',
-        // Preserve meta data - IMPORTANT for marketplace detection
         meta: post?.meta || {},
-        // Preserve product-specific fields
         product_id: post?.product_id,
         marketplace: post?.marketplace,
-        // Preserve event-specific fields
         event_id: post?.event_id,
         event: post?.event
       }));
 
-      // Sort by latest first
       normalized.sort((a: any, b: any) => 
         String(b.created_at).localeCompare(String(a.created_at))
       );
@@ -454,7 +447,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       if (!user?.id) return;
       
       try {
-        // If fetchProfilePosts prop is provided, use it
         if (fetchProfilePosts) {
           const viewerId = currentUser?.id ?? null;
           const list = await fetchProfilePosts(Number(user.id), viewerId);
@@ -464,7 +456,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           return;
         }
         
-        // Otherwise use our local fetch function with the correct endpoint
         const list = await fetchProfilePostsFromBackend(Number(user.id));
         if (!cancelled) {
           setProfilePosts(list);
@@ -477,7 +468,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     loadProfilePosts();
     
     return () => { cancelled = true; };
-  }, [user?.id, currentUser?.id]); // Remove fetchProfilePosts from deps to avoid infinite loops
+  }, [user?.id, currentUser?.id]);
 
   // ========== MANUAL REFRESH FUNCTION ==========
   const refreshProfilePosts = async () => {
@@ -626,11 +617,26 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     setSelectedPostForShare(null);
   };
 
-  // ========== OPEN COMMENTS SHEET ==========
+  // ========== OPEN COMMENTS SHEET WITH COMMENT COUNT CALLBACK ==========
   const handleOpenComments = (postId: number) => {
     const post = profilePosts.find(p => safePostIdHelper(p) === postId);
     if (post) {
-      setSelectedPostForComments(post);
+      // 👇 CRITICAL: Create callback to update comment count in main feed
+      const handleCommentSuccess = (id: number, newCount: number) => {
+        console.log('🔄 Updating comment count for post', id, 'to', newCount);
+        setProfilePosts(prev =>
+          prev.map(p => 
+            safePostIdHelper(p) === id 
+              ? { ...p, comments_count: newCount } 
+              : p
+          )
+        );
+      };
+      
+      setSelectedPostForComments({
+        ...post,
+        onCommentSuccess: handleCommentSuccess  // 👈 Pass callback to CommentsSheet
+      });
       setShowCommentsSheet(true);
     } else {
       onOpenComments(postId);
@@ -680,7 +686,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     
     if (marketplacePosts.length > 0) {
       console.log('📱 Marketplace posts found in profile:', marketplacePosts.length);
-      console.log('📱 Sample marketplace post:', marketplacePosts[0]);
     }
   }, [filteredProfilePosts]);
 
@@ -877,7 +882,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         </div>
 
-        {/* Suggested Products Widget - EXACTLY as in Feed */}
+        {/* Suggested Products Widget */}
         {!isCurrentUser && products.length > 0 && currentUser && (
           <SuggestedProductsWidget
             products={products}
@@ -962,7 +967,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           />
         )}
 
-        {/* Posts Feed - EXACTLY as in Feed.tsx with all marketplace props */}
+        {/* Posts Feed */}
         {!isLoadingPosts && filteredProfilePosts.length > 0 ? (
           filteredProfilePosts.map((post: any) => {
             // Check if it's an event post
@@ -995,7 +1000,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               );
             }
 
-            // Regular post with ALL marketplace props passed exactly as in Feed
+            // Regular post with ALL marketplace props
             return (
               <Post
                 key={post.id}
@@ -1014,11 +1019,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 onDelete={onDeletePost}
                 onEdit={onEditPost}
                 onViewImage={onViewImage}
-                onOpenComments={handleOpenComments}
+                onOpenComments={handleOpenComments} // 👈 This now handles comment count updates
                 onVideoClick={onVideoClick}
                 onPlayAudioTrack={onPlayAudioTrack}
                 onHashtagClick={onHashtagClick}
-                // Marketplace props - CRITICAL for product display
                 onViewProductFromPost={onViewProductFromPost}
                 onViewProduct={onViewProduct}
                 getProductData={getProductData || marketplaceContext?.getProductData}
@@ -1429,6 +1433,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             setSelectedPostForComments(null);
           }}
           onComment={onComment}
+          onCommentSuccess={selectedPostForComments.onCommentSuccess} // 👈 Pass the callback
           getCommentAuthor={getCommentAuthor}
           onProfileClick={onProfileClick}
           onHashtagClick={onHashtagClick}
