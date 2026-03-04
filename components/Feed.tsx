@@ -895,7 +895,7 @@ const ExpandableRichText: React.FC<{
   users,
   onProfileClick,
   onHashtagClick,
-  maxWords = 25,
+  maxWords = 14, // Changed from 25 to 14 words
   fontSizePx = 21,
   forceExpanded = false,
 }) => {
@@ -3327,6 +3327,23 @@ export const EventFeedCard: React.FC<{
 
 /**
  * =========================
+ * ✅ ACTIVE COMMENTS STATE WITH LOCKED SNAPSHOT
+ * =========================
+ */
+// This should be declared in the parent component that uses the Post component
+// Example:
+// const [activeComments, setActiveComments] = useState<null | { feedKey: string; snapshot: any }>(null);
+//
+// const openComments = (item: any) => {
+//   const feedKey = String(item.feed_key ?? `${item.source}:${item.id}`);
+//   const snapshot = typeof structuredClone === "function" 
+//     ? structuredClone(item) 
+//     : JSON.parse(JSON.stringify(item));
+//   setActiveComments({ feedKey, snapshot });
+// };
+
+/**
+ * =========================
  * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
  * AND PROFESSIONAL REACTION TEXT FORMATTING
  * =========================
@@ -3341,7 +3358,7 @@ export const Post: React.FC<{
   onShare: (id: number, newShareCount: number) => void;
   onDelete?: (id: number) => void;
   onViewImage: (url: string) => void;
-  onOpenComments: (id: number) => void;
+  onOpenComments: (id: number) => void; // This now expects just the postId
   onVideoClick: (p: PostType) => void;
   onPlayAudioTrack?: (t: AudioTrack) => void;
   onHashtagClick?: (tag: string) => void;
@@ -3649,15 +3666,15 @@ export const Post: React.FC<{
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
-  // ========== OPEN COMMENTS WITH LOCKED SNAPSHOT ==========
+  // ========== OPEN COMMENTS WITH PROPER EVENT HANDLING ==========
   const handleOpenComments = (e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
-      e.stopPropagation();
+      e.stopPropagation(); // ✅ CRITICAL: never trigger PostCard onClick
     }
     
     if (currentUser) {
-      // Pass the fetchUpdatedPost function to be called after comment is added
+      // Just pass the postId to the parent - the parent will handle the locked snapshot
       onOpenComments(postId);
     } else {
       alert('Please login to comment');
@@ -3774,7 +3791,7 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== POST CONTENT ===== */}
+          {/* ===== POST CONTENT - Now uses ExpandableRichText with 14 word limit ===== */}
           {p.content && !isMarketplace && (
             <div className="px-3 md:px-4 pb-2">
               <ExpandableRichText
@@ -3782,7 +3799,7 @@ export const Post: React.FC<{
                 users={users}
                 onProfileClick={onProfileClick}
                 onHashtagClick={onHashtagClick}
-                maxWords={25}
+                maxWords={14} // Changed from 25 to 14 words
                 fontSizePx={21}
               />
             </div>
@@ -4104,10 +4121,11 @@ export const Post: React.FC<{
               isGuest={!currentUser}
             />
             <button
+              type="button"
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
               onClick={(e) => {
                 e.preventDefault();
-                e.stopPropagation();
+                e.stopPropagation(); // ✅ CRITICAL: never trigger PostCard onClick
                 handleOpenComments(e);
               }}
             >
@@ -4796,6 +4814,7 @@ const commentsCache = new Map<number, {
  * =========================
  * ✅ UPDATED: FULL POST VIEW WITH THREADED COMMENTS
  * ✅ SHOW ONLY 1 REPLY WHEN COLLAPSED + "VIEW PREVIOUS X REPLIES" BUTTON
+ * ✅ AUTO-SCROLL TO DISCUSSIONS + KEYBOARD HIDDEN UNTIL TAP
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -4834,14 +4853,32 @@ export const CommentsSheet: React.FC<{
   const p: any = post as any;
   const postId = safePostId(p);
   
+  // ========== REFS ==========
+  const discussionsTopRef = useRef<HTMLDivElement>(null); // ✅ Anchor for scrolling to discussions
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  
+  // ========== STATE ==========
   const [text, setText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // ========== AUTO-SCROLL TO DISCUSSIONS ON MOUNT ==========
+  useEffect(() => {
+    // ✅ When opening CommentsSheet from "Discuss", jump directly to the discussions list
+    // without focusing the input (so keyboard stays hidden).
+    const t = setTimeout(() => {
+      discussionsTopRef.current?.scrollIntoView({
+        behavior: "auto",
+        block: "start",
+      });
+    }, 0);
+
+    return () => clearTimeout(t);
+  }, [postId]);
 
   // ========== MARKETPLACE DETECTION ==========
   const meta: any = p?.meta || {};
@@ -5494,6 +5531,9 @@ export const CommentsSheet: React.FC<{
         </div>
 
         <div className="p-4">
+          {/* ✅ Jump target: opening from Discuss lands here, not the post description */}
+          <div ref={discussionsTopRef} />
+
           {replyTo && (
             <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -5601,7 +5641,7 @@ export const CommentsSheet: React.FC<{
               placeholder={replyTo ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...` : "Write a comment..."}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              autoFocus
+              // ✅ autoFocus removed - keyboard won't pop automatically
             />
           </div>
           <button 
