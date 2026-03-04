@@ -975,7 +975,7 @@ const PostActionsMenu: React.FC<{
   );
 };
 
-// ✅ Enhanced Recruitment Post Component - UPDATED with Discuss
+// ✅ Enhanced Recruitment Post Component - UPDATED with Discuss count from API
 const RecruitmentPost: React.FC<{
   post: PostType;
   author: User;
@@ -1039,7 +1039,7 @@ const RecruitmentPost: React.FC<{
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
-  // Initialize reaction states
+  // Initialize reaction and comment states from API
   useEffect(() => {
     setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
     
@@ -1052,6 +1052,7 @@ const RecruitmentPost: React.FC<{
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
     
+    // Get comment count from API - either comment_count field or comments array length
     setCommentCount(
       typeof post.comment_count === 'number' ? post.comment_count :
       Array.isArray(post.comments) ? post.comments.length : 0
@@ -1363,7 +1364,7 @@ const RecruitmentPost: React.FC<{
           </div>
         </div>
 
-        {/* Reaction summary row */}
+        {/* Reaction summary row - UPDATED with Discuss count from API */}
         {localReactionCount > 0 && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <button
@@ -1466,7 +1467,7 @@ const RecruitmentPost: React.FC<{
   );
 };
 
-// Enhanced Buy & Sell Post Component - UPDATED with Discuss
+// Enhanced Buy & Sell Post Component - UPDATED with Discuss count from API
 const BuySellPost: React.FC<{
   post: PostType;
   author: User;
@@ -1523,7 +1524,7 @@ const BuySellPost: React.FC<{
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
-  // Initialize reaction states
+  // Initialize reaction and comment states from API
   useEffect(() => {
     setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
     
@@ -1536,6 +1537,7 @@ const BuySellPost: React.FC<{
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
     
+    // Get comment count from API - either comment_count field or comments array length
     setCommentCount(
       typeof post.comment_count === 'number' ? post.comment_count :
       Array.isArray(post.comments) ? post.comments.length : 0
@@ -1765,7 +1767,7 @@ const BuySellPost: React.FC<{
           </div>
         )}
 
-        {/* Reaction summary row */}
+        {/* Reaction summary row - UPDATED with Discuss count from API */}
         {localReactionCount > 0 && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <button
@@ -1922,7 +1924,7 @@ const BuySellPost: React.FC<{
   );
 };
 
-// Music & Drama Post Component - UPDATED with Discuss
+// Music & Drama Post Component - UPDATED with Discuss count from API
 const MusicDramaPost: React.FC<{
   post: PostType;
   author: User;
@@ -1968,7 +1970,7 @@ const MusicDramaPost: React.FC<{
   const episode = (post as any).episode || '';
   const series = (post as any).series || '';
 
-  // Initialize reaction states
+  // Initialize reaction and comment states from API
   useEffect(() => {
     setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
     
@@ -1981,6 +1983,7 @@ const MusicDramaPost: React.FC<{
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
     
+    // Get comment count from API - either comment_count field or comments array length
     setCommentCount(
       typeof post.comment_count === 'number' ? post.comment_count :
       Array.isArray(post.comments) ? post.comments.length : 0
@@ -2215,7 +2218,7 @@ const MusicDramaPost: React.FC<{
           </div>
         )}
 
-        {/* Reaction summary row */}
+        {/* Reaction summary row - UPDATED with Discuss count from API */}
         {localReactionCount > 0 && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <button
@@ -2363,7 +2366,7 @@ const GroupPost: React.FC<{
   }
 };
 
-// Original GroupPost implementation renamed to GeneralGroupPost - UPDATED with Discuss
+// Original GroupPost implementation renamed to GeneralGroupPost - UPDATED with Discuss count from API
 const GeneralGroupPost: React.FC<any> = ({
   post,
   author,
@@ -2431,6 +2434,12 @@ const GeneralGroupPost: React.FC<any> = ({
     );
     const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
+    
+    // Update comment count from API
+    setCommentCount(
+      typeof p.comment_count === 'number' ? p.comment_count :
+      Array.isArray(p.comments) ? p.comments.length : 0
+    );
   }, [p.id, (p as any).myReaction, (p as any).my_reaction, (p as any).likesCount, (p as any).reactionsCount, (p as any).reactions_count]);
 
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
@@ -2629,7 +2638,7 @@ const GeneralGroupPost: React.FC<any> = ({
           </div>
         )}
 
-        {/* Reaction summary row - Facebook style */}
+        {/* Reaction summary row - Facebook style with Discuss count from API */}
         {finalReactionCount > 0 && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <button
@@ -2886,6 +2895,8 @@ function normalizePost(post: any): PostType {
     groupId: post?.groupId ? Number(post.groupId) : null,
     my_reaction: post?.my_reaction ?? null,
     reactions_count: Number(post?.reactions_count ?? post?.likesCount ?? 0),
+    // Important: Preserve comment_count from API
+    comment_count: Number(post?.comment_count ?? 0),
     
     // Category-specific fields - Map directly from backend
     price: post?.price,
