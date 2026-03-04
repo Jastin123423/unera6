@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
+import { CallScreen } from "./CallScreen";
 
 /* ============================================================
    ✅ Upload function for R2 (returns rich data)
@@ -140,67 +141,6 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2
 const formatDayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-
-// ✅ Message status helpers (supports different backend field names)
-const isMsgSeen = (m: any): boolean => {
-  return !!m?.read_at ||
-    !!m?.seen_at ||
-    m?.is_read === 1 ||
-    m?.is_read === true ||
-    m?.read === 1 ||
-    m?.read === true;
-};
-
-const isMsgDelivered = (m: any): boolean => {
-  return !!m?.delivered_at ||
-    m?.is_delivered === 1 ||
-    m?.is_delivered === true ||
-    m?.delivered === 1 ||
-    m?.delivered === true;
-};
-
-// ✅ WhatsApp-like ticks (FontAwesome)
-const DeliveryTicks: React.FC<{ msg: any; mine: boolean }> = ({ msg, mine }) => {
-  if (!mine) return null;
-
-  const seen = isMsgSeen(msg);
-  const delivered = isMsgDelivered(msg);
-
-  // Seen => double blue
-  if (seen) {
-    return <i className="fas fa-check-double text-[11px]" style={{ color: "#1B74E4" }} />;
-  }
-
-  // Delivered => double grey (optional, only if backend provides it)
-  if (delivered) {
-    return <i className="fas fa-check-double text-[11px]" style={{ color: "#b0b3b8" }} />;
-  }
-
-  // Sent => single grey
-  return <i className="fas fa-check text-[11px]" style={{ color: "#b0b3b8" }} />;
-};
-
-// ✅ Format last seen
-const formatLastSeen = (iso: string) => {
-  const d = iso ? new Date(iso) : null;
-  if (!d || Number.isNaN(d.getTime())) return "Offline";
-  
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffMins < 1) return "Last seen just now";
-  if (diffMins < 60) return `Last seen ${diffMins} min ago`;
-  if (diffHours < 24) return `Last seen ${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-  if (diffDays === 1) return "Last seen yesterday";
-  
-  // Format as "Last seen Mar 04, 10:22"
-  const day = d.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
-  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  return `Last seen ${day}, ${time}`;
-};
 
 /* ============================================================
    ✅ REAL DOWNLOAD (forces file download, not just open)
@@ -767,9 +707,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
 
-  // ✅ Presence/Online status
-  const [recipientOnline, setRecipientOnline] = useState(false);
-  const [recipientLastSeen, setRecipientLastSeen] = useState<string>("");
+  // ==============================
+  // CALL STATES
+  // ==============================
+  const [callOpen, setCallOpen] = useState(false);
+  const [callMode, setCallMode] = useState<"voice" | "video">("voice");
+  const [callPhase, setCallPhase] = useState<
+    "outgoing" | "incoming" | "connecting" | "active" | "ended"
+  >("ended");
+
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [speakerOn, setSpeakerOn] = useState(true);
 
   // Voice recording
   const [recording, setRecording] = useState(false);
@@ -897,30 +849,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     }
   }, [recipient?.id, markRead, currentUserId, mergeByIdPreserveRefs]);
 
-  // ✅ Heartbeat for current user presence
-  const heartbeat = useCallback(async () => {
-    if (!currentUserId) return;
-    try {
-      await apiFetch(
-        "/api/presence/heartbeat",
-        { method: "POST", body: JSON.stringify({ user_id: currentUserId }) },
-        currentUserId
-      );
-    } catch {}
-  }, [currentUserId]);
-
-  // ✅ Fetch recipient presence status
-  const fetchRecipientPresence = useCallback(async () => {
-    const rid = safeNum((recipient as any)?.id);
-    if (!rid || !currentUserId) return;
-
-    try {
-      const s = await apiFetch(`/api/presence/status?user_id=${rid}`, {}, currentUserId);
-      setRecipientOnline(!!s?.online);
-      setRecipientLastSeen(s?.last_seen_at || "");
-    } catch {}
-  }, [recipient, currentUserId]);
-
   useEffect(() => {
     fetchHistory();
 
@@ -934,38 +862,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       pollRef.current = null;
     };
   }, [recipient?.id, currentUserId, fetchHistory]);
-
-  // ✅ Presence timers
-  useEffect(() => {
-    // Immediately ping + fetch
-    heartbeat();
-    fetchRecipientPresence();
-
-    // Heartbeat every 15s
-    const hb = window.setInterval(() => {
-      if (document.visibilityState === "visible") heartbeat();
-    }, 15000);
-
-    // Refresh recipient presence every 8s
-    const pr = window.setInterval(() => {
-      if (document.visibilityState === "visible") fetchRecipientPresence();
-    }, 8000);
-
-    // Also ping when tab becomes visible
-    const onVis = () => {
-      if (document.visibilityState === "visible") {
-        heartbeat();
-        fetchRecipientPresence();
-      }
-    };
-    document.addEventListener("visibilitychange", onVis);
-
-    return () => {
-      window.clearInterval(hb);
-      window.clearInterval(pr);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [heartbeat, fetchRecipientPresence]);
 
   // Cleanup voice recording on unmount
   useEffect(() => {
@@ -1203,6 +1099,51 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     } catch {}
   };
 
+  // ==============================
+  // CALL FUNCTIONS
+  // ==============================
+  const startVoiceCall = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setLocalStream(stream);
+
+      setCallMode("voice");
+      setCallPhase("connecting");
+      setCallOpen(true);
+    } catch (err) {
+      console.error("Voice call failed", err);
+    }
+  };
+
+  const startVideoCall = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+
+      setLocalStream(stream);
+
+      setCallMode("video");
+      setCallPhase("connecting");
+      setCallOpen(true);
+    } catch (err) {
+      console.error("Video call failed", err);
+    }
+  };
+
+  const endCall = () => {
+    setCallPhase("ended");
+    setCallOpen(false);
+
+    try {
+      localStream?.getTracks().forEach((t) => t.stop());
+    } catch {}
+
+    setLocalStream(null);
+    setRemoteStream(null);
+  };
+
   /* ============================================================
      ✅ Sending
   ============================================================ */
@@ -1410,25 +1351,26 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             <Avatar src={(recipient as any)?.profile_image_url} name={(recipient as any)?.name} size={36} />
             <div className="min-w-0">
               <div className="text-[15px] font-semibold text-[#e4e6eb] truncate">{safeStr((recipient as any)?.name)}</div>
-              <div className="text-[12px] text-[#b0b3b8] truncate flex items-center">
-                {recipientOnline ? (
-                  <>
-                    Online
-                    <span className="inline-block w-2 h-2 rounded-full bg-green-500 ml-2 animate-pulse" />
-                  </>
-                ) : (
-                  recipientLastSeen ? formatLastSeen(recipientLastSeen) : "Offline"
-                )}
-              </div>
+              <div className="text-[12px] text-[#b0b3b8] truncate">Active now</div>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-1">
-          <button type="button" className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Call">
+          <button
+            type="button"
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
+            aria-label="Call"
+            onClick={startVoiceCall}
+          >
             <i className="fas fa-phone text-[18px] text-[#1B74E4]" />
           </button>
-          <button type="button" className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Video">
+          <button
+            type="button"
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
+            aria-label="Video"
+            onClick={startVideoCall}
+          >
             <i className="fas fa-video text-[18px] text-[#1B74E4]" />
           </button>
           <button type="button" className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]" aria-label="Info">
@@ -1599,16 +1541,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
                     {text && <div className="whitespace-pre-wrap msgText">{text}</div>}
 
-                    {/* ✅ Updated footer with WhatsApp ticks */}
-                    {d && (
+                    {(d || edited) && (
                       <div className="flex justify-end items-center gap-1 mt-1">
                         <span className={`text-[10px] ${mine ? "text-white/70" : "text-[#b0b3b8]"}`}>
-                          {formatTime(d)}
-                          {edited ? <span className="ml-1 opacity-80">(edited)</span> : null}
+                          {d ? formatTime(d) : ""}
+                          {edited && <span className="ml-1">✓</span>}
                         </span>
-
-                        {/* ✅ WhatsApp style ticks */}
-                        <DeliveryTicks msg={msg} mine={mine} />
                       </div>
                     )}
                   </div>
@@ -2068,6 +2006,24 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           </div>
         </div>
       )}
+
+      {/* Call Screen */}
+      <CallScreen
+        open={callOpen}
+        mode={callMode}
+        phase={callPhase}
+        peerName={recipient?.name || "User"}
+        peerAvatar={recipient?.profile_image_url || null}
+        localStream={localStream}
+        remoteStream={remoteStream}
+        micOn={micOn}
+        camOn={camOn}
+        speakerOn={speakerOn}
+        onHangup={endCall}
+        onToggleMic={() => setMicOn((v) => !v)}
+        onToggleCam={() => setCamOn((v) => !v)}
+        onToggleSpeaker={() => setSpeakerOn((v) => !v)}
+      />
     </div>
   );
 };
