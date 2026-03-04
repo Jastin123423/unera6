@@ -15,9 +15,6 @@ database_id = "9fc679a8-c734-4322-a205-ae91a5a318dd"
 binding = "R2"
 bucket_name = "unera3"
 
-[[durable_objects.bindings]]
-name = "CALL_ROOM"
-class_name = "CallRoom"
-script_name = "unera6-calls"
+
 
 
