@@ -188,4 +188,5 @@ export const CallScreen: React.FC<CallScreenProps> = ({
     </div>
   );
 };
+
 export default ChatWindow;
