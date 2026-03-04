@@ -2,6 +2,27 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Notification } from '../types';
 import { NotificationDropdown } from './Notifications';
 
+/* ============================================================
+   ✅ GLOBAL ONLINE PRESENCE (runs while UNERA is open)
+============================================================ */
+const sendHeartbeat = async (userId: number) => {
+  const token = localStorage.getItem("unera_token");
+
+  try {
+    await fetch("/api/presence/heartbeat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "x-user-id": String(userId),
+      },
+      body: JSON.stringify({ user_id: userId }),
+    });
+  } catch {
+    // ignore errors - heartbeat is best effort
+  }
+};
+
 interface MenuOverlayProps {
   currentUser: User | null;
   onClose: () => void;
@@ -165,6 +186,43 @@ export const Header: React.FC<HeaderProps> = ({
   const notifRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
+
+  // ✅ Global presence heartbeat
+  const presenceTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    const userId = Number(localStorage.getItem("unera_user_id") || 0);
+    if (!userId || !currentUser) return;
+
+    const heartbeat = () => sendHeartbeat(userId);
+
+    // Send immediately when app loads
+    heartbeat();
+
+    // Keep user online every 15s
+    presenceTimer.current = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        heartbeat();
+      }
+    }, 15000);
+
+    // Send heartbeat when tab becomes active
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        heartbeat();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      if (presenceTimer.current) {
+        clearInterval(presenceTimer.current);
+        presenceTimer.current = null;
+      }
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [currentUser]); // Re-run if currentUser changes
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
