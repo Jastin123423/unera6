@@ -975,7 +975,7 @@ const PostActionsMenu: React.FC<{
   );
 };
 
-// ✅ Enhanced Recruitment Post Component - UPDATED with proper comment counting
+// ✅ Enhanced Recruitment Post Component - UPDATED with Discuss count from API
 const RecruitmentPost: React.FC<{
   post: PostType;
   author: User;
@@ -991,22 +991,14 @@ const RecruitmentPost: React.FC<{
   onDeletePost?: (postId: number) => Promise<any>;
   onReportPost?: (postId: number) => Promise<any>;
   onApply?: (postId: number, applicationData?: any) => Promise<any>;
-  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>; // Add this
 }> = (props) => {
-  const { post, author, currentUser, onApply, onProfileClick, users, onComment } = props;
+  const { post, author, currentUser, onApply, onProfileClick, users } = props;
   const [applied, setApplied] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [localReactionCount, setLocalReactionCount] = useState(0);
   const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>();
-  
-  // THIS IS THE KEY - commentCount state that will be used by BOTH post card AND GalleryViewer
-  const [commentCount, setCommentCount] = useState(() => {
-    if (typeof post.comment_count === 'number') return post.comment_count;
-    if (Array.isArray(post.comments)) return post.comments.length;
-    return 0;
-  });
-  
+  const [commentCount, setCommentCount] = useState(0);
   const [shareCount, setShareCount] = useState(0);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
@@ -1047,7 +1039,7 @@ const RecruitmentPost: React.FC<{
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
-  // Initialize reaction states
+  // Initialize reaction and comment states from API
   useEffect(() => {
     setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
     
@@ -1060,7 +1052,7 @@ const RecruitmentPost: React.FC<{
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
     
-    // Update commentCount from props
+    // Get comment count from API - either comment_count field or comments array length
     setCommentCount(
       typeof post.comment_count === 'number' ? post.comment_count :
       Array.isArray(post.comments) ? post.comments.length : 0
@@ -1141,19 +1133,6 @@ const RecruitmentPost: React.FC<{
     setShowShareSheet(false);
   };
 
-  // ✅ NEW: Handle comment added - updates the comment count
-  const handleCommentAdded = async (postId: number, text: string, parentCommentId?: number | null) => {
-    if (!onComment) return;
-    
-    try {
-      await onComment(postId, text, parentCommentId);
-      // Increment the comment count - THIS IS CRITICAL
-      setCommentCount(prev => prev + 1);
-    } catch (error) {
-      console.error('Failed to add comment:', error);
-    }
-  };
-
   const openGallery = (urls: string[], index: number) => {
     setGalleryUrls(urls);
     setGalleryIndex(index);
@@ -1188,11 +1167,6 @@ const RecruitmentPost: React.FC<{
       month: 'short',
       day: 'numeric'
     });
-  };
-
-  // Handle opening comments with the updated comment handler
-  const handleOpenComments = () => {
-    props.onOpenComments(post.id);
   };
 
   return (
@@ -1390,8 +1364,8 @@ const RecruitmentPost: React.FC<{
           </div>
         </div>
 
-        {/* Reaction summary row - USING commentCount STATE */}
-        {(localReactionCount > 0 || commentCount > 0) && (
+        {/* Reaction summary row - UPDATED with Discuss count from API */}
+        {localReactionCount > 0 && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <button
               onClick={(e) => {
@@ -1400,31 +1374,26 @@ const RecruitmentPost: React.FC<{
               }}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              {localReactionCount > 0 && (
-                <>
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(localReactionCount)}
+              <div className="flex -space-x-2">
+                {emojiList.slice(0, 2).map((e, i) => (
+                  <span
+                    key={i}
+                    className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                    style={{ zIndex: 10 - i }}
+                  >
+                    {e}
                   </span>
-                </>
-              )}
+                ))}
+              </div>
+              <span className="text-[#E4E6EB] font-bold text-[16px]">
+                {formatCount(localReactionCount)}
+              </span>
             </button>
             
             <div className="flex gap-4">
-              {/* THIS NOW USES THE SAME commentCount STATE AS GALLERYVIEWER */}
               <span
                 className="hover:underline cursor-pointer"
-                onClick={handleOpenComments}
+                onClick={() => props.onOpenComments(post.id)}
               >
                 {formatCount(commentCount)} Discuss
               </span>
@@ -1447,7 +1416,7 @@ const RecruitmentPost: React.FC<{
           />
           <button
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => currentUser ? handleOpenComments() : alert('Login first')}
+            onClick={() => currentUser ? props.onOpenComments(post.id) : alert('Login first')}
           >
             <DiscussSignalIcon size={26} color="#1877F2" />
             <span className="text-[17px] font-medium">Discuss</span>
@@ -1477,7 +1446,7 @@ const RecruitmentPost: React.FC<{
         onShareComplete={handleShareComplete}
       />
 
-      {/* Gallery Viewer - RECEIVES commentCount STATE */}
+      {/* Gallery Viewer */}
       <GalleryViewer
         isOpen={galleryOpen}
         urls={galleryUrls}
@@ -1486,11 +1455,11 @@ const RecruitmentPost: React.FC<{
         postId={post.id}
         currentUser={currentUser}
         reactionCount={localReactionCount}
-        commentCount={commentCount}  // ← USING THE SAME STATE
+        commentCount={commentCount}
         shareCount={shareCount}
         myReaction={localMyReaction}
         onReact={handleLikeClick}
-        onOpenComments={handleOpenComments}
+        onOpenComments={() => props.onOpenComments(post.id)}
         onShare={() => setShowShareSheet(true)}
         onOpenReactions={() => setShowReactionsSheet(true)}
       />
@@ -1498,7 +1467,7 @@ const RecruitmentPost: React.FC<{
   );
 };
 
-// Enhanced Buy & Sell Post Component - UPDATED with proper comment counting
+// Enhanced Buy & Sell Post Component - UPDATED with Discuss count from API
 const BuySellPost: React.FC<{
   post: PostType;
   author: User;
@@ -1515,23 +1484,15 @@ const BuySellPost: React.FC<{
   onReportPost?: (postId: number) => Promise<any>;
   onMessageSeller?: (userId: number) => void;
   onMakeOffer?: (postId: number, amount: number) => Promise<any>;
-  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>; // Add this
 }> = (props) => {
-  const { post, author, currentUser, onMessageSeller, onMakeOffer, onProfileClick, users, onComment } = props;
+  const { post, author, currentUser, onMessageSeller, onMakeOffer, onProfileClick, users } = props;
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [offerAmount, setOfferAmount] = useState('');
   const [offerSent, setOfferSent] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [localReactionCount, setLocalReactionCount] = useState(0);
   const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>();
-  
-  // THIS IS THE KEY - commentCount state that will be used by BOTH post card AND GalleryViewer
-  const [commentCount, setCommentCount] = useState(() => {
-    if (typeof post.comment_count === 'number') return post.comment_count;
-    if (Array.isArray(post.comments)) return post.comments.length;
-    return 0;
-  });
-  
+  const [commentCount, setCommentCount] = useState(0);
   const [shareCount, setShareCount] = useState(0);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
@@ -1563,7 +1524,7 @@ const BuySellPost: React.FC<{
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
-  // Initialize reaction states
+  // Initialize reaction and comment states from API
   useEffect(() => {
     setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
     
@@ -1576,7 +1537,7 @@ const BuySellPost: React.FC<{
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
     
-    // Update commentCount from props
+    // Get comment count from API - either comment_count field or comments array length
     setCommentCount(
       typeof post.comment_count === 'number' ? post.comment_count :
       Array.isArray(post.comments) ? post.comments.length : 0
@@ -1658,19 +1619,6 @@ const BuySellPost: React.FC<{
     setShowShareSheet(false);
   };
 
-  // ✅ NEW: Handle comment added - updates the comment count
-  const handleCommentAdded = async (postId: number, text: string, parentCommentId?: number | null) => {
-    if (!onComment) return;
-    
-    try {
-      await onComment(postId, text, parentCommentId);
-      // Increment the comment count - THIS IS CRITICAL
-      setCommentCount(prev => prev + 1);
-    } catch (error) {
-      console.error('Failed to add comment:', error);
-    }
-  };
-
   const openGallery = (urls: string[], index: number) => {
     setGalleryUrls(urls);
     setGalleryIndex(index);
@@ -1702,11 +1650,6 @@ const BuySellPost: React.FC<{
     available: 'bg-[#45BD62]',
     pending: 'bg-[#F7B928]',
     sold: 'bg-[#F3425F]'
-  };
-
-  // Handle opening comments
-  const handleOpenComments = () => {
-    props.onOpenComments(post.id);
   };
 
   return (
@@ -1824,8 +1767,8 @@ const BuySellPost: React.FC<{
           </div>
         )}
 
-        {/* Reaction summary row - USING commentCount STATE */}
-        {(localReactionCount > 0 || commentCount > 0) && (
+        {/* Reaction summary row - UPDATED with Discuss count from API */}
+        {localReactionCount > 0 && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <button
               onClick={(e) => {
@@ -1834,31 +1777,26 @@ const BuySellPost: React.FC<{
               }}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              {localReactionCount > 0 && (
-                <>
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(localReactionCount)}
+              <div className="flex -space-x-2">
+                {emojiList.slice(0, 2).map((e, i) => (
+                  <span
+                    key={i}
+                    className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                    style={{ zIndex: 10 - i }}
+                  >
+                    {e}
                   </span>
-                </>
-              )}
+                ))}
+              </div>
+              <span className="text-[#E4E6EB] font-bold text-[16px]">
+                {formatCount(localReactionCount)}
+              </span>
             </button>
             
             <div className="flex gap-4">
-              {/* THIS NOW USES THE SAME commentCount STATE AS GALLERYVIEWER */}
               <span
                 className="hover:underline cursor-pointer"
-                onClick={handleOpenComments}
+                onClick={() => props.onOpenComments(post.id)}
               >
                 {formatCount(commentCount)} Discuss
               </span>
@@ -1881,7 +1819,7 @@ const BuySellPost: React.FC<{
           />
           <button
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => currentUser ? handleOpenComments() : alert('Login first')}
+            onClick={() => currentUser ? props.onOpenComments(post.id) : alert('Login first')}
           >
             <DiscussSignalIcon size={26} color="#1877F2" />
             <span className="text-[17px] font-medium">Discuss</span>
@@ -1965,7 +1903,7 @@ const BuySellPost: React.FC<{
         onShareComplete={handleShareComplete}
       />
 
-      {/* Gallery Viewer - RECEIVES commentCount STATE */}
+      {/* Gallery Viewer */}
       <GalleryViewer
         isOpen={galleryOpen}
         urls={galleryUrls}
@@ -1974,11 +1912,11 @@ const BuySellPost: React.FC<{
         postId={post.id}
         currentUser={currentUser}
         reactionCount={localReactionCount}
-        commentCount={commentCount}  // ← USING THE SAME STATE
+        commentCount={commentCount}
         shareCount={shareCount}
         myReaction={localMyReaction}
         onReact={handleLikeClick}
-        onOpenComments={handleOpenComments}
+        onOpenComments={() => props.onOpenComments(post.id)}
         onShare={() => setShowShareSheet(true)}
         onOpenReactions={() => setShowReactionsSheet(true)}
       />
@@ -1986,7 +1924,7 @@ const BuySellPost: React.FC<{
   );
 };
 
-// Music & Drama Post Component - UPDATED with proper comment counting
+// Music & Drama Post Component - UPDATED with Discuss count from API
 const MusicDramaPost: React.FC<{
   post: PostType;
   author: User;
@@ -2002,22 +1940,14 @@ const MusicDramaPost: React.FC<{
   onDeletePost?: (postId: number) => Promise<any>;
   onReportPost?: (postId: number) => Promise<any>;
   onPlayVideo?: (postId: number, url: string) => void;
-  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>; // Add this
 }> = (props) => {
-  const { post, author, onPlayVideo, onProfileClick, users, currentUser, onComment } = props;
+  const { post, author, onPlayVideo, onProfileClick, users, currentUser } = props;
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [localReactionCount, setLocalReactionCount] = useState(0);
   const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>();
-  
-  // THIS IS THE KEY - commentCount state that will be used by BOTH post card AND GalleryViewer
-  const [commentCount, setCommentCount] = useState(() => {
-    if (typeof post.comment_count === 'number') return post.comment_count;
-    if (Array.isArray(post.comments)) return post.comments.length;
-    return 0;
-  });
-  
+  const [commentCount, setCommentCount] = useState(0);
   const [shareCount, setShareCount] = useState(0);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
@@ -2040,7 +1970,7 @@ const MusicDramaPost: React.FC<{
   const episode = (post as any).episode || '';
   const series = (post as any).series || '';
 
-  // Initialize reaction states
+  // Initialize reaction and comment states from API
   useEffect(() => {
     setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
     
@@ -2053,7 +1983,7 @@ const MusicDramaPost: React.FC<{
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
     
-    // Update commentCount from props
+    // Get comment count from API - either comment_count field or comments array length
     setCommentCount(
       typeof post.comment_count === 'number' ? post.comment_count :
       Array.isArray(post.comments) ? post.comments.length : 0
@@ -2119,19 +2049,6 @@ const MusicDramaPost: React.FC<{
     setShowShareSheet(false);
   };
 
-  // ✅ NEW: Handle comment added - updates the comment count
-  const handleCommentAdded = async (postId: number, text: string, parentCommentId?: number | null) => {
-    if (!onComment) return;
-    
-    try {
-      await onComment(postId, text, parentCommentId);
-      // Increment the comment count - THIS IS CRITICAL
-      setCommentCount(prev => prev + 1);
-    } catch (error) {
-      console.error('Failed to add comment:', error);
-    }
-  };
-
   const openGallery = (urls: string[], index: number) => {
     setGalleryUrls(urls);
     setGalleryIndex(index);
@@ -2158,11 +2075,6 @@ const MusicDramaPost: React.FC<{
   };
 
   const createdAtLabel = formatRelativeTime(post.created_at || post.createdAt || '');
-
-  // Handle opening comments
-  const handleOpenComments = () => {
-    props.onOpenComments(post.id);
-  };
 
   return (
     <>
@@ -2306,8 +2218,8 @@ const MusicDramaPost: React.FC<{
           </div>
         )}
 
-        {/* Reaction summary row - USING commentCount STATE */}
-        {(localReactionCount > 0 || commentCount > 0) && (
+        {/* Reaction summary row - UPDATED with Discuss count from API */}
+        {localReactionCount > 0 && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <button
               onClick={(e) => {
@@ -2316,31 +2228,26 @@ const MusicDramaPost: React.FC<{
               }}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              {localReactionCount > 0 && (
-                <>
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(localReactionCount)}
+              <div className="flex -space-x-2">
+                {emojiList.slice(0, 2).map((e, i) => (
+                  <span
+                    key={i}
+                    className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                    style={{ zIndex: 10 - i }}
+                  >
+                    {e}
                   </span>
-                </>
-              )}
+                ))}
+              </div>
+              <span className="text-[#E4E6EB] font-bold text-[16px]">
+                {formatCount(localReactionCount)}
+              </span>
             </button>
             
             <div className="flex gap-4">
-              {/* THIS NOW USES THE SAME commentCount STATE AS GALLERYVIEWER */}
               <span
                 className="hover:underline cursor-pointer"
-                onClick={handleOpenComments}
+                onClick={() => props.onOpenComments(post.id)}
               >
                 {formatCount(commentCount)} Discuss
               </span>
@@ -2363,7 +2270,7 @@ const MusicDramaPost: React.FC<{
           />
           <button
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => currentUser ? handleOpenComments() : alert('Login first')}
+            onClick={() => currentUser ? props.onOpenComments(post.id) : alert('Login first')}
           >
             <DiscussSignalIcon size={26} color="#1877F2" />
             <span className="text-[17px] font-medium">Discuss</span>
@@ -2393,7 +2300,7 @@ const MusicDramaPost: React.FC<{
         onShareComplete={handleShareComplete}
       />
 
-      {/* Gallery Viewer - RECEIVES commentCount STATE */}
+      {/* Gallery Viewer */}
       <GalleryViewer
         isOpen={galleryOpen}
         urls={galleryUrls}
@@ -2402,11 +2309,11 @@ const MusicDramaPost: React.FC<{
         postId={post.id}
         currentUser={currentUser}
         reactionCount={localReactionCount}
-        commentCount={commentCount}  // ← USING THE SAME STATE
+        commentCount={commentCount}
         shareCount={shareCount}
         myReaction={localMyReaction}
         onReact={handleLikeClick}
-        onOpenComments={handleOpenComments}
+        onOpenComments={() => props.onOpenComments(post.id)}
         onShare={() => setShowShareSheet(true)}
         onOpenReactions={() => setShowReactionsSheet(true)}
       />
@@ -2437,7 +2344,6 @@ const GroupPost: React.FC<{
   onHashtagClick?: (tag: string) => void;
   onFollow?: (userId: number) => Promise<any>;
   checkIsFollowing?: (userId: number) => boolean;
-  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>;
   // Category-specific handlers
   onApply?: (postId: number, applicationData?: any) => Promise<any>;
   onMessageSeller?: (userId: number) => void;
@@ -2460,7 +2366,7 @@ const GroupPost: React.FC<{
   }
 };
 
-// Original GroupPost implementation renamed to GeneralGroupPost - UPDATED with proper comment counting
+// Original GroupPost implementation renamed to GeneralGroupPost - UPDATED with Discuss count from API
 const GeneralGroupPost: React.FC<any> = ({
   post,
   author,
@@ -2480,14 +2386,11 @@ const GeneralGroupPost: React.FC<any> = ({
   onHashtagClick,
   onFollow,
   checkIsFollowing,
-  onComment, // Make sure this is passed
 }) => {
   const p: any = post as any;
   const a: any = author as any;
 
   const [showActionsMenu, setShowActionsMenu] = useState(false);
-  
-  // THIS IS THE KEY - commentCount state that will be used by BOTH post card AND GalleryViewer
   const [commentCount, setCommentCount] = useState(() => {
     if (typeof p.comment_count === 'number') return p.comment_count;
     if (Array.isArray(p.comments)) return p.comments.length;
@@ -2532,7 +2435,7 @@ const GeneralGroupPost: React.FC<any> = ({
     const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
     
-    // Update commentCount from props
+    // Update comment count from API
     setCommentCount(
       typeof p.comment_count === 'number' ? p.comment_count :
       Array.isArray(p.comments) ? p.comments.length : 0
@@ -2616,19 +2519,6 @@ const GeneralGroupPost: React.FC<any> = ({
     setShowShareSheet(false);
   };
 
-  // ✅ NEW: Handle comment added - updates the comment count
-  const handleCommentAdded = async (postId: number, text: string, parentCommentId?: number | null) => {
-    if (!onComment) return;
-    
-    try {
-      await onComment(postId, text, parentCommentId);
-      // Increment the comment count - THIS IS CRITICAL
-      setCommentCount(prev => prev + 1);
-    } catch (error) {
-      console.error('Failed to add comment:', error);
-    }
-  };
-
   const handleSeeMore = () => {
     onOpenComments(postId);
   };
@@ -2637,11 +2527,6 @@ const GeneralGroupPost: React.FC<any> = ({
     setGalleryUrls(urls);
     setGalleryIndex(index);
     setGalleryOpen(true);
-  };
-
-  // Handle opening comments
-  const handleOpenComments = () => {
-    onOpenComments(postId);
   };
 
   return (
@@ -2753,8 +2638,8 @@ const GeneralGroupPost: React.FC<any> = ({
           </div>
         )}
 
-        {/* Reaction summary row - USING commentCount STATE */}
-        {(finalReactionCount > 0 || commentCount > 0) && (
+        {/* Reaction summary row - Facebook style with Discuss count from API */}
+        {finalReactionCount > 0 && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <button
               onClick={(e) => {
@@ -2763,31 +2648,26 @@ const GeneralGroupPost: React.FC<any> = ({
               }}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              {finalReactionCount > 0 && (
-                <>
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(finalReactionCount)}
+              <div className="flex -space-x-2">
+                {emojiList.slice(0, 2).map((e, i) => (
+                  <span
+                    key={i}
+                    className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                    style={{ zIndex: 10 - i }}
+                  >
+                    {e}
                   </span>
-                </>
-              )}
+                ))}
+              </div>
+              <span className="text-[#E4E6EB] font-bold text-[16px]">
+                {formatCount(finalReactionCount)}
+              </span>
             </button>
             
             <div className="flex gap-4">
-              {/* THIS NOW USES THE SAME commentCount STATE AS GALLERYVIEWER */}
               <span
                 className="hover:underline cursor-pointer"
-                onClick={handleOpenComments}
+                onClick={() => onOpenComments(postId)}
               >
                 {formatCount(commentCount)} Discuss
               </span>
@@ -2810,7 +2690,7 @@ const GeneralGroupPost: React.FC<any> = ({
           />
           <button
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => currentUser ? handleOpenComments() : alert('Login first')}
+            onClick={() => currentUser ? onOpenComments(postId) : alert('Login first')}
           >
             <DiscussSignalIcon size={26} color="#1877F2" />
             <span className="text-[17px] font-medium">Discuss</span>
@@ -2840,7 +2720,7 @@ const GeneralGroupPost: React.FC<any> = ({
         onShareComplete={handleShareComplete}
       />
 
-      {/* Gallery Viewer - RECEIVES commentCount STATE */}
+      {/* Gallery Viewer */}
       <GalleryViewer
         isOpen={galleryOpen}
         urls={galleryUrls}
@@ -2849,11 +2729,11 @@ const GeneralGroupPost: React.FC<any> = ({
         postId={postId}
         currentUser={currentUser}
         reactionCount={finalReactionCount}
-        commentCount={commentCount}  // ← USING THE SAME STATE
+        commentCount={commentCount}
         shareCount={shareCount}
         myReaction={finalMyReaction}
         onReact={handleLikeClick}
-        onOpenComments={handleOpenComments}
+        onOpenComments={() => onOpenComments(postId)}
         onShare={() => setShowShareSheet(true)}
         onOpenReactions={() => setShowReactionsSheet(true)}
       />
@@ -2995,12 +2875,6 @@ function normalizePost(post: any): PostType {
     }
   }
 
-  // Ensure comment_count is preserved
-  const commentCount = 
-    typeof post?.comment_count === 'number' ? post.comment_count :
-    Array.isArray(post?.comments) ? post.comments.length :
-    0;
-
   return {
     ...post,
     id: Number(post?.id ?? post?.post_id ?? 0),
@@ -3021,7 +2895,8 @@ function normalizePost(post: any): PostType {
     groupId: post?.groupId ? Number(post.groupId) : null,
     my_reaction: post?.my_reaction ?? null,
     reactions_count: Number(post?.reactions_count ?? post?.likesCount ?? 0),
-    comment_count: commentCount, // Explicitly set this
+    // Important: Preserve comment_count from API
+    comment_count: Number(post?.comment_count ?? 0),
     
     // Category-specific fields - Map directly from backend
     price: post?.price,
@@ -4480,7 +4355,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
                         onHashtagClick={onHashtagClick}
                         onFollow={onFollow}
                         checkIsFollowing={checkIsFollowing}
-                        onComment={onComment} // Pass the comment handler
                         // Category-specific handlers
                         onApply={onApplyToJob}
                         onMessageSeller={onMessageSeller}
