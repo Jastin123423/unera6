@@ -2203,5 +2203,4 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 };
 
 // Add both named and default exports
-export { ChatWindow };
 export default ChatWindow;
