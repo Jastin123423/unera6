@@ -94,8 +94,10 @@ const avatarFrom = (u: any) => {
  * =========================
  */
 const apiFetch = async (url: string, options: RequestInit = {}) => {
+  const token = localStorage.getItem('unera_token');
   const headers: HeadersInit = {
     Accept: 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
 
@@ -893,7 +895,7 @@ const ExpandableRichText: React.FC<{
   users,
   onProfileClick,
   onHashtagClick,
-  maxWords = 14, // ✅ CHANGED: Default max words to 14 (was 25)
+  maxWords = 25,
   fontSizePx = 21,
   forceExpanded = false,
 }) => {
@@ -1528,7 +1530,7 @@ export const ReactionsSheet: React.FC<{
         )}
       </div>
 
-      {/* Optional: Comments button at bottom */}
+      {/* Optional: Discussions button at bottom - CHANGED TEXT ONLY */}
       {onOpenComments && (
         <div className="p-4 border-t border-[#3E4042] bg-[#242526]">
           <button
@@ -3355,6 +3357,7 @@ export const Post: React.FC<{
   followLoading?: boolean;
   onEventClick?: (eventId: number) => void;
   onOpenReactions?: (postId: number) => void;
+  onEdit?: (postId: number, content: string) => void;
 }> = ({
   post,
   author,
@@ -3381,6 +3384,7 @@ export const Post: React.FC<{
   followLoading = false,
   onEventClick,
   onOpenReactions,
+  onEdit,
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -3402,8 +3406,8 @@ export const Post: React.FC<{
 
   // ========== EVENT DETECTION ==========
   const isEventPost =
-    p?.item_type === "event" ||                    // From your API feed response
-    String(p?.feed_key || "").startsWith("event:") || // Feed key pattern
+    p?.item_type === "event" ||
+    String(p?.feed_key || "").startsWith("event:") ||
     p?.source === "event" ||
     p?.type === 'event' ||
     p?.post_type === 'event' ||
@@ -3451,6 +3455,10 @@ export const Post: React.FC<{
   // Reactions sheet state
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
 
+  // Comments sheet state
+  const [selectedPostForComments, setSelectedPostForComments] = useState<any>(null);
+  const [showCommentsSheet, setShowCommentsSheet] = useState(false);
+
   // Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
   const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
@@ -3469,14 +3477,14 @@ export const Post: React.FC<{
   // Count from various possible fields
   const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
 
-  // ✅ IMPORTANT: never make it null; fallback to preview list if available
+  // IMPORTANT: never make it null; fallback to preview list if available
   const reactionsArr: any[] = Array.isArray(p.reactions)
     ? p.reactions
     : Array.isArray(p.reactions_preview)
       ? p.reactions_preview
       : [];
 
-  // ✅ Optional name provided by backend (we'll use this when reactions array is missing)
+  // Optional name provided by backend
   const reactorNameFromApi = String(
     p.reactor_name ?? p.reactorName ?? ""
   ).trim();
@@ -3491,9 +3499,19 @@ export const Post: React.FC<{
   const finalReactionCount =
     likesCount > 0 ? likesCount : reactionsArr.length;
   
+  // ========== COMMENT COUNT STATE ==========
   const [commentCount, setCommentCount] = useState(() => {
-    if (typeof p.comment_count === 'number') return p.comment_count;
-    if (Array.isArray(p.comments)) return p.comments.length;
+    // Try to get from post.comments_count first (API)
+    if (typeof p.comments_count === 'number') {
+      console.log('📊 Post initial comment count from API:', p.id, p.comments_count);
+      return p.comments_count;
+    }
+    // Fallback to comments array length
+    if (Array.isArray(p.comments)) {
+      console.log('📊 Post initial comment count from array:', p.id, p.comments.length);
+      return p.comments.length;
+    }
+    console.log('📊 Post initial comment count default 0:', p.id);
     return 0;
   });
 
@@ -3530,7 +3548,7 @@ export const Post: React.FC<{
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
 
-  // ✅ STABLE REACTOR NAME WITH BACKEND FALLBACK - VISIBLE ON ALL DEVICES
+  // STABLE REACTOR NAME WITH BACKEND FALLBACK
   const reactorName = useMemo(() => {
     if (!finalReactionCount) return "";
 
@@ -3544,20 +3562,21 @@ export const Post: React.FC<{
     return reactorNameFromApi;
   }, [postId, finalReactionCount, reactionsArr, users, reactorNameFromApi]);
 
-  // ✅ PROFESSIONAL REACTION TEXT
+  // PROFESSIONAL REACTION TEXT
   const reactionText = useMemo(() => {
     if (!finalReactionCount || !reactorName) return '';
     return formatReactionText(finalReactionCount, reactorName);
   }, [finalReactionCount, reactorName]);
 
   useEffect(() => {
-    const newCommentCount = typeof p.comment_count === 'number' 
-      ? p.comment_count 
+    const newCommentCount = typeof p.comments_count === 'number' 
+      ? p.comments_count 
       : Array.isArray(p.comments) 
         ? p.comments.length 
         : 0;
     
     if (newCommentCount !== commentCount) {
+      console.log('📊 Syncing comment count from props:', p.id, newCommentCount);
       setCommentCount(newCommentCount);
     }
 
@@ -3565,7 +3584,46 @@ export const Post: React.FC<{
     if (newShareCount !== shareCount) {
       setShareCount(newShareCount);
     }
-  }, [p.comment_count, p.comments, p.shares, p.shares_count]);
+  }, [p.comments_count, p.comments, p.shares, p.shares_count]);
+
+  // ========== FETCH UPDATED POST DATA ==========
+  const fetchUpdatedPost = useCallback(async () => {
+    try {
+      const viewerId = currentUser?.id ?? 0;
+      const url = `/api/posts/${postId}?viewerId=${viewerId}`;
+      console.log('📡 Fetching updated post:', url);
+      
+      const token = localStorage.getItem('unera_token');
+      const headers: HeadersInit = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      };
+
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      
+      if (data) {
+        console.log('📥 Received updated post data:', data);
+        
+        // Update comment count
+        if (typeof data.comments_count === 'number') {
+          console.log('📊 Updating comment count from', commentCount, 'to', data.comments_count);
+          setCommentCount(data.comments_count);
+        }
+        
+        // Update share count if available
+        if (typeof data.shares === 'number') {
+          setShareCount(data.shares);
+        }
+        
+        // Update reaction count if needed
+        // You could also update other post data here
+      }
+    } catch (error) {
+      console.error('❌ Failed to fetch updated post:', error);
+    }
+  }, [postId, currentUser?.id, commentCount]);
 
   const handleShareComplete = (destination: string, data?: any) => {
     const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
@@ -3594,6 +3652,20 @@ export const Post: React.FC<{
   // Split media by type for rendering
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
+
+  // ========== OPEN COMMENTS WITH REFRESH ==========
+  const handleOpenComments = () => {
+    if (currentUser) {
+      // Pass the fetchUpdatedPost function to CommentsSheet
+      setSelectedPostForComments({
+        ...post,
+        onCommentAdded: fetchUpdatedPost
+      });
+      setShowCommentsSheet(true);
+    } else {
+      alert('Please login to comment');
+    }
+  };
 
   // ========== REGULAR POST RENDERING ==========
   return (
@@ -3713,7 +3785,7 @@ export const Post: React.FC<{
                 users={users}
                 onProfileClick={onProfileClick}
                 onHashtagClick={onHashtagClick}
-                maxWords={14} // ✅ CHANGED: Show 14 words then See More
+                maxWords={25}
                 fontSizePx={21}
               />
             </div>
@@ -3809,7 +3881,7 @@ export const Post: React.FC<{
             ) : null
           ) : (
             <>
-              {/* Images Grid - KEEP AS IS */}
+              {/* Images Grid */}
               {!p.background && imageMedia.length > 0 && (
                 <MediaGrid
                   media={imageMedia.map((m) => ({ url: m.url }))}
@@ -4010,11 +4082,11 @@ export const Post: React.FC<{
               )}
             </div>
 
-            {/* Comments and Shares counts - CHANGED "Comments" to "Discussions" */}
+            {/* Comments and Shares counts - CHANGED TEXT ONLY */}
             <div className="flex gap-4">
               <span
                 className="hover:underline cursor-pointer"
-                onClick={() => onOpenComments(Number(postId))}
+                onClick={() => handleOpenComments()}
               >
                 {formatCount(commentCount)} Discussions  {/* ✅ CHANGED from "Comments" to "Discussions" */}
               </span>
@@ -4026,7 +4098,7 @@ export const Post: React.FC<{
             </div>
           </div>
 
-          {/* ===== ACTION BUTTONS - UPDATED TO REACT, DISCUSS, SHARE ===== */}
+          {/* ===== ACTION BUTTONS ===== */}
           <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
             <ReactionButton
               currentUserReactions={finalMyReaction}
@@ -4035,8 +4107,8 @@ export const Post: React.FC<{
               isGuest={!currentUser}
             />
             <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
-              onClick={() => (currentUser ? onOpenComments(Number(postId)) : alert('Login first'))}
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+              onClick={() => (currentUser ? handleOpenComments() : alert('Login first'))}
             >
               <DiscussSignalIcon size={26} color="#1877F2" />
               <span className="text-[17px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
@@ -4084,6 +4156,34 @@ export const Post: React.FC<{
         onOpenComments={onOpenComments}
       />
 
+      {/* Comments Sheet */}
+      {showCommentsSheet && selectedPostForComments && currentUser && (
+        <CommentsSheet
+          post={selectedPostForComments}
+          currentUser={currentUser}
+          users={users}
+          onClose={() => {
+            setShowCommentsSheet(false);
+            setSelectedPostForComments(null);
+          }}
+          onComment={(postId, text) => {
+            // This will be handled by the CommentsSheet itself
+          }}
+          onCommentAdded={selectedPostForComments?.onCommentAdded}
+          getCommentAuthor={(id) => users.find(u => u.id === id)}
+          onProfileClick={onProfileClick}
+          onHashtagClick={onHashtagClick}
+          onFollow={onFollow}
+          checkIsFollowing={(id) => {
+            if (!currentUser) return false;
+            const userFollowers = safeArrayHelper<number>((users.find(u => u.id === id) as any)?.followers || []);
+            return userFollowers.includes(currentUser.id);
+          }}
+          onViewProductFromPost={onViewProductFromPost}
+          onOpenAudio={onOpenAudio}
+        />
+      )}
+
       {/* Gallery Viewer for multi-image swiping - WITH ACTIONS AND REACTIONS SHEET SUPPORT */}
       <GalleryViewer
         isOpen={galleryOpen}
@@ -4097,7 +4197,7 @@ export const Post: React.FC<{
         shareCount={shareCount}
         myReaction={finalMyReaction}
         onReact={(type) => onReact(postId, type)}
-        onOpenComments={() => onOpenComments(postId)}
+        onOpenComments={() => handleOpenComments()}
         onShare={() => setShowShareSheet(true)}
         onOpenReactions={() => {
           if (onOpenReactions) {
@@ -4109,6 +4209,12 @@ export const Post: React.FC<{
       />
     </>
   );
+};
+
+// Helper function for safeArrayHelper
+const safeArrayHelper = <T,>(arr: any): T[] => {
+  if (Array.isArray(arr)) return arr;
+  return [];
 };
 
 /**
@@ -4725,6 +4831,7 @@ export const CommentsSheet: React.FC<{
   users: User[];
   onClose: () => void;
   onComment?: (postId: number, text: string) => void;
+  onCommentAdded?: () => void;
   onLikeComment?: (commentId: number) => void;
   getCommentAuthor?: (id: number) => User | undefined;
   onProfileClick: (id: number) => void;
@@ -4739,6 +4846,7 @@ export const CommentsSheet: React.FC<{
   users, 
   onClose, 
   onComment, 
+  onCommentAdded,
   onLikeComment, 
   getCommentAuthor, 
   onProfileClick, 
@@ -5035,6 +5143,12 @@ export const CommentsSheet: React.FC<{
           parent_comment_id: replyTo?.id || null,
         }),
       });
+
+      // 👇 CRITICAL: Call onCommentAdded to refresh the post in the feed
+      if (onCommentAdded) {
+        console.log('🔄 Calling onCommentAdded to refresh post:', postId);
+        onCommentAdded();
+      }
 
       fetchCommentsSilently();
     } catch (err: any) {
@@ -5400,7 +5514,7 @@ export const CommentsSheet: React.FC<{
               {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
             </div>
             <div className="flex items-center gap-4">
-              <span>{formatCount(comments.length)} discussions</span>
+              <span>{formatCount(comments.length)} discussions</span>  {/* ✅ CHANGED from "comments" to "discussions" */}
               {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
             </div>
           </div>
@@ -5442,15 +5556,15 @@ export const CommentsSheet: React.FC<{
 
           {comments.length === 0 ? (
             <div className="text-center py-10">
-              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>
-              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>
+              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>  {/* ✅ CHANGED from "No comments yet" */}
+              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>  {/* ✅ CHANGED message */}
             </div>
           ) : (
             <div className="space-y-6">
               {threads.map(({ root, replies }) => {
                 const rootId = String(root.id);
                 const isExpanded = !!expandedThreads[rootId];
-                const MAX_PREVIEW = 1; // ✅ Show only 1 reply when collapsed
+                const MAX_PREVIEW = 1;
                 const hiddenCount = Math.max(0, replies.length - MAX_PREVIEW);
                 const visibleReplies = isExpanded ? replies : replies.slice(-MAX_PREVIEW);
 
