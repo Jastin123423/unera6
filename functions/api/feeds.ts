@@ -22,13 +22,65 @@ const toInt = (v: any, fallback = 0) => {
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
+const cleanCsv = (raw: string | null) =>
+  String(raw ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
 const parseSeenIds = (raw: string | null, max = 250) => {
   if (!raw) return [];
-  const ids = raw
-    .split(",")
-    .map((x) => Number(String(x).trim()))
+  const ids = cleanCsv(raw)
+    .map((x) => Number(x))
     .filter((n) => Number.isFinite(n) && n > 0);
   return Array.from(new Set(ids)).slice(0, max);
+};
+
+/**
+ * ✅ NEW: seenKeys supports mixed-source feed keys safely
+ * Format: "post:12,reel:99,group_post:5,event:7,song:2,podcast:4,product:10"
+ * or actual feed_key values "post:12" etc.
+ */
+const parseSeenKeys = (raw: string | null, max = 500) => {
+  const out = new Map<string, number[]>();
+  if (!raw) return out;
+
+  const parts = cleanCsv(raw).slice(0, max);
+
+  for (const p of parts) {
+    const s = String(p).trim();
+    if (!s) continue;
+
+    // accept either "source:id" OR "feed_key" already like "post:12"
+    const idx = s.indexOf(":");
+    if (idx <= 0) continue;
+
+    const source = s.slice(0, idx).trim();
+    const idStr = s.slice(idx + 1).trim();
+    const id = Number(idStr);
+
+    if (!source || !Number.isFinite(id) || id <= 0) continue;
+    if (!out.has(source)) out.set(source, []);
+    out.get(source)!.push(id);
+  }
+
+  // dedup + cap per source
+  for (const [k, arr] of out.entries()) {
+    out.set(k, Array.from(new Set(arr)).slice(0, 250));
+  }
+
+  return out;
+};
+
+const idsForSource = (seenMap: Map<string, number[]>, source: string) => {
+  const arr = seenMap.get(source) || [];
+  return Array.isArray(arr) ? arr : [];
+};
+
+const buildNotIn = (colSql: string, ids: number[], binds: any[]) => {
+  if (!ids.length) return "";
+  binds.push(...ids);
+  return `${colSql} NOT IN (${ids.map(() => "?").join(",")})`;
 };
 
 // --------------------
@@ -43,7 +95,6 @@ const cleanUrl = (v: any) => {
 };
 
 const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
-  // For URL arrays
   if (Array.isArray(raw)) return raw.map(cleanUrl).filter(Boolean).slice(0, maxItems);
 
   if (typeof raw === "string") {
@@ -67,7 +118,6 @@ const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
 };
 
 const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
-  // For types arrays like ["image","video"] (NOT URLs)
   if (Array.isArray(raw)) {
     return raw
       .map((x) => String(x ?? "").trim())
@@ -128,7 +178,7 @@ const normalizeMedia = (row: any) => {
   };
 };
 
-// Deterministic seeded RNG + shuffle
+// Deterministic seeded RNG + shuffle (optional)
 const mulberry32 = (seed: number) => {
   return function () {
     let t = (seed += 0x6d2b79f5);
@@ -148,6 +198,13 @@ const seededShuffle = <T,>(arr: T[], seed: number) => {
   return a;
 };
 
+/**
+ * ✅ NEW: deterministic "random-ish" ordering inside SQL (replaces ORDER BY RANDOM())
+ * Gives stable explore items for the same seed.
+ */
+const deterministicExploreOrder = (idCol: string) =>
+  `ORDER BY ((${idCol} * 1103515245 + ?) % 2147483647) ASC`;
+
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
@@ -162,8 +219,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const limit = clamp(toInt(url.searchParams.get("limit"), 20), 1, 50);
     const cursor = url.searchParams.get("cursor"); // older-than created_at
+
+    // ✅ IMPORTANT: keep this stable from frontend (seedRef.current)
     const seed = toInt(url.searchParams.get("seed"), 1);
-    const seen = parseSeenIds(url.searchParams.get("seen"), 250);
+
+    // ✅ NEW: shuffle can be disabled to keep feed stable when comment sheet is open
+    const shuffle = url.searchParams.get("shuffle");
+    const shouldShuffle = shuffle === null ? true : shuffle !== "0";
+
+    // ✅ NEW: seenKeys preferred; seen (ids) kept for backward compatibility
+    const seenKeys = parseSeenKeys(url.searchParams.get("seenKeys"), 500);
+    const seenLegacy = parseSeenIds(url.searchParams.get("seen"), 250);
+
     const debug = url.searchParams.get("debug") === "1";
 
     const freshCount = Math.max(5, Math.floor(limit * 0.65));
@@ -192,9 +259,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsPosts.push(cursor.trim());
     }
 
-    if (seen.length > 0) {
-      wherePosts.push(`p.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsPosts.push(...seen);
+    // ✅ seenKeys source-specific (preferred)
+    {
+      const ids = idsForSource(seenKeys, "post");
+      const clause = buildNotIn("p.id", ids, bindsPosts);
+      if (clause) wherePosts.push(clause);
+    }
+
+    // ✅ backward-compat: old seen numeric list can still exclude posts
+    if (seenLegacy.length > 0) {
+      wherePosts.push(`p.id NOT IN (${seenLegacy.map(() => "?").join(",")})`);
+      bindsPosts.push(...seenLegacy);
     }
 
     const wherePostsSql = wherePosts.length ? `WHERE ${wherePosts.join(" AND ")}` : "";
@@ -256,7 +331,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE p.media_types
         END AS media_types,
 
-        -- ✅ NEW: comments count for feed cards
         (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
 
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
@@ -349,7 +423,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) REELS (unchanged) + comments_count=0
+    // 2) REELS
     // ============================================================
     const whereReels: string[] = [];
     const bindsReels: any[] = [];
@@ -362,9 +436,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       whereReels.push(`r.created_at < ?`);
       bindsReels.push(cursor.trim());
     }
-    if (seen.length > 0) {
-      whereReels.push(`r.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsReels.push(...seen);
+
+    {
+      const ids = idsForSource(seenKeys, "reel");
+      const clause = buildNotIn("r.id", ids, bindsReels);
+      if (clause) whereReels.push(clause);
+    }
+
+    // legacy (still applies but can collide across sources, so we keep it minimal)
+    if (seenLegacy.length > 0) {
+      whereReels.push(`r.id NOT IN (${seenLegacy.map(() => "?").join(",")})`);
+      bindsReels.push(...seenLegacy);
     }
 
     const whereReelsSql = whereReels.length ? `WHERE ${whereReels.join(" AND ")}` : "";
@@ -455,7 +537,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 3) SONGS (unchanged) + comments_count=0
+    // 3) SONGS
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -464,9 +546,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       whereSongs.push(`s.created_at < ?`);
       bindsSongs.push(cursor.trim());
     }
-    if (seen.length > 0) {
-      whereSongs.push(`s.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsSongs.push(...seen);
+
+    {
+      const ids = idsForSource(seenKeys, "song");
+      const clause = buildNotIn("s.id", ids, bindsSongs);
+      if (clause) whereSongs.push(clause);
+    }
+
+    if (seenLegacy.length > 0) {
+      whereSongs.push(`s.id NOT IN (${seenLegacy.map(() => "?").join(",")})`);
+      bindsSongs.push(...seenLegacy);
     }
 
     const whereSongsSql = whereSongs.length ? `WHERE ${whereSongs.join(" AND ")}` : "";
@@ -579,7 +668,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) PODCASTS (unchanged) + comments_count=0
+    // 4) PODCASTS
     // ============================================================
     const wherePodcasts: string[] = [];
     const bindsPodcasts: any[] = [];
@@ -588,9 +677,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       wherePodcasts.push(`pc.created_at < ?`);
       bindsPodcasts.push(cursor.trim());
     }
-    if (seen.length > 0) {
-      wherePodcasts.push(`pc.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsPodcasts.push(...seen);
+
+    {
+      const ids = idsForSource(seenKeys, "podcast");
+      const clause = buildNotIn("pc.id", ids, bindsPodcasts);
+      if (clause) wherePodcasts.push(clause);
+    }
+
+    if (seenLegacy.length > 0) {
+      wherePodcasts.push(`pc.id NOT IN (${seenLegacy.map(() => "?").join(",")})`);
+      bindsPodcasts.push(...seenLegacy);
     }
 
     const wherePodcastsSql = wherePodcasts.length ? `WHERE ${wherePodcasts.join(" AND ")}` : "";
@@ -692,7 +788,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS (unchanged) + comments_count=0
+    // 5) EVENTS
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -703,9 +799,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       whereEvents.push(`e.created_at < ?`);
       bindsEvents.push(cursor.trim());
     }
-    if (seen.length > 0) {
-      whereEvents.push(`e.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsEvents.push(...seen);
+
+    {
+      const ids = idsForSource(seenKeys, "event");
+      const clause = buildNotIn("e.id", ids, bindsEvents);
+      if (clause) whereEvents.push(clause);
+    }
+
+    if (seenLegacy.length > 0) {
+      whereEvents.push(`e.id NOT IN (${seenLegacy.map(() => "?").join(",")})`);
+      bindsEvents.push(...seenLegacy);
     }
 
     const whereEventsSql = whereEvents.length ? `WHERE ${whereEvents.join(" AND ")}` : "";
@@ -826,7 +929,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 6) GROUP POSTS ✅ multi-images + ✅ full reaction types + comments_count=0
+    // 6) GROUP POSTS
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -837,9 +940,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       whereGroupPosts.push(`gp.created_at < ?`);
       bindsGroupPosts.push(cursor.trim());
     }
-    if (seen.length > 0) {
-      whereGroupPosts.push(`gp.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsGroupPosts.push(...seen);
+
+    {
+      const ids = idsForSource(seenKeys, "group_post");
+      const clause = buildNotIn("gp.id", ids, bindsGroupPosts);
+      if (clause) whereGroupPosts.push(clause);
+    }
+
+    if (seenLegacy.length > 0) {
+      whereGroupPosts.push(`gp.id NOT IN (${seenLegacy.map(() => "?").join(",")})`);
+      bindsGroupPosts.push(...seenLegacy);
     }
 
     const whereGroupPostsSql = whereGroupPosts.length ? `WHERE ${whereGroupPosts.join(" AND ")}` : "";
@@ -902,19 +1012,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             END
         END AS media_type,
 
-        -- ✅ multi media stored in gp.media_urls (JSON text)
         CASE
           WHEN gp.media_urls LIKE 'data:%' THEN NULL
           WHEN length(gp.media_urls) > 5000 THEN NULL
           ELSE gp.media_urls
         END AS media_urls,
 
-        -- if you add gp.media_types later, select it here
         NULL AS media_types,
 
         0 AS comments_count,
 
-        -- ✅ reactions like posts (group_post_reactions)
         (SELECT COUNT(*) FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id) AS reactions_count,
         (SELECT gpr.type FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id AND gpr.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -1006,7 +1113,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS feed-injection + comments_count=0
+    // 7) PRODUCTS feed-injection
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -1015,9 +1122,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       whereProductsFeed.push(`pr.created_at < ?`);
       bindsProductsFeed.push(cursor.trim());
     }
-    if (seen.length > 0) {
-      whereProductsFeed.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsProductsFeed.push(...seen);
+
+    {
+      const ids = idsForSource(seenKeys, "product");
+      const clause = buildNotIn("pr.id", ids, bindsProductsFeed);
+      if (clause) whereProductsFeed.push(clause);
+    }
+
+    if (seenLegacy.length > 0) {
+      whereProductsFeed.push(`pr.id NOT IN (${seenLegacy.map(() => "?").join(",")})`);
+      bindsProductsFeed.push(...seenLegacy);
     }
 
     const whereProductsFeedSql = whereProductsFeed.length ? `WHERE ${whereProductsFeed.join(" AND ")}` : "";
@@ -1116,7 +1230,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) PRODUCTS (separate list)
+    // 8) PRODUCTS separate list (unchanged)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -1125,9 +1239,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       whereProducts.push(`pr.created_at < ?`);
       bindsProducts.push(cursor.trim());
     }
-    if (seen.length > 0) {
-      whereProducts.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsProducts.push(...seen);
+
+    if (seenLegacy.length > 0) {
+      whereProducts.push(`pr.id NOT IN (${seenLegacy.map(() => "?").join(",")})`);
+      bindsProducts.push(...seenLegacy);
     }
 
     const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(" AND ")}` : "";
@@ -1209,7 +1324,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
 
     // ============================================================
-    // RUN QUERIES (Explore)
+    // RUN QUERIES (Explore) ✅ deterministic (no ORDER BY RANDOM())
     // ============================================================
     let explorePosts: any[] = [];
     let exploreReels: any[] = [];
@@ -1222,51 +1337,51 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     if (exploreCount > 0) {
       const explorePostsRes = await env.DB.prepare(
-        `${baseSelectPosts} ${wherePostsSql} ORDER BY RANDOM() LIMIT ?`
+        `${baseSelectPosts} ${wherePostsSql} ${deterministicExploreOrder("p.id")} LIMIT ?`
       )
-        .bind(reactionUserId, ...bindsPosts, exploreCount)
+        .bind(reactionUserId, ...bindsPosts, seed + 11, exploreCount)
         .all();
       explorePosts = Array.isArray(explorePostsRes?.results) ? explorePostsRes.results : [];
 
       const exploreReelsRes = await env.DB.prepare(
-        `${baseSelectReels} ${whereReelsSql} ORDER BY RANDOM() LIMIT ?`
+        `${baseSelectReels} ${whereReelsSql} ${deterministicExploreOrder("r.id")} LIMIT ?`
       )
-        .bind(reactionUserId, ...bindsReels, exploreCount)
+        .bind(reactionUserId, ...bindsReels, seed + 22, exploreCount)
         .all();
       exploreReels = Array.isArray(exploreReelsRes?.results) ? exploreReelsRes.results : [];
 
       const exploreSongsRes = await env.DB.prepare(
-        `${baseSelectSongs} ${whereSongsSql} ORDER BY RANDOM() LIMIT ?`
+        `${baseSelectSongs} ${whereSongsSql} ${deterministicExploreOrder("s.id")} LIMIT ?`
       )
-        .bind(reactionUserId, ...bindsSongs, exploreCount)
+        .bind(reactionUserId, ...bindsSongs, seed + 33, exploreCount)
         .all();
       exploreSongs = Array.isArray(exploreSongsRes?.results) ? exploreSongsRes.results : [];
 
       const explorePodcastsRes = await env.DB.prepare(
-        `${baseSelectPodcasts} ${wherePodcastsSql} ORDER BY RANDOM() LIMIT ?`
+        `${baseSelectPodcasts} ${wherePodcastsSql} ${deterministicExploreOrder("pc.id")} LIMIT ?`
       )
-        .bind(...bindsPodcasts, exploreCount)
+        .bind(...bindsPodcasts, seed + 44, exploreCount)
         .all();
       explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
 
       const exploreEventsRes = await env.DB.prepare(
-        `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
+        `${baseSelectEvents} ${whereEventsSql} ${deterministicExploreOrder("e.id")} LIMIT ?`
       )
-        .bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount)
+        .bind(reactionUserId, reactionUserId, ...bindsEvents, seed + 55, exploreCount)
         .all();
       exploreEvents = Array.isArray(exploreEventsRes?.results) ? exploreEventsRes.results : [];
 
       const exploreGroupPostsRes = await env.DB.prepare(
-        `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY RANDOM() LIMIT ?`
+        `${baseSelectGroupPosts} ${whereGroupPostsSql} ${deterministicExploreOrder("gp.id")} LIMIT ?`
       )
-        .bind(reactionUserId, ...bindsGroupPosts, exploreCount)
+        .bind(reactionUserId, ...bindsGroupPosts, seed + 66, exploreCount)
         .all();
       exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results) ? exploreGroupPostsRes.results : [];
 
       const exploreProductsFeedRes = await env.DB.prepare(
-        `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
+        `${baseSelectProductsFeed} ${whereProductsFeedSql} ${deterministicExploreOrder("pr.id")} LIMIT ?`
       )
-        .bind(...bindsProductsFeed, exploreCount)
+        .bind(...bindsProductsFeed, seed + 77, exploreCount)
         .all();
       exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results) ? exploreProductsFeedRes.results : [];
 
@@ -1277,11 +1392,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             pr.main_price, pr.discount_price, pr.quantity, pr.phone_number, pr.images, pr.created_at
           FROM products pr
           ${whereProductsSql}
-          ORDER BY RANDOM()
+          ${deterministicExploreOrder("pr.id")}
           LIMIT ?
         `
       )
-        .bind(...bindsProducts, exploreCount)
+        .bind(...bindsProducts, seed + 88, exploreCount)
         .all();
       exploreProducts = Array.isArray(exploreProductsRes?.results) ? exploreProductsRes.results : [];
     }
@@ -1322,20 +1437,27 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const merged = Array.from(map.values());
 
+    // nextCursor based on the OLDEST returned item (by created_at)
     const oldest = merged.reduce((acc: any, cur: any) => {
       if (!acc) return cur;
       return String(cur.created_at) < String(acc.created_at) ? cur : acc;
     }, null as any);
 
     const nextCursor = oldest?.created_at ?? null;
-    const orderedRaw = seededShuffle(merged, seed);
+
+    // ✅ Ordering: either stable (created_at desc) or shuffled (seeded)
+    const orderedRaw = shouldShuffle
+      ? seededShuffle(merged, seed)
+      : merged
+          .slice()
+          .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 
     // ✅ Normalize media for ALL feed items
     const ordered = orderedRaw.map((item: any) => ({
       ...item,
       ...normalizeMedia(item),
-      // ensure numeric count
       comments_count: Number((item as any)?.comments_count ?? 0),
+      feed_key: String((item as any)?.feed_key || `${(item as any)?.source}:${(item as any)?.id}`),
     }));
 
     // ============================================================
@@ -1387,6 +1509,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       cursor: cursor ?? null,
       nextCursor,
       hasMore,
+      seed,
+      shuffle: shouldShuffle ? 1 : 0,
       feed: ordered,
       products,
     };
@@ -1395,7 +1519,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       return json({
         ...payload,
         debug: {
-          seenCount: seen.length,
+          seenLegacyCount: seenLegacy.length,
+          seenKeysSources: Array.from(seenKeys.keys()),
           returnedFeed: ordered.length,
           returnedProducts: products.length,
           fresh: {
