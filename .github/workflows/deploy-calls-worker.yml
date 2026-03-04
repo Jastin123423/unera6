@@ -1,0 +1,26 @@
+name: Deploy Calls Worker
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "calls-worker.ts"
+      - "wrangler.calls.toml"
+      - "functions/durable/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci || npm install
+
+      - name: Deploy calls worker
+        run: npx wrangler deploy calls-worker.ts -c wrangler.calls.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
