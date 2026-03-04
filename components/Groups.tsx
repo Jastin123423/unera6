@@ -13,6 +13,62 @@ import {
 } from './Feed';
 import { CreateEventModal } from './Events';
 
+// ✅ Spark icon (React) - orange/coral gradient
+const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <defs>
+      <linearGradient id="uneraSparkGrad" x1="12" y1="52" x2="52" y2="12">
+        <stop offset="0%" stopColor="#FF7A45" />
+        <stop offset="55%" stopColor="#FF5A6A" />
+        <stop offset="100%" stopColor="#FF8A3D" />
+      </linearGradient>
+      <filter id="uneraSparkGlow" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="2.2" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+
+    {/* soft glow */}
+    <circle cx="32" cy="32" r="18" fill="url(#uneraSparkGrad)" opacity="0.14" />
+
+    {/* spark rays */}
+    <g stroke="url(#uneraSparkGrad)" strokeWidth="5.2" strokeLinecap="round" filter="url(#uneraSparkGlow)">
+      <line x1="32" y1="10" x2="32" y2="18" />
+      <line x1="32" y1="46" x2="32" y2="54" />
+      <line x1="10" y1="32" x2="18" y2="32" />
+      <line x1="46" y1="32" x2="54" y2="32" />
+
+      <line x1="17" y1="17" x2="22.8" y2="22.8" />
+      <line x1="41.2" y1="41.2" x2="47" y2="47" />
+      <line x1="47" y1="17" x2="41.2" y2="22.8" />
+      <line x1="22.8" y1="41.2" x2="17" y2="47" />
+    </g>
+
+    {/* center dot */}
+    <circle cx="32" cy="32" r="6.2" fill="url(#uneraSparkGrad)" />
+  </svg>
+);
+
+// ✅ Discuss icon - chat + signal style, colored with UNERA blue
+const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size = 26, color = "#1877F2" }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <g fill="none" stroke={color} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
+      {/* bubble */}
+      <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
+      {/* dots */}
+      <circle cx="27" cy="30" r="2.2" />
+      <circle cx="33" cy="30" r="2.2" />
+      <circle cx="39" cy="30" r="2.2" />
+      {/* signal arcs */}
+      <path d="M48 18c3 2 5 5 6 9" />
+      <path d="M44 22c2 1 3 3 4 6" />
+    </g>
+  </svg>
+);
+
 // ✅ Add fmtCount helper locally
 const fmtCount = (n: number) => {
   const num = Number(n || 0);
@@ -341,7 +397,7 @@ const MediaGrid: React.FC<{
   );
 };
 
-// ✅ LOCAL IMPLEMENTATION: GalleryViewer (from Feed.tsx)
+// ✅ LOCAL IMPLEMENTATION: GalleryViewer (from Feed.tsx) - UPDATED with Discuss
 const GalleryViewer: React.FC<{
   isOpen: boolean;
   urls: string[];
@@ -530,7 +586,7 @@ const GalleryViewer: React.FC<{
               className="hover:underline cursor-pointer" 
               onClick={onOpenComments}
             >
-              {formatCount(commentCount)} Comments
+              {formatCount(commentCount)} Discuss
             </span>
             {shareCount > 0 && (
               <span className="hover:underline cursor-pointer" onClick={onShare}>
@@ -552,8 +608,8 @@ const GalleryViewer: React.FC<{
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
             onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}
           >
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
+            <DiscussSignalIcon size={26} color="#1877F2" />
+            <span className="text-[17px] font-medium">Discuss</span>
           </button>
           <button
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
@@ -919,7 +975,7 @@ const PostActionsMenu: React.FC<{
   );
 };
 
-// ✅ Enhanced Recruitment Post Component with all requested features
+// ✅ Enhanced Recruitment Post Component - UPDATED with Discuss
 const RecruitmentPost: React.FC<{
   post: PostType;
   author: User;
@@ -1338,7 +1394,7 @@ const RecruitmentPost: React.FC<{
                 className="hover:underline cursor-pointer"
                 onClick={() => props.onOpenComments(post.id)}
               >
-                {formatCount(commentCount)} Comments
+                {formatCount(commentCount)} Discuss
               </span>
               {shareCount > 0 && (
                 <span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>
@@ -1361,8 +1417,8 @@ const RecruitmentPost: React.FC<{
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
             onClick={() => currentUser ? props.onOpenComments(post.id) : alert('Login first')}
           >
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
+            <DiscussSignalIcon size={26} color="#1877F2" />
+            <span className="text-[17px] font-medium">Discuss</span>
           </button>
           <button
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -1410,7 +1466,7 @@ const RecruitmentPost: React.FC<{
   );
 };
 
-// Enhanced Buy & Sell Post Component (Facebook Marketplace style)
+// Enhanced Buy & Sell Post Component - UPDATED with Discuss
 const BuySellPost: React.FC<{
   post: PostType;
   author: User;
@@ -1740,7 +1796,7 @@ const BuySellPost: React.FC<{
                 className="hover:underline cursor-pointer"
                 onClick={() => props.onOpenComments(post.id)}
               >
-                {formatCount(commentCount)} Comments
+                {formatCount(commentCount)} Discuss
               </span>
               {shareCount > 0 && (
                 <span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>
@@ -1763,8 +1819,8 @@ const BuySellPost: React.FC<{
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
             onClick={() => currentUser ? props.onOpenComments(post.id) : alert('Login first')}
           >
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
+            <DiscussSignalIcon size={26} color="#1877F2" />
+            <span className="text-[17px] font-medium">Discuss</span>
           </button>
           <button
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -1866,7 +1922,7 @@ const BuySellPost: React.FC<{
   );
 };
 
-// Music & Drama Post Component (Video-focused)
+// Music & Drama Post Component - UPDATED with Discuss
 const MusicDramaPost: React.FC<{
   post: PostType;
   author: User;
@@ -2190,7 +2246,7 @@ const MusicDramaPost: React.FC<{
                 className="hover:underline cursor-pointer"
                 onClick={() => props.onOpenComments(post.id)}
               >
-                {formatCount(commentCount)} Comments
+                {formatCount(commentCount)} Discuss
               </span>
               {shareCount > 0 && (
                 <span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>
@@ -2213,8 +2269,8 @@ const MusicDramaPost: React.FC<{
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
             onClick={() => currentUser ? props.onOpenComments(post.id) : alert('Login first')}
           >
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
+            <DiscussSignalIcon size={26} color="#1877F2" />
+            <span className="text-[17px] font-medium">Discuss</span>
           </button>
           <button
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -2307,7 +2363,7 @@ const GroupPost: React.FC<{
   }
 };
 
-// Original GroupPost implementation renamed to GeneralGroupPost
+// Original GroupPost implementation renamed to GeneralGroupPost - UPDATED with Discuss
 const GeneralGroupPost: React.FC<any> = ({
   post,
   author,
@@ -2604,7 +2660,7 @@ const GeneralGroupPost: React.FC<any> = ({
                 className="hover:underline cursor-pointer"
                 onClick={() => onOpenComments(postId)}
               >
-                {formatCount(commentCount)} Comments
+                {formatCount(commentCount)} Discuss
               </span>
               {shareCount > 0 && (
                 <span className="hover:underline">
@@ -2627,8 +2683,8 @@ const GeneralGroupPost: React.FC<any> = ({
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
             onClick={() => currentUser ? onOpenComments(postId) : alert('Login first')}
           >
-            <i className="far fa-comment-alt text-[20px]"></i>
-            <span className="text-[17px] font-medium">Comment</span>
+            <DiscussSignalIcon size={26} color="#1877F2" />
+            <span className="text-[17px] font-medium">Discuss</span>
           </button>
           <button
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -2809,31 +2865,6 @@ function normalizePost(post: any): PostType {
       }
     }
   }
-
-  // Log the raw post data to debug
-  console.log('Raw post data from backend:', {
-    id: post?.id,
-    job_title: post?.job_title,
-    company: post?.company,
-    job_type: post?.job_type,
-    salary: post?.salary,
-    street: post?.street,
-    district: post?.district,
-    region: post?.region,
-    country: post?.country,
-    location: post?.location,
-    application_type: post?.application_type,
-    application_value: post?.application_value,
-    expiry_date: post?.expiry_date,
-    price: post?.price,
-    currency: post?.currency,
-    condition: post?.condition,
-    status: post?.status,
-    artist: post?.artist,
-    series: post?.series,
-    episode: post?.episode,
-    duration: post?.duration
-  });
 
   return {
     ...post,
@@ -3127,9 +3158,6 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
     try {
       const res = await fetchGroupPosts(activeGroup.id);
       
-      // Log the API response
-      console.log('API Response for group posts:', res);
-      
       // Handle different response structures
       let postsList = [];
       if (Array.isArray(res)) {
@@ -3142,21 +3170,7 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
         postsList = res.posts;
       }
       
-      // Log before normalization
-      console.log('Posts list before normalization:', postsList);
-      
       const normalizedPosts = postsList.map((p: any) => normalizePost(p));
-      
-      // Log after normalization
-      console.log('Normalized posts:', normalizedPosts.map(p => ({
-        id: p.id,
-        job_title: (p as any).job_title,
-        application_type: (p as any).application_type,
-        application_value: (p as any).application_value,
-        price: (p as any).price,
-        currency: (p as any).currency
-      })));
-      
       setGroupPosts(normalizedPosts);
       postsLoadedRef.current = true;
     } catch (error) {
