@@ -23,4 +23,4 @@ jobs:
       - name: Deploy calls worker
         run: npx wrangler deploy calls-worker.ts -c wrangler.calls.toml
         env:
-          CLOUDFLARE_API_TOKEN: ${{ 3c04f4091ddd28e4947b860b2a50999f2d8d4 }}
+          CLOUDFLARE_API_TOKEN: ${{3c04f4091ddd28e4947b860b2a50999f2d8d4}}
