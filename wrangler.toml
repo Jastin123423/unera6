@@ -1,4 +1,3 @@
-
 name = "unera6"
 compatibility_date = "2026-01-14"
 pages_build_output_dir = "dist"
@@ -18,3 +17,4 @@ bucket_name = "unera3"
 [[durable_objects.bindings]]
 name = "CALL_ROOM"
 class_name = "CallRoom"
+script_name = "unera6-calls"
