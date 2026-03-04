@@ -3,10 +3,6 @@ name: Deploy Calls Worker
 on:
   push:
     branches: ["main"]
-    paths:
-      - "calls-worker.ts"
-      - "wrangler.calls.toml"
-      - "functions/durable/**"
 
 jobs:
   deploy:
