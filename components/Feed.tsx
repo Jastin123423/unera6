@@ -3455,10 +3455,6 @@ export const Post: React.FC<{
   // Reactions sheet state
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
 
-  // Comments sheet state
-  const [selectedPostForComments, setSelectedPostForComments] = useState<any>(null);
-  const [showCommentsSheet, setShowCommentsSheet] = useState(false);
-
   // Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
   const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
@@ -3653,15 +3649,16 @@ export const Post: React.FC<{
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
-  // ========== OPEN COMMENTS WITH REFRESH ==========
-  const handleOpenComments = () => {
+  // ========== OPEN COMMENTS WITH LOCKED SNAPSHOT ==========
+  const handleOpenComments = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
     if (currentUser) {
-      // Pass the fetchUpdatedPost function to CommentsSheet
-      setSelectedPostForComments({
-        ...post,
-        onCommentAdded: fetchUpdatedPost
-      });
-      setShowCommentsSheet(true);
+      // Pass the fetchUpdatedPost function to be called after comment is added
+      onOpenComments(postId);
     } else {
       alert('Please login to comment');
     }
@@ -4108,7 +4105,11 @@ export const Post: React.FC<{
             />
             <button
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => (currentUser ? handleOpenComments() : alert('Login first'))}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleOpenComments(e);
+              }}
             >
               <DiscussSignalIcon size={26} color="#1877F2" />
               <span className="text-[17px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
@@ -4155,34 +4156,6 @@ export const Post: React.FC<{
         onProfileClick={onProfileClick}
         onOpenComments={onOpenComments}
       />
-
-      {/* Comments Sheet */}
-      {showCommentsSheet && selectedPostForComments && currentUser && (
-        <CommentsSheet
-          post={selectedPostForComments}
-          currentUser={currentUser}
-          users={users}
-          onClose={() => {
-            setShowCommentsSheet(false);
-            setSelectedPostForComments(null);
-          }}
-          onComment={(postId, text) => {
-            // This will be handled by the CommentsSheet itself
-          }}
-          onCommentAdded={selectedPostForComments?.onCommentAdded}
-          getCommentAuthor={(id) => users.find(u => u.id === id)}
-          onProfileClick={onProfileClick}
-          onHashtagClick={onHashtagClick}
-          onFollow={onFollow}
-          checkIsFollowing={(id) => {
-            if (!currentUser) return false;
-            const userFollowers = safeArrayHelper<number>((users.find(u => u.id === id) as any)?.followers || []);
-            return userFollowers.includes(currentUser.id);
-          }}
-          onViewProductFromPost={onViewProductFromPost}
-          onOpenAudio={onOpenAudio}
-        />
-      )}
 
       {/* Gallery Viewer for multi-image swiping - WITH ACTIONS AND REACTIONS SHEET SUPPORT */}
       <GalleryViewer
