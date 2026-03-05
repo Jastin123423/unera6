@@ -120,9 +120,25 @@ type ChatsListProps = {
   onClose?: () => void;
   onOpenRequests?: () => void;
   onNewChat?: () => void;
+  // Navigation handlers
+  onOpenHome?: () => void;
+  onOpenMarketplace?: () => void;
+  // Notification counts
+  feedNotificationCount?: number;
+  messageNotificationCount?: number;
 };
 
-export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, onClose, onOpenRequests, onNewChat }) => {
+export const ChatsList: React.FC<ChatsListProps> = ({ 
+  currentUser, 
+  onOpenChat, 
+  onClose, 
+  onOpenRequests, 
+  onNewChat,
+  onOpenHome,
+  onOpenMarketplace,
+  feedNotificationCount = 0,
+  messageNotificationCount = 0
+}) => {
   const [rows, setRows] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
@@ -189,86 +205,33 @@ export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, o
 
   return (
     <div className="fixed inset-0 z-[150] bg-[#18191A] font-sans">
-      {/* Top bar */}
-      <div className="h-14 px-3 flex items-center justify-between bg-[#242526] border-b border-[#3E4042]">
-        <div className="text-[22px] font-extrabold text-[#E4E6EB]">Text and Photos</div>
-        <button
-          type="button"
-          className="h-9 px-3 rounded-xl bg-[#3A3B3C] text-[#E4E6EB] font-semibold flex items-center gap-2 active:opacity-90 hover:bg-[#4E4F50] transition-colors"
-          onClick={() => alert("Buy Data")}
-        >
-          <i className="fas fa-broadcast-tower text-[#B0B3B8]" />
-          <span>Buy Data</span>
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div className="px-2 pb-2 bg-[#242526]">
-        <div className="flex items-center justify-between">
-          {[
-            { icon: "fas fa-house", badge: totalUnread > 0 ? `${Math.min(totalUnread, 15)}+` : "" },
-            { icon: "fas fa-user-group", badge: "" },
-            { icon: "fab fa-facebook-messenger", badge: "", active: true },
-            { icon: "fas fa-rectangle-list", badge: "" },
-            { icon: "fas fa-truck-fast", badge: "" },
-            { icon: "fas fa-store", badge: "" },
-          ].map((t, idx) => {
-            const active = t.active || idx === 2;
-            return (
-              <button
-                key={idx}
-                type="button"
-                className={`relative w-[52px] h-[44px] rounded-xl flex items-center justify-center transition-colors ${
-                  active ? "bg-[#3A3B3C]" : "bg-transparent hover:bg-[#3A3B3C]"
-                }`}
-                onClick={() => {}}
-                aria-label="tab"
-              >
-                <i className={`${t.icon} text-[20px] ${active ? "text-[#1877F2]" : "text-[#B0B3B8]"}`} />
-                {t.badge && (
-                  <span className="absolute -top-1 right-1 bg-[#F3425F] text-white text-[11px] font-bold px-1.5 py-0.5 rounded-full border border-[#242526]">
-                    {t.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+      {/* Top bar - REMOVED Buy Data button, only showing title */}
+      <div className="h-14 px-3 flex items-center bg-[#242526] border-b border-[#3E4042]">
+        <div className="text-[22px] font-extrabold text-[#E4E6EB]">Messages</div>
       </div>
 
       {/* Main card */}
-      <div className="bg-[#242526] rounded-t-2xl h-[calc(100%-112px)] overflow-hidden border-t border-[#3E4042] shadow-[0_-1px_0_rgba(0,0,0,0.2)]">
-        {/* Header */}
-        <div className="px-3 pt-3 pb-2 flex items-center justify-between border-b border-[#3E4042]">
+      <div className="bg-[#242526] h-[calc(100%-56px)] overflow-hidden">
+        {/* Header with back button only */}
+        <div className="px-3 pt-3 pb-2 flex items-center border-b border-[#3E4042]">
           <div className="flex items-center gap-2">
             <button
               type="button"
               className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
-              onClick={() => onClose?.()}
+              onClick={() => {
+                // Call onClose to go back to previous page (homepage)
+                if (onClose) {
+                  onClose();
+                } else {
+                  // Fallback: try to navigate back in history
+                  window.history.back();
+                }
+              }}
               aria-label="Back"
             >
               <i className="fas fa-arrow-left text-[18px] text-[#E4E6EB]" />
             </button>
-            <div className="text-[28px] font-extrabold text-[#E4E6EB] leading-none">Messages</div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center hover:bg-[#4E4F50] transition-colors"
-              aria-label="Settings"
-              onClick={() => alert("Settings")}
-            >
-              <i className="fas fa-gear text-[18px] text-[#E4E6EB]" />
-            </button>
-            <button
-              type="button"
-              className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center hover:bg-[#4E4F50] transition-colors"
-              aria-label="Search"
-              onClick={() => alert("Search")}
-            >
-              <i className="fas fa-magnifying-glass text-[18px] text-[#E4E6EB]" />
-            </button>
+            <div className="text-[28px] font-extrabold text-[#E4E6EB] leading-none">Chats</div>
           </div>
         </div>
 
@@ -338,15 +301,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, o
         </div>
       </div>
 
-      {/* Floating + */}
-      <button
-        type="button"
-        onClick={() => onNewChat?.()}
-        className="fixed right-5 bottom-6 w-14 h-14 rounded-full bg-[#1877F2] shadow-lg flex items-center justify-center hover:bg-[#166FE5] transition-colors active:scale-95"
-        aria-label="New chat"
-      >
-        <i className="fas fa-plus text-white text-[22px]" />
-      </button>
+      {/* REMOVED: Floating + button completely */}
 
       {/* Optional requests button (if you wire it later) */}
       {onOpenRequests ? (
