@@ -778,7 +778,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const [callOpen, setCallOpen] = useState(false);
   const [callMode, setCallMode] = useState<"voice" | "video">("voice");
   const [callPhase, setCallPhase] = useState<
-    "outgoing" | "incoming" | "connecting" | "active" | "ended"
+    "incoming" | "outgoing" | "connecting" | "active" | "ended"
   >("ended");
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -787,6 +787,31 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [speakerOn, setSpeakerOn] = useState(true);
+
+  // ==============================
+  // CALL UX: ringtone + timer
+  // ==============================
+  const [callSeconds, setCallSeconds] = useState(0);
+  const callTimerRef = useRef<number | null>(null);
+  const callStartedAtRef = useRef<number | null>(null);
+
+  const ringRef = useRef<AudioContext | null>(null);
+  const ringOscRef = useRef<OscillatorNode | null>(null);
+  const ringGainRef = useRef<GainNode | null>(null);
+  const ringTypeRef = useRef<"incoming" | "outgoing" | null>(null);
+
+  // ==============================
+  // SIGNALING
+  // ==============================
+  const [callId, setCallId] = useState<string | null>(null);
+  const [callCursor, setCallCursor] = useState(0);
+  const [incomingPopup, setIncomingPopup] = useState<any>(null); // call row from DB
+  
+  // WebRTC refs
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const callPollRef = useRef<number | null>(null);
+  const remoteDescSetRef = useRef(false);
+  const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
 
   // Voice recording
   const [recording, setRecording] = useState(false);
@@ -984,6 +1009,501 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     };
   }, [heartbeat, fetchRecipientPresence]);
 
+  // ==============================
+  // RINGTONE HELPERS
+  // ==============================
+  const startRingtone = (type: "incoming" | "outgoing") => {
+    stopRingtone();
+    ringTypeRef.current = type;
+
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      ringRef.current = ctx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      ringOscRef.current = osc;
+      ringGainRef.current = gain;
+
+      osc.type = "sine";
+      osc.frequency.value = type === "incoming" ? 880 : 660;
+      gain.gain.value = 0.0001;
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+
+      // simple “ring ring” pattern
+      let on = false;
+      const tick = () => {
+        if (!ringGainRef.current) return;
+        on = !on;
+        ringGainRef.current.gain.setTargetAtTime(on ? 0.06 : 0.0001, ctx.currentTime, 0.02);
+        // incoming: slower, outgoing: faster
+        const delay = type === "incoming" ? 650 : 450;
+        window.setTimeout(tick, delay);
+      };
+      tick();
+    } catch {}
+  };
+
+  const stopRingtone = () => {
+    ringTypeRef.current = null;
+    try {
+      ringOscRef.current?.stop();
+    } catch {}
+    try {
+      ringOscRef.current?.disconnect();
+      ringGainRef.current?.disconnect();
+    } catch {}
+    ringOscRef.current = null;
+    ringGainRef.current = null;
+
+    try {
+      ringRef.current?.close();
+    } catch {}
+    ringRef.current = null;
+  };
+
+  const startCallTimer = () => {
+    stopCallTimer();
+    callStartedAtRef.current = Date.now();
+    setCallSeconds(0);
+    callTimerRef.current = window.setInterval(() => {
+      if (!callStartedAtRef.current) return;
+      setCallSeconds(Math.floor((Date.now() - callStartedAtRef.current) / 1000));
+    }, 1000);
+  };
+
+  const stopCallTimer = () => {
+    if (callTimerRef.current) window.clearInterval(callTimerRef.current);
+    callTimerRef.current = null;
+    callStartedAtRef.current = null;
+  };
+
+  const formatCallTime = (s: number) => {
+    const mm = Math.floor(s / 60);
+    const ss = s % 60;
+    return `${mm}:${ss < 10 ? "0" : ""}${ss}`;
+  };
+
+  // ==============================
+  // WEBRTC CONFIGURATION
+  // ==============================
+  const getRTCConfiguration = (): RTCConfiguration => ({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      // Add TURN servers for production
+      // {
+      //   urls: 'turn:your-turn-server.com:3478',
+      //   username: 'username',
+      //   credential: 'password'
+      // }
+    ],
+    iceCandidatePoolSize: 10,
+  });
+
+  // ==============================
+  // SIGNALING HELPERS
+  // ==============================
+  const sendSignal = async (cid: string, toUserId: number, type: string, payload?: any) => {
+    await apiFetch(
+      "/api/calls/signal",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          call_id: cid,
+          to_user_id: toUserId,
+          type,
+          payload: payload ?? null,
+        }),
+      },
+      currentUserId
+    );
+  };
+
+  const startPollingCallEvents = (cid: string) => {
+    if (callPollRef.current) window.clearInterval(callPollRef.current);
+
+    callPollRef.current = window.setInterval(async () => {
+      try {
+        const res = await apiFetch(`/api/calls/poll?call_id=${encodeURIComponent(cid)}&after=${callCursor}`, {}, currentUserId);
+
+        const events = Array.isArray(res?.events) ? res.events : [];
+        const cursor = Number(res?.cursor ?? callCursor);
+        if (Number.isFinite(cursor)) setCallCursor(cursor);
+
+        for (const ev of events) {
+          await handleCallEvent(ev);
+        }
+      } catch {}
+    }, 900);
+  };
+
+  const stopPollingCallEvents = () => {
+    if (callPollRef.current) window.clearInterval(callPollRef.current);
+    callPollRef.current = null;
+  };
+
+  // ==============================
+  // WEBRTC PEER CONNECTION
+  // ==============================
+  const makePeerConnection = (cid: string, otherUserId: number, stream: MediaStream) => {
+    const pc = new RTCPeerConnection(getRTCConfiguration());
+    peerConnectionRef.current = pc;
+    remoteDescSetRef.current = false;
+    pendingIceRef.current = [];
+
+    // add tracks
+    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+    pc.ontrack = (e) => {
+      setRemoteStream(e.streams?.[0] || null);
+    };
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        sendSignal(cid, otherUserId, "ice", e.candidate.toJSON()).catch(() => {});
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      const st = pc.connectionState;
+      if (st === "connected") {
+        stopRingtone();
+        setCallPhase("active");
+        startCallTimer();
+      }
+      if (st === "failed" || st === "disconnected" || st === "closed") {
+        endCall(true);
+      }
+    };
+
+    return pc;
+  };
+
+  // ==============================
+  // HANDLE CALL EVENTS
+  // ==============================
+  const handleCallEvent = async (ev: any) => {
+    const type = String(ev?.type || "");
+    const payload = ev?.payload ?? null;
+
+    const pc = peerConnectionRef.current;
+
+    if (type === "accept") {
+      // callee accepted; keep “connecting…”
+      setCallPhase("connecting");
+      return;
+    }
+
+    if (type === "decline") {
+      stopRingtone();
+      alert("Call declined");
+      endCall(true);
+      return;
+    }
+
+    if (type === "hangup") {
+      stopRingtone();
+      endCall(true);
+      return;
+    }
+
+    if (!pc) return;
+
+    if (type === "offer") {
+      // incoming offer -> set remote, answer, send answer
+      const otherId = safeNum((recipient as any)?.id) || safeNum(incomingPopup?.caller_id) || 0;
+      const cid = String(callId || incomingPopup?.id || "");
+
+      if (!cid || !otherId) return;
+
+      await pc.setRemoteDescription(new RTCSessionDescription(payload));
+      remoteDescSetRef.current = true;
+
+      // flush any buffered ICE
+      for (const c of pendingIceRef.current) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+      }
+      pendingIceRef.current = [];
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await sendSignal(cid, otherId, "answer", answer);
+      setCallPhase("connecting");
+      return;
+    }
+
+    if (type === "answer") {
+      await pc.setRemoteDescription(new RTCSessionDescription(payload));
+      remoteDescSetRef.current = true;
+
+      for (const c of pendingIceRef.current) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+      }
+      pendingIceRef.current = [];
+      return;
+    }
+
+    if (type === "ice") {
+      // if remote description not set yet, buffer
+      if (!remoteDescSetRef.current) {
+        pendingIceRef.current.push(payload);
+        return;
+      }
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(payload));
+      } catch {}
+    }
+  };
+
+  // ==============================
+  // INCOMING CALL POLLING
+  // ==============================
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    const t = window.setInterval(async () => {
+      try {
+        if (document.visibilityState !== "visible") return;
+
+        // don't interrupt if already in a call UI
+        if (callOpen && callPhase !== "ended") return;
+
+        const res = await apiFetch("/api/calls/incoming", {}, currentUserId);
+        const c = res?.call || null;
+
+        if (c?.id && c?.status === "ringing") {
+          setIncomingPopup(c);
+          setCallMode(c.call_type === "video" ? "video" : "voice");
+          setCallPhase("incoming");
+          setCallOpen(true);
+          startRingtone("incoming");
+        }
+      } catch {}
+    }, 1200);
+
+    return () => window.clearInterval(t);
+  }, [currentUserId, callOpen, callPhase]);
+
+  // ==============================
+  // ACCEPT INCOMING CALL
+  // ==============================
+  const acceptIncomingCall = async () => {
+    const c = incomingPopup;
+    if (!c?.id) return;
+
+    const cid = String(c.id);
+    const otherId = safeNum(c.caller_id);
+    const mode: "voice" | "video" = c.call_type === "video" ? "video" : "voice";
+
+    try {
+      setCallId(cid);
+      setCallCursor(0);
+      setCallMode(mode);
+      setCallPhase("connecting");
+
+      // notify accept
+      await sendSignal(cid, otherId, "accept", { ok: true });
+
+      // get media
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: mode === "video",
+      });
+      setLocalStream(stream);
+      setMicOn(true);
+      setCamOn(mode === "video");
+
+      // create pc; WAIT for offer event
+      makePeerConnection(cid, otherId, stream);
+
+      stopRingtone();
+      startPollingCallEvents(cid);
+    } catch (e: any) {
+      stopRingtone();
+      alert(e?.message || "Failed to accept call");
+      endCall(true);
+    }
+  };
+
+  // ==============================
+  // DECLINE INCOMING CALL
+  // ==============================
+  const declineIncomingCall = async () => {
+    const c = incomingPopup;
+    if (!c?.id) {
+      stopRingtone();
+      setCallOpen(false);
+      setIncomingPopup(null);
+      setCallPhase("ended");
+      return;
+    }
+
+    const cid = String(c.id);
+    const otherId = safeNum(c.caller_id);
+
+    stopRingtone();
+    try {
+      await sendSignal(cid, otherId, "decline", { reason: "declined" });
+    } catch {}
+    setIncomingPopup(null);
+    setCallOpen(false);
+    setCallPhase("ended");
+  };
+
+  // ==============================
+  // OUTGOING CALL
+  // ==============================
+  const startOutgoingCall = async (mode: "voice" | "video") => {
+    const otherId = safeNum((recipient as any)?.id);
+    if (!otherId) return;
+
+    try {
+      // 1) create call first
+      const created = await apiFetch(
+        "/api/calls/create",
+        { method: "POST", body: JSON.stringify({ callee_id: otherId, call_type: mode }) },
+        currentUserId
+      );
+
+      const cid = String(created?.call_id || "");
+      if (!cid) throw new Error("No call_id");
+
+      setCallId(cid);
+      setCallCursor(0);
+
+      // 2) open UI + outgoing ringing
+      setCallMode(mode);
+      setCallPhase("outgoing");
+      setCallOpen(true);
+      startRingtone("outgoing");
+
+      // 3) get media
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: mode === "video",
+      });
+      setLocalStream(stream);
+      setMicOn(true);
+      setCamOn(mode === "video");
+
+      // 4) create pc, offer
+      const pc = makePeerConnection(cid, otherId, stream);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // 5) send offer
+      await sendSignal(cid, otherId, "offer", offer);
+      // keep polling
+      startPollingCallEvents(cid);
+    } catch (e: any) {
+      stopRingtone();
+      alert(e?.message || "Call failed");
+      endCall(true);
+    }
+  };
+
+  // ==============================
+  // END CALL
+  // ==============================
+  const endCall = async (silent = false) => {
+    stopRingtone();
+    stopCallTimer();
+    stopPollingCallEvents();
+
+    const cid = String(callId || incomingPopup?.id || "");
+    const otherId =
+      safeNum((recipient as any)?.id) ||
+      safeNum(incomingPopup?.caller_id) ||
+      safeNum(incomingPopup?.callee_id);
+
+    if (!silent && cid && otherId) {
+      sendSignal(cid, otherId, "hangup", { ok: true }).catch(() => {});
+    }
+
+    try { peerConnectionRef.current?.close(); } catch {}
+    peerConnectionRef.current = null;
+
+    try { localStream?.getTracks().forEach((t) => t.stop()); } catch {}
+    setLocalStream(null);
+    setRemoteStream(null);
+
+    setIncomingPopup(null);
+    setCallId(null);
+    setCallCursor(0);
+
+    setCallPhase("ended");
+    setTimeout(() => setCallOpen(false), 150);
+  };
+
+  // ==============================
+  // CALL CONTROL FUNCTIONS
+  // ==============================
+  const toggleMic = () => {
+    if (localStream) {
+      const audioTracks = localStream.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !micOn;
+      });
+    }
+    setMicOn(!micOn);
+  };
+
+  const toggleCamera = () => {
+    if (localStream) {
+      const videoTracks = localStream.getVideoTracks();
+      videoTracks.forEach(track => {
+        track.enabled = !camOn;
+      });
+    }
+    setCamOn(!camOn);
+  };
+
+  const toggleSpeaker = () => {
+    setSpeakerOn(!speakerOn);
+    // Speaker toggle would require audio output device change
+    // This is more complex and browser-dependent
+  };
+
+  const switchCamera = async () => {
+    if (!localStream || callMode !== 'video') return;
+    
+    try {
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (!videoTrack) return;
+      
+      const constraints = videoTrack.getConstraints();
+      const facingMode = constraints.facingMode === 'user' ? 'environment' : 'user';
+      
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { facingMode }
+      });
+      
+      // Replace track in peer connection
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) {
+          await sender.replaceTrack(newStream.getVideoTracks()[0]);
+        }
+      }
+      
+      // Update local stream
+      localStream.getVideoTracks()[0].stop();
+      setLocalStream(newStream);
+      
+    } catch (error) {
+      console.error('Failed to switch camera:', error);
+    }
+  };
+
   // Cleanup voice recording on unmount
   useEffect(() => {
     return () => {
@@ -997,6 +1517,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       try {
         recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
       } catch {}
+      
+      // Cleanup WebRTC
+      stopPollingCallEvents();
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+      }
     };
   }, []);
 
@@ -1218,91 +1748,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         sourceRef.current = null;
       }
     } catch {}
-  };
-
-  // ==============================
-  // CALL FUNCTIONS
-  // ==============================
-  const startVoiceCall = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      setLocalStream(stream);
-
-      setCallMode("voice");
-      setCallPhase("connecting");
-      setCallOpen(true);
-
-      // Here you would initiate WebRTC connection and signaling
-      // For now, we'll just show the UI
-      setTimeout(() => {
-        setCallPhase("active");
-      }, 2000);
-    } catch (err) {
-      console.error("Voice call failed", err);
-      alert("Could not access microphone. Please check permissions.");
-    }
-  };
-
-  const startVideoCall = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true,
-      });
-
-      setLocalStream(stream);
-
-      setCallMode("video");
-      setCallPhase("connecting");
-      setCallOpen(true);
-
-      // Here you would initiate WebRTC connection and signaling
-      // For now, we'll just show the UI
-      setTimeout(() => {
-        setCallPhase("active");
-      }, 2000);
-    } catch (err) {
-      console.error("Video call failed", err);
-      alert("Could not access camera/microphone. Please check permissions.");
-    }
-  };
-
-  const endCall = () => {
-    setCallPhase("ended");
-    setCallOpen(false);
-
-    try {
-      localStream?.getTracks().forEach((t) => t.stop());
-    } catch {}
-
-    setLocalStream(null);
-    setRemoteStream(null);
-  };
-
-  const toggleMic = () => {
-    if (localStream) {
-      const audioTracks = localStream.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = !micOn;
-      });
-    }
-    setMicOn(!micOn);
-  };
-
-  const toggleCamera = () => {
-    if (localStream) {
-      const videoTracks = localStream.getVideoTracks();
-      videoTracks.forEach(track => {
-        track.enabled = !camOn;
-      });
-    }
-    setCamOn(!camOn);
-  };
-
-  const toggleSpeaker = () => {
-    setSpeakerOn(!speakerOn);
-    // Speaker toggle would require audio output device change
-    // This is more complex and browser-dependent
   };
 
   /* ============================================================
@@ -1531,7 +1976,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             type="button"
             className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
             aria-label="Voice Call"
-            onClick={startVoiceCall}
+            onClick={() => startOutgoingCall("voice")}
           >
             <i className="fas fa-phone text-[18px] text-[#1B74E4]" />
           </button>
@@ -1539,7 +1984,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             type="button"
             className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#2d2d2d]"
             aria-label="Video Call"
-            onClick={startVideoCall}
+            onClick={() => startOutgoingCall("video")}
           >
             <i className="fas fa-video text-[18px] text-[#1B74E4]" />
           </button>
@@ -2193,14 +2638,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         micOn={micOn}
         camOn={camOn}
         speakerOn={speakerOn}
-        onHangup={endCall}
+        subtitle={callPhase === "active" ? formatCallTime(callSeconds) : callPhase === "connecting" ? "Connecting..." : callPhase === "outgoing" ? "Calling..." : callPhase === "incoming" ? "Incoming call..." : ""}
+        onHangup={() => endCall(false)}
+        onAccept={acceptIncomingCall}
+        onDecline={declineIncomingCall}
         onToggleMic={toggleMic}
         onToggleCam={toggleCamera}
         onToggleSpeaker={toggleSpeaker}
+        onFlipCamera={switchCamera}
       />
     </div>
   );
 };
 
-// Add both named and default exports
 export default ChatWindow;
