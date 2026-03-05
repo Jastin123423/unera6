@@ -120,25 +120,9 @@ type ChatsListProps = {
   onClose?: () => void;
   onOpenRequests?: () => void;
   onNewChat?: () => void;
-  // Navigation handlers
-  onOpenHome?: () => void;
-  onOpenMarketplace?: () => void;
-  // Notification counts
-  feedNotificationCount?: number;
-  messageNotificationCount?: number;
 };
 
-export const ChatsList: React.FC<ChatsListProps> = ({ 
-  currentUser, 
-  onOpenChat, 
-  onClose, 
-  onOpenRequests, 
-  onNewChat,
-  onOpenHome,
-  onOpenMarketplace,
-  feedNotificationCount = 0,
-  messageNotificationCount = 0
-}) => {
+export const ChatsList: React.FC<ChatsListProps> = ({ currentUser, onOpenChat, onClose, onOpenRequests, onNewChat }) => {
   const [rows, setRows] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
@@ -218,56 +202,29 @@ export const ChatsList: React.FC<ChatsListProps> = ({
         </button>
       </div>
 
-      {/* Tabs - Updated with navigation and notification counts */}
+      {/* Tabs */}
       <div className="px-2 pb-2 bg-[#242526]">
         <div className="flex items-center justify-between">
           {[
-            { 
-              icon: "fas fa-house", 
-              badge: feedNotificationCount > 0 ? `${Math.min(feedNotificationCount, 15)}+` : "",
-              onClick: onOpenHome,
-              active: false 
-            },
-            { 
-              icon: "fas fa-user-group", 
-              badge: "",
-              onClick: () => {}, // Leave empty for now
-              active: false 
-            },
-            { 
-              icon: "fab fa-facebook-messenger", 
-              badge: totalUnread > 0 ? `${Math.min(totalUnread, 15)}+` : "",
-              onClick: () => {}, // Already on messages tab
-              active: true 
-            },
-            // Fourth tab - Menu - DELETED completely
-            // Fifth tab - Car like - DELETED completely
-            { 
-              icon: "fas fa-store", 
-              badge: "",
-              onClick: onOpenMarketplace,
-              active: false 
-            },
+            { icon: "fas fa-house", badge: totalUnread > 0 ? `${Math.min(totalUnread, 15)}+` : "" },
+            { icon: "fas fa-user-group", badge: "" },
+            { icon: "fab fa-facebook-messenger", badge: "", active: true },
+            { icon: "fas fa-rectangle-list", badge: "" },
+            { icon: "fas fa-truck-fast", badge: "" },
+            { icon: "fas fa-store", badge: "" },
           ].map((t, idx) => {
-            // Skip rendering for indices that would have been the deleted tabs
-            // We're only keeping indices 0,1,2,3 (which correspond to Home, Users, Messages, Marketplace)
-            const skipIndices = [3, 4]; // Original indices 3 (menu) and 4 (car) are skipped
-            if (skipIndices.includes(idx)) return null;
-            
-            // Adjust index for display purposes (we're showing 4 tabs total)
-            const displayIndex = idx < 3 ? idx : 3; // Home(0), Users(1), Messages(2), Marketplace(3)
-            
+            const active = t.active || idx === 2;
             return (
               <button
                 key={idx}
                 type="button"
                 className={`relative w-[52px] h-[44px] rounded-xl flex items-center justify-center transition-colors ${
-                  t.active ? "bg-[#3A3B3C]" : "bg-transparent hover:bg-[#3A3B3C]"
+                  active ? "bg-[#3A3B3C]" : "bg-transparent hover:bg-[#3A3B3C]"
                 }`}
-                onClick={t.onClick}
+                onClick={() => {}}
                 aria-label="tab"
               >
-                <i className={`${t.icon} text-[20px] ${t.active ? "text-[#1877F2]" : "text-[#B0B3B8]"}`} />
+                <i className={`${t.icon} text-[20px] ${active ? "text-[#1877F2]" : "text-[#B0B3B8]"}`} />
                 {t.badge && (
                   <span className="absolute -top-1 right-1 bg-[#F3425F] text-white text-[11px] font-bold px-1.5 py-0.5 rounded-full border border-[#242526]">
                     {t.badge}
