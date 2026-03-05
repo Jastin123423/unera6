@@ -1,4 +1,4 @@
-// components/Chat.tsx
+// components/Chat.tsx-
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { User, Message } from "../types";
 import { StickerPicker, EmojiPicker } from "./Pickers";
