@@ -1,3 +1,5 @@
+
+
 // UserProfile.tsx - Complete updated file with refetch approach
 import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
@@ -562,29 +564,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const safeCoverImage = safeStringHelper((user as any)?.cover_image_url, '');
   const safeBio = safeStringHelper((user as any)?.bio, '');
 
-  // ==============================
-  // ✅ Presence (Online / Last seen)
-  // ==============================
-  const toDate = (v: any): Date | null => {
-    if (!v) return null;
-    const d = new Date(v);
-    return isNaN(d.getTime()) ? null : d;
-  };
-
-  const onlineUntil = toDate((user as any)?.online_until || (user as any)?.onlineUntil);
-  const lastSeenAt = toDate((user as any)?.last_seen_at || (user as any)?.lastSeenAt);
-
-  const isOnline = useMemo(() => {
-    if (!onlineUntil) return false;
-    return onlineUntil.getTime() > Date.now();
-  }, [onlineUntil]);
-
-  const presenceLabel = useMemo(() => {
-    if (isOnline) return "Online";
-    if (lastSeenAt) return `Last seen ${formatRelativeTime(lastSeenAt.toISOString())}`;
-    return "Offline";
-  }, [isOnline, lastSeenAt]);
-
   // Image validation
   const validateAndUploadImage = (file: File, uploadCallback: (file: File) => void) => {
     if (!file.type || !file.type.startsWith('image/')) {
@@ -1142,13 +1121,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         }}
       />
 
-      {/* ==============================
-          ✅ FB-LIKE TOP PROFILE HEADER (UNERA COLORS, NO CONTAINERS)
-         ============================== */}
-      <div className="w-full">
-        {/* Cover */}
-        <div className="w-full relative">
-          <div className="h-[210px] md:h-[340px] w-full bg-[#2A2D31] overflow-hidden">
+      {/* Profile Header */}
+      <div className="bg-[#242526] shadow-sm">
+        <div className="max-w-[1095px] mx-auto w-full relative">
+          {/* Cover Image */}
+          <div className="h-[200px] md:h-[350px] w-full bg-gray-700 relative overflow-hidden md:rounded-b-xl">
             {safeCoverImage ? (
               <img
                 src={safeCoverImage}
@@ -1157,206 +1134,182 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 onClick={() => onViewImage(safeCoverImage)}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-[#B0B3B8]">
-                No Cover
-              </div>
+              <div className="w-full h-full flex items-center justify-center text-gray-500">No Cover</div>
+            )}
+
+            {isCurrentUser && (
+              <>
+                <div
+                  className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-md cursor-pointer hover:bg-white/20 font-semibold text-white text-[15px] flex items-center gap-2 transition-all active:scale-95 active:shadow-inner"
+                  onClick={() => coverInputRef.current?.click()}
+                >
+                  <i className="fas fa-camera"></i> Edit cover photo
+                </div>
+                
+                {!safeCoverImage && (
+                  <div
+                    className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/50 active:scale-95 transition-transform"
+                    onClick={() => coverInputRef.current?.click()}
+                  >
+                    <div className="text-center">
+                      <i className="fas fa-camera text-white text-3xl mb-2"></i>
+                      <p className="text-white font-semibold">Add Cover Photo</p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
-          {/* Cover edit (self only) */}
-          {isCurrentUser && (
-            <button
-              onClick={() => coverInputRef.current?.click()}
-              className="absolute right-3 bottom-3 bg-[#3A3B3C]/90 hover:bg-[#4E4F50] text-[#E4E6EB] px-3 py-2 rounded-full text-[13px] font-semibold flex items-center gap-2 backdrop-blur-md active:scale-95"
-            >
-              <i className="fas fa-camera text-[#B0B3B8]"></i>
-              <span className="hidden sm:inline">Edit cover</span>
-            </button>
-          )}
-        </div>
-
-        {/* Top info area */}
-        <div className="max-w-[1095px] mx-auto w-full px-4">
-          {/* Avatar row (overlaps cover like FB) */}
-          <div className="flex items-end justify-between gap-3 -mt-[64px] md:-mt-[56px]">
-            {/* Left: avatar + name + stats */}
-            <div className="flex items-end gap-4 min-w-0">
-              {/* Avatar */}
-              <div className="relative">
-                <div className="w-[132px] h-[132px] md:w-[152px] md:h-[152px] rounded-full bg-[#18191A] p-[4px]">
-                  <div className="w-full h-full rounded-full overflow-hidden bg-[#3A3B3C] cursor-pointer relative group">
-                    {safeProfileImage ? (
-                      <img
-                        src={safeProfileImage}
-                        alt={safeStringHelper((user as any).name, "User")}
-                        className="w-full h-full object-cover"
-                        onClick={() => onViewImage(safeProfileImage)}
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-[#B0B3B8]">
-                        No Photo
-                      </div>
-                    )}
-
-                    {/* Avatar edit overlay (self only) */}
-                    {isCurrentUser && (
-                      <div
-                        onClick={() => profileInputRef.current?.click()}
-                        className="absolute inset-0 bg-black/35 hidden group-hover:flex items-center justify-center"
-                      >
-                        <i className="fas fa-camera text-white text-2xl"></i>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Online dot (FB-like) */}
-                <div className="absolute right-2 bottom-3">
-                  <div
-                    className={`w-4 h-4 rounded-full border-[3px] border-[#18191A] ${
-                      isOnline ? "bg-emerald-500" : "bg-[#65676B]"
-                    }`}
-                    title={presenceLabel}
+          {/* Profile Picture and Info */}
+          <div className="px-4 pb-0">
+            <div className="flex flex-col md:flex-row items-center md:items-end -mt-[84px] md:-mt-[30px] relative z-10 mb-4">
+              <div className="w-[168px] h-[168px] rounded-full border-[6px] border-[#242526] bg-[#242526] overflow-hidden cursor-pointer relative group">
+                {safeProfileImage ? (
+                  <img
+                    src={safeProfileImage}
+                    alt={safeStringHelper((user as any).name, 'User')}
+                    className="w-full h-full object-cover"
+                    onClick={() => onViewImage(safeProfileImage)}
                   />
-                </div>
+                ) : (
+                  <div className="w-full h-full bg-[#3A3B3C] flex items-center justify-center text-[#B0B3B8]">
+                    No Photo
+                  </div>
+                )}
+
+                {isCurrentUser && (
+                  <>
+                    <div
+                      className="absolute inset-0 bg-black/40 hidden group-hover:flex items-center justify-center transition-all active:scale-95"
+                      onClick={() => profileInputRef.current?.click()}
+                    >
+                      <i className="fas fa-camera text-white text-3xl"></i>
+                    </div>
+                    
+                    {!safeProfileImage && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center bg-black/60 cursor-pointer active:scale-95 transition-transform"
+                        onClick={() => profileInputRef.current?.click()}
+                      >
+                        <div className="text-center">
+                          <i className="fas fa-camera text-white text-3xl mb-2"></i>
+                          <p className="text-white font-semibold text-sm">Add Profile Photo</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
 
-              {/* Name + followers + presence */}
-              <div className="pb-2 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-[26px] md:text-[32px] font-extrabold text-[#E4E6EB] leading-tight truncate">
-                    {safeStringHelper((user as any).name, "User")}
-                  </h1>
-
+              <div className="flex-1 flex flex-col items-center md:items-start mt-4 md:mt-0 md:ml-6 text-center md:text-left md:mb-4">
+                <h1 className="text-[32px] font-bold text-[#E4E6EB] flex items-center gap-2">
+                  {safeStringHelper((user as any).name, 'User')}
                   {(user as any).is_verified && (
-                    <i className="fas fa-check-circle text-[#2D88FF] text-[18px] md:text-[20px]"></i>
+                    <i className="fas fa-check-circle text-[#1877F2] text-[20px]"></i>
                   )}
-
-                  {(user.role === "admin" || user.role === "moderator") && (
-                    <span
-                      className={`text-[11px] px-2 py-[2px] rounded-full font-bold ${
-                        user.role === "admin"
-                          ? "bg-red-900/70 text-red-100"
-                          : "bg-purple-900/70 text-purple-100"
-                      }`}
-                    >
+                  {(user.role === 'admin' || user.role === 'moderator') && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      user.role === 'admin' 
+                        ? 'bg-red-900/80 text-red-200' 
+                        : 'bg-purple-900/80 text-purple-200'
+                    }`}>
                       {user.role}
                     </span>
                   )}
-                </div>
+                </h1>
+                <span className="text-[#B0B3B8] font-semibold text-[17px] mt-1">
+                  {followerCount} Followers
+                </span>
+              </div>
 
-                <div className="flex items-center gap-2 text-[#B0B3B8] mt-1 flex-wrap">
-                  <span className="font-semibold text-[15px]">
-                    {followerCount} Followers
-                  </span>
-
-                  <span className="text-[#3E4042]">•</span>
-
-                  <span className="text-[14px]">
-                    {filteredProfilePosts.length} posts
-                  </span>
-                </div>
-
-                {/* Presence text line */}
-                <div className="flex items-center gap-2 mt-1">
-                  <span
-                    className={`text-[13px] font-semibold ${
-                      isOnline ? "text-emerald-400" : "text-[#B0B3B8]"
-                    }`}
-                  >
-                    {presenceLabel}
-                  </span>
-                </div>
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 md:mt-0 md:mb-6">
+                {isCurrentUser ? (
+                  // Profile owner buttons
+                  <>
+                    <button
+                      className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner"
+                      onClick={() => {
+                        if (onCreateStoryClick) {
+                          onCreateStoryClick();
+                        } else {
+                          setShowCreatePostModal(true);
+                        }
+                      }}
+                    >
+                      <i className="fas fa-plus"></i>
+                      <span>Add to story</span>
+                    </button>
+                    
+                    <button
+                      onClick={handleSelfMessageClick}
+                      className={`bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner ${
+                        isChatsListOpen ? 'ring-2 ring-[#1877F2]' : ''
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <i className="fas fa-comment"></i>
+                        {isChatsListOpen ? 'Chats Open' : 'Messages'}
+                      </span>
+                    </button>
+                  </>
+                ) : (
+                  // Other user buttons
+                  <>
+                    <button
+                      onClick={handleFollowClick}
+                      className={`${
+                        isFollowing ? 'bg-[#3A3B3C] text-[#E4E6EB]' : 'bg-[#1877F2] text-white'
+                      } px-6 py-2 rounded-md font-semibold transition-all duration-200 ${
+                        isFollowButtonClicked ? 'scale-95 shadow-inner' : 'hover:scale-105'
+                      } ${isFollowing ? 'hover:bg-[#4E4F50]' : 'hover:bg-[#166FE5]'}`}
+                      disabled={isFollowButtonClicked}
+                    >
+                      {isFollowing ? (
+                        <span className="flex items-center gap-2">
+                          <i className="fas fa-check"></i>
+                          Following
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <i className="fas fa-user-plus"></i>
+                          Follow
+                        </span>
+                      )}
+                    </button>
+                    
+                    <button
+                      onClick={handleOtherMessageClick}
+                      className={`bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner ${
+                        isChatOpen && activeChatRecipient?.id === user.id ? 'ring-2 ring-[#1877F2]' : ''
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <i className="fas fa-comment"></i>
+                        {isChatOpen && activeChatRecipient?.id === user.id ? 'Chat Open' : 'Message'}
+                      </span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Right: actions (FB-style) */}
-            <div className="pb-2 flex items-center gap-2 flex-shrink-0">
-              {isCurrentUser ? (
-                <>
-                  <button
-                    className="bg-[#2D88FF] hover:bg-[#1B74E4] text-white px-4 py-2 rounded-lg font-bold text-[14px] flex items-center gap-2 active:scale-95"
-                    onClick={() => {
-                      if (onCreateStoryClick) onCreateStoryClick();
-                      else setShowCreatePostModal(true);
-                    }}
-                  >
-                    <i className="fas fa-plus"></i>
-                    <span className="hidden sm:inline">Add to story</span>
-                  </button>
-
-                  <button
-                    onClick={handleSelfMessageClick}
-                    className={`bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] px-4 py-2 rounded-lg font-bold text-[14px] flex items-center gap-2 active:scale-95 ${
-                      isChatsListOpen ? "ring-2 ring-[#2D88FF]" : ""
-                    }`}
-                  >
-                    <i className="fas fa-comment"></i>
-                    <span className="hidden sm:inline">
-                      {isChatsListOpen ? "Chats Open" : "Messages"}
-                    </span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  {/* Follow stays, but you said you don't have following list — so UI remains followers only */}
-                  <button
-                    onClick={handleFollowClick}
-                    className={`px-4 py-2 rounded-lg font-bold text-[14px] flex items-center gap-2 active:scale-95 ${
-                      isFollowing
-                        ? "bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB]"
-                        : "bg-[#2D88FF] hover:bg-[#1B74E4] text-white"
-                    } ${isFollowButtonClicked ? "scale-95 shadow-inner" : ""}`}
-                    disabled={isFollowButtonClicked}
-                  >
-                    {isFollowing ? (
-                      <>
-                        <i className="fas fa-check"></i>
-                        <span className="hidden sm:inline">Following</span>
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-user-plus"></i>
-                        <span className="hidden sm:inline">Follow</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={handleOtherMessageClick}
-                    className={`bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] px-4 py-2 rounded-lg font-bold text-[14px] flex items-center gap-2 active:scale-95 ${
-                      isChatOpen && activeChatRecipient?.id === user.id
-                        ? "ring-2 ring-[#2D88FF]"
-                        : ""
-                    }`}
-                  >
-                    <i className="fas fa-comment"></i>
-                    <span className="hidden sm:inline">
-                      {isChatOpen && activeChatRecipient?.id === user.id
-                        ? "Chat Open"
-                        : "Message"}
-                    </span>
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Tabs row (keeps your tabs, but styled like FB top bar) */}
-          <div className="mt-3 border-t border-[#3E4042]">
-            <div className="flex items-center gap-2 overflow-x-auto">
-              {(["Posts", "About", "Followers", "Photos"] as const).map((tab) => (
-                <button
+            {/* Tabs */}
+            <div className="h-[1px] bg-[#3E4042] w-full mt-4"></div>
+            <div className="flex items-center gap-1 pt-1 overflow-x-auto">
+              {(['Posts', 'About', 'Followers', 'Photos'] as const).map((tab) => (
+                <div
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-3 text-[15px] font-bold whitespace-nowrap border-b-[3px] transition-colors active:scale-95 ${
+                  className={`px-4 py-3 cursor-pointer whitespace-nowrap text-[15px] font-semibold border-b-[3px] transition-colors active:scale-95 ${
                     activeTab === tab
-                      ? "text-[#2D88FF] border-[#2D88FF]"
-                      : "text-[#B0B3B8] border-transparent hover:bg-[#242526] rounded-md"
+                      ? 'text-[#1877F2] border-[#1877F2]'
+                      : 'text-[#B0B3B8] border-transparent hover:bg-[#3A3B3C] rounded-t-md'
                   }`}
                 >
                   {tab}
-                </button>
+                </div>
               ))}
             </div>
           </div>
