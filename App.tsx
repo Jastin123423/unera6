@@ -1,4 +1,4 @@
-// App.tsx (Complete file with chat integration and fixed group post creation)
+/ App.tsx (Complete file with chat integration and fixed group post creation)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -31,7 +31,8 @@ import { ToolsPage } from './components/Tools';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
 import { TermsOfServicePage } from './components/TermsOfService';
 import { ChatWindow } from './components/Chat';
-import { ChatsList } from './components/ChatsList'; // ✅ IMPORT ADDED
+import { ChatsList } from './components/ChatsList';
+import { CallScreen } from './components/CallScreen'; // ✅ ADDED: CallScreen import
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -1330,6 +1331,10 @@ export default function App() {
   // ✅ ADDED: ChatsList state (for message inbox)
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
 
+  // ✅ ADDED: Incoming call state
+  const [incomingCall, setIncomingCall] = useState<any>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
   
@@ -1575,6 +1580,58 @@ export default function App() {
     
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
+
+  // ✅ ADDED: Incoming call polling effect
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    // Create audio element for ringtone
+    if (!audioRef.current) {
+      audioRef.current = new Audio('/sounds/ringtone.mp3');
+      audioRef.current.loop = true;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await apiFetch(
+          `/api/calls/incoming?user_id=${currentUser.id}`,
+          {},
+          currentUser.id
+        );
+
+        const call = res?.call;
+
+        if (call?.id && call?.status === "ringing") {
+          setIncomingCall(call);
+          
+          // Play ringtone
+          if (audioRef.current) {
+            audioRef.current.play().catch(e => console.log('Ringtone play failed:', e));
+          }
+        }
+      } catch (error) {
+        // Silent fail - polling errors shouldn't disrupt the app
+        console.debug('Call polling error:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+
+    return () => {
+      clearInterval(interval);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    };
+  }, [currentUser]);
+
+  // ✅ ADDED: Helper to open chat with user
+  const openChatWith = useCallback((userId: number) => {
+    const recipient = users.find(u => Number(u.id) === Number(userId));
+    if (recipient) {
+      setActiveChatUser(recipient);
+      setIsChatOpen(true);
+    }
+  }, [users]);
 
   const resolveTrackOwner = useCallback((track: any): User | null => {
     if (!track) return null;
@@ -4195,6 +4252,7 @@ export default function App() {
     setActiveChatUser(null); // ✅ Clear chat state on logout
     setIsChatOpen(false);
     setIsChatsListOpen(false); // ✅ Clear ChatsList state on logout
+    setIncomingCall(null); // ✅ Clear incoming call on logout
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -5331,6 +5389,70 @@ export default function App() {
       )}
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+
+      {/* ✅ ADDED: Incoming Call Screen - Rendered GLOBALLY at root level */}
+      {incomingCall && currentUser && (
+        <CallScreen
+          open={true}
+          mode={incomingCall.call_type === "video" ? "video" : "voice"}
+          phase="incoming"
+          peerName={incomingCall.caller_name || "User"}
+          peerAvatar={incomingCall.caller_avatar || null}
+          micOn={true}
+          camOn={true}
+          speakerOn={true}
+          onAccept={() => {
+            // Stop ringtone
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
+            
+            // Open chat automatically with caller
+            openChatWith(incomingCall.caller_id);
+            
+            // You might want to also navigate to the call screen here
+            // setView('call'); // If you have a dedicated call view
+            
+            setIncomingCall(null);
+          }}
+          onDecline={() => {
+            // Stop ringtone
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
+            
+            // Decline the call
+            apiFetch(
+              "/api/calls/signal",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  call_id: incomingCall.id,
+                  to_user_id: incomingCall.caller_id,
+                  type: "decline",
+                }),
+              },
+              currentUser.id
+            ).catch(err => console.error('Failed to decline call:', err));
+
+            setIncomingCall(null);
+          }}
+          onHangup={() => {
+            // Stop ringtone
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
+            
+            setIncomingCall(null);
+          }}
+          onToggleMic={() => {}}
+          onToggleCam={() => {}}
+          onToggleSpeaker={() => {}}
+        />
+      )}
 
       {/* ✅ ADDED: Chat Window */}
       {isChatOpen && activeChatUser && currentUser && (
