@@ -9,11 +9,14 @@ const cors = {
 };
 
 const json = (data: any, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { ...cors, "Content-Type": "application/json" } });
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
 
 const safeNum = (v: any, fb = 0) => {
   const n = Number(v);
-  return Number.isFinite(n) ? n : fb;
+  return Number.isFinite(n) ? Math.floor(n) : fb;
 };
 
 const newId = () =>
@@ -21,7 +24,7 @@ const newId = () =>
     `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`);
 
 export const onRequest: PagesFunction<Env> = async (ctx) => {
-  if (ctx.request.method === "OPTIONS") return new Response("", { headers: cors });
+  if (ctx.request.method === "OPTIONS") return new Response("", { status: 204, headers: cors });
   if (ctx.request.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const me = safeNum(ctx.request.headers.get("x-user-id"));
@@ -32,21 +35,43 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   const call_type = body?.call_type === "video" ? "video" : "voice";
 
   if (!callee_id) return json({ error: "Missing callee_id" }, 400);
+  if (callee_id === me) return json({ error: "You cannot call yourself" }, 400);
+
+  // ✅ Optional: prevent duplicate ringing calls between same pair
+  const existing = await ctx.env.DB.prepare(
+    `SELECT id FROM calls
+     WHERE caller_id=? AND callee_id=? AND status='ringing'
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(me, callee_id)
+    .first<any>();
+
+  if (existing?.id) {
+    return json({ ok: true, call_id: String(existing.id), call_type, reused: true });
+  }
 
   const call_id = newId();
 
   await ctx.env.DB.prepare(
-    `INSERT INTO calls (id, caller_id, callee_id, call_type, status) VALUES (?, ?, ?, ?, 'ringing')`
+    `INSERT INTO calls (id, caller_id, callee_id, call_type, status)
+     VALUES (?, ?, ?, ?, 'ringing')`
   )
     .bind(call_id, me, callee_id, call_type)
     .run();
 
-  // Push “ringing” event to callee
+  /**
+   * ✅ IMPORTANT:
+   * Do NOT insert a fake "offer" here.
+   * "offer" must be real SDP and will be sent by the frontend via /api/calls/signal.
+   *
+   * If you want a notify event, use a distinct type like "ringing".
+   */
   await ctx.env.DB.prepare(
     `INSERT INTO call_signals (call_id, from_user_id, to_user_id, type, payload)
-     VALUES (?, ?, ?, 'offer', ?)`
+     VALUES (?, ?, ?, 'ringing', ?)`
   )
-    .bind(call_id, me, callee_id, JSON.stringify({ ringing: true }))
+    .bind(call_id, me, callee_id, JSON.stringify({ ok: true }))
     .run();
 
   return json({ ok: true, call_id, call_type });
