@@ -801,17 +801,28 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const ringTypeRef = useRef<"incoming" | "outgoing" | null>(null);
 
   // ==============================
-  // SIGNALING
+  // SIGNALING - FIXED WITH REFS
   // ==============================
   const [callId, setCallId] = useState<string | null>(null);
   const [callCursor, setCallCursor] = useState(0);
   const [incomingPopup, setIncomingPopup] = useState<any>(null); // call row from DB
+  
+  // REFS for stable values in intervals/event handlers
+  const callCursorRef = useRef(0);
+  const callIdRef = useRef<string | null>(null);
+  const incomingPopupRef = useRef<any>(null);
+  const recipientIdRef = useRef<number>(0);
   
   // WebRTC refs
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const callPollRef = useRef<number | null>(null);
   const remoteDescSetRef = useRef(false);
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
+
+  // Keep refs synced with state
+  useEffect(() => { callIdRef.current = callId; }, [callId]);
+  useEffect(() => { incomingPopupRef.current = incomingPopup; }, [incomingPopup]);
+  useEffect(() => { recipientIdRef.current = safeNum((recipient as any)?.id); }, [recipient]);
 
   // Voice recording
   const [recording, setRecording] = useState(false);
@@ -1108,6 +1119,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   });
 
   // ==============================
+  // ICE HELPER
+  // ==============================
+  const flushPendingIce = async (pc: RTCPeerConnection) => {
+    const list = pendingIceRef.current.splice(0);
+    for (const c of list) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+    }
+  };
+
+  // ==============================
   // SIGNALING HELPERS
   // ==============================
   const sendSignal = async (cid: string, toUserId: number, type: string, payload?: any) => {
@@ -1131,11 +1152,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
     callPollRef.current = window.setInterval(async () => {
       try {
-        const res = await apiFetch(`/api/calls/poll?call_id=${encodeURIComponent(cid)}&after=${callCursor}`, {}, currentUserId);
+        const after = callCursorRef.current || 0;
+        
+        const res = await apiFetch(
+          `/api/calls/poll?call_id=${encodeURIComponent(cid)}&after=${after}`,
+          {},
+          currentUserId
+        );
 
         const events = Array.isArray(res?.events) ? res.events : [];
-        const cursor = Number(res?.cursor ?? callCursor);
-        if (Number.isFinite(cursor)) setCallCursor(cursor);
+        const cursor = Number(res?.cursor ?? after);
+
+        if (Number.isFinite(cursor)) {
+          callCursorRef.current = cursor;
+          setCallCursor(cursor);
+        }
 
         for (const ev of events) {
           await handleCallEvent(ev);
@@ -1183,11 +1214,23 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      const st = pc.iceConnectionState;
+      if (st === "connected" || st === "completed") {
+        stopRingtone();
+        setCallPhase("active");
+        startCallTimer();
+      }
+      if (st === "failed" || st === "disconnected" || st === "closed") {
+        endCall(true);
+      }
+    };
+
     return pc;
   };
 
   // ==============================
-  // HANDLE CALL EVENTS
+  // HANDLE CALL EVENTS - FIXED WITH REFS
   // ==============================
   const handleCallEvent = async (ev: any) => {
     const type = String(ev?.type || "");
@@ -1218,8 +1261,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
     if (type === "offer") {
       // incoming offer -> set remote, answer, send answer
-      const otherId = safeNum((recipient as any)?.id) || safeNum(incomingPopup?.caller_id) || 0;
-      const cid = String(callId || incomingPopup?.id || "");
+      const otherId =
+        recipientIdRef.current ||
+        safeNum(incomingPopupRef.current?.caller_id) ||
+        safeNum(incomingPopupRef.current?.callee_id) ||
+        0;
+
+      const cid = String(callIdRef.current || incomingPopupRef.current?.id || "");
 
       if (!cid || !otherId) return;
 
@@ -1227,10 +1275,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       remoteDescSetRef.current = true;
 
       // flush any buffered ICE
-      for (const c of pendingIceRef.current) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-      }
-      pendingIceRef.current = [];
+      await flushPendingIce(pc);
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -1243,10 +1288,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       await pc.setRemoteDescription(new RTCSessionDescription(payload));
       remoteDescSetRef.current = true;
 
-      for (const c of pendingIceRef.current) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-      }
-      pendingIceRef.current = [];
+      await flushPendingIce(pc);
       return;
     }
 
@@ -1304,6 +1346,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
     try {
       setCallId(cid);
+      callIdRef.current = cid;
+      callCursorRef.current = 0;
       setCallCursor(0);
       setCallMode(mode);
       setCallPhase("connecting");
@@ -1376,6 +1420,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       if (!cid) throw new Error("No call_id");
 
       setCallId(cid);
+      callIdRef.current = cid;
+      callCursorRef.current = 0;
       setCallCursor(0);
 
       // 2) open UI + outgoing ringing
@@ -1417,11 +1463,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     stopCallTimer();
     stopPollingCallEvents();
 
-    const cid = String(callId || incomingPopup?.id || "");
+    const cid = String(callIdRef.current || incomingPopupRef.current?.id || "");
     const otherId =
-      safeNum((recipient as any)?.id) ||
-      safeNum(incomingPopup?.caller_id) ||
-      safeNum(incomingPopup?.callee_id);
+      recipientIdRef.current ||
+      safeNum(incomingPopupRef.current?.caller_id) ||
+      safeNum(incomingPopupRef.current?.callee_id);
 
     if (!silent && cid && otherId) {
       sendSignal(cid, otherId, "hangup", { ok: true }).catch(() => {});
@@ -1436,6 +1482,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
     setIncomingPopup(null);
     setCallId(null);
+    callIdRef.current = null;
+    callCursorRef.current = 0;
     setCallCursor(0);
 
     setCallPhase("ended");
