@@ -800,7 +800,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const setCallPeer = (id: number, name?: string, avatar?: string | null) => {
     setCallPeerId(id);
-    setCallPeerName(name || "");
+    // ✅ Never store empty name - use "User" as fallback immediately
+    setCallPeerName((name && String(name).trim()) ? String(name).trim() : "User");
     setCallPeerAvatar(avatar ?? null);
   };
 
@@ -1400,11 +1401,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const callerName = safeStr(c.caller_name || c.caller_username || "");
           const callerAvatar = (c.caller_avatar || c.caller_profile_image_url || null) as string | null;
 
-          setCallPeer(callerId, callerName, callerAvatar);
+          // ✅ Never let it be empty, so it won't fallback to Lucy chat
+          setCallPeer(callerId, callerName || "User", callerAvatar);
 
-          // If name/avatar not present, fetch them once
+          // If name not present, fetch and update
           if (!callerName) {
-            fetchUserLite(callerId).then((u) => setCallPeer(callerId, u.name, u.avatar));
+            fetchUserLite(callerId).then((u) => setCallPeer(callerId, u.name || "User", u.avatar));
           }
 
           setCallMode(c.call_type === "video" ? "video" : "voice");
@@ -2064,6 +2066,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const closeActionModal = () => setActionModal(null);
 
   const safeAreaPaddingBottom = "max(env(safe-area-inset-bottom), 8px)";
+
+  // ==============================
+  // PEER DISPLAY FOR CALL SCREEN
+  // ==============================
+  const callHasPeer = callPeerIdRef.current > 0 || callPeerId > 0;
+
+  const peerDisplayName = callHasPeer
+    ? (callPeerName && callPeerName.trim() ? callPeerName : "User")
+    : (safeStr((recipient as any)?.name) || safeStr((recipient as any)?.username) || "User");
+
+  const peerDisplayAvatar = callHasPeer
+    ? (callPeerAvatar ?? null)
+    : (((recipient as any)?.profile_image_url || (recipient as any)?.avatar_url || null) as string | null);
 
   return (
     <div className="fixed inset-0 z-[200] bg-[#1e1e1e] flex flex-col font-sans overflow-x-hidden">
@@ -2773,8 +2788,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         open={callOpen}
         mode={callMode}
         phase={callPhase}
-        peerName={callPeerName || safeStr((recipient as any)?.name) || "User"}
-        peerAvatar={callPeerAvatar || (recipient as any)?.profile_image_url || null}
+        peerName={peerDisplayName}
+        peerAvatar={peerDisplayAvatar}
         localStream={localStream}
         remoteStream={remoteStream}
         micOn={micOn}
