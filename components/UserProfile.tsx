@@ -1,6 +1,4 @@
-
-
-// UserProfile.tsx - Complete updated file with refetch approach
+// UserProfile.tsx - Complete updated file with fixes for state flicker issues
 import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
@@ -284,6 +282,20 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false);
 
+  // ========== FIX 1: STABLE FOLLOWERS CACHE ==========
+  // Prevents follower count from flickering (0 → 12 → 0 → 12)
+  const [stableFollowers, setStableFollowers] = useState<number[]>(() =>
+    safeArrayHelper<number>((user as any)?.followers || [])
+  );
+
+  // ========== FIX 2: TRACK PROPS SEEDING ==========
+  // Prevents posts from disappearing when parent passes empty array
+  const seededFromPropsRef = useRef(false);
+  
+  // ========== FIX 3: TRACK INITIAL LOAD ==========
+  // Ensures we don't wipe posts on failed fetches
+  const hasLoadedPostsRef = useRef(false);
+
   // ========== MODAL STATES ==========
   const [showCommentsSheet, setShowCommentsSheet] = useState(false);
   const [selectedPostForComments, setSelectedPostForComments] = useState<any>(null);
@@ -301,15 +313,35 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const isCurrentUser = Boolean(currentUser && Number(user?.id) === Number(currentUser?.id));
   const isSelf = isCurrentUser;
 
-  // Follow logic
+  // ========== FIX 1: STABLE FOLLOWERS EFFECT ==========
+  // Only update followers when we have real data, never overwrite with empty
+  useEffect(() => {
+    const next = safeArrayHelper<number>((user as any)?.followers || []);
+
+    setStableFollowers((prev) => {
+      const prevHas = Array.isArray(prev) && prev.length > 0;
+      const nextHas = Array.isArray(next) && next.length > 0;
+
+      // Accept update if:
+      // 1. Next has real data (always accept real data)
+      if (nextHas) return next;
+      
+      // 2. First time loading and both are empty (initial state)
+      if (!prevHas && !nextHas) return next;
+      
+      // 3. Otherwise keep previous stable value (prevent empty overwrites)
+      return prev;
+    });
+  }, [user]);
+
+  // Use stableFollowers for all follower calculations
+  const followerCount = stableFollowers.length;
+
+  // Follow logic using stableFollowers
   const isFollowing = useMemo(() => {
     if (!currentUser) return false;
-    const userFollowers = safeArrayHelper<number>((user as any)?.followers || []);
-    return userFollowers.includes(currentUser.id);
-  }, [currentUser, user]);
-
-  const userFollowers = useMemo(() => safeArrayHelper<number>((user as any).followers || []), [user]);
-  const followerCount = userFollowers.length;
+    return stableFollowers.includes(currentUser.id);
+  }, [currentUser, stableFollowers]);
 
   // Role checks
   const roleOf = (u: any) => String(u?.role || "").trim().toLowerCase();
@@ -323,9 +355,24 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   // Local state for profile posts
   const [profilePosts, setProfilePosts] = useState<PostType[]>(() => safeArrayHelper(posts));
 
-  // Keep in sync when parent provides new posts
+  // ========== FIX 2: GUARDED PROPS SYNC ==========
+  // Only seed from props when we actually got a non-empty list
+  // Never overwrite stable profilePosts with empty arrays
   useEffect(() => {
-    setProfilePosts(safeArrayHelper(posts));
+    const incoming = safeArrayHelper(posts);
+
+    // If props has real data, allow seeding (but only once unless it's better data)
+    if (incoming.length > 0) {
+      setProfilePosts(incoming);
+      seededFromPropsRef.current = true;
+      return;
+    }
+
+    // If incoming is empty, ignore it (prevents "all posts disappear")
+    // unless we have never had any posts at all from any source
+    if (!seededFromPropsRef.current && !hasLoadedPostsRef.current) {
+      setProfilePosts(incoming);
+    }
   }, [posts]);
 
   // ========== API FETCH HELPER ==========
@@ -489,35 +536,49 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       if (!user?.id) return;
       
       try {
+        let list: PostType[] = [];
+        
         if (fetchProfilePosts) {
           const viewerId = currentUser?.id ?? null;
-          const list = await fetchProfilePosts(Number(user.id), viewerId);
-          if (!cancelled && list.length) {
-            setProfilePosts(list);
-          }
-          return;
+          list = await fetchProfilePosts(Number(user.id), viewerId);
+        } else {
+          list = await fetchProfilePostsFromBackend(Number(user.id));
         }
         
-        const list = await fetchProfilePostsFromBackend(Number(user.id));
         if (!cancelled) {
-          setProfilePosts(list);
+          // ========== FIX 3: NEVER WIPE UI ON FAILED FETCH ==========
+          // Only apply fetched list if it's non-empty, otherwise keep old posts
+          if (list.length > 0) {
+            setProfilePosts(list);
+            hasLoadedPostsRef.current = true;
+            seededFromPropsRef.current = true; // Mark as seeded since we have real data
+          } else if (!hasLoadedPostsRef.current) {
+            // Only set empty if we've never loaded anything before
+            setProfilePosts(list);
+          }
+          // If list is empty and we already have posts, keep existing posts
         }
       } catch (error) {
         console.error('Error loading profile posts:', error);
+        // Don't clear posts on error - keep existing ones
       }
     };
     
     loadProfilePosts();
     
     return () => { cancelled = true; };
-  }, [user?.id, currentUser?.id]);
+  }, [user?.id, currentUser?.id]); // Only depend on IDs, not full objects
 
   // ========== MANUAL REFRESH FUNCTION ==========
   const refreshProfilePosts = async () => {
     if (!user?.id) return;
     
     const list = await fetchProfilePostsFromBackend(Number(user.id));
-    setProfilePosts(list);
+    if (list.length > 0) {
+      setProfilePosts(list);
+      hasLoadedPostsRef.current = true;
+    }
+    // If list is empty, keep current posts
   };
 
   // User reels
@@ -804,7 +865,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Followers</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {users
-          .filter((u) => userFollowers.includes(u.id))
+          .filter((u) => stableFollowers.includes(u.id))
           .map((follower) => (
             <div
               key={follower.id}
