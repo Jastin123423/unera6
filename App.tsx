@@ -1,4 +1,4 @@
-/ App.tsx (Complete file with chat integration and fixed group post creation)
+
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
