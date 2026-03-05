@@ -806,7 +806,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   };
 
   // ==============================
-  // CALL UX: ringtone + timer
+  // CALL UX: ringtone + timer + missed call tracking
   // ==============================
   const [callSeconds, setCallSeconds] = useState(0);
   const callTimerRef = useRef<number | null>(null);
@@ -816,6 +816,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const ringOscRef = useRef<OscillatorNode | null>(null);
   const ringGainRef = useRef<GainNode | null>(null);
   const ringTypeRef = useRef<"incoming" | "outgoing" | null>(null);
+
+  // Missed call tracking
+  const CALL_TIMEOUT_MS = 30000; // 30 seconds
+  const outgoingTimeoutRef = useRef<number | null>(null);
+  const callEndReasonRef = useRef<"timeout" | "declined" | "hangup" | "remote_hangup" | "none">("none");
+  const callInitiatorRef = useRef<"me" | "them" | "none">("none");
+
+  const clearOutgoingTimeout = () => {
+    if (outgoingTimeoutRef.current) window.clearTimeout(outgoingTimeoutRef.current);
+    outgoingTimeoutRef.current = null;
+  };
+
+  // ==============================
+  // VIDEO SWAP STATE
+  // ==============================
+  const [swapVideoViews, setSwapVideoViews] = useState(false);
 
   // ==============================
   // SIGNALING - FIXED WITH REFS
@@ -1143,12 +1159,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
-      // Add TURN servers for production
-      // {
-      //   urls: 'turn:your-turn-server.com:3478',
-      //   username: 'username',
-      //   credential: 'password'
-      // }
+      // TURN servers can be added here when needed
     ],
     iceCandidatePoolSize: 10,
   });
@@ -1161,6 +1172,32 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     for (const c of list) {
       try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
     }
+  };
+
+  // ==============================
+  // CALL LOG HELPER
+  // ==============================
+  const sendCallLog = async (args: {
+    kind: "missed" | "ended";
+    mode: "voice" | "video";
+    direction: "incoming" | "outgoing";
+  }) => {
+    const icon = args.mode === "video" ? "🎥" : "📞";
+    const title =
+      args.kind === "missed"
+        ? `Missed ${args.mode} call`
+        : `${args.mode === "video" ? "Video" : "Voice"} call`;
+
+    const arrow = args.direction === "incoming" ? "⬇️" : "⬆️";
+
+    const text = `${icon} ${title} ${arrow}`;
+
+    try {
+      await send({
+        recipient_id: (recipient as any)?.id,
+        text_content: text,
+      });
+    } catch {}
   };
 
   // ==============================
@@ -1247,6 +1284,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       console.log("Connection state:", st);
 
       if (st === "connected") {
+        clearOutgoingTimeout();
         clearDisconnectGrace();
         stopRingtone();
         setCallPhase("active");
@@ -1273,6 +1311,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       console.log("ICE connection state:", st);
 
       if (st === "connected" || st === "completed") {
+        clearOutgoingTimeout();
         clearDisconnectGrace();
         stopRingtone();
         setCallPhase("active");
@@ -1306,16 +1345,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     const pc = peerConnectionRef.current;
 
     if (type === "accept") {
-      // callee accepted; keep “connecting…”
+      clearOutgoingTimeout();
       setCallPhase("connecting");
       return;
     }
 
     if (type === "decline") {
+      clearOutgoingTimeout();
+      callEndReasonRef.current = "declined";
+
+      // caller side: missed outgoing call
+      await sendCallLog({ kind: "missed", mode: callMode, direction: "outgoing" });
+
       stopRingtone();
       setCallOpen(false);
       setCallPhase("ended");
-      alert("Call declined");
       endCall(true);
       return;
     }
@@ -1394,6 +1438,27 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         const c = res?.call || null;
 
         if (c?.id && c?.status === "ringing") {
+          // Check if call has been ringing too long
+          const createdAt = c?.created_at ? new Date(c.created_at).getTime() : 0;
+          if (createdAt && Date.now() - createdAt > CALL_TIMEOUT_MS) {
+            // close UI if it was showing
+            if (callOpen) {
+              stopRingtone();
+              setIncomingPopup(null);
+              setCallOpen(false);
+              setCallPhase("ended");
+            }
+
+            // log missed incoming call for callee
+            await sendCallLog({ 
+              kind: "missed", 
+              mode: c.call_type === "video" ? "video" : "voice", 
+              direction: "incoming" 
+            });
+
+            return;
+          }
+
           setIncomingPopup(c);
 
           const callerId = safeNum(c.caller_id);
@@ -1495,6 +1560,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     const otherId = safeNum((recipient as any)?.id);
     if (!otherId) return;
 
+    callInitiatorRef.current = "me";
+    callEndReasonRef.current = "none";
+
     setCallPeer(
       otherId,
       safeStr((recipient as any)?.name || (recipient as any)?.username || "User"),
@@ -1541,6 +1609,30 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       await sendSignal(cid, otherId, "offer", offer);
       
       setCallPhase("connecting");
+
+      // 6) Set timeout for missed call
+      clearOutgoingTimeout();
+
+      outgoingTimeoutRef.current = window.setTimeout(async () => {
+        const stillSameCall = !!callIdRef.current && callIdRef.current === cid;
+        const notActiveYet = callPhase !== "active";
+
+        if (!stillSameCall || !notActiveYet) return;
+
+        callEndReasonRef.current = "timeout";
+
+        // try to notify callee (optional)
+        try {
+          await sendSignal(cid, otherId, "hangup", { reason: "timeout" });
+        } catch {}
+
+        // log missed call in chat (for caller)
+        await sendCallLog({ kind: "missed", mode, direction: "outgoing" });
+
+        // end UI
+        endCall(true);
+      }, CALL_TIMEOUT_MS);
+
       startPollingCallEvents(cid);
     } catch (e: any) {
       stopRingtone();
@@ -1553,6 +1645,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   // END CALL
   // ==============================
   const endCall = async (silent = false) => {
+    clearOutgoingTimeout();
     stopRingtone();
     stopCallTimer();
     stopPollingCallEvents();
@@ -1581,6 +1674,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     callCursorRef.current = 0;
     setCallCursor(0);
     setCallPeer(0, "", null);
+    setSwapVideoViews(false);
+    callEndReasonRef.current = "none";
+    callInitiatorRef.current = "none";
 
     setCallPhase("ended");
     setTimeout(() => setCallOpen(false), 150);
@@ -1611,8 +1707,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const toggleSpeaker = () => {
     setSpeakerOn(!speakerOn);
-    // Speaker toggle would require audio output device change
-    // This is more complex and browser-dependent
   };
 
   const switchCamera = async () => {
@@ -2795,6 +2889,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         micOn={micOn}
         camOn={camOn}
         speakerOn={speakerOn}
+        swapped={swapVideoViews}
+        onSwap={() => setSwapVideoViews((v) => !v)}
         subtitle={callPhase === "active" ? formatCallTime(callSeconds) : callPhase === "connecting" ? "Connecting..." : callPhase === "outgoing" ? "Calling..." : callPhase === "incoming" ? "Incoming call..." : ""}
         onHangup={() => endCall(false)}
         onAccept={acceptIncomingCall}
