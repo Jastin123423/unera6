@@ -1197,13 +1197,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     };
 
     pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        sendSignal(cid, otherUserId, "ice", e.candidate.toJSON()).catch(() => {});
+      if (!e.candidate) return;
+
+      if (!otherUserId) {
+        console.warn("Missing other user id for ICE");
+        return;
       }
+
+      sendSignal(cid, otherUserId, "ice", e.candidate.toJSON()).catch(() => {});
     };
 
     pc.onconnectionstatechange = () => {
       const st = pc.connectionState;
+      console.log("Connection state:", st);
       if (st === "connected") {
         stopRingtone();
         setCallPhase("active");
@@ -1216,6 +1222,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
     pc.oniceconnectionstatechange = () => {
       const st = pc.iceConnectionState;
+      console.log("ICE connection state:", st);
       if (st === "connected" || st === "completed") {
         stopRingtone();
         setCallPhase("active");
@@ -1246,6 +1253,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
     if (type === "decline") {
       stopRingtone();
+      setCallOpen(false);
+      setCallPhase("ended");
       alert("Call declined");
       endCall(true);
       return;
@@ -1285,10 +1294,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     }
 
     if (type === "answer") {
-      await pc.setRemoteDescription(new RTCSessionDescription(payload));
-      remoteDescSetRef.current = true;
+      if (!pc.currentRemoteDescription) {
+        await pc.setRemoteDescription(new RTCSessionDescription(payload));
+        remoteDescSetRef.current = true;
+      }
 
       await flushPendingIce(pc);
+      
+      setCallPhase("connecting");
       return;
     }
 
@@ -1446,7 +1459,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       // 5) send offer
       await sendSignal(cid, otherId, "offer", offer);
-      // keep polling
+      
+      setCallPhase("connecting");
       startPollingCallEvents(cid);
     } catch (e: any) {
       stopRingtone();
