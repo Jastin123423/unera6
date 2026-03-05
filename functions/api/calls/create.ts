@@ -37,15 +37,13 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   if (!callee_id) return json({ error: "Missing callee_id" }, 400);
   if (callee_id === me) return json({ error: "You cannot call yourself" }, 400);
 
-  // ✅ Optional: prevent duplicate ringing calls between same pair
+  // Optional: reuse existing ringing call (prevents duplicates)
   const existing = await ctx.env.DB.prepare(
     `SELECT id FROM calls
      WHERE caller_id=? AND callee_id=? AND status='ringing'
      ORDER BY created_at DESC
      LIMIT 1`
-  )
-    .bind(me, callee_id)
-    .first<any>();
+  ).bind(me, callee_id).first<any>();
 
   if (existing?.id) {
     return json({ ok: true, call_id: String(existing.id), call_type, reused: true });
@@ -60,19 +58,8 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
     .bind(call_id, me, callee_id, call_type)
     .run();
 
-  /**
-   * ✅ IMPORTANT:
-   * Do NOT insert a fake "offer" here.
-   * "offer" must be real SDP and will be sent by the frontend via /api/calls/signal.
-   *
-   * If you want a notify event, use a distinct type like "ringing".
-   */
-  await ctx.env.DB.prepare(
-    `INSERT INTO call_signals (call_id, from_user_id, to_user_id, type, payload)
-     VALUES (?, ?, ?, 'ringing', ?)`
-  )
-    .bind(call_id, me, callee_id, JSON.stringify({ ok: true }))
-    .run();
+  // ✅ NO call_signals insert here.
+  // Frontend will send the REAL SDP "offer" via /api/calls/signal
 
   return json({ ok: true, call_id, call_type });
 };
