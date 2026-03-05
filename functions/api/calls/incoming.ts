@@ -8,7 +8,10 @@ const cors = {
 };
 
 const json = (data: any, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { ...cors, "Content-Type": "application/json" } });
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
 
 const toInt = (v: any, fb = 0) => {
   const n = Number(v);
@@ -16,18 +19,33 @@ const toInt = (v: any, fb = 0) => {
 };
 
 export const onRequest: PagesFunction<Env> = async (ctx) => {
-  if (ctx.request.method === "OPTIONS") return new Response("", { headers: cors });
+  if (ctx.request.method === "OPTIONS") return new Response("", { status: 204, headers: cors });
   if (ctx.request.method !== "GET") return json({ error: "Method not allowed" }, 405);
 
   const me = toInt(ctx.request.headers.get("x-user-id"));
   if (!me) return json({ error: "Missing x-user-id" }, 401);
 
   const r = await ctx.env.DB.prepare(
-    `SELECT id, caller_id, callee_id, call_type, status, created_at
-     FROM calls
-     WHERE callee_id=? AND status='ringing'
-     ORDER BY created_at DESC
-     LIMIT 1`
+    `
+    SELECT
+      c.id,
+      c.caller_id,
+      c.callee_id,
+      c.call_type,
+      c.status,
+      c.created_at,
+
+      -- ✅ caller details (adjust column names if yours differ)
+      COALESCE(u.name, u.username, 'User') AS caller_name,
+      COALESCE(u.username, '') AS caller_username,
+      COALESCE(u.profile_image_url, u.avatar_url, NULL) AS caller_avatar
+
+    FROM calls c
+    LEFT JOIN users u ON u.id = c.caller_id
+    WHERE c.callee_id = ? AND c.status = 'ringing'
+    ORDER BY c.created_at DESC
+    LIMIT 1
+    `
   )
     .bind(me)
     .first();
