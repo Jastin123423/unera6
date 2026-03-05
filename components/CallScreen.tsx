@@ -1,3 +1,4 @@
+// components/CallScreen.tsx
 import React, { useEffect, useMemo, useRef } from "react";
 
 type CallMode = "voice" | "video";
@@ -11,13 +12,16 @@ export type CallScreenProps = {
   peerName: string;
   peerAvatar?: string | null;
 
+  // streams
   localStream?: MediaStream | null;
   remoteStream?: MediaStream | null;
 
+  // toggles
   micOn: boolean;
   camOn: boolean;
   speakerOn: boolean;
 
+  // actions
   onAccept?: () => void;
   onDecline?: () => void;
   onHangup: () => void;
@@ -26,8 +30,13 @@ export type CallScreenProps = {
   onToggleSpeaker: () => void;
   onFlipCamera?: () => void;
 
+  // optional label
   topLabel?: string;
   subtitle?: string;
+
+  // ✅ WhatsApp-style swap
+  swapped?: boolean;        // when true: local is full-screen, remote is small
+  onSwap?: () => void;      // tap full/small video to swap
 };
 
 const AvatarCircle: React.FC<{ src?: string | null; name: string }> = ({ src, name }) => {
@@ -95,37 +104,41 @@ export const CallScreen: React.FC<CallScreenProps> = ({
   onFlipCamera,
   topLabel = "End-to-end encrypted",
   subtitle,
+  swapped = false,
+  onSwap,
 }) => {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  // ✅ NEW: remote audio element (needed for VOICE calls)
+  // ✅ critical for VOICE calls (and also works for video)
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // ✅ Attach local preview stream (video only)
+  // attach local stream (for local preview / or full-screen when swapped)
   useEffect(() => {
     if (!open) return;
-    if (localVideoRef.current && localStream) {
+    const v = localVideoRef.current;
+    if (v && localStream) {
       // @ts-ignore
-      localVideoRef.current.srcObject = localStream;
-      localVideoRef.current.muted = true; // avoid echo
-      localVideoRef.current.play?.().catch(() => {});
+      v.srcObject = localStream;
+      v.muted = true; // never play local audio
+      v.play?.().catch(() => {});
     }
   }, [open, localStream]);
 
-  // ✅ Attach remote stream to video (video calls)
+  // attach remote stream to remote video element (video mode)
   useEffect(() => {
     if (!open) return;
-    if (remoteVideoRef.current && remoteStream) {
+    const v = remoteVideoRef.current;
+    if (v && remoteStream) {
       // @ts-ignore
-      remoteVideoRef.current.srcObject = remoteStream;
-      remoteVideoRef.current.muted = false;
-      remoteVideoRef.current.volume = speakerOn ? 1 : 0;
-      remoteVideoRef.current.play?.().catch(() => {});
+      v.srcObject = remoteStream;
+      v.muted = false;
+      v.volume = speakerOn ? 1 : 0;
+      v.play?.().catch(() => {});
     }
   }, [open, remoteStream, speakerOn]);
 
-  // ✅ Attach remote stream to audio (voice calls AND also safe for video)
+  // ✅ attach remote stream to audio element (voice mode needs this)
   useEffect(() => {
     if (!open) return;
     const a = remoteAudioRef.current;
@@ -147,9 +160,26 @@ export const CallScreen: React.FC<CallScreenProps> = ({
 
   const sub = subtitle || (phase === "incoming" ? "Incoming call…" : isActive ? "" : "Connecting…");
 
+  // WhatsApp-like: tap video (full or small) to swap
+  const canSwap = showVideo && typeof onSwap === "function";
+
+  // Full screen video element ref depends on swapped
+  const fullRef = swapped ? localVideoRef : remoteVideoRef;
+  const smallRef = swapped ? remoteVideoRef : localVideoRef;
+
+  // In full-screen:
+  // - If full is local => must be muted
+  // - If full is remote => must not be muted (but remote audio is also on <audio>; that's fine)
+  const fullMuted = swapped ? true : false;
+
+  // In small preview:
+  // - If small is local => muted
+  // - If small is remote => not muted (still safe; remoteAudio handles sound)
+  const smallMuted = swapped ? false : true;
+
   return (
     <div className="fixed inset-0 z-[9999]">
-      {/* ✅ MUST exist so voice calls can play audio */}
+      {/* ✅ Required so VOICE calls can play audio */}
       <audio ref={remoteAudioRef} autoPlay playsInline />
 
       {/* Background */}
@@ -160,13 +190,15 @@ export const CallScreen: React.FC<CallScreenProps> = ({
         ].join(" ")}
       />
 
-      {/* Remote video (full) */}
+      {/* Full screen video (swap capable) */}
       {showVideo && (
         <video
-          ref={remoteVideoRef}
+          ref={fullRef}
           autoPlay
           playsInline
+          muted={fullMuted}
           className="absolute inset-0 w-full h-full object-cover"
+          onClick={() => (canSwap ? onSwap?.() : undefined)}
         />
       )}
 
@@ -175,24 +207,41 @@ export const CallScreen: React.FC<CallScreenProps> = ({
         <div className="text-white/80 text-[13px] tracking-wide">{topLabel}</div>
       </div>
 
-      {/* Center info */}
-      <div className="absolute top-[90px] left-0 right-0 flex flex-col items-center px-5">
+      {/* Center info (shown always; looks like WhatsApp) */}
+      <div className="absolute top-[90px] left-0 right-0 flex flex-col items-center px-5 pointer-events-none">
         <AvatarCircle src={peerAvatar} name={peerName} />
         <div className="mt-5 text-white text-[34px] font-extrabold text-center leading-tight drop-shadow">
           {peerName}
         </div>
         {!!sub && <div className="mt-2 text-white/80 text-[18px] font-medium">{sub}</div>}
+        {canSwap && (
+          <div className="mt-2 text-white/60 text-[12px]">
+            Tap video to swap view
+          </div>
+        )}
       </div>
 
-      {/* Local self-view (video only) */}
+      {/* Small preview (video only) */}
       {showVideo && (
-        <div className="absolute top-20 right-4 w-[105px] h-[160px] rounded-2xl overflow-hidden border border-white/15 bg-black/40 shadow-lg">
-          <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+        <div
+          className="absolute top-20 right-4 w-[105px] h-[160px] rounded-2xl overflow-hidden border border-white/15 bg-black/40 shadow-lg"
+          onClick={() => (canSwap ? onSwap?.() : undefined)}
+          role={canSwap ? "button" : undefined}
+          aria-label={canSwap ? "Swap view" : undefined}
+        >
+          <video
+            ref={smallRef}
+            autoPlay
+            playsInline
+            muted={smallMuted}
+            className="w-full h-full object-cover"
+          />
         </div>
       )}
 
       {/* Bottom controls */}
       <div className="absolute bottom-10 left-0 right-0 px-6">
+        {/* Incoming: accept/decline */}
         {isIncoming ? (
           <div className="flex items-center justify-between max-w-[360px] mx-auto">
             <IconBtn icon="fas fa-phone-slash" onClick={onDecline || onHangup} danger label="Decline" />
@@ -200,6 +249,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
           </div>
         ) : (
           <div className="flex items-center justify-center gap-5 max-w-[430px] mx-auto">
+            {/* video only */}
             {showVideo ? (
               <>
                 <IconBtn
