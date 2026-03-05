@@ -35,7 +35,9 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   const payload = body?.payload ?? null;
 
   const allowed = new Set(["offer", "answer", "ice", "accept", "decline", "hangup"]);
-  if (!call_id || !to_user_id || !allowed.has(type)) return json({ error: "Bad request" }, 400);
+  if (!call_id || !to_user_id || !allowed.has(type)) {
+    return json({ error: "Bad request" }, 400);
+  }
 
   // ✅ Verify call exists and sender is a participant
   const callRow = await ctx.env.DB.prepare(
@@ -56,13 +58,27 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   const other = me === caller ? callee : caller;
   if (to_user_id !== other) return json({ error: "Bad to_user_id" }, 400);
 
-  // ✅ Optional: block signaling after end/decline (except hangup)
   const status = safeStr(callRow.status);
+
+  // ✅ Block signaling after final states (except hangup)
   if ((status === "ended" || status === "declined" || status === "missed") && type !== "hangup") {
     return json({ error: "Call already ended" }, 409);
   }
 
-  // Store signal
+  // ✅ Enforce sensible transitions
+  // - accept/decline only valid while ringing
+  if ((type === "accept" || type === "decline") && status !== "ringing") {
+    return json({ error: "Call is not ringing" }, 409);
+  }
+
+  // - offer/answer/ice should not happen after declined/missed/ended (already blocked above),
+  //   but also avoid offer if call is already accepted
+  if (type === "offer" && status !== "ringing") {
+    // allow re-offer only while ringing (helps avoid weird retries after accept)
+    return json({ error: "Cannot offer in this state" }, 409);
+  }
+
+  // Store signal event (always store first for debugging / history)
   await ctx.env.DB.prepare(
     `INSERT INTO call_signals (call_id, from_user_id, to_user_id, type, payload)
      VALUES (?, ?, ?, ?, ?)`
@@ -70,21 +86,40 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
     .bind(call_id, me, to_user_id, type, payload ? JSON.stringify(payload) : null)
     .run();
 
-  // Update call status for key types
+  // ✅ Update call status for key types (state machine)
   if (type === "accept") {
-    await ctx.env.DB.prepare(`UPDATE calls SET status='accepted', updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    // ringing -> accepted
+    await ctx.env.DB.prepare(
+      `UPDATE calls SET status='accepted', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='ringing'`
+    )
       .bind(call_id)
       .run();
   }
 
   if (type === "decline") {
-    await ctx.env.DB.prepare(`UPDATE calls SET status='declined', updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    // ringing -> declined
+    await ctx.env.DB.prepare(
+      `UPDATE calls SET status='declined', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='ringing'`
+    )
       .bind(call_id)
       .run();
   }
 
   if (type === "hangup") {
-    await ctx.env.DB.prepare(`UPDATE calls SET status='ended', updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    // ✅ IMPORTANT FIX:
+    // - ringing -> missed   (this stops your /incoming from returning it forever)
+    // - accepted -> ended
+    // - anything else -> ended
+    await ctx.env.DB.prepare(
+      `UPDATE calls
+       SET status = CASE
+         WHEN status='ringing' THEN 'missed'
+         WHEN status='accepted' THEN 'ended'
+         ELSE 'ended'
+       END,
+       updated_at=CURRENT_TIMESTAMP
+       WHERE id=?`
+    )
       .bind(call_id)
       .run();
   }
