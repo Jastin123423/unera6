@@ -789,6 +789,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const [speakerOn, setSpeakerOn] = useState(true);
 
   // ==============================
+  // CALL PEER (REAL OTHER PARTY)
+  // ==============================
+  const [callPeerId, setCallPeerId] = useState<number>(0);
+  const [callPeerName, setCallPeerName] = useState<string>("");
+  const [callPeerAvatar, setCallPeerAvatar] = useState<string | null>(null);
+
+  const callPeerIdRef = useRef(0);
+  useEffect(() => { callPeerIdRef.current = callPeerId; }, [callPeerId]);
+
+  const setCallPeer = (id: number, name?: string, avatar?: string | null) => {
+    setCallPeerId(id);
+    setCallPeerName(name || "");
+    setCallPeerAvatar(avatar ?? null);
+  };
+
+  // ==============================
   // CALL UX: ringtone + timer
   // ==============================
   const [callSeconds, setCallSeconds] = useState(0);
@@ -818,6 +834,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const callPollRef = useRef<number | null>(null);
   const remoteDescSetRef = useRef(false);
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
+  const disconnectGraceRef = useRef<number | null>(null);
+
+  const clearDisconnectGrace = () => {
+    if (disconnectGraceRef.current) window.clearTimeout(disconnectGraceRef.current);
+    disconnectGraceRef.current = null;
+  };
 
   // Keep refs synced with state
   useEffect(() => { callIdRef.current = callId; }, [callId]);
@@ -845,6 +867,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentUserId = safeNum((currentUser as any)?.id);
+
+  const fetchUserLite = async (id: number) => {
+    try {
+      const u = await apiFetch(`/api/users/${id}`, {}, currentUserId);
+      return {
+        name: safeStr(u?.name || u?.username || "User"),
+        avatar: (u?.profile_image_url || u?.avatar_url || null) as string | null,
+      };
+    } catch {
+      return { name: "User", avatar: null as string | null };
+    }
+  };
 
   const normalizeMsg = (msg: any) => ({
     ...msg,
@@ -1210,12 +1244,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     pc.onconnectionstatechange = () => {
       const st = pc.connectionState;
       console.log("Connection state:", st);
+
       if (st === "connected") {
+        clearDisconnectGrace();
         stopRingtone();
         setCallPhase("active");
         startCallTimer();
       }
-      if (st === "failed" || st === "disconnected" || st === "closed") {
+
+      if (st === "disconnected") {
+        clearDisconnectGrace();
+        disconnectGraceRef.current = window.setTimeout(() => {
+          // if still not connected after grace, end
+          const now = pc.connectionState;
+          if (now === "disconnected" || now === "failed" || now === "closed") endCall(true);
+        }, 6000);
+      }
+
+      if (st === "failed" || st === "closed") {
+        clearDisconnectGrace();
         endCall(true);
       }
     };
@@ -1223,12 +1270,24 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     pc.oniceconnectionstatechange = () => {
       const st = pc.iceConnectionState;
       console.log("ICE connection state:", st);
+
       if (st === "connected" || st === "completed") {
+        clearDisconnectGrace();
         stopRingtone();
         setCallPhase("active");
         startCallTimer();
       }
-      if (st === "failed" || st === "disconnected" || st === "closed") {
+
+      if (st === "disconnected") {
+        clearDisconnectGrace();
+        disconnectGraceRef.current = window.setTimeout(() => {
+          const now = pc.iceConnectionState;
+          if (now === "disconnected" || now === "failed" || now === "closed") endCall(true);
+        }, 6000);
+      }
+
+      if (st === "failed" || st === "closed") {
+        clearDisconnectGrace();
         endCall(true);
       }
     };
@@ -1271,7 +1330,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     if (type === "offer") {
       // incoming offer -> set remote, answer, send answer
       const otherId =
-        recipientIdRef.current ||
+        safeNum(callPeerIdRef.current) ||
         safeNum(incomingPopupRef.current?.caller_id) ||
         safeNum(incomingPopupRef.current?.callee_id) ||
         0;
@@ -1335,6 +1394,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
         if (c?.id && c?.status === "ringing") {
           setIncomingPopup(c);
+
+          const callerId = safeNum(c.caller_id);
+          // If backend already includes these fields, use them; else fetch
+          const callerName = safeStr(c.caller_name || c.caller_username || "");
+          const callerAvatar = (c.caller_avatar || c.caller_profile_image_url || null) as string | null;
+
+          setCallPeer(callerId, callerName, callerAvatar);
+
+          // If name/avatar not present, fetch them once
+          if (!callerName) {
+            fetchUserLite(callerId).then((u) => setCallPeer(callerId, u.name, u.avatar));
+          }
+
           setCallMode(c.call_type === "video" ? "video" : "voice");
           setCallPhase("incoming");
           setCallOpen(true);
@@ -1354,7 +1426,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     if (!c?.id) return;
 
     const cid = String(c.id);
-    const otherId = safeNum(c.caller_id);
+    const otherId = safeNum(callPeerIdRef.current) || safeNum(c.caller_id);
     const mode: "voice" | "video" = c.call_type === "video" ? "video" : "voice";
 
     try {
@@ -1421,6 +1493,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     const otherId = safeNum((recipient as any)?.id);
     if (!otherId) return;
 
+    setCallPeer(
+      otherId,
+      safeStr((recipient as any)?.name || (recipient as any)?.username || "User"),
+      ((recipient as any)?.profile_image_url || null) as string | null
+    );
+
     try {
       // 1) create call first
       const created = await apiFetch(
@@ -1476,10 +1554,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     stopRingtone();
     stopCallTimer();
     stopPollingCallEvents();
+    clearDisconnectGrace();
 
     const cid = String(callIdRef.current || incomingPopupRef.current?.id || "");
     const otherId =
-      recipientIdRef.current ||
+      safeNum(callPeerIdRef.current) ||
       safeNum(incomingPopupRef.current?.caller_id) ||
       safeNum(incomingPopupRef.current?.callee_id);
 
@@ -1499,6 +1578,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     callIdRef.current = null;
     callCursorRef.current = 0;
     setCallCursor(0);
+    setCallPeer(0, "", null);
 
     setCallPhase("ended");
     setTimeout(() => setCallOpen(false), 150);
@@ -2693,8 +2773,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         open={callOpen}
         mode={callMode}
         phase={callPhase}
-        peerName={recipient?.name || "User"}
-        peerAvatar={recipient?.profile_image_url || null}
+        peerName={callPeerName || safeStr((recipient as any)?.name) || "User"}
+        peerAvatar={callPeerAvatar || (recipient as any)?.profile_image_url || null}
         localStream={localStream}
         remoteStream={remoteStream}
         micOn={micOn}
