@@ -857,8 +857,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const ringGainRef = useRef<GainNode | null>(null);
   const ringTypeRef = useRef<"incoming" | "outgoing" | null>(null);
 
-  // Missed call tracking
-  const CALL_TIMEOUT_MS = 30000; // 30 seconds
+  // ==============================
+  // ✅ FIX 1: Updated call timeouts (more realistic like WhatsApp)
+  // ==============================
+  const OUTGOING_RING_TIMEOUT_MS = 90000; // 90 seconds (caller gives up)
+  const INCOMING_AUTO_MISS_MS     = 120000; // 120 seconds (callee didn't answer)
+
   const outgoingTimeoutRef = useRef<number | null>(null);
   const callEndReasonRef = useRef<"timeout" | "declined" | "hangup" | "remote_hangup" | "none">("none");
   const callInitiatorRef = useRef<"me" | "them" | "none">("none");
@@ -1508,9 +1512,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           // ✅ if we already showed this call popup, don't re-trigger UI/ringtone every poll
           if (lastIncomingShownRef.current === cid && callOpen) return;
 
-          // Check if call has been ringing too long
+          // ==============================
+          // ✅ FIX 2: Use INCOMING_AUTO_MISS_MS instead of old CALL_TIMEOUT_MS
+          // ==============================
           const createdAt = c?.created_at ? new Date(c.created_at).getTime() : 0;
-          if (createdAt && Date.now() - createdAt > CALL_TIMEOUT_MS) {
+          if (createdAt && Date.now() - createdAt > INCOMING_AUTO_MISS_MS) {
             const mode: "voice" | "video" = c.call_type === "video" ? "video" : "voice";
 
             // close UI if it was showing
@@ -1661,6 +1667,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       // 2) open UI + outgoing ringing
       setCallMode(mode);
+      
+      // ✅ FIX 3: Stay in "outgoing" phase until accepted, don't jump to "connecting" yet
       setCallPhase("outgoing");
       setCallOpen(true);
       startRingtone("outgoing");
@@ -1682,9 +1690,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       // 5) send offer
       await sendSignal(cid, otherId, "offer", offer);
       
-      setCallPhase("connecting");
+      // ✅ Note: We stay in "outgoing" until we receive "accept"
 
-      // 6) Set timeout for missed call
+      // ==============================
+      // ✅ FIX 4: Use OUTGOING_RING_TIMEOUT_MS for timeout
+      // ==============================
       clearOutgoingTimeout();
 
       outgoingTimeoutRef.current = window.setTimeout(async () => {
@@ -1705,7 +1715,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
         // end UI
         endCall(true);
-      }, CALL_TIMEOUT_MS);
+      }, OUTGOING_RING_TIMEOUT_MS);
 
       startPollingCallEvents(cid);
     } catch (e: any) {
