@@ -35,10 +35,11 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
       c.status,
       c.created_at,
 
-      -- ✅ caller details (adjust column names if yours differ)
-      COALESCE(u.name, u.username, 'User') AS caller_name,
-      COALESCE(u.username, '') AS caller_username,
-      COALESCE(u.profile_image_url, u.avatar_url, NULL) AS caller_avatar
+      -- ✅ caller details from users table
+      COALESCE(NULLIF(TRIM(u.name), ''), u.username, 'User') AS caller_name,
+      u.username AS caller_username,
+      u.profile_image_url AS caller_avatar,
+      u.profile_image_url AS caller_profile_image_url
 
     FROM calls c
     LEFT JOIN users u ON u.id = c.caller_id
