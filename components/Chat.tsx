@@ -728,46 +728,6 @@ const GifPanel: React.FC<{ onSelect: (url: string) => void }> = ({ onSelect }) =
   );
 };
 
-// WhatsApp-style Call Message Component
-const CallMessage: React.FC<{ 
-  msg: any; 
-  mine: boolean;
-  onCallBack?: (mode: "voice" | "video") => void;
-}> = ({ msg, mine, onCallBack }) => {
-  const text = safeStr(msg?.text_content || "");
-  const isMissed = text.includes("Missed");
-  const isVideo = text.includes("video") || text.includes("🎥");
-  const isVoice = text.includes("voice") || text.includes("📞");
-  
-  const icon = isVideo ? "🎥" : "📞";
-  const callType = isVideo ? "video" : "voice";
-  
-  // Extract just the core message without arrows
-  const cleanText = text
-    .replace(/[⬆️⬇️]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return (
-    <div className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${
-      mine ? "bg-[#1B74E4] text-white" : "bg-[#3A3B3C] text-[#e4e6eb]"
-    }`}>
-      <span className="text-sm">{icon}</span>
-      <span className="text-xs flex-1">{cleanText}</span>
-      {isMissed && onCallBack && (
-        <button
-          onClick={() => onCallBack(callType)}
-          className={`text-xs px-2 py-1 rounded-full ${
-            mine ? "bg-white/20 hover:bg-white/30" : "bg-black/20 hover:bg-black/30"
-          } transition-colors`}
-        >
-          Call back
-        </button>
-      )}
-    </div>
-  );
-};
-
 type ChatWindowProps = {
   currentUser: User;
   recipient: User;
@@ -846,7 +806,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   };
 
   // ==============================
-  // CALL UX: ringtone + timer + missed call tracking
+  // CALL UX: ringtone + timer
   // ==============================
   const [callSeconds, setCallSeconds] = useState(0);
   const callTimerRef = useRef<number | null>(null);
@@ -856,34 +816,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const ringOscRef = useRef<OscillatorNode | null>(null);
   const ringGainRef = useRef<GainNode | null>(null);
   const ringTypeRef = useRef<"incoming" | "outgoing" | null>(null);
-
-  // ==============================
-  // ✅ FIX 1: Updated call timeouts (more realistic like WhatsApp)
-  // ==============================
-  const OUTGOING_RING_TIMEOUT_MS = 90000; // 90 seconds (caller gives up)
-  const INCOMING_AUTO_MISS_MS     = 120000; // 120 seconds (callee didn't answer)
-
-  const outgoingTimeoutRef = useRef<number | null>(null);
-  const callEndReasonRef = useRef<"timeout" | "declined" | "hangup" | "remote_hangup" | "none">("none");
-  const callInitiatorRef = useRef<"me" | "them" | "none">("none");
-  
-  // ✅ Prevent duplicate missed logs
-  const missedLoggedRef = useRef<Set<string>>(new Set());
-  const lastIncomingShownRef = useRef<string | null>(null);
-
-  // ✅ Fix stale closure bugs
-  const callPhaseRef = useRef(callPhase);
-  useEffect(() => { callPhaseRef.current = callPhase; }, [callPhase]);
-
-  const clearOutgoingTimeout = () => {
-    if (outgoingTimeoutRef.current) window.clearTimeout(outgoingTimeoutRef.current);
-    outgoingTimeoutRef.current = null;
-  };
-
-  // ==============================
-  // VIDEO SWAP STATE
-  // ==============================
-  const [swapVideoViews, setSwapVideoViews] = useState(false);
 
   // ==============================
   // SIGNALING - FIXED WITH REFS
@@ -1211,7 +1143,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
-      // TURN servers can be added here when needed
+      // Add TURN servers for production
+      // {
+      //   urls: 'turn:your-turn-server.com:3478',
+      //   username: 'username',
+      //   credential: 'password'
+      // }
     ],
     iceCandidatePoolSize: 10,
   });
@@ -1224,47 +1161,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     for (const c of list) {
       try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
     }
-  };
-
-  // ==============================
-  // LOG MISSED ONCE HELPER
-  // ==============================
-  const logMissedOnce = async (callId: string, args: { mode: "voice" | "video"; direction: "incoming" | "outgoing" }) => {
-    if (!callId) return;
-    if (missedLoggedRef.current.has(callId)) return; // ✅ already logged
-    missedLoggedRef.current.add(callId);
-    
-    // Clean up set occasionally
-    if (missedLoggedRef.current.size > 200) {
-      missedLoggedRef.current = new Set();
-    }
-    
-    await sendCallLog({ kind: "missed", mode: args.mode, direction: args.direction });
-  };
-
-  // ==============================
-  // CALL LOG HELPER
-  // ==============================
-  const sendCallLog = async (args: {
-    kind: "missed" | "ended";
-    mode: "voice" | "video";
-    direction: "incoming" | "outgoing";
-  }) => {
-    const icon = args.mode === "video" ? "🎥" : "📞";
-    const title =
-      args.kind === "missed"
-        ? `Missed ${args.mode} call`
-        : `${args.mode === "video" ? "Video" : "Voice"} call`;
-
-    // No arrows for missed calls
-    const text = `${icon} ${title}`;
-
-    try {
-      await send({
-        recipient_id: (recipient as any)?.id,
-        text_content: text,
-      });
-    } catch {}
   };
 
   // ==============================
@@ -1351,7 +1247,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       console.log("Connection state:", st);
 
       if (st === "connected") {
-        clearOutgoingTimeout();
         clearDisconnectGrace();
         stopRingtone();
         setCallPhase("active");
@@ -1378,7 +1273,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       console.log("ICE connection state:", st);
 
       if (st === "connected" || st === "completed") {
-        clearOutgoingTimeout();
         clearDisconnectGrace();
         stopRingtone();
         setCallPhase("active");
@@ -1412,23 +1306,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     const pc = peerConnectionRef.current;
 
     if (type === "accept") {
-      clearOutgoingTimeout();
+      // callee accepted; keep “connecting…”
       setCallPhase("connecting");
       return;
     }
 
     if (type === "decline") {
-      clearOutgoingTimeout();
-      callEndReasonRef.current = "declined";
-
-      // caller side: missed outgoing call
-      if (callIdRef.current) {
-        await logMissedOnce(callIdRef.current, { mode: callMode, direction: "outgoing" });
-      }
-
       stopRingtone();
       setCallOpen(false);
       setCallPhase("ended");
+      alert("Call declined");
       endCall(true);
       return;
     }
@@ -1507,38 +1394,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         const c = res?.call || null;
 
         if (c?.id && c?.status === "ringing") {
-          const cid = String(c.id);
-
-          // ✅ if we already showed this call popup, don't re-trigger UI/ringtone every poll
-          if (lastIncomingShownRef.current === cid && callOpen) return;
-
-          // ==============================
-          // ✅ FIX 2: Use INCOMING_AUTO_MISS_MS instead of old CALL_TIMEOUT_MS
-          // ==============================
-          const createdAt = c?.created_at ? new Date(c.created_at).getTime() : 0;
-          if (createdAt && Date.now() - createdAt > INCOMING_AUTO_MISS_MS) {
-            const mode: "voice" | "video" = c.call_type === "video" ? "video" : "voice";
-
-            // close UI if it was showing
-            if (callOpen) {
-              stopRingtone();
-              setIncomingPopup(null);
-              setCallOpen(false);
-              setCallPhase("ended");
-            }
-
-            // try to update DB to missed
-            try {
-              await sendSignal(cid, safeNum(c.caller_id), "hangup", { reason: "timeout" });
-            } catch {}
-
-            // log missed once
-            await logMissedOnce(cid, { mode, direction: "incoming" });
-
-            return;
-          }
-
-          lastIncomingShownRef.current = cid;
           setIncomingPopup(c);
 
           const callerId = safeNum(c.caller_id);
@@ -1640,9 +1495,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     const otherId = safeNum((recipient as any)?.id);
     if (!otherId) return;
 
-    callInitiatorRef.current = "me";
-    callEndReasonRef.current = "none";
-
     setCallPeer(
       otherId,
       safeStr((recipient as any)?.name || (recipient as any)?.username || "User"),
@@ -1667,8 +1519,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       // 2) open UI + outgoing ringing
       setCallMode(mode);
-      
-      // ✅ FIX 3: Stay in "outgoing" phase until accepted, don't jump to "connecting" yet
       setCallPhase("outgoing");
       setCallOpen(true);
       startRingtone("outgoing");
@@ -1690,33 +1540,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       // 5) send offer
       await sendSignal(cid, otherId, "offer", offer);
       
-      // ✅ Note: We stay in "outgoing" until we receive "accept"
-
-      // ==============================
-      // ✅ FIX 4: Use OUTGOING_RING_TIMEOUT_MS for timeout
-      // ==============================
-      clearOutgoingTimeout();
-
-      outgoingTimeoutRef.current = window.setTimeout(async () => {
-        const stillSameCall = callIdRef.current === cid;
-        const notActiveYet = callPhaseRef.current !== "active";
-
-        if (!stillSameCall || !notActiveYet) return;
-
-        callEndReasonRef.current = "timeout";
-
-        // try to notify callee (marks DB as missed)
-        try {
-          await sendSignal(cid, otherId, "hangup", { reason: "timeout" });
-        } catch {}
-
-        // log missed call in chat once
-        await logMissedOnce(cid, { mode, direction: "outgoing" });
-
-        // end UI
-        endCall(true);
-      }, OUTGOING_RING_TIMEOUT_MS);
-
+      setCallPhase("connecting");
       startPollingCallEvents(cid);
     } catch (e: any) {
       stopRingtone();
@@ -1729,7 +1553,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   // END CALL
   // ==============================
   const endCall = async (silent = false) => {
-    clearOutgoingTimeout();
     stopRingtone();
     stopCallTimer();
     stopPollingCallEvents();
@@ -1758,10 +1581,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     callCursorRef.current = 0;
     setCallCursor(0);
     setCallPeer(0, "", null);
-    setSwapVideoViews(false);
-    callEndReasonRef.current = "none";
-    callInitiatorRef.current = "none";
-    lastIncomingShownRef.current = null;
 
     setCallPhase("ended");
     setTimeout(() => setCallOpen(false), 150);
@@ -1792,6 +1611,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const toggleSpeaker = () => {
     setSpeakerOn(!speakerOn);
+    // Speaker toggle would require audio output device change
+    // This is more complex and browser-dependent
   };
 
   const switchCamera = async () => {
@@ -2456,11 +2277,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 sameAsNext ? "rounded-bl-md" : "rounded-bl-2xl",
               ].join(" ");
 
-          // Check if this is a call message
-          const isCallMessage = rawText.includes("📞") || rawText.includes("🎥") || 
-                               rawText.includes("Missed") || rawText.includes("Voice call") || 
-                               rawText.includes("Video call");
-
           return (
             <div key={r.key} className={`w-full flex ${mine ? "justify-end" : "justify-start"} ${rowMb}`}>
               <div className={`max-w-[85%] sm:max-w-[75%] md:max-w-[65%] flex flex-col ${mine ? "items-end" : "items-start"} min-w-0`}>
@@ -2495,18 +2311,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                       </div>
                     )}
 
-                    {isCallMessage ? (
-                      <CallMessage 
-                        msg={msg} 
-                        mine={mine} 
-                        onCallBack={rawText.includes("Missed") ? (mode) => startOutgoingCall(mode) : undefined}
-                      />
-                    ) : (
-                      text && <div className="whitespace-pre-wrap msgText">{text}</div>
-                    )}
+                    {text && <div className="whitespace-pre-wrap msgText">{text}</div>}
 
                     {/* ✅ Updated footer with WhatsApp ticks */}
-                    {d && !isCallMessage && (
+                    {d && (
                       <div className="flex justify-end items-center gap-1 mt-1">
                         <span className={`text-[10px] ${mine ? "text-white/70" : "text-[#b0b3b8]"}`}>
                           {formatTime(d)}
@@ -2987,8 +2795,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         micOn={micOn}
         camOn={camOn}
         speakerOn={speakerOn}
-        swapped={swapVideoViews}
-        onSwap={() => setSwapVideoViews((v) => !v)}
         subtitle={callPhase === "active" ? formatCallTime(callSeconds) : callPhase === "connecting" ? "Connecting..." : callPhase === "outgoing" ? "Calling..." : callPhase === "incoming" ? "Incoming call..." : ""}
         onHangup={() => endCall(false)}
         onAccept={acceptIncomingCall}
