@@ -11,16 +11,13 @@ export type CallScreenProps = {
   peerName: string;
   peerAvatar?: string | null;
 
-  // audio/video elements
   localStream?: MediaStream | null;
   remoteStream?: MediaStream | null;
 
-  // toggles
   micOn: boolean;
   camOn: boolean;
   speakerOn: boolean;
 
-  // actions
   onAccept?: () => void;
   onDecline?: () => void;
   onHangup: () => void;
@@ -29,15 +26,14 @@ export type CallScreenProps = {
   onToggleSpeaker: () => void;
   onFlipCamera?: () => void;
 
-  // optional label
-  topLabel?: string; // e.g. "End-to-end encrypted"
-  subtitle?: string; // e.g. "Connecting..."
+  topLabel?: string;
+  subtitle?: string;
 };
 
 const AvatarCircle: React.FC<{ src?: string | null; name: string }> = ({ src, name }) => {
   const initials = useMemo(() => {
     const parts = (name || "U").trim().split(/\s+/).slice(0, 2);
-    return parts.map(p => p[0]?.toUpperCase()).join("").slice(0, 2) || "U";
+    return parts.map((p) => p[0]?.toUpperCase()).join("").slice(0, 2) || "U";
   }, [name]);
 
   if (src) {
@@ -103,17 +99,44 @@ export const CallScreen: React.FC<CallScreenProps> = ({
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
+  // ✅ NEW: remote audio element (needed for VOICE calls)
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // ✅ Attach local preview stream (video only)
   useEffect(() => {
     if (!open) return;
-
-    // attach streams
     if (localVideoRef.current && localStream) {
+      // @ts-ignore
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.muted = true; // avoid echo
+      localVideoRef.current.play?.().catch(() => {});
     }
+  }, [open, localStream]);
+
+  // ✅ Attach remote stream to video (video calls)
+  useEffect(() => {
+    if (!open) return;
     if (remoteVideoRef.current && remoteStream) {
+      // @ts-ignore
       remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.muted = false;
+      remoteVideoRef.current.volume = speakerOn ? 1 : 0;
+      remoteVideoRef.current.play?.().catch(() => {});
     }
-  }, [open, localStream, remoteStream]);
+  }, [open, remoteStream, speakerOn]);
+
+  // ✅ Attach remote stream to audio (voice calls AND also safe for video)
+  useEffect(() => {
+    if (!open) return;
+    const a = remoteAudioRef.current;
+    if (a && remoteStream) {
+      // @ts-ignore
+      a.srcObject = remoteStream;
+      a.muted = false;
+      a.volume = speakerOn ? 1 : 0;
+      a.play?.().catch(() => {});
+    }
+  }, [open, remoteStream, speakerOn]);
 
   if (!open) return null;
 
@@ -122,12 +145,13 @@ export const CallScreen: React.FC<CallScreenProps> = ({
   const isActive = phase === "active";
   const isConnecting = phase === "connecting" || phase === "outgoing";
 
-  const sub =
-    subtitle ||
-    (phase === "incoming" ? "Incoming call…" : isActive ? "" : "Connecting…");
+  const sub = subtitle || (phase === "incoming" ? "Incoming call…" : isActive ? "" : "Connecting…");
 
   return (
     <div className="fixed inset-0 z-[9999]">
+      {/* ✅ MUST exist so voice calls can play audio */}
+      <audio ref={remoteAudioRef} autoPlay playsInline />
+
       {/* Background */}
       <div
         className={[
@@ -148,40 +172,27 @@ export const CallScreen: React.FC<CallScreenProps> = ({
 
       {/* Top label */}
       <div className="absolute top-9 left-0 right-0 flex items-center justify-center">
-        <div className="text-white/80 text-[13px] tracking-wide">
-          {topLabel}
-        </div>
+        <div className="text-white/80 text-[13px] tracking-wide">{topLabel}</div>
       </div>
 
-      {/* Center info (WhatsApp style) */}
+      {/* Center info */}
       <div className="absolute top-[90px] left-0 right-0 flex flex-col items-center px-5">
         <AvatarCircle src={peerAvatar} name={peerName} />
         <div className="mt-5 text-white text-[34px] font-extrabold text-center leading-tight drop-shadow">
           {peerName}
         </div>
-        {!!sub && (
-          <div className="mt-2 text-white/80 text-[18px] font-medium">
-            {sub}
-          </div>
-        )}
+        {!!sub && <div className="mt-2 text-white/80 text-[18px] font-medium">{sub}</div>}
       </div>
 
       {/* Local self-view (video only) */}
       {showVideo && (
         <div className="absolute top-20 right-4 w-[105px] h-[160px] rounded-2xl overflow-hidden border border-white/15 bg-black/40 shadow-lg">
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover"
-          />
+          <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
         </div>
       )}
 
       {/* Bottom controls */}
       <div className="absolute bottom-10 left-0 right-0 px-6">
-        {/* Incoming: show accept/decline */}
         {isIncoming ? (
           <div className="flex items-center justify-between max-w-[360px] mx-auto">
             <IconBtn icon="fas fa-phone-slash" onClick={onDecline || onHangup} danger label="Decline" />
@@ -189,7 +200,6 @@ export const CallScreen: React.FC<CallScreenProps> = ({
           </div>
         ) : (
           <div className="flex items-center justify-center gap-5 max-w-[430px] mx-auto">
-            {/* video only */}
             {showVideo ? (
               <>
                 <IconBtn
@@ -220,7 +230,6 @@ export const CallScreen: React.FC<CallScreenProps> = ({
           </div>
         )}
 
-        {/* Small helper text */}
         {isConnecting && (
           <div className="mt-6 text-center text-white/70 text-[12px]">
             If it doesn’t connect, it may need TURN later (we can add it).
