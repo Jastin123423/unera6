@@ -5092,6 +5092,7 @@ export default function App() {
                                 currentUser={currentUser}
                                 isLoading={pymkLoading && peopleYouMayKnow.length === 0}
                                 onLoginClick={() => setView('login')}
+                                onProfileClick={(id: number) => openProfile(id)}
                                 title="People You May Know"
                                 maxDisplay={8}
                               />
@@ -5117,6 +5118,7 @@ export default function App() {
                                 currentUser={currentUser}
                                 isLoading={pymkLoading && peopleYouMayKnow.length === 0}
                                 onLoginClick={() => setView('login')}
+                                onProfileClick={(id: number) => openProfile(id)}
                                 title="More People You May Know"
                                 maxDisplay={8}
                               />
@@ -5142,8 +5144,12 @@ export default function App() {
                               onJoin={(groupId: number) => joinFromSuggestion(groupId)}
                               onHide={(groupId: number) => hideGroupSuggestion(groupId)}
                               onOpenGroup={(groupId: number) => {
-                                handleNavigate('groups');
+                                // Navigate to groups page with selected group
+                                setView('groups');
+                                // If you have state for selected group in GroupsPage, you'd set it here
+                                // For now, just navigate to groups
                               }}
+                              onProfileClick={(userId: number) => openProfile(userId)}
                             />
                           )}
                         </React.Fragment>
