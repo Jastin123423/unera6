@@ -1346,6 +1346,7 @@ export default function App() {
   // ============================================================================
   const [peopleYouMayKnow, setPeopleYouMayKnow] = useState<PeopleSuggestion[]>([]);
   const [pymkLoading, setPymkLoading] = useState(false);
+  const [pymkHydrated, setPymkHydrated] = useState(false); // ✅ NEW: Track if we've loaded PYMK at least once
 
   const [pymkHiddenIds, setPymkHiddenIds] = useState<number[]>(() => {
     try {
@@ -1665,13 +1666,17 @@ export default function App() {
     persistPymkHidden([id, ...pymkHiddenIds]);
   }, [persistPymkHidden, pymkHiddenIds]);
 
+  // ============================================================================
+  // ✅ PYMK Fetch - FIXED: Only show loading on first fetch
+  // ============================================================================
   const fetchPeopleYouMayKnow = useCallback(async () => {
     if (!currentUser?.id) {
       setPeopleYouMayKnow([]);
       return;
     }
 
-    setPymkLoading(true);
+    // Only show loading on first fetch, not on refreshes
+    if (!pymkHydrated) setPymkLoading(true);
 
     try {
       const data = await apiFetch(`/api/suggestions?user_id=${currentUser.id}&limit=20`);
@@ -1694,6 +1699,7 @@ export default function App() {
         .filter((u: PeopleSuggestion) => !hiddenSet.has(Number(u.id)));
 
       setPeopleYouMayKnow(normalized);
+      setPymkHydrated(true); // Mark as hydrated after first successful fetch
     } catch (error) {
       console.warn('Failed to fetch People You May Know:', error);
       setPeopleYouMayKnow([]);
@@ -1702,9 +1708,13 @@ export default function App() {
     }
   }, [currentUser, pymkHiddenIds]);
 
+  // ============================================================================
+  // ✅ PYMK Effect - FIXED: Only depend on primitive values, not the whole function
+  // ============================================================================
   useEffect(() => {
+    if (!currentUser?.id) return;
     fetchPeopleYouMayKnow();
-  }, [fetchPeopleYouMayKnow]);
+  }, [currentUser?.id, pymkHiddenIds]); // ✅ Changed from [fetchPeopleYouMayKnow]
 
   const resolveTrackOwner = useCallback((track: any): User | null => {
     if (!track) return null;
@@ -3991,15 +4001,24 @@ export default function App() {
   }, [posts, filteredPosts, activeHashtag]);
 
   // ============================================================================
-  // ✅ PYMK Insert Index - MUST come AFTER rankedPosts
+  // ✅ PYMK Insert Indices - FIRST appearance at ~post 7, SECOND at ~post 22
   // ============================================================================
-  const peopleYouMayKnowInsertIndex = useMemo(() => {
+  const peopleYouMayKnowInsertIndex1 = useMemo(() => {
     const total = safeArray(rankedPosts).length;
 
     if (total < 6) return -1;
     if (total <= 10) return total - 1;
 
-    return 7;
+    return 7; // First appearance at index 7 (0-based) = 8th post
+  }, [rankedPosts]);
+
+  const peopleYouMayKnowInsertIndex2 = useMemo(() => {
+    const total = safeArray(rankedPosts).length;
+
+    // Need at least 22 posts for second appearance
+    if (total < 22) return -1;
+
+    return 21; // Second appearance at index 21 (0-based) = 22nd post
   }, [rankedPosts]);
 
   const activePost = useMemo(() => {
@@ -4879,6 +4898,18 @@ export default function App() {
                       const postAuthorId = Number((post as any).user_id);
                       const isFollowing = checkIsFollowing(postAuthorId);
 
+                      // Track if we've shown the first PYMK instance
+                      const showFirstPymk = currentUser &&
+                        peopleYouMayKnow.length > 0 &&
+                        peopleYouMayKnowInsertIndex1 >= 0 &&
+                        idx === peopleYouMayKnowInsertIndex1;
+
+                      // Track if we've shown the second PYMK instance
+                      const showSecondPymk = currentUser &&
+                        peopleYouMayKnow.length > 0 &&
+                        peopleYouMayKnowInsertIndex2 >= 0 &&
+                        idx === peopleYouMayKnowInsertIndex2;
+
                       return (
                         <React.Fragment key={getStableItemKey(post, 'post')}>
                           <Post
@@ -4904,32 +4935,56 @@ export default function App() {
                             onRSVPEvent={onRSVPEvent}
                           />
 
-                          {/* ✅ People You May Know Grid with correct props */}
-                          {currentUser &&
-                            peopleYouMayKnow.length > 0 &&
-                            peopleYouMayKnowInsertIndex >= 0 &&
-                            idx === peopleYouMayKnowInsertIndex && (
-                              <div className="relative">
-                                <PeopleYouMayKnowGrid
-                                  users={peopleYouMayKnow}
-                                  onFollow={(id: number) => followFromPymk(id)}
-                                  currentUser={currentUser}
-                                  isLoading={pymkLoading}
-                                  onLoginClick={() => setView('login')}
-                                  title="People You May Know"
-                                  maxDisplay={8}
-                                />
-                                
-                                {peopleYouMayKnow[0] && (
-                                  <button
-                                    onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
-                                    className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
-                                    aria-label="Hide suggestions"
-                                  >
-                                    <i className="fas fa-times text-sm" />
-                                  </button>
-                                )}
-                              </div>
+                          {/* ✅ People You May Know Grid - FIRST APPEARANCE (around post 7-8) */}
+                          {showFirstPymk && (
+                            <div className="relative">
+                              <PeopleYouMayKnowGrid
+                                users={peopleYouMayKnow}
+                                onFollow={(id: number) => followFromPymk(id)}
+                                currentUser={currentUser}
+                                // Only show loading skeleton on first load, not on refreshes
+                                isLoading={pymkLoading && peopleYouMayKnow.length === 0}
+                                onLoginClick={() => setView('login')}
+                                title="People You May Know"
+                                maxDisplay={8}
+                              />
+                              
+                              {peopleYouMayKnow[0] && (
+                                <button
+                                  onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
+                                  className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
+                                  aria-label="Hide suggestions"
+                                >
+                                  <i className="fas fa-times text-sm" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ✅ People You May Know Grid - SECOND APPEARANCE (around post 22-25) */}
+                          {showSecondPymk && (
+                            <div className="relative">
+                              <PeopleYouMayKnowGrid
+                                users={peopleYouMayKnow}
+                                onFollow={(id: number) => followFromPymk(id)}
+                                currentUser={currentUser}
+                                // Only show loading skeleton on first load, not on refreshes
+                                isLoading={pymkLoading && peopleYouMayKnow.length === 0}
+                                onLoginClick={() => setView('login')}
+                                title="More People You May Know"
+                                maxDisplay={8}
+                              />
+                              
+                              {peopleYouMayKnow[0] && (
+                                <button
+                                  onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
+                                  className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
+                                  aria-label="Hide suggestions"
+                                >
+                                  <i className="fas fa-times text-sm" />
+                                </button>
+                              )}
+                            </div>
                           )}
                         </React.Fragment>
                       );
