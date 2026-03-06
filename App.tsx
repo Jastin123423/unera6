@@ -5518,9 +5518,9 @@ export default function App() {
           onStarted={onStarted}
         />
       )}
-
-      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() -> setFullScreenImage(null)} />}
-
+      
+      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+    
       {/* Incoming Call Screen */}
       {incomingCall && currentUser && (
         <CallScreen
