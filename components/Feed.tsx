@@ -2245,6 +2245,7 @@ export const ShareBottomSheet: React.FC<{
 /**
  * =========================
  * ✅ PEOPLE YOU MAY KNOW - FACEBOOK STYLE FEED CARD
+ * ✅ UPDATED WITH onProfileClick PROP AND CLICKABLE AVATAR/NAME
  * =========================
  */
 interface PeopleSuggestion {
@@ -2265,6 +2266,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
   currentUser: User | null;
   isLoading?: boolean;
   onLoginClick?: () => void;
+  onProfileClick?: (userId: number) => void; // Add this new prop
   title?: string;
   maxDisplay?: number;
 }> = ({
@@ -2273,6 +2275,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
   currentUser,
   isLoading = false,
   onLoginClick,
+  onProfileClick, // Destructure the new prop
   title = "People You May Know",
   maxDisplay = 6
 }) => {
@@ -2323,6 +2326,12 @@ export const PeopleYouMayKnowGrid: React.FC<{
       await onFollow(userId);
     } finally {
       setFollowLoading(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
+  const handleProfileClick = (userId: number) => {
+    if (onProfileClick) {
+      onProfileClick(userId);
     }
   };
 
@@ -2390,8 +2399,11 @@ export const PeopleYouMayKnowGrid: React.FC<{
               key={user.id}
               className="flex-shrink-0 w-[140px] bg-[#3A3B3C] rounded-lg p-3 hover:bg-[#4E4F50] transition-colors group"
             >
-              {/* Profile Image */}
-              <div className="relative w-20 h-20 mx-auto mb-2">
+              {/* Profile Image - Make clickable */}
+              <div 
+                className="relative w-20 h-20 mx-auto mb-2 cursor-pointer"
+                onClick={() => handleProfileClick(user.id)}
+              >
                 <div className="w-full h-full rounded-full overflow-hidden border-2 border-[#1877F2] group-hover:border-[#166FE5] transition-colors">
                   <img
                     src={user.profile_image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1877F2&color=fff&bold=true`}
@@ -2409,11 +2421,15 @@ export const PeopleYouMayKnowGrid: React.FC<{
                 )}
               </div>
 
-              {/* Name */}
+              {/* Name - Make clickable as a button */}
               <div className="text-center mb-1">
-                <span className="text-[#E4E6EB] font-semibold text-[13px] truncate block">
+                <button
+                  type="button"
+                  onClick={() => handleProfileClick(user.id)}
+                  className="text-[#E4E6EB] font-semibold text-[13px] truncate block w-full hover:underline"
+                >
                   {user.name}
-                </span>
+                </button>
               </div>
 
               {/* Mutual count */}
@@ -2468,6 +2484,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
 /**
  * =========================
  * ✅ GROUPS YOU MAY JOIN - FACEBOOK STYLE FEED CARD
+ * ✅ UPDATED WITH onProfileClick PROP AND CLICKABLE GROUP COVER/NAME
  * =========================
  */
 interface GroupSuggestion {
@@ -2493,6 +2510,7 @@ export const GroupsYouMayJoinCard: React.FC<{
   isLoading?: boolean;
   onLoginClick?: () => void;
   onOpenGroup?: (groupId: number) => void;
+  onProfileClick?: (userId: number) => void; // Add this new prop
   title?: string;
   maxDisplay?: number;
 }> = ({
@@ -2501,7 +2519,8 @@ export const GroupsYouMayJoinCard: React.FC<{
   currentUser,
   isLoading = false,
   onLoginClick,
-  onOpenGroup,
+  onOpenGroup, // Use this for opening group
+  onProfileClick, // Use this for opening profile (admin)
   title = "Groups You May Join",
   maxDisplay = 6
 }) => {
@@ -2552,6 +2571,18 @@ export const GroupsYouMayJoinCard: React.FC<{
       await onJoin(groupId);
     } finally {
       setJoinLoading(prev => ({ ...prev, [groupId]: false }));
+    }
+  };
+
+  const handleGroupClick = (groupId: number) => {
+    if (onOpenGroup) {
+      onOpenGroup(groupId);
+    }
+  };
+
+  const handleAdminClick = (adminId: number) => {
+    if (onProfileClick) {
+      onProfileClick(adminId);
     }
   };
 
@@ -2621,10 +2652,10 @@ export const GroupsYouMayJoinCard: React.FC<{
               key={group.id}
               className="flex-shrink-0 w-[180px] bg-[#3A3B3C] rounded-lg overflow-hidden hover:bg-[#4E4F50] transition-colors group"
             >
-              {/* Cover Image */}
+              {/* Cover Image - Make clickable */}
               <div 
                 className="h-24 bg-[#4E4F50] cursor-pointer relative"
-                onClick={() => onOpenGroup?.(group.id)}
+                onClick={() => handleGroupClick(group.id)}
               >
                 {group.cover_image ? (
                   <img
@@ -2647,9 +2678,10 @@ export const GroupsYouMayJoinCard: React.FC<{
               <div className="p-3">
                 {/* Group Name and Profile Image */}
                 <div className="flex items-center gap-2 mb-2">
+                  {/* Profile Image - Make clickable */}
                   <div 
                     className="w-10 h-10 rounded-full overflow-hidden bg-[#4E4F50] flex-shrink-0 cursor-pointer border-2 border-[#1877F2] group-hover:border-[#166FE5] transition-colors"
-                    onClick={() => onOpenGroup?.(group.id)}
+                    onClick={() => handleGroupClick(group.id)}
                   >
                     {group.profile_image ? (
                       <img
@@ -2664,13 +2696,16 @@ export const GroupsYouMayJoinCard: React.FC<{
                       </div>
                     )}
                   </div>
+                  
+                  {/* Group Name - Make clickable */}
                   <div className="flex-1 min-w-0">
-                    <div 
-                      className="text-[#E4E6EB] font-semibold text-[13px] truncate cursor-pointer hover:underline"
-                      onClick={() => onOpenGroup?.(group.id)}
+                    <button
+                      type="button"
+                      onClick={() => handleGroupClick(group.id)}
+                      className="text-[#E4E6EB] font-semibold text-[13px] truncate w-full text-left hover:underline"
                     >
                       {group.name}
-                    </div>
+                    </button>
                     <div className="text-[#B0B3B8] text-[11px] truncate">
                       {group.category}
                     </div>
@@ -2684,6 +2719,20 @@ export const GroupsYouMayJoinCard: React.FC<{
                     <span> · {group.mutual_count} mutual</span>
                   )}
                 </div>
+
+                {/* Admin name - Make clickable if onProfileClick exists */}
+                {onProfileClick && (
+                  <div className="text-[#B0B3B8] text-[11px] mb-2">
+                    Admin: {' '}
+                    <button
+                      type="button"
+                      onClick={() => handleAdminClick(group.admin_id)}
+                      className="text-[#E4E6EB] hover:underline"
+                    >
+                      Admin
+                    </button>
+                  </div>
+                )}
 
                 {/* Join Button */}
                 {!currentUser ? (
