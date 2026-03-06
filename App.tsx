@@ -1,4 +1,4 @@
-// App.tsx (Complete file with chat integration and fixed group post creation)
+// App.tsx (Complete file with People You May Know integrated)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -9,6 +9,7 @@ import {
   CommentsSheet,
   CreatePostModal,
   ShareBottomSheet,
+  PeopleYouMayKnowGrid, // ✅ ADDED: People You May Know import
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -31,7 +32,8 @@ import { ToolsPage } from './components/Tools';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
 import { TermsOfServicePage } from './components/TermsOfService';
 import { ChatWindow } from './components/Chat';
-import { ChatsList } from './components/ChatsList'; // ✅ IMPORT ADDED
+import { ChatsList } from './components/ChatsList';
+import { CallScreen } from './components/CallScreen';
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -1330,6 +1332,44 @@ export default function App() {
   // ✅ ADDED: ChatsList state (for message inbox)
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
 
+  // ✅ ADDED: Incoming call state
+  const [incomingCall, setIncomingCall] = useState<any>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // ============================================================================
+  // ✅ People You May Know
+  // ============================================================================
+  const PYMK_HIDDEN_KEY = "unera_pymk_hidden_v1";
+
+  const [peopleYouMayKnow, setPeopleYouMayKnow] = useState<User[]>([]);
+  const [pymkLoading, setPymkLoading] = useState(false);
+
+  const [pymkHiddenIds, setPymkHiddenIds] = useState<number[]>(() => {
+    try {
+      const raw = localStorage.getItem(PYMK_HIDDEN_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.map(Number).filter(Number.isFinite) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const persistPymkHidden = useCallback((ids: number[]) => {
+    const dedup = Array.from(new Set(ids.map(Number).filter(Number.isFinite))).slice(0, 2000);
+    setPymkHiddenIds(dedup);
+    try {
+      localStorage.setItem(PYMK_HIDDEN_KEY, JSON.stringify(dedup));
+    } catch {}
+  }, []);
+
+  const hidePymkUser = useCallback((userId: number) => {
+    const id = Number(userId);
+    if (!id) return;
+
+    setPeopleYouMayKnow(prev => prev.filter(u => Number(u?.id) !== id));
+    persistPymkHidden([id, ...pymkHiddenIds]);
+  }, [persistPymkHidden, pymkHiddenIds]);
+
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
   
@@ -1575,6 +1615,153 @@ export default function App() {
     
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
+
+  // ✅ ADDED: Incoming call polling effect
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    // Create audio element for ringtone
+    if (!audioRef.current) {
+      audioRef.current = new Audio('/sounds/ringtone.mp3');
+      audioRef.current.loop = true;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await apiFetch(
+          `/api/calls/incoming?user_id=${currentUser.id}`,
+          {},
+          currentUser.id
+        );
+
+        const call = res?.call;
+
+        if (call?.id && call?.status === "ringing") {
+          setIncomingCall(call);
+          
+          // Play ringtone
+          if (audioRef.current) {
+            audioRef.current.play().catch(e => console.log('Ringtone play failed:', e));
+          }
+        }
+      } catch (error) {
+        // Silent fail - polling errors shouldn't disrupt the app
+        console.debug('Call polling error:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+
+    return () => {
+      clearInterval(interval);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    };
+  }, [currentUser]);
+
+  // ✅ ADDED: Helper to open chat with user
+  const openChatWith = useCallback((userId: number) => {
+    const recipient = users.find(u => Number(u.id) === Number(userId));
+    if (recipient) {
+      setActiveChatUser(recipient);
+      setIsChatOpen(true);
+    }
+  }, [users]);
+
+  // ✅ ADDED: People You May Know fetch function
+  const fetchPeopleYouMayKnow = useCallback(async () => {
+    if (!currentUser?.id) {
+      setPeopleYouMayKnow([]);
+      return;
+    }
+
+    setPymkLoading(true);
+
+    try {
+      const meId = Number(currentUser.id);
+      const hiddenSet = new Set(pymkHiddenIds.map(Number));
+
+      let candidates = safeArray(users)
+        .map(normalizeUser)
+        .filter(u => Number(u.id) > 0);
+
+      if (candidates.length < 8) {
+        try {
+          const apiUsers = await apiFetch('/api/users');
+          candidates = safeArray(apiUsers).map(normalizeUser);
+        } catch {}
+      }
+
+      const myFollowData = await fetchUserFollowData(meId).catch(() => ({
+        followers: [],
+        following: [],
+      }));
+
+      const followingSet = new Set(safeArray<number>(myFollowData.following).map(Number));
+      const myFollowing = new Set(safeArray<number>((currentUser as any).following).map(Number));
+
+      const scored = candidates
+        .filter(u => Number(u.id) !== meId)
+        .filter(u => !hiddenSet.has(Number(u.id)))
+        .filter(u => !followingSet.has(Number(u.id)))
+        .map(u => {
+          const theirFollowers = new Set(safeArray<number>((u as any).followers).map(Number));
+          const theirFollowing = new Set(safeArray<number>((u as any).following).map(Number));
+
+          let mutuals = 0;
+          myFollowing.forEach(id => {
+            if (theirFollowers.has(id) || theirFollowing.has(id)) mutuals++;
+          });
+
+          const verifiedBoost = u.is_verified ? 2 : 0;
+          const profileBoost =
+            (u.profile_image_url ? 1 : 0) +
+            (u.cover_image_url ? 1 : 0) +
+            (u.bio ? 1 : 0);
+
+          return {
+            user: u,
+            score: mutuals * 10 + verifiedBoost + profileBoost,
+          };
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 24)
+        .map(x => x.user);
+
+      setPeopleYouMayKnow(scored);
+    } catch (error) {
+      console.warn('Failed to fetch People You May Know:', error);
+      setPeopleYouMayKnow([]);
+    } finally {
+      setPymkLoading(false);
+    }
+  }, [currentUser, pymkHiddenIds, users]);
+
+  // ✅ ADDED: Follow from PYMK handler
+  const followFromPymk = useCallback(async (targetUserId: number) => {
+    const id = Number(targetUserId);
+    if (!id) return;
+
+    // remove instantly from card list
+    setPeopleYouMayKnow(prev => prev.filter(u => Number(u.id) !== id));
+
+    try {
+      await followUser(id);
+    } catch (error) {
+      console.error('Failed to follow from People You May Know:', error);
+      fetchPeopleYouMayKnow().catch(() => {});
+    }
+  }, [followUser, fetchPeopleYouMayKnow]);
+
+  // ✅ ADDED: Helper to choose insertion point between 6 and 10 posts
+  const peopleYouMayKnowInsertIndex = useMemo(() => {
+    const total = safeArray(rankedPosts).length;
+
+    if (total < 6) return -1;
+    if (total <= 10) return total - 1; // show near the end if total is 6..10
+
+    return 7; // after the 8th post (0-based index)
+  }, [rankedPosts]);
 
   const resolveTrackOwner = useCallback((track: any): User | null => {
     if (!track) return null;
@@ -2039,6 +2226,11 @@ export default function App() {
       setMyTotalPlays(0);
     }
   }, [authHydrated, currentUser?.id, fetchMyTotalPlays]);
+
+  // ✅ ADDED: Effect to load People You May Know
+  useEffect(() => {
+    fetchPeopleYouMayKnow();
+  }, [fetchPeopleYouMayKnow]);
 
   const onPlayTrack = useCallback((track: AudioTrack) => {
     const trackWithCover = {
@@ -4164,6 +4356,7 @@ export default function App() {
     localStorage.removeItem(LS_USER_KEY);
     localStorage.removeItem(STORY_SEEN_KEY);
     localStorage.removeItem(STORIES_CACHE_KEY);
+    localStorage.removeItem(PYMK_HIDDEN_KEY); // ✅ Clear PYMK hidden cache
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
         localStorage.removeItem(key);
@@ -4192,9 +4385,12 @@ export default function App() {
     setSelectedReelSound(null);
     setSongs([]);
     setEvents([]);
-    setActiveChatUser(null); // ✅ Clear chat state on logout
+    setActiveChatUser(null);
     setIsChatOpen(false);
-    setIsChatsListOpen(false); // ✅ Clear ChatsList state on logout
+    setIsChatsListOpen(false);
+    setIncomingCall(null);
+    setPeopleYouMayKnow([]); // ✅ Clear PYMK on logout
+    setPymkHiddenIds([]);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -4805,31 +5001,46 @@ export default function App() {
                     rankedPosts.map((post, idx) => {
                       const postAuthorId = Number((post as any).user_id);
                       const isFollowing = checkIsFollowing(postAuthorId);
-                      
+
                       return (
-                        <Post
-                          key={getStableItemKey(post, 'post')}
-                          post={post}
-                          author={getPostAuthor(post)}
-                          currentUser={currentUser}
-                          users={users}
-                          onProfileClick={(id) => openProfile(id)}
-                          onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                          onShare={() => handleOpenShareSheet(post)}
-                          onViewImage={setFullScreenImage}
-                          onOpenComments={(postId: number) => onOpenComments(postId)}
-                          onVideoClick={handleVideoClick}
-                          onPlayAudioTrack={onPlayTrack}
-                          groups={groups}
-                          brands={brands}
-                          chats={chats}
-                          onHashtagClick={handleHashtagClick}
-                          isFollowing={isFollowing}
-                          onFollow={() => followUser(postAuthorId)}
-                          followLoading={followLoading[postAuthorId] || false}
-                          onViewProductFromPost={openProductFromPost}
-                          onRSVPEvent={onRSVPEvent} // Pass the unified RSVP handler to Post component
-                        />
+                        <React.Fragment key={getStableItemKey(post, 'post')}>
+                          <Post
+                            post={post}
+                            author={getPostAuthor(post)}
+                            currentUser={currentUser}
+                            users={users}
+                            onProfileClick={(id) => openProfile(id)}
+                            onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+                            onShare={() => handleOpenShareSheet(post)}
+                            onViewImage={setFullScreenImage}
+                            onOpenComments={(postId: number) => onOpenComments(postId)}
+                            onVideoClick={handleVideoClick}
+                            onPlayAudioTrack={onPlayTrack}
+                            groups={groups}
+                            brands={brands}
+                            chats={chats}
+                            onHashtagClick={handleHashtagClick}
+                            isFollowing={isFollowing}
+                            onFollow={() => followUser(postAuthorId)}
+                            followLoading={followLoading[postAuthorId] || false}
+                            onViewProductFromPost={openProductFromPost}
+                            onRSVPEvent={onRSVPEvent}
+                          />
+
+                          {currentUser &&
+                            peopleYouMayKnow.length > 0 &&
+                            idx === peopleYouMayKnowInsertIndex && (
+                              <PeopleYouMayKnowGrid
+                                users={peopleYouMayKnow}
+                                loading={pymkLoading}
+                                onFollow={(id: number) => followFromPymk(id)}
+                                onHide={(id: number) => hidePymkUser(id)}
+                                onProfileClick={(id: number) => openProfile(id)}
+                                checkIsFollowing={checkIsFollowing}
+                                followLoading={followLoading}
+                              />
+                          )}
+                        </React.Fragment>
                       );
                     })
                   ) : !feedHydrated ? (
@@ -5331,6 +5542,67 @@ export default function App() {
       )}
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+
+      {/* ✅ ADDED: Incoming Call Screen - Rendered GLOBALLY at root level */}
+      {incomingCall && currentUser && (
+        <CallScreen
+          open={true}
+          mode={incomingCall.call_type === "video" ? "video" : "voice"}
+          phase="incoming"
+          peerName={incomingCall.caller_name || "User"}
+          peerAvatar={incomingCall.caller_avatar || null}
+          micOn={true}
+          camOn={true}
+          speakerOn={true}
+          onAccept={() => {
+            // Stop ringtone
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
+            
+            // Open chat automatically with caller
+            openChatWith(incomingCall.caller_id);
+            
+            setIncomingCall(null);
+          }}
+          onDecline={() => {
+            // Stop ringtone
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
+            
+            // Decline the call
+            apiFetch(
+              "/api/calls/signal",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  call_id: incomingCall.id,
+                  to_user_id: incomingCall.caller_id,
+                  type: "decline",
+                }),
+              },
+              currentUser.id
+            ).catch(err => console.error('Failed to decline call:', err));
+
+            setIncomingCall(null);
+          }}
+          onHangup={() => {
+            // Stop ringtone
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
+            
+            setIncomingCall(null);
+          }}
+          onToggleMic={() => {}}
+          onToggleCam={() => {}}
+          onToggleSpeaker={() => {}}
+        />
+      )}
 
       {/* ✅ ADDED: Chat Window */}
       {isChatOpen && activeChatUser && currentUser && (
