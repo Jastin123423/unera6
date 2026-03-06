@@ -2240,7 +2240,8 @@ export const ShareBottomSheet: React.FC<{
     </>
   );
 };
-    /**
+
+/**
  * =========================
  * ✅ PEOPLE YOU MAY KNOW - FACEBOOK STYLE FEED CARD
  * =========================
@@ -2452,6 +2453,267 @@ export const PeopleYouMayKnowGrid: React.FC<{
                   )}
                 </button>
               )}
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      {/* Facebook-style separator */}
+      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+    </div>
+  );
+};
+
+/**
+ * =========================
+ * ✅ GROUPS YOU MAY JOIN - FACEBOOK STYLE FEED CARD
+ * =========================
+ */
+interface GroupSuggestion {
+  id: number;
+  admin_id: number;
+  name: string;
+  description: string;
+  type: "public" | "private";
+  cover_image?: string;
+  profile_image?: string;
+  created_at?: string;
+  category: string;
+  members_count: number;
+  mutual_count: number;
+  is_member: boolean;
+  score: number;
+}
+
+export const GroupsYouMayJoinGrid: React.FC<{
+  groups: GroupSuggestion[];
+  onJoin: (groupId: number) => void;
+  currentUser: User | null;
+  isLoading?: boolean;
+  onLoginClick?: () => void;
+  onOpenGroup?: (groupId: number) => void;
+  title?: string;
+  maxDisplay?: number;
+}> = ({
+  groups = [],
+  onJoin,
+  currentUser,
+  isLoading = false,
+  onLoginClick,
+  onOpenGroup,
+  title = "Groups You May Join",
+  maxDisplay = 6
+}) => {
+  const [joinLoading, setJoinLoading] = useState<{ [key: number]: boolean }>({});
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const displayGroups = groups.slice(0, maxDisplay);
+
+  // Check scroll position for arrows
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    
+    setCanScrollLeft(el.scrollLeft > 0);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 5);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    
+    checkScroll();
+    el.addEventListener('scroll', checkScroll);
+    window.addEventListener('resize', checkScroll);
+    
+    return () => {
+      el.removeEventListener('scroll', checkScroll);
+      window.removeEventListener('resize', checkScroll);
+    };
+  }, [checkScroll, displayGroups.length]);
+
+  const scroll = (direction: 'left' | 'right') => {
+    const el = scrollRef.current;
+    if (!el) return;
+    
+    const scrollAmount = 300;
+    el.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth'
+    });
+  };
+
+  const handleJoin = async (groupId: number) => {
+    setJoinLoading(prev => ({ ...prev, [groupId]: true }));
+    try {
+      await onJoin(groupId);
+    } finally {
+      setJoinLoading(prev => ({ ...prev, [groupId]: false }));
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="w-full">
+        <div className="bg-[#242526] w-full p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-[#E4E6EB] font-bold text-[17px]">{title}</h3>
+          </div>
+          <div className="flex gap-3 overflow-x-hidden py-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex-shrink-0 w-[180px] animate-pulse">
+                <div className="h-24 bg-[#3A3B3C] rounded-t-lg"></div>
+                <div className="p-3 bg-[#3A3B3C]">
+                  <div className="h-4 bg-[#4E4F50] rounded w-24 mb-2"></div>
+                  <div className="h-3 bg-[#4E4F50] rounded w-16 mb-3"></div>
+                  <div className="h-8 bg-[#4E4F50] rounded-lg w-full"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      </div>
+    );
+  }
+
+  if (displayGroups.length === 0) return null;
+
+  return (
+    <div className="w-full">
+      <div className="bg-[#242526] w-full p-4">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-[#E4E6EB] font-bold text-[17px]">{title}</h3>
+          <div className="flex items-center gap-1">
+            {canScrollLeft && (
+              <button
+                onClick={() => scroll('left')}
+                className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                aria-label="Scroll left"
+              >
+                <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
+              </button>
+            )}
+            {canScrollRight && (
+              <button
+                onClick={() => scroll('right')}
+                className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                aria-label="Scroll right"
+              >
+                <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Horizontal scrollable grid */}
+        <div
+          ref={scrollRef}
+          className="flex gap-3 overflow-x-auto scrollbar-hide pb-1"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {displayGroups.map((group) => (
+            <div
+              key={group.id}
+              className="flex-shrink-0 w-[180px] bg-[#3A3B3C] rounded-lg overflow-hidden hover:bg-[#4E4F50] transition-colors group"
+            >
+              {/* Cover Image */}
+              <div 
+                className="h-24 bg-[#4E4F50] cursor-pointer relative"
+                onClick={() => onOpenGroup?.(group.id)}
+              >
+                {group.cover_image ? (
+                  <img
+                    src={group.cover_image}
+                    alt={group.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#1877F2] to-[#166FE5]">
+                    <i className="fas fa-users text-white text-2xl opacity-50"></i>
+                  </div>
+                )}
+              </div>
+
+              {/* Content */}
+              <div className="p-3">
+                {/* Group Name and Profile Image */}
+                <div className="flex items-center gap-2 mb-2">
+                  <div 
+                    className="w-10 h-10 rounded-full overflow-hidden bg-[#4E4F50] flex-shrink-0 cursor-pointer border-2 border-[#1877F2] group-hover:border-[#166FE5] transition-colors"
+                    onClick={() => onOpenGroup?.(group.id)}
+                  >
+                    {group.profile_image ? (
+                      <img
+                        src={group.profile_image}
+                        alt={group.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-[#3A3B3C]">
+                        <i className="fas fa-users text-[#B0B3B8] text-sm"></i>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div 
+                      className="text-[#E4E6EB] font-semibold text-[13px] truncate cursor-pointer hover:underline"
+                      onClick={() => onOpenGroup?.(group.id)}
+                    >
+                      {group.name}
+                    </div>
+                    <div className="text-[#B0B3B8] text-[11px] truncate">
+                      {group.category}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Member stats */}
+                <div className="text-[#B0B3B8] text-[11px] mb-2">
+                  {group.members_count.toLocaleString()} members
+                  {group.mutual_count > 0 && (
+                    <span> · {group.mutual_count} mutual</span>
+                  )}
+                </div>
+
+                {/* Join Button */}
+                {!currentUser ? (
+                  <button
+                    onClick={onLoginClick}
+                    className="w-full py-1.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[12px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                  >
+                    <i className="fas fa-sign-in-alt text-[10px]"></i>
+                    <span>Sign in</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleJoin(group.id)}
+                    disabled={joinLoading[group.id] || group.is_member}
+                    className={`w-full py-1.5 text-[12px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                      group.is_member
+                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                    } disabled:opacity-70 disabled:cursor-not-allowed`}
+                  >
+                    {joinLoading[group.id] ? (
+                      <i className="fas fa-spinner fa-spin text-[10px]"></i>
+                    ) : (
+                      <>
+                        <i className={`fas ${group.is_member ? 'fa-check' : 'fa-user-plus'} text-[10px]`}></i>
+                        <span>{group.is_member ? 'Joined' : 'Join Group'}</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
