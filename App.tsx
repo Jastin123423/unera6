@@ -1,4 +1,4 @@
-// App.tsx (Complete file with Groups You May Join integration)
+// App.tsx (Complete file with Groups You May Join integration
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
