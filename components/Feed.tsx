@@ -5996,7 +5996,6 @@ export { getMediaTypeInfo,
   safeArray,
   safeNumber,
   safeString,
-  GroupsYouMayJoinCard,
   safePostId,
   safeUserId,
   avatarFrom };
