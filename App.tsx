@@ -1,4 +1,4 @@
-// App.tsx (Complete file with People You May Know integrated)-
+// App.tsx (Complete file with fixed People You May Know integration)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -50,6 +50,19 @@ import {
   Song,
 } from './types';
 
+/** ---------- Type for People You May Know suggestions ---------- */
+type PeopleSuggestion = {
+  id: number;
+  username: string;
+  name: string;
+  profile_image_url: string | null;
+  is_verified: boolean;
+  role: string;
+  mutual_count: number;
+  is_following: boolean;
+  score: number;
+};
+
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
@@ -96,6 +109,9 @@ const STORIES_CACHE_KEY = "unera_stories_cache_v1";
 const STORIES_CACHE_TTL_MS = 60_000;
 const STORY_VIEWERS_CACHE_KEY = "unera_story_viewers_";
 const VIEWERS_TTL = 2 * 60_000;
+
+/** ===== PYMK CONSTANTS ===== */
+const PYMK_HIDDEN_KEY = "unera_pymk_hidden_v1";
 
 /** ---------- Video/Reel ID resolver for Facebook-like video playback ---------- */
 const resolveVideoId = (item: any): number | null => {
@@ -1337,11 +1353,9 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // ============================================================================
-  // ✅ People You May Know
+  // ✅ People You May Know - FIXED to match Feed.tsx component props
   // ============================================================================
-  const PYMK_HIDDEN_KEY = "unera_pymk_hidden_v1";
-
-  const [peopleYouMayKnow, setPeopleYouMayKnow] = useState<User[]>([]);
+  const [peopleYouMayKnow, setPeopleYouMayKnow] = useState<PeopleSuggestion[]>([]);
   const [pymkLoading, setPymkLoading] = useState(false);
 
   const [pymkHiddenIds, setPymkHiddenIds] = useState<number[]>(() => {
@@ -1366,7 +1380,7 @@ export default function App() {
     const id = Number(userId);
     if (!id) return;
 
-    setPeopleYouMayKnow(prev => prev.filter(u => Number(u?.id) !== id));
+    setPeopleYouMayKnow(prev => prev.filter(u => Number(u.id) !== id));
     persistPymkHidden([id, ...pymkHiddenIds]);
   }, [persistPymkHidden, pymkHiddenIds]);
 
@@ -1668,7 +1682,7 @@ export default function App() {
     }
   }, [users]);
 
-  // ✅ ADDED: People You May Know fetch function
+  // ✅ ADDED: People You May Know fetch function - FIXED to return PeopleSuggestion[]
   const fetchPeopleYouMayKnow = useCallback(async () => {
     if (!currentUser?.id) {
       setPeopleYouMayKnow([]);
@@ -1681,54 +1695,57 @@ export default function App() {
       const meId = Number(currentUser.id);
       const hiddenSet = new Set(pymkHiddenIds.map(Number));
 
-      let candidates = safeArray(users)
-        .map(normalizeUser)
-        .filter(u => Number(u.id) > 0);
+      // Try to fetch from API first
+      let suggestions: PeopleSuggestion[] = [];
+      
+      try {
+        const data = await apiFetch(`/api/users/suggestions?user_id=${meId}&limit=20`);
+        const raw = safeArray<any>(data?.suggestions ?? data);
+        
+        suggestions = raw
+          .map((u: any) => ({
+            id: safeNumber(u?.id ?? u?.user_id),
+            username: safeString(u?.username),
+            name: safeString(u?.name || u?.username || "User"),
+            profile_image_url: safeString(u?.profile_image_url || ""),
+            is_verified: !!u?.is_verified,
+            role: safeString(u?.role || "user"),
+            mutual_count: safeNumber(u?.mutual_count, 0),
+            is_following: !!u?.is_following,
+            score: safeNumber(u?.score, 0),
+          }))
+          .filter((u: PeopleSuggestion) => u.id > 0)
+          .filter((u: PeopleSuggestion) => !hiddenSet.has(Number(u.id)));
+      } catch {
+        // Fallback to local user filtering if API fails
+        const myFollowData = await fetchUserFollowData(meId).catch(() => ({
+          followers: [],
+          following: [],
+        }));
 
-      if (candidates.length < 8) {
-        try {
-          const apiUsers = await apiFetch('/api/users');
-          candidates = safeArray(apiUsers).map(normalizeUser);
-        } catch {}
+        const followingSet = new Set(safeArray<number>(myFollowData.following).map(Number));
+        
+        const candidates = safeArray(users)
+          .map(normalizeUser)
+          .filter(u => Number(u.id) > 0)
+          .filter(u => Number(u.id) !== meId)
+          .filter(u => !hiddenSet.has(Number(u.id)))
+          .filter(u => !followingSet.has(Number(u.id)));
+
+        suggestions = candidates.map(u => ({
+          id: Number(u.id),
+          username: u.username,
+          name: u.name,
+          profile_image_url: u.profile_image_url,
+          is_verified: u.is_verified,
+          role: u.role,
+          mutual_count: 0,
+          is_following: false,
+          score: 0,
+        }));
       }
 
-      const myFollowData = await fetchUserFollowData(meId).catch(() => ({
-        followers: [],
-        following: [],
-      }));
-
-      const followingSet = new Set(safeArray<number>(myFollowData.following).map(Number));
-      const myFollowing = new Set(safeArray<number>((currentUser as any).following).map(Number));
-
-      const scored = candidates
-        .filter(u => Number(u.id) !== meId)
-        .filter(u => !hiddenSet.has(Number(u.id)))
-        .filter(u => !followingSet.has(Number(u.id)))
-        .map(u => {
-          const theirFollowers = new Set(safeArray<number>((u as any).followers).map(Number));
-          const theirFollowing = new Set(safeArray<number>((u as any).following).map(Number));
-
-          let mutuals = 0;
-          myFollowing.forEach(id => {
-            if (theirFollowers.has(id) || theirFollowing.has(id)) mutuals++;
-          });
-
-          const verifiedBoost = u.is_verified ? 2 : 0;
-          const profileBoost =
-            (u.profile_image_url ? 1 : 0) +
-            (u.cover_image_url ? 1 : 0) +
-            (u.bio ? 1 : 0);
-
-          return {
-            user: u,
-            score: mutuals * 10 + verifiedBoost + profileBoost,
-          };
-        })
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 24)
-        .map(x => x.user);
-
-      setPeopleYouMayKnow(scored);
+      setPeopleYouMayKnow(suggestions.slice(0, 20));
     } catch (error) {
       console.warn('Failed to fetch People You May Know:', error);
       setPeopleYouMayKnow([]);
@@ -1742,13 +1759,23 @@ export default function App() {
     const id = Number(targetUserId);
     if (!id) return;
 
-    // remove instantly from card list
-    setPeopleYouMayKnow(prev => prev.filter(u => Number(u.id) !== id));
+    // Optimistic update
+    setPeopleYouMayKnow(prev =>
+      prev.map(u =>
+        Number(u.id) === id ? { ...u, is_following: !u.is_following } : u
+      )
+    );
 
     try {
       await followUser(id);
     } catch (error) {
       console.error('Failed to follow from People You May Know:', error);
+      // Revert on error
+      setPeopleYouMayKnow(prev =>
+        prev.map(u =>
+          Number(u.id) === id ? { ...u, is_following: !u.is_following } : u
+        )
+      );
       fetchPeopleYouMayKnow().catch(() => {});
     }
   }, [followUser, fetchPeopleYouMayKnow]);
@@ -5027,18 +5054,33 @@ export default function App() {
                             onRSVPEvent={onRSVPEvent}
                           />
 
+                          {/* ✅ FIXED: People You May Know Grid with correct props matching Feed.tsx */}
                           {currentUser &&
                             peopleYouMayKnow.length > 0 &&
+                            peopleYouMayKnowInsertIndex >= 0 &&
                             idx === peopleYouMayKnowInsertIndex && (
-                              <PeopleYouMayKnowGrid
-                                users={peopleYouMayKnow}
-                                loading={pymkLoading}
-                                onFollow={(id: number) => followFromPymk(id)}
-                                onHide={(id: number) => hidePymkUser(id)}
-                                onProfileClick={(id: number) => openProfile(id)}
-                                checkIsFollowing={checkIsFollowing}
-                                followLoading={followLoading}
-                              />
+                              <div className="relative">
+                                <PeopleYouMayKnowGrid
+                                  users={peopleYouMayKnow}
+                                  onFollow={(id: number) => followFromPymk(id)}
+                                  currentUser={currentUser}
+                                  isLoading={pymkLoading}
+                                  onLoginClick={() => setView('login')}
+                                  title="People You May Know"
+                                  maxDisplay={8}
+                                />
+                                
+                                {/* Optional hide button for first suggestion */}
+                                {peopleYouMayKnow[0] && (
+                                  <button
+                                    onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
+                                    className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
+                                    aria-label="Hide suggestions"
+                                  >
+                                    <i className="fas fa-times text-sm" />
+                                  </button>
+                                )}
+                              </div>
                           )}
                         </React.Fragment>
                       );
