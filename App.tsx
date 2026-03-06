@@ -1,4 +1,4 @@
-// App.tsx (Complete file with fixed People You May Know integration and correct dependency order)
+// App.tsx (Complete file with Groups You May Join integration)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -10,6 +10,7 @@ import {
   CreatePostModal,
   ShareBottomSheet,
   PeopleYouMayKnowGrid,
+  GroupsYouMayJoinCard, // ✅ NEW: Import the card component
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -63,6 +64,23 @@ type PeopleSuggestion = {
   score: number;
 };
 
+/** ---------- Type for Groups You May Join suggestions ---------- */
+type GroupSuggestion = {
+  id: number;
+  admin_id: number;
+  name: string;
+  description: string;
+  type: "public" | "private";
+  cover_image?: string;
+  profile_image?: string;
+  created_at?: string;
+  category: string;
+  members_count: number;
+  mutual_count: number;
+  is_member: boolean;
+  score: number;
+};
+
 /** ---------- Safety helpers ---------- */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
@@ -112,6 +130,9 @@ const VIEWERS_TTL = 2 * 60_000;
 
 /** ===== PYMK CONSTANTS ===== */
 const PYMK_HIDDEN_KEY = "unera_pymk_hidden_v1";
+
+/** ===== GROUPS YOU MAY JOIN CONSTANTS ===== */
+const GROUPS_YOU_MAY_JOIN_HIDDEN_KEY = "unera_groups_you_may_join_hidden_v1";
 
 /** ---------- Video/Reel ID resolver for Facebook-like video playback ---------- */
 const resolveVideoId = (item: any): number | null => {
@@ -1342,15 +1363,32 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // ============================================================================
-  // ✅ People You May Know - State declarations (MUST come before any usage)
+  // ✅ People You May Know - State declarations
   // ============================================================================
   const [peopleYouMayKnow, setPeopleYouMayKnow] = useState<PeopleSuggestion[]>([]);
   const [pymkLoading, setPymkLoading] = useState(false);
-  const [pymkHydrated, setPymkHydrated] = useState(false); // ✅ NEW: Track if we've loaded PYMK at least once
+  const [pymkHydrated, setPymkHydrated] = useState(false);
 
   const [pymkHiddenIds, setPymkHiddenIds] = useState<number[]>(() => {
     try {
       const raw = localStorage.getItem(PYMK_HIDDEN_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.map(Number).filter(Number.isFinite) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // ============================================================================
+  // ✅ Groups You May Join - State declarations
+  // ============================================================================
+  const [groupsYouMayJoin, setGroupsYouMayJoin] = useState<GroupSuggestion[]>([]);
+  const [gymjLoading, setGymjLoading] = useState(false);
+  const [gymjHydrated, setGymjHydrated] = useState(false);
+
+  const [gymjHiddenIds, setGymjHiddenIds] = useState<number[]>(() => {
+    try {
+      const raw = localStorage.getItem(GROUPS_YOU_MAY_JOIN_HIDDEN_KEY);
       const arr = raw ? JSON.parse(raw) : [];
       return Array.isArray(arr) ? arr.map(Number).filter(Number.isFinite) : [];
     } catch {
@@ -1648,7 +1686,7 @@ export default function App() {
   }, [users]);
 
   // ============================================================================
-  // ✅ PYMK Helpers - These can be here (only depend on state)
+  // ✅ PYMK Helpers
   // ============================================================================
   const persistPymkHidden = useCallback((ids: number[]) => {
     const dedup = Array.from(new Set(ids.map(Number).filter(Number.isFinite))).slice(0, 2000);
@@ -1667,7 +1705,7 @@ export default function App() {
   }, [persistPymkHidden, pymkHiddenIds]);
 
   // ============================================================================
-  // ✅ PYMK Fetch - FIXED: Only show loading on first fetch
+  // ✅ PYMK Fetch
   // ============================================================================
   const fetchPeopleYouMayKnow = useCallback(async () => {
     if (!currentUser?.id) {
@@ -1675,7 +1713,6 @@ export default function App() {
       return;
     }
 
-    // Only show loading on first fetch, not on refreshes
     if (!pymkHydrated) setPymkLoading(true);
 
     try {
@@ -1699,7 +1736,7 @@ export default function App() {
         .filter((u: PeopleSuggestion) => !hiddenSet.has(Number(u.id)));
 
       setPeopleYouMayKnow(normalized);
-      setPymkHydrated(true); // Mark as hydrated after first successful fetch
+      setPymkHydrated(true);
     } catch (error) {
       console.warn('Failed to fetch People You May Know:', error);
       setPeopleYouMayKnow([]);
@@ -1709,12 +1746,84 @@ export default function App() {
   }, [currentUser, pymkHiddenIds]);
 
   // ============================================================================
-  // ✅ PYMK Effect - FIXED: Only depend on primitive values, not the whole function
+  // ✅ PYMK Effect
   // ============================================================================
   useEffect(() => {
     if (!currentUser?.id) return;
     fetchPeopleYouMayKnow();
-  }, [currentUser?.id, pymkHiddenIds]); // ✅ Changed from [fetchPeopleYouMayKnow]
+  }, [currentUser?.id, pymkHiddenIds]);
+
+  // ============================================================================
+  // ✅ Groups You May Join - Helpers
+  // ============================================================================
+  const persistGymjHidden = useCallback((ids: number[]) => {
+    const dedup = Array.from(new Set(ids.map(Number).filter(Number.isFinite))).slice(0, 2000);
+    setGymjHiddenIds(dedup);
+    try {
+      localStorage.setItem(GROUPS_YOU_MAY_JOIN_HIDDEN_KEY, JSON.stringify(dedup));
+    } catch {}
+  }, []);
+
+  const hideGroupSuggestion = useCallback((groupId: number) => {
+    const id = Number(groupId);
+    if (!id) return;
+
+    setGroupsYouMayJoin(prev => prev.filter(g => Number(g.id) !== id));
+    persistGymjHidden([id, ...gymjHiddenIds]);
+  }, [persistGymjHidden, gymjHiddenIds]);
+
+  // ============================================================================
+  // ✅ Groups You May Join - Fetch
+  // ============================================================================
+  const fetchGroupsYouMayJoin = useCallback(async () => {
+    if (!currentUser?.id) {
+      setGroupsYouMayJoin([]);
+      return;
+    }
+
+    if (!gymjHydrated) setGymjLoading(true);
+
+    try {
+      const data = await apiFetch(`/api/group-suggestions?user_id=${currentUser.id}&limit=8`);
+      const raw = safeArray<any>(data?.groups ?? data);
+      const hiddenSet = new Set(gymjHiddenIds.map(Number));
+
+      const normalized: GroupSuggestion[] = raw
+        .map((g: any) => ({
+          id: safeNumber(g?.id),
+          admin_id: safeNumber(g?.admin_id),
+          name: safeString(g?.name, "Untitled Group"),
+          description: safeString(g?.description),
+          type: g?.type === "private" ? "private" : "public",
+          cover_image: safeString(g?.cover_image),
+          profile_image: safeString(g?.profile_image),
+          created_at: safeString(g?.created_at),
+          category: safeString(g?.category, "general"),
+          members_count: safeNumber(g?.members_count, 0),
+          mutual_count: safeNumber(g?.mutual_count, 0),
+          is_member: !!g?.is_member,
+          score: safeNumber(g?.score, 0),
+        }))
+        .filter((g: GroupSuggestion) => g.id > 0)
+        .filter((g: GroupSuggestion) => !hiddenSet.has(Number(g.id)));
+
+      setGroupsYouMayJoin(normalized);
+      setGymjHydrated(true);
+    } catch (error) {
+      console.warn('Failed to fetch Groups You May Join:', error);
+      setGroupsYouMayJoin([]);
+    } finally {
+      setGymjLoading(false);
+    }
+  }, [currentUser, gymjHiddenIds]);
+
+  // ============================================================================
+  // ✅ Groups You May Join - Effect
+  // ============================================================================
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    fetchGroupsYouMayJoin();
+  }, [currentUser?.id, gymjHiddenIds]);
 
   const resolveTrackOwner = useCallback((track: any): User | null => {
     if (!track) return null;
@@ -3378,6 +3487,28 @@ export default function App() {
     }
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
+  // ============================================================================
+  // ✅ Join from Groups You May Join
+  // ============================================================================
+  const joinFromSuggestion = useCallback(async (groupId: number) => {
+    const id = Number(groupId);
+    if (!id) return;
+
+    setGroupsYouMayJoin(prev =>
+      prev.map(g => Number(g.id) === id ? { ...g, is_member: true } : g)
+    );
+
+    try {
+      await joinGroup(id);
+      setGroupsYouMayJoin(prev => prev.filter(g => Number(g.id) !== id));
+    } catch (error) {
+      console.error("Failed to join from suggestion:", error);
+      setGroupsYouMayJoin(prev =>
+        prev.map(g => Number(g.id) === id ? { ...g, is_member: false } : g)
+      );
+    }
+  }, [joinGroup]);
+
   const leaveGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Leaving groups")) return;
     if (!currentUser) return;
@@ -4001,7 +4132,7 @@ export default function App() {
   }, [posts, filteredPosts, activeHashtag]);
 
   // ============================================================================
-  // ✅ PYMK Insert Indices - FIRST appearance at ~post 7, SECOND at ~post 22
+  // ✅ PYMK Insert Indices
   // ============================================================================
   const peopleYouMayKnowInsertIndex1 = useMemo(() => {
     const total = safeArray(rankedPosts).length;
@@ -4009,16 +4140,24 @@ export default function App() {
     if (total < 6) return -1;
     if (total <= 10) return total - 1;
 
-    return 7; // First appearance at index 7 (0-based) = 8th post
+    return 7;
   }, [rankedPosts]);
 
   const peopleYouMayKnowInsertIndex2 = useMemo(() => {
     const total = safeArray(rankedPosts).length;
 
-    // Need at least 22 posts for second appearance
     if (total < 22) return -1;
 
-    return 21; // Second appearance at index 21 (0-based) = 22nd post
+    return 21;
+  }, [rankedPosts]);
+
+  // ============================================================================
+  // ✅ Groups You May Join Insert Index
+  // ============================================================================
+  const groupsYouMayJoinInsertIndex = useMemo(() => {
+    const total = safeArray(rankedPosts).length;
+    if (total < 4) return -1;
+    return Math.min(3, total - 1);
   }, [rankedPosts]);
 
   const activePost = useMemo(() => {
@@ -4129,7 +4268,7 @@ export default function App() {
   };
 
   // ============================================================================
-  // ✅ followUser - MUST come BEFORE followFromPymk
+  // ✅ followUser
   // ============================================================================
   const followUser = useCallback(
     async (targetUserId: number) => {
@@ -4218,7 +4357,7 @@ export default function App() {
   );
 
   // ============================================================================
-  // ✅ followFromPymk - MUST come AFTER followUser
+  // ✅ followFromPymk
   // ============================================================================
   const followFromPymk = useCallback(async (targetUserId: number) => {
     const id = Number(targetUserId);
@@ -4255,6 +4394,7 @@ export default function App() {
     localStorage.removeItem(STORY_SEEN_KEY);
     localStorage.removeItem(STORIES_CACHE_KEY);
     localStorage.removeItem(PYMK_HIDDEN_KEY);
+    localStorage.removeItem(GROUPS_YOU_MAY_JOIN_HIDDEN_KEY);
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
         localStorage.removeItem(key);
@@ -4289,6 +4429,8 @@ export default function App() {
     setIncomingCall(null);
     setPeopleYouMayKnow([]);
     setPymkHiddenIds([]);
+    setGroupsYouMayJoin([]);
+    setGymjHiddenIds([]);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -4910,6 +5052,12 @@ export default function App() {
                         peopleYouMayKnowInsertIndex2 >= 0 &&
                         idx === peopleYouMayKnowInsertIndex2;
 
+                      // Track if we've shown the Groups You May Join instance
+                      const showGroupsYouMayJoin = currentUser &&
+                        groupsYouMayJoin.length > 0 &&
+                        groupsYouMayJoinInsertIndex >= 0 &&
+                        idx === groupsYouMayJoinInsertIndex;
+
                       return (
                         <React.Fragment key={getStableItemKey(post, 'post')}>
                           <Post
@@ -4935,14 +5083,13 @@ export default function App() {
                             onRSVPEvent={onRSVPEvent}
                           />
 
-                          {/* ✅ People You May Know Grid - FIRST APPEARANCE (around post 7-8) */}
+                          {/* ✅ People You May Know Grid - FIRST APPEARANCE */}
                           {showFirstPymk && (
                             <div className="relative">
                               <PeopleYouMayKnowGrid
                                 users={peopleYouMayKnow}
                                 onFollow={(id: number) => followFromPymk(id)}
                                 currentUser={currentUser}
-                                // Only show loading skeleton on first load, not on refreshes
                                 isLoading={pymkLoading && peopleYouMayKnow.length === 0}
                                 onLoginClick={() => setView('login')}
                                 title="People You May Know"
@@ -4961,14 +5108,13 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* ✅ People You May Know Grid - SECOND APPEARANCE (around post 22-25) */}
+                          {/* ✅ People You May Know Grid - SECOND APPEARANCE */}
                           {showSecondPymk && (
                             <div className="relative">
                               <PeopleYouMayKnowGrid
                                 users={peopleYouMayKnow}
                                 onFollow={(id: number) => followFromPymk(id)}
                                 currentUser={currentUser}
-                                // Only show loading skeleton on first load, not on refreshes
                                 isLoading={pymkLoading && peopleYouMayKnow.length === 0}
                                 onLoginClick={() => setView('login')}
                                 title="More People You May Know"
@@ -4985,6 +5131,20 @@ export default function App() {
                                 </button>
                               )}
                             </div>
+                          )}
+
+                          {/* ✅ Groups You May Join Card */}
+                          {showGroupsYouMayJoin && (
+                            <GroupsYouMayJoinCard
+                              groups={groupsYouMayJoin}
+                              currentUser={currentUser}
+                              isLoading={gymjLoading && groupsYouMayJoin.length === 0}
+                              onJoin={(groupId: number) => joinFromSuggestion(groupId)}
+                              onHide={(groupId: number) => hideGroupSuggestion(groupId)}
+                              onOpenGroup={(groupId: number) => {
+                                handleNavigate('groups');
+                              }}
+                            />
                           )}
                         </React.Fragment>
                       );
