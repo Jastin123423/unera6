@@ -1,4 +1,4 @@
-// functions/api/group-suggestions.ts
+// functions/api/group-suggestions.ts-
 import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = {
