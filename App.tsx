@@ -10,7 +10,7 @@ import {
   CreatePostModal,
   ShareBottomSheet,
   PeopleYouMayKnowGrid,
-  GroupsYouMayJoinCard, // ✅ NEW: Import the card component
+  GroupsYouMayJoinGrid, // ✅ NEW: Import the card component
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
