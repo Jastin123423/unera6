@@ -1674,7 +1674,7 @@ export default function App() {
     setPymkLoading(true);
 
     try {
-      const data = await apiFetch(`/api/users/suggestions?user_id=${currentUser.id}&limit=20`);
+      const data = await apiFetch(`/api/suggestions?user_id=${currentUser.id}&limit=20`);
       const raw = safeArray<any>(data?.suggestions ?? data);
       const hiddenSet = new Set(pymkHiddenIds.map(Number));
 
