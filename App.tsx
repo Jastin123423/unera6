@@ -1,4 +1,4 @@
-// App.tsx (Complete file with fixed People You May Know integration)
+// App.tsx (Complete file with fixed People You May Know integration and correct dependency order)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -9,7 +9,7 @@ import {
   CommentsSheet,
   CreatePostModal,
   ShareBottomSheet,
-  PeopleYouMayKnowGrid, // ✅ ADDED: People You May Know import
+  PeopleYouMayKnowGrid,
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -117,7 +117,6 @@ const PYMK_HIDDEN_KEY = "unera_pymk_hidden_v1";
 const resolveVideoId = (item: any): number | null => {
   if (!item) return null;
   
-  // Check all possible ID fields in order of preference
   const possibleIds = [
     item?.post_id,
     item?.postId,
@@ -142,7 +141,6 @@ const getStableItemKey = (item: any, prefix = 'item'): string => {
   const id = resolveVideoId(item);
   if (id) return `${prefix}-${id}`;
   
-  // Fallback to a combination of fields if no ID
   const fallbackParts = [
     item?.user_id,
     item?.userId,
@@ -652,7 +650,6 @@ const normalizeEvent = (e: any): Event => {
 
     created_at: safeString(e?.created_at ?? e?.createdAt ?? '', new Date().toISOString()),
     
-    // Group event specific fields
     group_id: e?.group_id ? safeNumber(e.group_id) : null,
     user_rsvp_status: e?.user_rsvp_status ?? null,
   } as any;
@@ -844,8 +841,6 @@ const normalizeGroup = (g: any): Group => {
   const description = safeString(g?.description, "");
   const type = String(g?.type || "public").toLowerCase() === "private" ? "private" : "public";
   
-  // 🔧 FIXED: Handle members properly - preserve undefined if not provided
-  // This prevents empty arrays from being treated as "no members"
   const members =
     g?.members === undefined || g?.members === null
       ? undefined
@@ -862,12 +857,11 @@ const normalizeGroup = (g: any): Group => {
     cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
     profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
     created_at: g?.created_at ?? new Date().toISOString(),
-    members, // 👈 Now properly preserves undefined
+    members,
     posts: safeArray(g?.posts),
     events: safeArray(g?.events),
     member_posting_allowed: Boolean(g?.member_posting_allowed ?? true),
     members_count: safeNumber(g?.members_count ?? members?.length ?? 0),
-    // 🔧 ADDED: Support is_member flag from backend
     is_member: g?.is_member === true ? true : 
                g?.is_member === false ? false : 
                undefined,
@@ -1341,19 +1335,14 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
 
-  // ✅ ADDED: Chat state
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
-  
-  // ✅ ADDED: ChatsList state (for message inbox)
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
-
-  // ✅ ADDED: Incoming call state
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // ============================================================================
-  // ✅ People You May Know - All required state and functions
+  // ✅ People You May Know - State declarations (MUST come before any usage)
   // ============================================================================
   const [peopleYouMayKnow, setPeopleYouMayKnow] = useState<PeopleSuggestion[]>([]);
   const [pymkLoading, setPymkLoading] = useState(false);
@@ -1367,22 +1356,6 @@ export default function App() {
       return [];
     }
   });
-
-  const persistPymkHidden = useCallback((ids: number[]) => {
-    const dedup = Array.from(new Set(ids.map(Number).filter(Number.isFinite))).slice(0, 2000);
-    setPymkHiddenIds(dedup);
-    try {
-      localStorage.setItem(PYMK_HIDDEN_KEY, JSON.stringify(dedup));
-    } catch {}
-  }, []);
-
-  const hidePymkUser = useCallback((userId: number) => {
-    const id = Number(userId);
-    if (!id) return;
-
-    setPeopleYouMayKnow(prev => prev.filter(u => Number(u.id) !== id));
-    persistPymkHidden([id, ...pymkHiddenIds]);
-  }, [persistPymkHidden, pymkHiddenIds]);
 
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
@@ -1562,7 +1535,7 @@ export default function App() {
 
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [activeReelId, setActiveReelId] = useState<number | null>(null);
-  /** ---------- Track when ReelsFeed has consumed the activeReelId ---------- */
+  
   const handleActiveReelConsumed = useCallback(() => {
     setActiveReelId(null);
   }, []);
@@ -1634,7 +1607,6 @@ export default function App() {
   useEffect(() => {
     if (!currentUser?.id) return;
 
-    // Create audio element for ringtone
     if (!audioRef.current) {
       audioRef.current = new Audio('/sounds/ringtone.mp3');
       audioRef.current.loop = true;
@@ -1648,16 +1620,14 @@ export default function App() {
         if (call?.id && call?.status === "ringing") {
           setIncomingCall(call);
           
-          // Play ringtone
           if (audioRef.current) {
             audioRef.current.play().catch(e => console.log('Ringtone play failed:', e));
           }
         }
       } catch (error) {
-        // Silent fail - polling errors shouldn't disrupt the app
         console.debug('Call polling error:', error);
       }
-    }, 2000); // Poll every 2 seconds
+    }, 2000);
 
     return () => {
       clearInterval(interval);
@@ -1668,7 +1638,6 @@ export default function App() {
     };
   }, [currentUser]);
 
-  // ✅ ADDED: Helper to open chat with user
   const openChatWith = useCallback((userId: number) => {
     const recipient = users.find(u => Number(u.id) === Number(userId));
     if (recipient) {
@@ -1677,7 +1646,25 @@ export default function App() {
     }
   }, [users]);
 
-  // ✅ ADDED: People You May Know fetch function
+  // ============================================================================
+  // ✅ PYMK Helpers - These can be here (only depend on state)
+  // ============================================================================
+  const persistPymkHidden = useCallback((ids: number[]) => {
+    const dedup = Array.from(new Set(ids.map(Number).filter(Number.isFinite))).slice(0, 2000);
+    setPymkHiddenIds(dedup);
+    try {
+      localStorage.setItem(PYMK_HIDDEN_KEY, JSON.stringify(dedup));
+    } catch {}
+  }, []);
+
+  const hidePymkUser = useCallback((userId: number) => {
+    const id = Number(userId);
+    if (!id) return;
+
+    setPeopleYouMayKnow(prev => prev.filter(u => Number(u.id) !== id));
+    persistPymkHidden([id, ...pymkHiddenIds]);
+  }, [persistPymkHidden, pymkHiddenIds]);
+
   const fetchPeopleYouMayKnow = useCallback(async () => {
     if (!currentUser?.id) {
       setPeopleYouMayKnow([]);
@@ -1715,41 +1702,9 @@ export default function App() {
     }
   }, [currentUser, pymkHiddenIds]);
 
-  // ✅ ADDED: Follow from PYMK handler
-  const followFromPymk = useCallback(async (targetUserId: number) => {
-    const id = Number(targetUserId);
-    if (!id) return;
-
-    // Optimistic update
-    setPeopleYouMayKnow(prev =>
-      prev.map(u =>
-        Number(u.id) === id ? { ...u, is_following: !u.is_following } : u
-      )
-    );
-
-    try {
-      await followUser(id);
-    } catch (error) {
-      console.error('Failed to follow from People You May Know:', error);
-      // Revert on error
-      setPeopleYouMayKnow(prev =>
-        prev.map(u =>
-          Number(u.id) === id ? { ...u, is_following: !u.is_following } : u
-        )
-      );
-      fetchPeopleYouMayKnow().catch(() => {});
-    }
-  }, [followUser, fetchPeopleYouMayKnow]);
-
-  // ✅ ADDED: Helper to choose insertion point between 6 and 10 posts
-  const peopleYouMayKnowInsertIndex = useMemo(() => {
-    const total = safeArray(rankedPosts).length;
-
-    if (total < 6) return -1;
-    if (total <= 10) return total - 1;
-
-    return 7;
-  }, [rankedPosts]);
+  useEffect(() => {
+    fetchPeopleYouMayKnow();
+  }, [fetchPeopleYouMayKnow]);
 
   const resolveTrackOwner = useCallback((track: any): User | null => {
     if (!track) return null;
@@ -2215,11 +2170,6 @@ export default function App() {
     }
   }, [authHydrated, currentUser?.id, fetchMyTotalPlays]);
 
-  // ✅ ADDED: Effect to load People You May Know
-  useEffect(() => {
-    fetchPeopleYouMayKnow();
-  }, [fetchPeopleYouMayKnow]);
-
   const onPlayTrack = useCallback((track: AudioTrack) => {
     const trackWithCover = {
       ...track,
@@ -2343,7 +2293,6 @@ export default function App() {
       const payload = {
         user_id: currentUser.id,
         
-        // Basic post fields
         content: product.title || '',
         visibility: 'public',
         
@@ -2351,7 +2300,6 @@ export default function App() {
         post_type: "product",
         product_id: product.id,
         
-        // Media fields
         media_url,
         media_type,
         media_urls: images,
@@ -2460,7 +2408,6 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
-  // ✅ ADDED: Chat handler for opening direct chat with a user
   const handleOpenChat = useCallback((recipient: User) => {
     if (!requireAuth('Messaging')) return;
     
@@ -2476,7 +2423,6 @@ export default function App() {
     }
   }, [activeChatUser?.id, requireAuth, isChatsListOpen]);
 
-  // ✅ ADDED: Handler for opening ChatsList (message inbox)
   const handleOpenChatsList = useCallback(() => {
     if (!requireAuth('Messages')) return;
     
@@ -2491,7 +2437,6 @@ export default function App() {
     setIsChatOpen(false);
   }, []);
 
-  // ✅ ADDED: Close ChatsList handler
   const handleCloseChatsList = useCallback(() => {
     setIsChatsListOpen(false);
   }, []);
@@ -2998,12 +2943,6 @@ export default function App() {
     }
   }, []);
 
-  /**
-   * ✅ FIXED: RSVP handler using CORRECT endpoints:
-   * - /api/attend (for going)
-   * - /api/interested (for interested)
-   * - Both support "add"/"remove" actions
-   */
   const onRSVPEvent = useCallback(
     async (eventId: number, status: "going" | "interested" | "not_going") => {
       if (!requireAuth("RSVP to events")) return;
@@ -3013,7 +2952,6 @@ export default function App() {
       const id = Number(eventId);
       if (!id) return;
 
-      // ✅ Optimistic UI update (works instantly)
       setEvents(prev =>
         safeArray(prev).map(ev => {
           const e: any = normalizeEvent(ev);
@@ -3029,7 +2967,6 @@ export default function App() {
             interested.add(meId);
             attendees.delete(meId);
           } else {
-            // not_going: remove from both
             attendees.delete(meId);
             interested.delete(meId);
           }
@@ -3044,16 +2981,13 @@ export default function App() {
       );
 
       try {
-        // ✅ Use the CORRECT endpoints - /api/attend and /api/interested
         if (status === "going") {
-          // Add to attendees
           await postJSON("/api/attend", { 
             event_id: id, 
             user_id: meId, 
             action: "add" 
           });
           
-          // Remove from interested (silently fail if not there)
           await postJSON("/api/interested", { 
             event_id: id, 
             user_id: meId, 
@@ -3061,14 +2995,12 @@ export default function App() {
           }).catch(() => {});
         } 
         else if (status === "interested") {
-          // Add to interested
           await postJSON("/api/interested", { 
             event_id: id, 
             user_id: meId, 
             action: "add" 
           });
           
-          // Remove from attendees (silently fail if not there)
           await postJSON("/api/attend", { 
             event_id: id, 
             user_id: meId, 
@@ -3076,7 +3008,6 @@ export default function App() {
           }).catch(() => {});
         } 
         else if (status === "not_going") {
-          // Remove from both
           await postJSON("/api/attend", { 
             event_id: id, 
             user_id: meId, 
@@ -3090,13 +3021,11 @@ export default function App() {
           }).catch(() => {});
         }
 
-        // Optional: refresh events to ensure consistency
         const fresh = await fetchEvents().catch(() => []);
         setEvents(fresh);
 
         return { success: true };
       } catch (err: any) {
-        // Rollback by refreshing
         console.error('RSVP failed:', err);
         const fresh = await fetchEvents().catch(() => []);
         setEvents(fresh);
@@ -3106,23 +3035,14 @@ export default function App() {
     [currentUser, requireAuth, fetchEvents]
   );
 
-  /**
-   * Legacy joinEvent - now uses onRSVPEvent
-   */
   const joinEvent = useCallback(async (eventId: number) => {
     return onRSVPEvent(eventId, 'going');
   }, [onRSVPEvent]);
 
-  /**
-   * Legacy markEventInterested - now uses onRSVPEvent
-   */
   const markEventInterested = useCallback(async (eventId: number) => {
     return onRSVPEvent(eventId, 'interested');
   }, [onRSVPEvent]);
 
-  /**
-   * ✅ MODIFIED: createEvent now creates a feed post when event is created
-   */
   const createEvent = useCallback(async (eventData: any) => {
     if (!requireAuth('Creating events')) return;
     if (!currentUser) return;
@@ -3154,14 +3074,11 @@ export default function App() {
       group_id: eventData?.group_id ? Number(eventData.group_id) : null,
     };
 
-    // Create the event
     const res = await apiFetch('/api/events', { method: 'POST', body: JSON.stringify(payload) });
     const newEvent = normalizeEvent(res?.event ?? res);
     
-    // Update events state
     setEvents((prev: any) => [newEvent, ...safeArray(prev)]);
 
-    // ✅ Also create a feed post for this event
     try {
       const eventPostPayload = {
         user_id: currentUser.id,
@@ -3193,7 +3110,6 @@ export default function App() {
       
       const newPost = normalizePost(postRes?.post ?? postRes);
       
-      // Add to feed immediately (optimistic update)
       setPosts(prev => {
         const next = [newPost, ...safeArray(prev)];
         lastGoodPostsRef.current = next;
@@ -3201,7 +3117,6 @@ export default function App() {
         return next;
       });
 
-      // Also add to profile posts if it's the current user's profile
       if (selectedUserId === currentUser.id) {
         setProfilePosts(prev => [newPost, ...safeArray(prev)]);
       }
@@ -3209,7 +3124,6 @@ export default function App() {
       pushSeenIds([Number(newPost.id)]);
     } catch (error) {
       console.error('Failed to create event post:', error);
-      // Don't throw - event was created successfully, just the post failed
     }
 
     scheduleSilentRefresh();
@@ -3254,7 +3168,6 @@ export default function App() {
         apiFetch('/api/chats').catch(() => []),
       ]);
 
-      // Handle products
       const prRaw = pr;
       const prList =
         Array.isArray(prRaw) ? prRaw :
@@ -3266,7 +3179,6 @@ export default function App() {
 
       setProducts(prList.map(normalizeProduct));
       
-      // 🔧 CRITICAL FIX: Handle groups response properly - PRESERVE MEMBERSHIP!
       const gRaw = g;
       const gList = Array.isArray(gRaw)
         ? gRaw
@@ -3274,39 +3186,33 @@ export default function App() {
         : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
         : [];
       
-      // ✅ FIXED: Merge new groups with existing ones, preserving members when backend doesn't send them
       setGroups(prev => {
         const byId = new Map(prev.map(g => [Number(g.id), g]));
         
         return gList.map((ng: any) => {
           const old = byId.get(Number(ng.id));
           
-          // 🔧 CRITICAL FIX: Check if backend actually sent members
           const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
           
-          // If backend didn't send members, preserve old members (including undefined)
           const members = hasMembers ? ng.members : old?.members;
           
-          // Calculate members_count safely
           const members_count = hasMembers 
             ? ng.members.length 
             : safeNumber(ng.members_count ?? old?.members_count ?? old?.members?.length ?? 0);
           
-          // ✅ Check is_member flag from backend
           const is_member = ng.is_member === true ? true : 
                            ng.is_member === false ? false : 
                            old?.is_member;
           
-          // ✅ Preserve category
           const category = ng.category || old?.category || 'general';
           
           return normalizeGroup({
             ...old,
             ...ng,
-            members, // Preserve membership!
+            members,
             members_count,
-            is_member, // Preserve is_member flag!
-            category, // Preserve category!
+            is_member,
+            category,
           });
         });
       });
@@ -3324,37 +3230,29 @@ export default function App() {
     }
   }, [fetchEvents]);
 
-  // ============================================================================
-  // 🔧 Helper function to check group membership
-  // ============================================================================
   const isGroupMember = useCallback((group: Group): boolean => {
     if (!currentUser) return false;
     
     const meId = Number(currentUser.id);
     
-    // Check if user is admin
     if (group.admin_id === meId) return true;
     
-    // Check is_member flag from backend (most reliable)
     if (group.is_member === true) return true;
     if (group.is_member === false) return false;
     
-    // Fallback to checking members array (if available)
     return Array.isArray(group.members) && group.members.includes(meId);
   }, [currentUser]);
 
-  /** ---------- ✅ FIXED: fetchGroupPosts always returns array ---------- */
   const fetchGroupPosts = useCallback(async (groupId: number) => {
     try {
       const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
       const res = await apiFetch(`/api/group-posts?group_id=${groupId}&viewerId=${viewerId}`);
       
-      // ✅ Always return an array
       const posts = safeArray((res as any)?.posts ?? res);
       return posts.map(normalizePost);
     } catch (error) {
       console.error('Failed to fetch group posts:', error);
-      return []; // Always return array on error
+      return [];
     }
   }, [currentUser]);
 
@@ -3415,21 +3313,17 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ FIXED: joinGroup with optimistic update and is_member support ---------- */
   const joinGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Joining groups")) return;
     if (!currentUser) return;
 
     const meId = Number(currentUser.id);
 
-    // ✅ OPTIMISTIC UPDATE: Update UI immediately using is_member flag
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
         
-        // Update both members array and is_member flag
         const currentMembers = Array.isArray(g.members) ? g.members : [];
-        // Don't add if already a member
         if (currentMembers.includes(meId)) return g;
         
         const nextMembers = [...currentMembers, meId];
@@ -3438,7 +3332,7 @@ export default function App() {
           ...g,
           members: nextMembers,
           members_count: nextMembers.length,
-          is_member: true, // 🔧 Set is_member flag
+          is_member: true,
         };
       })
     );
@@ -3449,12 +3343,10 @@ export default function App() {
         body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
       });
 
-      // ✅ Then refresh just this group's members to ensure consistency
       await refreshGroupMembers(groupId);
       
       return result;
     } catch (error) {
-      // Revert on error
       console.error('Failed to join group:', error);
       setGroups(prev =>
         prev.map(g => {
@@ -3467,7 +3359,7 @@ export default function App() {
             ...g,
             members: nextMembers,
             members_count: nextMembers.length,
-            is_member: false, // 🔧 Revert is_member flag
+            is_member: false,
           };
         })
       );
@@ -3476,14 +3368,12 @@ export default function App() {
     }
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
-  /** ---------- ✅ FIXED: leaveGroup with optimistic update and is_member support ---------- */
   const leaveGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Leaving groups")) return;
     if (!currentUser) return;
 
     const meId = Number(currentUser.id);
 
-    // ✅ OPTIMISTIC UPDATE: Update UI immediately using is_member flag
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
@@ -3495,7 +3385,7 @@ export default function App() {
           ...g,
           members: nextMembers,
           members_count: nextMembers.length,
-          is_member: false, // 🔧 Set is_member flag
+          is_member: false,
         };
       })
     );
@@ -3506,19 +3396,16 @@ export default function App() {
         { method: "DELETE" }
       );
 
-      // ✅ Then refresh just this group's members to ensure consistency
       await refreshGroupMembers(groupId);
       
       return result;
     } catch (error) {
-      // Revert on error
       console.error('Failed to leave group:', error);
       setGroups(prev =>
         prev.map(g => {
           if (Number(g.id) !== Number(groupId)) return g;
           
           const currentMembers = Array.isArray(g.members) ? g.members : [];
-          // Don't add if already a member
           if (currentMembers.includes(meId)) return g;
           
           const nextMembers = [...currentMembers, meId];
@@ -3527,7 +3414,7 @@ export default function App() {
             ...g,
             members: nextMembers,
             members_count: nextMembers.length,
-            is_member: true, // 🔧 Revert is_member flag
+            is_member: true,
           };
         })
       );
@@ -3536,12 +3423,11 @@ export default function App() {
     }
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
-  /** ---------- ✅ UPDATED: createGroupPost with multi-file support AND category metadata ---------- */
   const createGroupPost = useCallback(async (
     groupId: number, 
     text: string, 
     files?: File[] | File | null,
-    metadata?: any // Add metadata parameter for category-specific fields
+    metadata?: any
   ) => {
     if (!requireAuth("Posting")) return;
     const meId = Number(currentUser!.id);
@@ -3550,13 +3436,11 @@ export default function App() {
     let media_urls: string[] = [];
     let media_types: string[] = [];
 
-    // Handle multiple files
     if (files) {
       const fileArray = Array.isArray(files) ? files : (files ? [files] : []);
       
       if (fileArray.length > 0) {
         try {
-          // Upload all files in parallel
           const uploadPromises = fileArray.map(file => 
             uploadToCloudflareR2(file, "group-posts")
           );
@@ -3566,7 +3450,6 @@ export default function App() {
           media_urls = uploadResults.map(r => r.url);
           media_types = uploadResults.map(r => r.type);
           
-          // Keep first file as media_url for backward compatibility
           media_url = media_urls[0] || null;
         } catch (error) {
           console.error('Failed to upload files:', error);
@@ -3576,23 +3459,19 @@ export default function App() {
     }
 
     try {
-      // Base payload
       const payload: any = {
         group_id: Number(groupId),
         user_id: meId,
         content: String(text || "").trim() || null,
-        media_url, // For backward compatibility
+        media_url,
       };
       
-      // Add arrays if we have multiple files
       if (media_urls.length > 0) {
         payload.media_urls = media_urls;
         payload.media_types = media_types;
       }
 
-      // ✅ ADDED: Include category-specific metadata in the post
       if (metadata) {
-        // For recruitment posts
         if (metadata.job_title) payload.job_title = metadata.job_title;
         if (metadata.company) payload.company = metadata.company;
         if (metadata.street) payload.street = metadata.street;
@@ -3606,20 +3485,18 @@ export default function App() {
         if (metadata.application_value) payload.application_value = metadata.application_value;
         if (metadata.expiry_date) payload.expiry_date = metadata.expiry_date;
 
-        // For buy/sell posts
         if (metadata.price) payload.price = metadata.price;
         if (metadata.currency) payload.currency = metadata.currency;
         if (metadata.condition) payload.condition = metadata.condition;
         if (metadata.status) payload.status = metadata.status;
 
-        // For music/drama posts
         if (metadata.artist) payload.artist = metadata.artist;
         if (metadata.series) payload.series = metadata.series;
         if (metadata.episode) payload.episode = metadata.episode;
         if (metadata.duration) payload.duration = metadata.duration;
       }
 
-      console.log('Creating group post with payload:', payload); // Debug log
+      console.log('Creating group post with payload:', payload);
 
       const result = await apiFetch("/api/group-posts", {
         method: "POST",
@@ -3705,35 +3582,29 @@ export default function App() {
     }
   }, []);
 
-  /** ---------- ✅ FIXED: fetchGroupEvents always returns array ---------- */
   const fetchGroupEvents = useCallback(async (groupId: number): Promise<Event[]> => {
     try {
       const data = await apiFetch(`/api/groups/${groupId}/events?viewerId=${currentUser?.id || 0}`);
       
-      // ✅ Always return an array
       const events = safeArray(data?.events ?? data);
       return events.map(normalizeEvent);
     } catch (error) {
       console.error('Failed to fetch group events:', error);
-      return []; // Always return array on error
+      return [];
     }
   }, [currentUser]);
 
-  /** ---------- ✅ FIXED: Create group event with correct field mapping ---------- */
   const createGroupEvent = useCallback(async (groupId: number, eventData: Partial<Event>): Promise<Event> => {
     if (!requireAuth('Creating events')) throw new Error('Authentication required');
     if (!currentUser) throw new Error('User not authenticated');
 
-    // Map from Groups.tsx format to backend format
     const title = String(eventData.title || "").trim();
     const description = String(eventData.description || "").trim();
     
-    // Handle date - Groups.tsx sends start_time
     const event_date = eventData.start_time || eventData.event_date || eventData.date || new Date().toISOString();
     
     const location = String(eventData.location || "").trim();
     
-    // Handle cover image - Groups.tsx sends cover_image
     const cover_url = String(
       eventData.cover_url || 
       eventData.cover_image || 
@@ -3746,14 +3617,14 @@ export default function App() {
 
     const payload = {
       group_id: Number(groupId),
-      creator_id: Number(currentUser.id), // ✅ Use creator_id not created_by
+      creator_id: Number(currentUser.id),
       creator_name: currentUser.name,
       creator_avatar: currentUser.profile_image_url,
       title,
       description,
-      event_date, // ✅ Use event_date not start_time
+      event_date,
       location,
-      cover_url, // ✅ Use cover_url not cover_image
+      cover_url,
       visibility: String(eventData.visibility || "worldwide"),
     };
 
@@ -3765,7 +3636,6 @@ export default function App() {
 
       const newEvent = normalizeEvent(data?.event ?? data);
       
-      // Update events state if needed
       setEvents(prev => [newEvent, ...safeArray(prev)]);
       
       return newEvent;
@@ -3775,12 +3645,10 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ FIXED: Event RSVP function with proper endpoints ---------- */
   const handleEventRSVP = useCallback(async (eventId: number, status: string): Promise<any> => {
     if (!requireAuth('RSVP to events')) return;
     if (!currentUser) return;
 
-    // Map status to the format expected by onRSVPEvent
     let mappedStatus: "going" | "interested" | "not_going";
     
     if (status === 'going') {
@@ -3794,7 +3662,6 @@ export default function App() {
     return onRSVPEvent(eventId, mappedStatus);
   }, [currentUser, requireAuth, onRSVPEvent]);
 
-  /** ---------- ✅ FIXED: Edit group post function with proper auth and user_id ---------- */
   const editGroupPost = useCallback(async (postId: number, content: string) => {
     if (!requireAuth('Editing group posts')) return;
 
@@ -3813,7 +3680,6 @@ export default function App() {
     return res;
   }, [currentUser, requireAuth]);
 
-  /** ---------- ✅ FIXED: Delete group post function with user_id ---------- */
   const deleteGroupPost = useCallback(async (groupId: number, postId: number) => {
     if (!requireAuth("Deleting group posts")) return;
 
@@ -3860,7 +3726,6 @@ export default function App() {
     }
   }, [requireAuth, updateGroupSettings]);
 
-  /** ---------- ✅ FIXED: Like comment function (needed for CommentsSheet) ---------- */
   const handleLikeComment = useCallback(async (commentId: number): Promise<any> => {
     if (!requireAuth('Liking comments')) return;
     if (!currentUser) return;
@@ -4125,6 +3990,18 @@ export default function App() {
     return Array.isArray(feedToRank) ? feedToRank : [];
   }, [posts, filteredPosts, activeHashtag]);
 
+  // ============================================================================
+  // ✅ PYMK Insert Index - MUST come AFTER rankedPosts
+  // ============================================================================
+  const peopleYouMayKnowInsertIndex = useMemo(() => {
+    const total = safeArray(rankedPosts).length;
+
+    if (total < 6) return -1;
+    if (total <= 10) return total - 1;
+
+    return 7;
+  }, [rankedPosts]);
+
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
 
@@ -4232,6 +4109,9 @@ export default function App() {
     }
   };
 
+  // ============================================================================
+  // ✅ followUser - MUST come BEFORE followFromPymk
+  // ============================================================================
   const followUser = useCallback(
     async (targetUserId: number) => {
       if (!requireAuth('Following')) return;
@@ -4317,6 +4197,32 @@ export default function App() {
     },
     [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
   );
+
+  // ============================================================================
+  // ✅ followFromPymk - MUST come AFTER followUser
+  // ============================================================================
+  const followFromPymk = useCallback(async (targetUserId: number) => {
+    const id = Number(targetUserId);
+    if (!id) return;
+
+    setPeopleYouMayKnow(prev =>
+      prev.map(u =>
+        Number(u.id) === id ? { ...u, is_following: !u.is_following } : u
+      )
+    );
+
+    try {
+      await followUser(id);
+    } catch (error) {
+      console.error('Failed to follow from People You May Know:', error);
+      setPeopleYouMayKnow(prev =>
+        prev.map(u =>
+          Number(u.id) === id ? { ...u, is_following: !u.is_following } : u
+        )
+      );
+      fetchPeopleYouMayKnow().catch(() => {});
+    }
+  }, [followUser, fetchPeopleYouMayKnow]);
 
   const checkIsFollowing = useCallback((targetUserId: number): boolean => {
     if (!currentUser || !targetUserId) return false;
@@ -4788,7 +4694,6 @@ export default function App() {
     };
   }, [products]);
 
-  /** ---------- Facebook-like video click handler ---------- */
   const handleVideoClick = useCallback((item: any) => {
     const videoId = resolveVideoId(item);
     if (!videoId) {
@@ -4800,7 +4705,6 @@ export default function App() {
     setView('reels');
   }, []);
 
-  /** ---------- Event detail modal ---------- */
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
     const event = events.find(e => e.id === eventId);
     
@@ -5016,7 +4920,6 @@ export default function App() {
                                   maxDisplay={8}
                                 />
                                 
-                                {/* Optional hide button for first suggestion */}
                                 {peopleYouMayKnow[0] && (
                                   <button
                                     onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
@@ -5518,9 +5421,9 @@ export default function App() {
           onStarted={onStarted}
         />
       )}
-      
+
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
-    
+
       {/* Incoming Call Screen */}
       {incomingCall && currentUser && (
         <CallScreen
