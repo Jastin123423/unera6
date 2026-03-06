@@ -858,7 +858,7 @@ const normalizeGroup = (g: any): Group => {
     name,
     description,
     type,
-    category: (g?.category as GroupCategory) || 'general',
+    category: (g?.category as any) || 'general',
     cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
     profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
     created_at: g?.created_at ?? new Date().toISOString(),
@@ -891,7 +891,7 @@ export const MarketplaceContext = React.createContext<{
 const postJSON = async (url: string, body: any) => {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body ?? {}),
   });
 
@@ -1353,7 +1353,7 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // ============================================================================
-  // ✅ People You May Know - FIXED to match Feed.tsx component props
+  // ✅ People You May Know - All required state and functions
   // ============================================================================
   const [peopleYouMayKnow, setPeopleYouMayKnow] = useState<PeopleSuggestion[]>([]);
   const [pymkLoading, setPymkLoading] = useState(false);
@@ -1571,7 +1571,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
-  const [activeEventId, setActiveEventId] = useState<number | null>(null); // Added for event detail modal
+  const [activeEventId, setActiveEventId] = useState<number | null>(null);
 
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
@@ -1642,12 +1642,7 @@ export default function App() {
 
     const interval = setInterval(async () => {
       try {
-        const res = await apiFetch(
-          `/api/calls/incoming?user_id=${currentUser.id}`,
-          {},
-          currentUser.id
-        );
-
+        const res = await apiFetch(`/api/calls/incoming?user_id=${currentUser.id}`);
         const call = res?.call;
 
         if (call?.id && call?.status === "ringing") {
@@ -1682,7 +1677,7 @@ export default function App() {
     }
   }, [users]);
 
-  // ✅ ADDED: People You May Know fetch function - FIXED to return PeopleSuggestion[]
+  // ✅ ADDED: People You May Know fetch function
   const fetchPeopleYouMayKnow = useCallback(async () => {
     if (!currentUser?.id) {
       setPeopleYouMayKnow([]);
@@ -1692,67 +1687,33 @@ export default function App() {
     setPymkLoading(true);
 
     try {
-      const meId = Number(currentUser.id);
+      const data = await apiFetch(`/api/users/suggestions?user_id=${currentUser.id}&limit=20`);
+      const raw = safeArray<any>(data?.suggestions ?? data);
       const hiddenSet = new Set(pymkHiddenIds.map(Number));
 
-      // Try to fetch from API first
-      let suggestions: PeopleSuggestion[] = [];
-      
-      try {
-        const data = await apiFetch(`/api/users/suggestions?user_id=${meId}&limit=20`);
-        const raw = safeArray<any>(data?.suggestions ?? data);
-        
-        suggestions = raw
-          .map((u: any) => ({
-            id: safeNumber(u?.id ?? u?.user_id),
-            username: safeString(u?.username),
-            name: safeString(u?.name || u?.username || "User"),
-            profile_image_url: safeString(u?.profile_image_url || ""),
-            is_verified: !!u?.is_verified,
-            role: safeString(u?.role || "user"),
-            mutual_count: safeNumber(u?.mutual_count, 0),
-            is_following: !!u?.is_following,
-            score: safeNumber(u?.score, 0),
-          }))
-          .filter((u: PeopleSuggestion) => u.id > 0)
-          .filter((u: PeopleSuggestion) => !hiddenSet.has(Number(u.id)));
-      } catch {
-        // Fallback to local user filtering if API fails
-        const myFollowData = await fetchUserFollowData(meId).catch(() => ({
-          followers: [],
-          following: [],
-        }));
+      const normalized: PeopleSuggestion[] = raw
+        .map((u: any) => ({
+          id: safeNumber(u?.id ?? u?.user_id),
+          username: safeString(u?.username),
+          name: safeString(u?.name || u?.username || "User"),
+          profile_image_url: safeString(u?.profile_image_url || ""),
+          is_verified: !!u?.is_verified,
+          role: safeString(u?.role || "user"),
+          mutual_count: safeNumber(u?.mutual_count, 0),
+          is_following: !!u?.is_following,
+          score: safeNumber(u?.score, 0),
+        }))
+        .filter((u: PeopleSuggestion) => u.id > 0)
+        .filter((u: PeopleSuggestion) => !hiddenSet.has(Number(u.id)));
 
-        const followingSet = new Set(safeArray<number>(myFollowData.following).map(Number));
-        
-        const candidates = safeArray(users)
-          .map(normalizeUser)
-          .filter(u => Number(u.id) > 0)
-          .filter(u => Number(u.id) !== meId)
-          .filter(u => !hiddenSet.has(Number(u.id)))
-          .filter(u => !followingSet.has(Number(u.id)));
-
-        suggestions = candidates.map(u => ({
-          id: Number(u.id),
-          username: u.username,
-          name: u.name,
-          profile_image_url: u.profile_image_url,
-          is_verified: u.is_verified,
-          role: u.role,
-          mutual_count: 0,
-          is_following: false,
-          score: 0,
-        }));
-      }
-
-      setPeopleYouMayKnow(suggestions.slice(0, 20));
+      setPeopleYouMayKnow(normalized);
     } catch (error) {
       console.warn('Failed to fetch People You May Know:', error);
       setPeopleYouMayKnow([]);
     } finally {
       setPymkLoading(false);
     }
-  }, [currentUser, pymkHiddenIds, users]);
+  }, [currentUser, pymkHiddenIds]);
 
   // ✅ ADDED: Follow from PYMK handler
   const followFromPymk = useCallback(async (targetUserId: number) => {
@@ -1785,9 +1746,9 @@ export default function App() {
     const total = safeArray(rankedPosts).length;
 
     if (total < 6) return -1;
-    if (total <= 10) return total - 1; // show near the end if total is 6..10
+    if (total <= 10) return total - 1;
 
-    return 7; // after the 8th post (0-based index)
+    return 7;
   }, [rankedPosts]);
 
   const resolveTrackOwner = useCallback((track: any): User | null => {
@@ -2379,7 +2340,6 @@ export default function App() {
       const media_url = images[0] || '';
       const media_type = media_url ? 'image' : null;
 
-      // ✅ CRITICAL: Payload structure that Feed.tsx expects for marketplace posts
       const payload = {
         user_id: currentUser.id,
         
@@ -2387,10 +2347,9 @@ export default function App() {
         content: product.title || '',
         visibility: 'public',
         
-        // ✅ Feed.tsx checks these exact fields
-        type: "marketplace",        // Main type indicator
-        post_type: "product",       // Feed.tsx checks this
-        product_id: product.id,     // Feed.tsx checks this directly
+        type: "marketplace",
+        post_type: "product",
+        product_id: product.id,
         
         // Media fields
         media_url,
@@ -2398,13 +2357,12 @@ export default function App() {
         media_urls: images,
         media_types: images.map(() => 'image'),
         
-        // ✅ Meta object with ALL the fields Feed.tsx looks for
         meta: {
-          kind: "product",                    // Feed.tsx checks meta.kind === 'product'
-          product_id: product.id,            // Feed.tsx checks meta.product_id
+          kind: "product",
+          product_id: product.id,
           marketplace: {
-            id: product.id,                 // ✅ Feed.tsx prefers mp.id (NOT mp.product_id!)
-            product_id: product.id,         // extra safe
+            id: product.id,
+            product_id: product.id,
             price: product.discount_price ?? product.main_price ?? null,
             currency: product.currency_symbol || 'TZS',
             location: product.address || '',
@@ -2464,7 +2422,6 @@ export default function App() {
         return [createdProduct, ...filtered];
       });
 
-      // ✅ Create marketplace post with the fixed payload
       await createMarketplacePost(createdProduct);
       
       return createdProduct;
@@ -2507,16 +2464,13 @@ export default function App() {
   const handleOpenChat = useCallback((recipient: User) => {
     if (!requireAuth('Messaging')) return;
     
-    // Close ChatsList if open
     if (isChatsListOpen) {
       setIsChatsListOpen(false);
     }
     
-    // If clicking on the same user who's already in chat, toggle chat visibility
     if (activeChatUser?.id === recipient.id) {
       setIsChatOpen(prev => !prev);
     } else {
-      // New chat recipient - open chat with them
       setActiveChatUser(recipient);
       setIsChatOpen(true);
     }
@@ -2526,18 +2480,15 @@ export default function App() {
   const handleOpenChatsList = useCallback(() => {
     if (!requireAuth('Messages')) return;
     
-    // Close direct chat if open
     if (isChatOpen) {
       setIsChatOpen(false);
     }
     
-    // Toggle ChatsList
     setIsChatsListOpen(prev => !prev);
   }, [requireAuth, isChatOpen]);
 
   const handleCloseChat = useCallback(() => {
     setIsChatOpen(false);
-    // Don't clear activeChatUser immediately to allow for smooth re-open
   }, []);
 
   // ✅ ADDED: Close ChatsList handler
@@ -3331,13 +3282,9 @@ export default function App() {
           const old = byId.get(Number(ng.id));
           
           // 🔧 CRITICAL FIX: Check if backend actually sent members
-          // If members is an empty array [], that means "no members" (bad)
-          // If members is undefined/null, that means "backend didn't send members" (preserve old)
           const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
           
           // If backend didn't send members, preserve old members (including undefined)
-          // If backend did send members, use them
-          // This prevents empty arrays from overwriting real membership data
           const members = hasMembers ? ng.members : old?.members;
           
           // Calculate members_count safely
@@ -3644,7 +3591,6 @@ export default function App() {
       }
 
       // ✅ ADDED: Include category-specific metadata in the post
-      // This is crucial for recruitment and buy/sell posts
       if (metadata) {
         // For recruitment posts
         if (metadata.job_title) payload.job_title = metadata.job_title;
@@ -4383,7 +4329,7 @@ export default function App() {
     localStorage.removeItem(LS_USER_KEY);
     localStorage.removeItem(STORY_SEEN_KEY);
     localStorage.removeItem(STORIES_CACHE_KEY);
-    localStorage.removeItem(PYMK_HIDDEN_KEY); // ✅ Clear PYMK hidden cache
+    localStorage.removeItem(PYMK_HIDDEN_KEY);
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
         localStorage.removeItem(key);
@@ -4416,7 +4362,7 @@ export default function App() {
     setIsChatOpen(false);
     setIsChatsListOpen(false);
     setIncomingCall(null);
-    setPeopleYouMayKnow([]); // ✅ Clear PYMK on logout
+    setPeopleYouMayKnow([]);
     setPymkHiddenIds([]);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
@@ -5054,7 +5000,7 @@ export default function App() {
                             onRSVPEvent={onRSVPEvent}
                           />
 
-                          {/* ✅ FIXED: People You May Know Grid with correct props matching Feed.tsx */}
+                          {/* ✅ People You May Know Grid with correct props */}
                           {currentUser &&
                             peopleYouMayKnow.length > 0 &&
                             peopleYouMayKnowInsertIndex >= 0 &&
@@ -5161,7 +5107,6 @@ export default function App() {
                 onProfileClick={openProfile}
                 onLikePost={toggleGroupPostLike}
                 onSharePost={(postId: number, newShareCount: number) => {
-                  // Update local state
                   setPosts(prev => prev.map(p => 
                     p.id === postId ? { ...p, shares: newShareCount } as any : p
                   ));
@@ -5184,10 +5129,8 @@ export default function App() {
                 onViewImage={setFullScreenImage}
                 onVideoClick={handleVideoClick}
                 initialGroupId={null}
-                // Category-specific handlers
                 onApplyToJob={async (postId: number, applicationData?: any) => {
                   console.log('Apply to job:', postId, applicationData);
-                  // Implement job application logic
                 }}
                 onMessageSeller={(userId: number) => {
                   const recipient = users.find(u => u.id === userId);
@@ -5197,11 +5140,9 @@ export default function App() {
                 }}
                 onMakeOffer={async (postId: number, amount: number) => {
                   console.log('Make offer:', postId, amount);
-                  // Implement offer logic
                 }}
                 onPlayVideo={(postId: number, url: string) => {
                   console.log('Play video:', postId, url);
-                  // Implement video playback
                 }}
               />
             </ErrorBoundary>
@@ -5272,7 +5213,6 @@ export default function App() {
                 users={users}
                 onProfileClick={(id) => openProfile(id)}
                 onEventClick={(eventId) => {
-                  // Open event detail modal
                   setActiveEventId(eventId);
                 }}
                 onCreateEventClick={() => {
@@ -5365,11 +5305,9 @@ export default function App() {
               onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
               isFollowing={checkIsFollowing(Number(profileUser.id))}
               followLoading={followLoading[Number(profileUser.id)] || false}
-              // ✅ ADDED: Chat props
               onOpenChat={handleOpenChat}
               isChatOpen={isChatOpen}
               activeChatRecipient={activeChatUser}
-              // ✅ ADDED: ChatsList props
               onOpenChatsList={handleOpenChatsList}
               isChatsListOpen={isChatsListOpen}
             />
@@ -5436,8 +5374,6 @@ export default function App() {
           onCreate={async (eventData) => {
             try {
               const newEvent = await createEvent(eventData);
-              // The AllEvents component will automatically refresh its data
-              // because it re-fetches when the page is active
               setShowCreateEventModal(false);
             } catch (error) {
               console.error('Failed to create event:', error);
@@ -5453,8 +5389,8 @@ export default function App() {
           onClose={() => setShowCreatePostModal(false)}
           onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
           onCreateEventClick={() => {
-            setShowCreatePostModal(false); // Close the post modal first
-            setShowCreateEventModal(true);  // Then open the event modal
+            setShowCreatePostModal(false);
+            setShowCreateEventModal(true);
           }}
         />
       )}
@@ -5583,9 +5519,9 @@ export default function App() {
         />
       )}
 
-      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() -> setFullScreenImage(null)} />}
 
-      {/* ✅ ADDED: Incoming Call Screen - Rendered GLOBALLY at root level */}
+      {/* Incoming Call Screen */}
       {incomingCall && currentUser && (
         <CallScreen
           open={true}
@@ -5597,25 +5533,18 @@ export default function App() {
           camOn={true}
           speakerOn={true}
           onAccept={() => {
-            // Stop ringtone
             if (audioRef.current) {
               audioRef.current.pause();
               audioRef.current.currentTime = 0;
             }
-            
-            // Open chat automatically with caller
             openChatWith(incomingCall.caller_id);
-            
             setIncomingCall(null);
           }}
           onDecline={() => {
-            // Stop ringtone
             if (audioRef.current) {
               audioRef.current.pause();
               audioRef.current.currentTime = 0;
             }
-            
-            // Decline the call
             apiFetch(
               "/api/calls/signal",
               {
@@ -5626,18 +5555,14 @@ export default function App() {
                   type: "decline",
                 }),
               },
-              currentUser.id
             ).catch(err => console.error('Failed to decline call:', err));
-
             setIncomingCall(null);
           }}
           onHangup={() => {
-            // Stop ringtone
             if (audioRef.current) {
               audioRef.current.pause();
               audioRef.current.currentTime = 0;
             }
-            
             setIncomingCall(null);
           }}
           onToggleMic={() => {}}
@@ -5646,7 +5571,7 @@ export default function App() {
         />
       )}
 
-      {/* ✅ ADDED: Chat Window */}
+      {/* Chat Window */}
       {isChatOpen && activeChatUser && currentUser && (
         <ChatWindow
           currentUser={currentUser}
@@ -5656,17 +5581,15 @@ export default function App() {
         />
       )}
 
-      {/* ✅ ADDED: Chats List (Message Inbox) */}
+      {/* Chats List */}
       {isChatsListOpen && currentUser && (
         <ChatsList
           currentUser={currentUser}
           onOpenChat={handleOpenChat}
           onOpenRequests={() => {
-            // Handle opening message requests
             console.log('Open message requests');
           }}
           onNewChat={() => {
-            // Handle creating a new chat
             console.log('Create new chat');
           }}
         />
