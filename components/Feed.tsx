@@ -5736,5 +5736,4 @@ export { getMediaTypeInfo,
   safeString,
   safePostId,
   safeUserId,
-  PeopleYouMayKnowGrid,
   avatarFrom };
