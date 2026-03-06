@@ -2486,7 +2486,7 @@ interface GroupSuggestion {
   score: number;
 }
 
-export const GroupsYouMayJoinGrid: React.FC<{
+export const GroupsYouMayJoinCard: React.FC<{
   groups: GroupSuggestion[];
   onJoin: (groupId: number) => void;
   currentUser: User | null;
