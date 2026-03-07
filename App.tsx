@@ -51,14 +51,6 @@ import {
   Song,
 } from './types';
 
-// Import feed adapters
-import {
-  makeEventFeedItem,
-  makeSongFeedItem,
-  makeGroupPostFeedItem,
-  makeProductFeedItem,
-  mergeFeedItems,
-} from "./utils/feedAdapters";
 
 /** ---------- Type for People You May Know suggestions ---------- */
 type PeopleSuggestion = {
