@@ -1,4 +1,4 @@
-// App.tsx (Complete file with manual feed mixing)
+// App.tsx (Complete file with feed adapters and proper event/group handling)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -50,6 +50,15 @@ import {
   Brand,
   Song,
 } from './types';
+
+// Import feed adapters
+import {
+  makeEventFeedItem,
+  makeSongFeedItem,
+  makeGroupPostFeedItem,
+  makeProductFeedItem,
+  mergeFeedItems,
+} from "./utils/feedAdapters";
 
 /** ---------- Type for People You May Know suggestions ---------- */
 type PeopleSuggestion = {
@@ -539,6 +548,8 @@ const normalizePost = (p: any): PostType => {
       event_id: p?.event_id || p?.meta?.event_id,
       media_url: p?.meta?.event?.cover_url || mediaUrl,
       media_type: 'image',
+      media_urls: p?.meta?.event?.cover_url ? [p.meta.event.cover_url] : (mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : [])),
+      media_types: p?.meta?.event?.cover_url ? ['image'] : (mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : [])),
       meta: {
         kind: 'event',
         event_id: p?.event_id || p?.meta?.event_id,
@@ -552,6 +563,61 @@ const normalizePost = (p: any): PostType => {
           cover_url: p?.meta?.event?.cover_url || mediaUrl,
           attendees: p?.meta?.event?.attendees || [],
           interested: p?.meta?.event?.interested || [],
+        }
+      }
+    } as any;
+  }
+
+  // Handle group posts
+  if (p?.type === 'group_post' || p?.meta?.kind === 'group_post' || p?.group_post_id) {
+    return {
+      ...p,
+      id: resolvedId,
+      user_id: safeNumber(p?.user_id),
+      content: safeString(p?.content),
+      type: 'group_post',
+      group_post_id: p?.group_post_id || p?.id,
+      group_id: p?.group_id || p?.meta?.group_id,
+      group_name: p?.group_name || p?.meta?.group_name,
+      group_image: p?.group_image || p?.meta?.group_image,
+      media_url: mediaUrl,
+      media_type: mediaType,
+      media_urls: mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : []),
+      media_types: mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : []),
+      meta: {
+        kind: 'group_post',
+        group_post_id: p?.group_post_id || p?.id,
+        group_id: p?.group_id || p?.meta?.group_id,
+        group_name: p?.group_name || p?.meta?.group_name,
+      }
+    } as any;
+  }
+
+  // Handle music posts
+  if (p?.type === 'music' || p?.meta?.kind === 'music' || p?.song_id2 || p?.song_id) {
+    return {
+      ...p,
+      id: resolvedId,
+      user_id: safeNumber(p?.user_id),
+      content: safeString(p?.content || p?.song_title || ''),
+      type: 'music',
+      song_id2: p?.song_id2 || p?.song_id,
+      media_url: p?.song_cover_image_url || mediaUrl,
+      media_type: 'image',
+      media_urls: p?.song_cover_image_url ? [p.song_cover_image_url] : (mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : [])),
+      media_types: p?.song_cover_image_url ? ['image'] : (mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : [])),
+      song_title: p?.song_title || p?.title || '',
+      song_artist_name: p?.song_artist_name || p?.artist_name || '',
+      song_cover_image_url: p?.song_cover_image_url || p?.cover_image_url || '',
+      audio_url: p?.audio_url || p?.song_audio_url || '',
+      meta: {
+        kind: 'music',
+        song_id: p?.song_id2 || p?.song_id,
+        song: p?.meta?.song || {
+          title: p?.song_title || p?.title,
+          artist_name: p?.song_artist_name || p?.artist_name,
+          cover_image_url: p?.song_cover_image_url || p?.cover_image_url,
+          audio_url: p?.audio_url || p?.song_audio_url,
         }
       }
     } as any;
@@ -597,7 +663,7 @@ const normalizePost = (p: any): PostType => {
   } as any;
 };
 
-/** Event normalization helpers from App.tsx 1 */
+/** Event normalization helpers */
 const toISO = (d: any) => {
   const dt = new Date(d);
   return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
@@ -853,7 +919,7 @@ const normalizeProduct = (p: any) => {
 };
 
 // ============================================================================
-// 🔧 FIXED: Normalize groups with optional members and is_member support
+// Normalize groups with optional members and is_member support
 // ============================================================================
 /** Normalize groups to prevent crashes and handle membership correctly */
 const normalizeGroup = (g: any): Group => {
@@ -1396,6 +1462,11 @@ export default function App() {
     }
   });
 
+  // ============================================================================
+  // ✅ Active group for navigation
+  // ============================================================================
+  const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
+
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
   
@@ -1642,7 +1713,7 @@ export default function App() {
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
 
-  // ✅ ADDED: Incoming call polling effect
+  // Incoming call polling effect
   useEffect(() => {
     if (!currentUser?.id) return;
 
@@ -2400,7 +2471,7 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
-  /** ---------- ✅ FIXED: Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
+  /** ---------- Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
   const createMarketplacePost = useCallback(
     async (product: any) => {
       if (!currentUser) return;
@@ -2906,8 +2977,8 @@ export default function App() {
 
           setPosts((prev) => {
             const next = mergeFeed(prev, ordered);
-            lastGoodPostsRef.current = next;
             stableFeedRef.current = next;
+            lastGoodPostsRef.current = next;
             return next;
           });
 
@@ -2937,8 +3008,8 @@ export default function App() {
 
           setPosts((prev) => {
             const next = mergeFeed(prev, ordered);
-            lastGoodPostsRef.current = next;
             stableFeedRef.current = next;
+            lastGoodPostsRef.current = next;
             return next;
           });
         } else if (lastGoodPostsRef.current.length) {
@@ -3050,7 +3121,7 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-  /** ---------- Event Functions from App.tsx 1 ---------- */
+  /** ---------- Event Functions ---------- */
   const fetchEvents = useCallback(async (): Promise<Event[]> => {
     try {
       const data = await apiFetch('/api/events');
@@ -3205,6 +3276,10 @@ export default function App() {
         type: "event",
         event_id: newEvent.id,
         visibility: 'public',
+        media_url: newEvent.cover_url,
+        media_type: 'image',
+        media_urls: [newEvent.cover_url],
+        media_types: ['image'],
         meta: {
           kind: "event",
           event_id: newEvent.id,
@@ -3250,7 +3325,7 @@ export default function App() {
   }, [currentUser, requireAuth, selectedUserId]);
 
   // ============================================================================
-  // 🔧 FIXED: Refresh group members helper
+  // Refresh group members helper
   // ============================================================================
   const refreshGroupMembers = useCallback(async (groupId: number) => {
     try {
@@ -3273,7 +3348,7 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // 🔧 FIXED: fetchOtherData with proper group merging - PRESERVE MEMBERSHIP!
+  // fetchOtherData with proper group merging - PRESERVE MEMBERSHIP!
   // ============================================================================
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
@@ -3488,7 +3563,7 @@ export default function App() {
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
   // ============================================================================
-  // ✅ Join from Groups You May Join
+  // Join from Groups You May Join
   // ============================================================================
   const joinFromSuggestion = useCallback(async (groupId: number) => {
     const id = Number(groupId);
@@ -4116,305 +4191,61 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // ✅ MANUAL FEED MIXING - Convert different sources to feed items
+  // ✅ FEED ADAPTERS - Convert different sources to feed items
   // ============================================================================
   
-  // Convert event to feed post
-  const toEventFeedPost = useCallback((event: any) => {
-    const creator =
-      users.find((u) => Number(u.id) === Number(event.creator_id || event.organizerId)) || null;
-
-    return normalizePost({
-      id: Number(event.id),
-      feed_key: `event:${event.id}`,
-      source: "event",
-      item_type: "event",
-
-      event_id: Number(event.id),
-      user_id: Number(event.creator_id || creator?.id || 0),
-
-      content: event.title || "",
-      created_at: event.created_at || new Date().toISOString(),
-      visibility: "public",
-      views: 0,
-      shares: 0,
-
-      media_url: event.cover_url || null,
-      media_type: event.cover_url ? "image" : null,
-      media_urls: event.cover_url ? [event.cover_url] : [],
-      media_types: event.cover_url ? ["image"] : [],
-
-      comments_count: 0,
-      reactions_count: 0,
-      my_reaction: null,
-      reactions: [],
-
-      location: event.location || "",
-      type: "event",
-      post_type: "event",
-
-      meta: {
-        kind: "event",
-        event_id: Number(event.id),
-        event: {
-          id: Number(event.id),
-          title: event.title || "",
-          description: event.description || "",
-          event_date: event.event_date || "",
-          date: event.date || "",
-          time: event.time || "",
-          location: event.location || "",
-          cover_url: event.cover_url || "",
-          attendees: Array.isArray(event.attendees) ? event.attendees : [],
-          interestedIds: Array.isArray(event.interestedIds) ? event.interestedIds : [],
-          interested_ids: Array.isArray(event.interested_ids) ? event.interested_ids : [],
-          user_rsvp_status: event.user_rsvp_status || "",
-        },
-      },
-
-      author: creator
-        ? normalizeUser(creator)
-        : {
-            id: Number(event.creator_id || 0),
-            name: event.creator_name || "User",
-            username: event.creator_name || "user",
-            profile_image_url: event.creator_avatar || "",
-            is_verified: 0,
-            role: "user",
-          },
-    });
-  }, [users]);
-
-  // Convert song to feed post
-  const toSongFeedPost = useCallback((song: any) => {
-    const uploader =
-      users.find((u) => Number(u.id) === Number(song.uploader_id || song.user_id)) || null;
-
-    return normalizePost({
-      id: Number(song.id),
-      feed_key: `song:${song.id}`,
-      source: "song",
-      item_type: "song",
-
-      song_id2: Number(song.id),
-      user_id: Number(song.uploader_id || song.user_id || uploader?.id || 0),
-
-      content: song.title || song.song_title || "Audio",
-      created_at: song.created_at || new Date().toISOString(),
-      visibility: "public",
-      views: 0,
-      shares: 0,
-
-      media_url: song.audio_fetch_url || song.audio_url || null,
-      media_type: "audio",
-      media_urls: song.cover_image_url ? [song.cover_image_url] : [],
-      media_types: song.cover_image_url ? ["image"] : [],
-
-      comments_count: 0,
-      reactions_count: Number(song.song_likes_count || 0),
-      my_reaction: null,
-      reactions: [],
-
-      song_title: song.title || "",
-      song_artist_name: song.artist_name || "",
-      song_album_name: song.album_name || "",
-      song_cover_image_url: song.cover_image_url || "",
-      song_duration_seconds: Number(song.duration_seconds || 0),
-      song_genre: song.genre || "",
-      song_likes_count: Number(song.song_likes_count || 0),
-      song_plays_count: Number(song.song_plays_count || 0),
-
-      audio_url: song.audio_fetch_url || song.audio_url || null,
-      type: "music",
-      post_type: "music",
-
-      meta: {
-        kind: "music",
-        song_id: Number(song.id),
-        song: {
-          id: Number(song.id),
-          title: song.title || "",
-          artist_name: song.artist_name || "",
-          album_name: song.album_name || "",
-          cover_image_url: song.cover_image_url || "",
-          audio_url: song.audio_fetch_url || song.audio_url || "",
-          duration_seconds: Number(song.duration_seconds || 0),
-          genre: song.genre || "",
-        },
-      },
-
-      author: uploader
-        ? normalizeUser(uploader)
-        : {
-            id: Number(song.uploader_id || song.user_id || 0),
-            name: song.artist_name || "User",
-            username: "user",
-            profile_image_url: "",
-            is_verified: 0,
-            role: "user",
-          },
-    });
-  }, [users]);
-
-  // Convert group post to feed post
-  const toGroupFeedPost = useCallback((groupPost: any) => {
-    const author =
-      users.find((u) => Number(u.id) === Number(groupPost.user_id)) || null;
-
-    const group =
-      groups.find((g) => Number(g.id) === Number(groupPost.group_id)) || null;
-
-    const mediaUrls = safeArray(groupPost.media_urls).length
-      ? safeArray(groupPost.media_urls)
-      : groupPost.media_url
-        ? [groupPost.media_url]
-        : [];
-
-    const mediaTypes = safeArray(groupPost.media_types).length
-      ? safeArray(groupPost.media_types)
-      : mediaUrls.map((url: string) =>
-          String(url).match(/\.(mp4|webm|mov)/i) ? "video" : "image"
-        );
-
-    return normalizePost({
-      id: Number(groupPost.id),
-      feed_key: `group_post:${groupPost.id}`,
-      source: "group_post",
-      item_type: "group_post",
-
-      group_post_id: Number(groupPost.id),
-      group_id: Number(groupPost.group_id),
-      user_id: Number(groupPost.user_id),
-
-      content: groupPost.content || "",
-      created_at: groupPost.created_at || new Date().toISOString(),
-      visibility: groupPost.visibility || "public",
-      views: 0,
-      shares: Number(groupPost.shares || 0),
-
-      media_url: groupPost.media_url || mediaUrls[0] || null,
-      media_type: mediaTypes[0] || null,
-      media_urls: mediaUrls,
-      media_types: mediaTypes,
-
-      comments_count: Number(groupPost.comments_count || 0),
-      reactions_count: Number(groupPost.reactions_count || groupPost.likes_count || 0),
-      my_reaction: groupPost.my_reaction || null,
-      reactions: Array.isArray(groupPost.reactions) ? groupPost.reactions : [],
-
-      group_name: group?.name || groupPost.group_name || "Group",
-      group_image: group?.profile_image || groupPost.group_image || "",
-
-      type: "group_post",
-      post_type: "group_post",
-
-      meta: {
-        kind: "group_post",
-        group_post_id: Number(groupPost.id),
-        group: {
-          id: Number(groupPost.group_id),
-          name: group?.name || groupPost.group_name || "Group",
-          profile_image: group?.profile_image || groupPost.group_image || "",
-        },
-      },
-
-      author: author
-        ? normalizeUser(author)
-        : createFallbackUser(),
-    });
-  }, [users, groups]);
-
-  // ============================================================================
-  // ✅ Load group posts for eligible groups
-  // ============================================================================
-  const loadGroupPostsIntoState = useCallback(async (groupId: number) => {
-    const fetched = await fetchGroupPosts(groupId);
-
-    setGroups(prev =>
-      prev.map((g: any) =>
-        Number(g.id) === Number(groupId)
-          ? { ...g, posts: fetched }
-          : g
-      )
+  // Convert events to feed items
+  const injectedEventFeed = useMemo(() => {
+    return safeArray(events).map((event) =>
+      makeEventFeedItem(event, currentUser?.id ? Number(currentUser.id) : null)
     );
-  }, [fetchGroupPosts]);
+  }, [events, currentUser?.id]);
 
-  // Load posts for public groups and groups the user is a member of
-  useEffect(() => {
-    if (!groups.length || !currentUser) return;
+  // Convert songs to feed items
+  const injectedSongFeed = useMemo(() => {
+    return safeArray(songs).map((song) => makeSongFeedItem(song));
+  }, [songs]);
 
-    const run = async () => {
-      const eligible = groups
-        .filter((g: any) => isGroupMember(g) || g.type === "public")
-        .slice(0, 10); // Limit to 10 groups to avoid too many requests
-      
-      await Promise.all(
-        eligible.map((g: any) => loadGroupPostsIntoState(Number(g.id)).catch(() => {}))
+  // Convert group posts to feed items (keeping this in App.tsx for now)
+  const injectedGroupPostFeed = useMemo(() => {
+    return safeArray(groups).flatMap((group: any) => {
+      const groupPosts = safeArray(group?.posts);
+      return groupPosts.map((groupPost: any) =>
+        makeGroupPostFeedItem(groupPost, group)
       );
-    };
-
-    run();
-  }, [groups, currentUser, isGroupMember, loadGroupPostsIntoState]);
-
-  // ============================================================================
-  // ✅ Build unified home feed
-  // ============================================================================
-  const homeFeed = useMemo(() => {
-    const normalFeed = safeArray(posts);
-
-    const eventFeedPosts = safeArray(events).map(toEventFeedPost);
-    const musicFeedPosts = safeArray(songs).map(toSongFeedPost);
-
-    const publicGroupPosts = safeArray(groups)
-      .filter((g: any) => isGroupMember(g) || g.type === "public")
-      .flatMap((g: any) => safeArray(g.posts || []).map(toGroupFeedPost));
-
-    const merged = [
-      ...normalFeed,
-      ...eventFeedPosts,
-      ...musicFeedPosts,
-      ...publicGroupPosts,
-    ];
-
-    const byKey = new Map<string, any>();
-
-    merged.forEach((item: any) => {
-      const key =
-        String(item.feed_key || "") ||
-        `${String(item.source || "post")}:${String(item.id || "")}`;
-
-      if (!key) return;
-      if (!byKey.has(key)) byKey.set(key, item);
     });
+  }, [groups]);
 
-    return Array.from(byKey.values()).sort((a: any, b: any) => {
-      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-    });
-  }, [posts, events, songs, groups, toEventFeedPost, toSongFeedPost, toGroupFeedPost, isGroupMember]);
+  // Merge all feed sources into one unified feed
+  const mergedFeed = useMemo(() => {
+    return mergeFeedItems(
+      safeArray(posts),              // from api/feeds
+      injectedEventFeed,             // events from App.tsx
+      injectedSongFeed,              // songs from App.tsx
+      injectedGroupPostFeed          // group posts from App.tsx
+    );
+  }, [posts, injectedEventFeed, injectedSongFeed, injectedGroupPostFeed]);
 
-  // Filter posts based on active hashtag
+  // Filter posts based on active hashtag - using mergedFeed instead of posts
   const filteredPosts = useMemo(() => {
-    if (!activeHashtag) return homeFeed;
+    const baseFeed = safeArray(mergedFeed);
+
+    if (!activeHashtag) return baseFeed;
 
     const tagWithoutHash = activeHashtag.replace('#', '').toLowerCase();
-
-    return safeArray(homeFeed).filter((p: any) => {
+    return baseFeed.filter((p: any) => {
       const content = String(p.content || '').toLowerCase();
       return content.includes(`#${tagWithoutHash}`) || content.includes(` ${tagWithoutHash} `);
     });
-  }, [homeFeed, activeHashtag]);
+  }, [mergedFeed, activeHashtag]);
 
-  // Rank posts for display
+  // Rank posts for display - using filteredPosts
   const rankedPosts = useMemo(() => {
     const feedToRank =
-      stableFeedRef.current.length > 0
-        ? stableFeedRef.current
-        : activeHashtag
-          ? filteredPosts
-          : homeFeed;
+      stableFeedRef.current.length > 0 ? stableFeedRef.current : filteredPosts;
 
     return Array.isArray(feedToRank) ? feedToRank : [];
-  }, [homeFeed, filteredPosts, activeHashtag]);
+  }, [filteredPosts]);
 
   // ============================================================================
   // ✅ PYMK Insert Indices
@@ -4437,7 +4268,7 @@ export default function App() {
   }, [rankedPosts]);
 
   // ============================================================================
-  // ✅ Groups You May Join Insert Indices - Now TWO appearances!
+  // ✅ Groups You May Join Insert Indices - TWO appearances!
   // ============================================================================
   const groupsYouMayJoinInsertIndex1 = useMemo(() => {
     const total = safeArray(rankedPosts).length;
@@ -4561,7 +4392,7 @@ export default function App() {
   };
 
   // ============================================================================
-  // ✅ followUser
+  // followUser
   // ============================================================================
   const followUser = useCallback(
     async (targetUserId: number) => {
@@ -4650,7 +4481,7 @@ export default function App() {
   );
 
   // ============================================================================
-  // ✅ followFromPymk
+  // followFromPymk
   // ============================================================================
   const followFromPymk = useCallback(async (targetUserId: number) => {
     const id = Number(targetUserId);
@@ -5380,6 +5211,12 @@ export default function App() {
                             followLoading={followLoading[postAuthorId] || false}
                             onViewProductFromPost={openProductFromPost}
                             onRSVPEvent={onRSVPEvent}
+                            // ✅ NEW: Event and Group handlers
+                            onOpenEvent={(eventId: number) => setActiveEventId(eventId)}
+                            onOpenGroup={(groupId: number) => {
+                              setActiveGroupId(groupId);
+                              setView('groups');
+                            }}
                           />
 
                           {/* ✅ People You May Know Grid - FIRST APPEARANCE */}
@@ -5443,6 +5280,7 @@ export default function App() {
                               onJoin={(groupId: number) => joinFromSuggestion(groupId)}
                               onHide={(groupId: number) => hideGroupSuggestion(groupId)}
                               onOpenGroup={(groupId: number) => {
+                                setActiveGroupId(groupId);
                                 setView('groups');
                               }}
                               onProfileClick={(userId: number) => openProfile(userId)}
@@ -5458,6 +5296,7 @@ export default function App() {
                               onJoin={(groupId: number) => joinFromSuggestion(groupId)}
                               onHide={(groupId: number) => hideGroupSuggestion(groupId)}
                               onOpenGroup={(groupId: number) => {
+                                setActiveGroupId(groupId);
                                 setView('groups');
                               }}
                               onProfileClick={(userId: number) => openProfile(userId)}
@@ -5564,7 +5403,7 @@ export default function App() {
                 onHashtagClick={handleHashtagClick}
                 onViewImage={setFullScreenImage}
                 onVideoClick={handleVideoClick}
-                initialGroupId={null}
+                initialGroupId={activeGroupId}
                 onApplyToJob={async (postId: number, applicationData?: any) => {
                   console.log('Apply to job:', postId, applicationData);
                 }}
