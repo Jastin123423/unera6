@@ -1283,22 +1283,34 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
 
 /**
  * =========================
- * ✅ FIXED: MediaGrid Component - Full Width with Gallery Support (KEEP AS IS)
+ * ✅ UPDATED: MediaGrid Component - Supports 5, 6 images and +N overlay
  * =========================
  */
 const MediaGrid: React.FC<{
   media: { url: string }[];
   onOpen: (url: string, index: number) => void;
 }> = ({ media, onOpen }) => {
-  const total = media.length;
-  const show = total <= 4 ? media : media.slice(0, 4);
-  const extra = total - 4;
+  const total = Array.isArray(media) ? media.length : 0;
+
+  const visible =
+    total <= 4
+      ? media
+      : total === 5
+      ? media.slice(0, 5)
+      : media.slice(0, 6);
+
+  const extra =
+    total <= 5
+      ? 0
+      : total === 6
+      ? 0
+      : total - 6;
 
   const Tile = ({
     url,
     index,
     className,
-    showOverlay,
+    showOverlay = false,
   }: {
     url: string;
     index: number;
@@ -1320,17 +1332,21 @@ const MediaGrid: React.FC<{
         loading="lazy"
         className="w-full h-full object-cover"
         onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = 'none';
+          (e.currentTarget as HTMLImageElement).style.display = "none";
         }}
       />
 
       {showOverlay && extra > 0 && (
-        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-          <span className="text-white font-black text-3xl">+{extra}</span>
+        <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+          <span className="text-white font-bold text-[34px] leading-none">
+            +{extra}
+          </span>
         </div>
       )}
     </button>
   );
+
+  if (total === 0) return null;
 
   if (total === 1) {
     return (
@@ -1339,12 +1355,12 @@ const MediaGrid: React.FC<{
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onOpen(show[0].url, 0);
+            onOpen(visible[0].url, 0);
           }}
           className="w-full block"
         >
           <img
-            src={show[0].url}
+            src={visible[0].url}
             alt=""
             loading="lazy"
             className="w-full h-auto max-h-[650px] object-contain"
@@ -1357,8 +1373,8 @@ const MediaGrid: React.FC<{
   if (total === 2) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[320px] w-full" />
-        <Tile url={show[1].url} index={1} className="h-[320px] w-full" />
+        <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
+        <Tile url={visible[1].url} index={1} className="h-[320px] w-full" />
       </div>
     );
   }
@@ -1366,24 +1382,54 @@ const MediaGrid: React.FC<{
   if (total === 3) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[420px] w-full" />
+        <Tile url={visible[0].url} index={0} className="h-[420px] w-full" />
         <div className="grid grid-rows-2 gap-[2px] h-[420px]">
-          <Tile url={show[1].url} index={1} className="w-full h-full" />
-          <Tile url={show[2].url} index={2} className="w-full h-full" />
+          <Tile url={visible[1].url} index={1} className="w-full h-full" />
+          <Tile url={visible[2].url} index={2} className="w-full h-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (total === 4) {
+    return (
+      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+        <Tile url={visible[0].url} index={0} className="h-[260px] w-full" />
+        <Tile url={visible[1].url} index={1} className="h-[260px] w-full" />
+        <Tile url={visible[2].url} index={2} className="h-[260px] w-full" />
+        <Tile url={visible[3].url} index={3} className="h-[260px] w-full" />
+      </div>
+    );
+  }
+
+  if (total === 5) {
+    return (
+      <div className="w-full bg-black">
+        <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+          <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
+          <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
+        </div>
+
+        <div className="grid grid-cols-3 gap-[2px]">
+          <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
+          <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
+          <Tile url={visible[4].url} index={4} className="h-[170px] w-full" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-      <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
-      <Tile url={show[1].url} index={1} className="h-[260px] w-full" />
-      <Tile url={show[2].url} index={2} className="h-[260px] w-full" />
+    <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
+      <Tile url={visible[0].url} index={0} className="h-[180px] w-full" />
+      <Tile url={visible[1].url} index={1} className="h-[180px] w-full" />
+      <Tile url={visible[2].url} index={2} className="h-[180px] w-full" />
+      <Tile url={visible[3].url} index={3} className="h-[180px] w-full" />
+      <Tile url={visible[4].url} index={4} className="h-[180px] w-full" />
       <Tile
-        url={show[3].url}
-        index={3}
-        className="h-[260px] w-full"
+        url={visible[5].url}
+        index={5}
+        className="h-[180px] w-full"
         showOverlay={extra > 0}
       />
     </div>
@@ -5127,6 +5173,7 @@ const commentsCache = new Map<number, {
  * ✅ UPDATED: FULL POST VIEW WITH THREADED COMMENTS
  * ✅ SHOW ONLY 1 REPLY WHEN COLLAPSED + "VIEW PREVIOUS X REPLIES" BUTTON
  * ✅ AUTO-SCROLL TO DISCUSSIONS + KEYBOARD HIDDEN UNTIL TAP
+ * ✅ FACEBOOK-STYLE BOTTOM SHEET FOR SPECIAL POSTS
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -5178,6 +5225,38 @@ export const CommentsSheet: React.FC<{
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
 
+  // ========== DETECT SPECIAL POST TYPES FOR BOTTOM SHEET ==========
+  const meta: any = p?.meta || {};
+  
+  const isMarketplace =
+    p?.type === "marketplace" ||
+    p?.post_type === "product" ||
+    p?.type === 'product' ||
+    p?.kind === 'product' ||
+    meta?.type === 'product' ||
+    meta?.kind === 'product' ||
+    !!p?.product_id ||
+    !!p?.meta?.marketplace?.id;
+
+  const isMusic = meta?.kind === 'music' || meta?.type === 'music';
+  const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
+  
+  const isEventPost =
+    p?.item_type === "event" ||
+    String(p?.feed_key || "").startsWith("event:") ||
+    p?.source === "event" ||
+    p?.type === 'event' ||
+    p?.post_type === 'event' ||
+    meta?.type === 'event' ||
+    meta?.kind === 'event' ||
+    !!p?.event_id ||
+    !!meta?.event;
+
+  const isGroupPost = !!(p?.group_id || p?.group);
+
+  const useBottomSheetStyle =
+    isMarketplace || isMusic || isPodcast || isEventPost || isGroupPost;
+
   // ========== AUTO-SCROLL TO DISCUSSIONS ON MOUNT ==========
   useEffect(() => {
     // ✅ When opening CommentsSheet from "Discuss", jump directly to the discussions list
@@ -5192,28 +5271,12 @@ export const CommentsSheet: React.FC<{
     return () => clearTimeout(t);
   }, [postId]);
 
-  // ========== MARKETPLACE DETECTION ==========
-  const meta: any = p?.meta || {};
-  
-  const isMarketplace =
-    p?.type === "marketplace" ||
-    p?.post_type === "product" ||
-    p?.type === 'product' ||
-    p?.kind === 'product' ||
-    meta?.type === 'product' ||
-    meta?.kind === 'product' ||
-    !!p?.product_id ||
-    !!p?.meta?.marketplace?.id;
-
   const productId = isMarketplace ? getMarketplaceProductId(p) : null;
   const productData = productId ? getProductData?.(productId) : null;
 
   const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
   const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
 
-  // Music/Podcast detection
-  const isMusic = meta?.kind === 'music' || meta?.type === 'music';
-  const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
   const song = meta?.song;
   const podcast = meta?.podcast;
 
@@ -5593,8 +5656,8 @@ export const CommentsSheet: React.FC<{
     );
   };
 
-  return (
-    <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
+  const SheetInnerContent = () => (
+    <>
       <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
         <div className="flex items-center gap-3">
           <button
@@ -5605,245 +5668,175 @@ export const CommentsSheet: React.FC<{
           >
             <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
           </button>
-          <div className="text-[#E4E6EB] font-bold text-[20px]">Post</div>
+          <div className="text-[#E4E6EB] font-bold text-[20px]">
+            {useBottomSheetStyle ? "Most relevant" : "Post"}
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="text-[#B0B3B8] text-[14px]">
-            {formatCount(comments.length)} discussions  {/* ✅ CHANGED from "comments" to "discussions" */}
+        {!useBottomSheetStyle && (
+          <div className="flex items-center gap-4">
+            <div className="text-[#B0B3B8] text-[14px]">
+              {formatCount(comments.length)} discussions
+            </div>
+            <button
+              type="button"
+              className="text-[#1877F2] font-bold text-[15px] hover:underline"
+              onClick={onClose}
+            >
+              See less
+            </button>
           </div>
-          <button
-            type="button"
-            className="text-[#1877F2] font-bold text-[15px] hover:underline"
-            onClick={onClose}
-          >
-            See less
-          </button>
-        </div>
+        )}
       </div>
 
-      <div 
+      <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto scroll-smooth"
       >
-        <div className="p-4 border-b border-[#3E4042]">
-          <div className="flex items-center gap-3 mb-4">
-            <img
-              src={avatarFrom(postAuthor)}
-              className="w-12 h-12 rounded-full object-cover border border-[#3E4042] cursor-pointer"
-              alt=""
-              onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
-                    onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}>
-                    {postAuthor?.name || postAuthor?.username || 'User'}
-                  </div>
-                  <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
-                    <span>{formatRelativeTime(p.created_at)}</span>
-                    <span>•</span>
-                    <i className="fas fa-globe-americas text-[12px]"></i>
-                  </div>
-                </div>
-                
-                {onFollow && currentUser && postAuthor?.id && safeUserId(postAuthor) !== safeUserId(currentUser) && (
-                  <button
-                    onClick={(e) => handleFollowClick(e, safeUserId(postAuthor))}
-                    className={`px-3 py-1 text-sm font-semibold rounded-lg transition-all duration-200 ${
-                      checkIsFollowing && checkIsFollowing(safeUserId(postAuthor))
-                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
-                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                    }`}
-                  >
-                    {checkIsFollowing && checkIsFollowing(safeUserId(postAuthor)) ? 'Following' : 'Follow'}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* ===== TEXT PREVIEW ===== */}
-          {!p.background && textPreview && (
-            <div className="mb-4">
-              <ExpandableRichText
-                text={String(p.content)}
-                users={users}
-                onProfileClick={onProfileClick}
-                onHashtagClick={onHashtagClick}
-                fontSizePx={21}
-                forceExpanded={true}
+        {/* for special bottom-sheet posts, hide the long top post block */}
+        {!useBottomSheetStyle && (
+          <div className="p-4 border-b border-[#3E4042]">
+            <div className="flex items-center gap-3 mb-4">
+              <img
+                src={avatarFrom(postAuthor)}
+                className="w-12 h-12 rounded-full object-cover border border-[#3E4042] cursor-pointer"
+                alt=""
+                onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}
               />
-            </div>
-          )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div
+                      className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
+                      onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}
+                    >
+                      {postAuthor?.name || postAuthor?.username || "User"}
+                    </div>
+                    <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
+                      <span>{formatRelativeTime(p.created_at)}</span>
+                      <span>•</span>
+                      <i className="fas fa-globe-americas text-[12px]"></i>
+                    </div>
+                  </div>
 
-          {/* ===== BACKGROUND POST TEXT ===== */}
-          {p.background && textPreview && (
-            <div
-              className="mb-4 -mx-4 h-[320px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
-              style={{ background: p.background, backgroundSize: 'cover' }}
-            >
-              {textPreview}
+                  {onFollow &&
+                    currentUser &&
+                    postAuthor?.id &&
+                    safeUserId(postAuthor) !== safeUserId(currentUser) && (
+                      <button
+                        onClick={(e) => handleFollowClick(e, safeUserId(postAuthor))}
+                        className={`px-3 py-1 text-sm font-semibold rounded-lg transition-all duration-200 ${
+                          checkIsFollowing && checkIsFollowing(safeUserId(postAuthor))
+                            ? "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+                            : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
+                        }`}
+                      >
+                        {checkIsFollowing && checkIsFollowing(safeUserId(postAuthor))
+                          ? "Following"
+                          : "Follow"}
+                      </button>
+                    )}
+                </div>
+              </div>
             </div>
-          )}
 
-          {/* ===== MARKETPLACE MEDIA IN COMMENTS SHEET ===== */}
-          {isMarketplace && mpImages.length > 0 && (
-            <div className="mb-4 -mx-4">
-              <div className="w-full bg-black">
-                <MediaGrid
-                  media={mpImages.map(url => ({ url }))}
-                  onOpen={(url, index) => {
-                    console.log('Open marketplace image:', url, index);
-                  }}
+            {!p.background && textPreview && (
+              <div className="mb-4">
+                <ExpandableRichText
+                  text={String(p.content)}
+                  users={users}
+                  onProfileClick={onProfileClick}
+                  onHashtagClick={onHashtagClick}
+                  fontSizePx={21}
+                  forceExpanded={true}
                 />
               </div>
-            </div>
-          )}
+            )}
 
-          {isMarketplace && price && (
-            <div className="mb-4 px-4 py-2 flex items-center justify-between bg-[#242526] border border-[#3E4042] rounded-lg">
-              <div className="flex items-center gap-1">
-                <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
-                <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
-              </div>
-
-              <button
-                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (productId && onViewProductFromPost) onViewProductFromPost(productId);
-                  else if (productId) onViewProduct?.(productId);
-                }}
+            {p.background && textPreview && (
+              <div
+                className="mb-4 -mx-4 h-[320px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
+                style={{ background: p.background, backgroundSize: "cover" }}
               >
-                View product
-              </button>
-            </div>
-          )}
+                {textPreview}
+              </div>
+            )}
 
-          {/* ===== MUSIC/PODCAST IN COMMENTS SHEET ===== */}
-          {(isMusic || isPodcast) && (
-            <div className="mb-4 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
-              <div className="flex items-center gap-3 p-3">
-                <img
-                  src={(isMusic ? song?.cover_image_url : podcast?.cover_image_url) || ''}
-                  className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
-                  alt=""
-                />
-                <div className="flex-1 overflow-hidden">
-                  <div className="text-white font-bold truncate">
-                    {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
-                  </div>
-                  <div className="text-[#B0B3B8] text-xs truncate">
-                    {isMusic ? song?.artist_name : podcast?.description}
-                  </div>
+            {isMarketplace && mpImages.length > 0 && (
+              <div className="mb-4 -mx-4">
+                <div className="w-full bg-black">
+                  <MediaGrid
+                    media={mpImages.map((url) => ({ url }))}
+                    onOpen={() => {}}
+                  />
+                </div>
+              </div>
+            )}
+
+            {isMarketplace && price && (
+              <div className="mb-4 px-4 py-2 flex items-center justify-between bg-[#242526] border border-[#3E4042] rounded-lg">
+                <div className="flex items-center gap-1">
+                  <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
+                  <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
                 </div>
 
                 <button
-                  type="button"
+                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onOpenAudio?.(isMusic ? song : podcast);
+                    if (productId && onViewProductFromPost) onViewProductFromPost(productId);
+                    else if (productId) onViewProduct?.(productId);
                   }}
-                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl"
                 >
-                  Play
+                  View product
                 </button>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* ===== LINK PREVIEW IN COMMENTS SHEET ===== */}
-          {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
-            <div
-              className="mb-4 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
-              onClick={() => window.open(p.link_preview.url, '_blank', 'noopener noreferrer')}
-            >
-              {p.link_preview.image && (
-                <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
+            {(isMusic || isPodcast) && (
+              <div className="mb-4 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-3 p-3">
                   <img
-                    src={p.link_preview.image}
+                    src={(isMusic ? song?.cover_image_url : podcast?.cover_image_url) || ""}
+                    className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
                     alt=""
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display = 'none';
-                    }}
                   />
-                </div>
-              )}
-              <div className="p-4 bg-[#3A3B3C]">
-                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
-                  {p.link_preview.domain}
-                </div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-2">
-                  {p.link_preview.title}
-                </div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-3">
-                  {p.link_preview.description}
+                  <div className="flex-1 overflow-hidden">
+                    <div className="text-white font-bold truncate">
+                      {(isMusic ? song?.title : podcast?.title) || "Untitled"}
+                    </div>
+                    <div className="text-[#B0B3B8] text-xs truncate">
+                      {isMusic ? song?.artist_name : podcast?.description}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenAudio?.(isMusic ? song : podcast);
+                    }}
+                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl"
+                  >
+                    Play
+                  </button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* ===== IMAGES IN COMMENTS SHEET ===== */}
-          {!isMarketplace && imageMedia.length > 0 && (
-            <div className="mb-4 -mx-4">
-              {imageMedia.length > 1 ? (
-                <MediaGrid
-                  media={imageMedia.map(m => ({ url: m.url }))}
-                  onOpen={(url, index) => {
-                    console.log('Open image:', url, index);
-                  }}
-                />
-              ) : (
-                <div className="w-full bg-black">
-                  <img
-                    src={imageMedia[0].url}
-                    alt=""
-                    className="w-full h-auto max-h-[70vh] object-contain"
-                    loading="lazy"
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ===== VIDEO IN COMMENTS SHEET ===== */}
-          {!isMarketplace && videoMedia.length > 0 && (
-            <div className="mb-4 -mx-4 w-full bg-black">
-              <video
-                src={videoMedia[0].url}
-                controls
-                playsInline
-                className="w-full h-auto max-h-[70vh] object-contain bg-black"
-              />
-            </div>
-          )}
-
-          {/* ===== AUDIO IN COMMENTS SHEET ===== */}
-          {!isMarketplace && mediaInfo.mediaUrl && mediaInfo.isAudio && (
-            <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-xl">
-              <div className="text-[#E4E6EB] font-bold mb-3">Audio Track</div>
-              <audio controls className="w-full">
-                <source src={mediaInfo.mediaUrl} />
-              </audio>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between text-[#B0B3B8] text-[14px] pt-3 border-t border-[#3E4042]">
-            <div className="flex items-center gap-2">
-              {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
-            </div>
-            <div className="flex items-center gap-4">
-              <span>{formatCount(comments.length)} discussions</span>  {/* ✅ CHANGED from "comments" to "discussions" */}
-              {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
+            <div className="flex items-center justify-between text-[#B0B3B8] text-[14px] pt-3 border-t border-[#3E4042]">
+              <div className="flex items-center gap-2">
+                {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
+              </div>
+              <div className="flex items-center gap-4">
+                <span>{formatCount(comments.length)} discussions</span>
+                {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="p-4">
-          {/* ✅ Jump target: opening from Discuss lands here, not the post description */}
           <div ref={discussionsTopRef} />
 
           {replyTo && (
@@ -5851,7 +5844,7 @@ export const CommentsSheet: React.FC<{
               <div className="flex items-center gap-2">
                 <span className="text-[#B0B3B8] text-sm">Replying to</span>
                 <span className="text-[#1877F2] font-medium">
-                  {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
+                  {replyTo?._reply_author?.display || replyTo?._reply_author?.name || "User"}
                 </span>
               </div>
               <button
@@ -5866,7 +5859,7 @@ export const CommentsSheet: React.FC<{
           {showEmojiPicker && (
             <div className="mb-4 p-3 border border-[#3E4042] rounded-lg">
               <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
-                {QUICK_EMOJIS.map(emoji => (
+                {QUICK_EMOJIS.map((emoji) => (
                   <button
                     key={emoji}
                     onClick={() => addEmoji(emoji)}
@@ -5881,8 +5874,8 @@ export const CommentsSheet: React.FC<{
 
           {comments.length === 0 ? (
             <div className="text-center py-10">
-              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>  {/* ✅ CHANGED from "No comments yet" */}
-              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>  {/* ✅ CHANGED message */}
+              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>
+              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -5895,10 +5888,8 @@ export const CommentsSheet: React.FC<{
 
                 return (
                   <div key={rootId} className="space-y-2">
-                    {/* Root comment */}
                     {renderOneComment(root, false)}
 
-                    {/* "View previous X replies" button */}
                     {!isExpanded && hiddenCount > 0 && (
                       <button
                         type="button"
@@ -5909,16 +5900,13 @@ export const CommentsSheet: React.FC<{
                       </button>
                     )}
 
-                    {/* Replies */}
-                    {visibleReplies.map(reply => (
+                    {visibleReplies.map((reply) => (
                       <div key={String(reply.id)} className="ml-12 relative">
-                        {/* Vertical line connecting replies */}
                         <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
                         {renderOneComment(reply, true)}
                       </div>
                     ))}
 
-                    {/* "Hide replies" button */}
                     {isExpanded && replies.length > MAX_PREVIEW && (
                       <button
                         type="button"
@@ -5945,19 +5933,24 @@ export const CommentsSheet: React.FC<{
           >
             😀
           </button>
+
           <div className="flex-1 relative">
             <input
               ref={inputRef}
               type="text"
               className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[15px]"
-              placeholder={replyTo ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...` : "Write a comment..."}
+              placeholder={
+                replyTo
+                  ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || "user"}...`
+                  : "Write a comment..."
+              }
               value={text}
               onChange={(e) => setText(e.target.value)}
-              // ✅ autoFocus removed - keyboard won't pop automatically
             />
           </div>
-          <button 
-            type="submit" 
+
+          <button
+            type="submit"
             className="text-[#1877F2] font-bold text-[15px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
             disabled={!text.trim()}
           >
@@ -5965,6 +5958,31 @@ export const CommentsSheet: React.FC<{
           </button>
         </form>
       </div>
+    </>
+  );
+
+  if (useBottomSheetStyle) {
+    return (
+      <div className="fixed inset-0 z-[500] bg-black/50 flex items-end" onClick={onClose}>
+        <div
+          className="w-full max-h-[84vh] bg-[#F0F2F5] dark:bg-[#18191A] rounded-t-[24px] overflow-hidden flex flex-col animate-slide-up"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-center pt-3 pb-2 bg-[#F0F2F5] dark:bg-[#18191A] sticky top-0 z-40">
+            <div className="w-12 h-1.5 rounded-full bg-[#BCC0C4] dark:bg-[#3E4042]" />
+          </div>
+
+          <div className="bg-[#F0F2F5] dark:bg-[#18191A] flex-1 min-h-0">
+            <SheetInnerContent />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
+      <SheetInnerContent />
     </div>
   );
 };
