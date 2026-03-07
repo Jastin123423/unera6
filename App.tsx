@@ -1,4 +1,4 @@
-// App.tsx (Complete file with Groups You May Join integration
+// App.tsx (Complete file with feed adapters integration)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -10,7 +10,7 @@ import {
   CreatePostModal,
   ShareBottomSheet,
   PeopleYouMayKnowGrid,
-  GroupsYouMayJoinCard, // ✅ NEW: Import the card component
+  GroupsYouMayJoinCard,
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -50,6 +50,15 @@ import {
   Brand,
   Song,
 } from './types';
+
+// ✅ NEW: Import feed adapters
+import {
+  makeEventFeedItem,
+  makeSongFeedItem,
+  makeGroupPostFeedItem,
+  makeProductFeedItem,
+  mergeFeedItems,
+} from "./utils/feedAdapters";
 
 /** ---------- Type for People You May Know suggestions ---------- */
 type PeopleSuggestion = {
@@ -1784,7 +1793,7 @@ export default function App() {
     if (!gymjHydrated) setGymjLoading(true);
 
     try {
-      const data = await apiFetch(`/api/group-suggestions?user_id=${currentUser.id}&limit=8`);
+      const data = await apiFetch(`/api/group-suggestions?user_id=${currentUser.id}&limit=20`);
       const raw = safeArray<any>(data?.groups ?? data);
       const hiddenSet = new Set(gymjHiddenIds.map(Number));
 
@@ -4115,21 +4124,62 @@ export default function App() {
     setActiveHashtag(null);
   }, []);
 
+  // ============================================================================
+  // ✅ FEED ADAPTERS - Convert different sources to feed items
+  // ============================================================================
+  
+  // Convert events to feed items
+  const injectedEventFeed = useMemo(() => {
+    return safeArray(events).map((event) =>
+      makeEventFeedItem(event, currentUser?.id ? Number(currentUser.id) : null)
+    );
+  }, [events, currentUser?.id]);
+
+  // Convert songs to feed items
+  const injectedSongFeed = useMemo(() => {
+    return safeArray(songs).map((song) => makeSongFeedItem(song));
+  }, [songs]);
+
+  // Convert group posts to feed items (keeping this in App.tsx for now)
+  const injectedGroupPostFeed = useMemo(() => {
+    return safeArray(groups).flatMap((group: any) => {
+      const groupPosts = safeArray(group?.posts);
+      return groupPosts.map((groupPost: any) =>
+        makeGroupPostFeedItem(groupPost, group)
+      );
+    });
+  }, [groups]);
+
+  // Merge all feed sources into one unified feed
+  const mergedFeed = useMemo(() => {
+    return mergeFeedItems(
+      safeArray(posts),              // from api/feeds
+      injectedEventFeed,             // events from App.tsx
+      injectedSongFeed,              // songs from App.tsx
+      injectedGroupPostFeed          // group posts from App.tsx
+    );
+  }, [posts, injectedEventFeed, injectedSongFeed, injectedGroupPostFeed]);
+
+  // Filter posts based on active hashtag - using mergedFeed instead of posts
   const filteredPosts = useMemo(() => {
-    if (!activeHashtag) return posts;
-    
+    const baseFeed = safeArray(mergedFeed);
+
+    if (!activeHashtag) return baseFeed;
+
     const tagWithoutHash = activeHashtag.replace('#', '').toLowerCase();
-    return posts.filter((p: any) => {
+    return baseFeed.filter((p: any) => {
       const content = String(p.content || '').toLowerCase();
       return content.includes(`#${tagWithoutHash}`) || content.includes(` ${tagWithoutHash} `);
     });
-  }, [posts, activeHashtag]);
+  }, [mergedFeed, activeHashtag]);
 
+  // Rank posts for display - using filteredPosts
   const rankedPosts = useMemo(() => {
-    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
-                     activeHashtag ? filteredPosts : posts;
+    const feedToRank =
+      stableFeedRef.current.length > 0 ? stableFeedRef.current : filteredPosts;
+
     return Array.isArray(feedToRank) ? feedToRank : [];
-  }, [posts, filteredPosts, activeHashtag]);
+  }, [filteredPosts]);
 
   // ============================================================================
   // ✅ PYMK Insert Indices
@@ -4152,12 +4202,20 @@ export default function App() {
   }, [rankedPosts]);
 
   // ============================================================================
-  // ✅ Groups You May Join Insert Index
+  // ✅ Groups You May Join Insert Indices - Now TWO appearances!
   // ============================================================================
-  const groupsYouMayJoinInsertIndex = useMemo(() => {
+  const groupsYouMayJoinInsertIndex1 = useMemo(() => {
     const total = safeArray(rankedPosts).length;
     if (total < 4) return -1;
+    // First appearance at position 3 (after 3 posts)
     return Math.min(3, total - 1);
+  }, [rankedPosts]);
+
+  const groupsYouMayJoinInsertIndex2 = useMemo(() => {
+    const total = safeArray(rankedPosts).length;
+    if (total < 18) return -1;
+    // Second appearance between 15-25, we'll use position 16
+    return Math.min(16, total - 1);
   }, [rankedPosts]);
 
   const activePost = useMemo(() => {
@@ -5052,11 +5110,17 @@ export default function App() {
                         peopleYouMayKnowInsertIndex2 >= 0 &&
                         idx === peopleYouMayKnowInsertIndex2;
 
-                      // Track if we've shown the Groups You May Join instance
-                      const showGroupsYouMayJoin = currentUser &&
+                      // Track if we've shown the first Groups You May Join instance
+                      const showFirstGroupsYouMayJoin = currentUser &&
                         groupsYouMayJoin.length > 0 &&
-                        groupsYouMayJoinInsertIndex >= 0 &&
-                        idx === groupsYouMayJoinInsertIndex;
+                        groupsYouMayJoinInsertIndex1 >= 0 &&
+                        idx === groupsYouMayJoinInsertIndex1;
+
+                      // Track if we've shown the second Groups You May Join instance
+                      const showSecondGroupsYouMayJoin = currentUser &&
+                        groupsYouMayJoin.length > 0 &&
+                        groupsYouMayJoinInsertIndex2 >= 0 &&
+                        idx === groupsYouMayJoinInsertIndex2;
 
                       return (
                         <React.Fragment key={getStableItemKey(post, 'post')}>
@@ -5135,8 +5199,8 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* ✅ Groups You May Join Card */}
-                          {showGroupsYouMayJoin && (
+                          {/* ✅ Groups You May Join Card - FIRST APPEARANCE */}
+                          {showFirstGroupsYouMayJoin && (
                             <GroupsYouMayJoinCard
                               groups={groupsYouMayJoin}
                               currentUser={currentUser}
@@ -5144,12 +5208,25 @@ export default function App() {
                               onJoin={(groupId: number) => joinFromSuggestion(groupId)}
                               onHide={(groupId: number) => hideGroupSuggestion(groupId)}
                               onOpenGroup={(groupId: number) => {
-                                // Navigate to groups page with selected group
                                 setView('groups');
-                                // If you have state for selected group in GroupsPage, you'd set it here
-                                // For now, just navigate to groups
                               }}
                               onProfileClick={(userId: number) => openProfile(userId)}
+                            />
+                          )}
+
+                          {/* ✅ Groups You May Join Card - SECOND APPEARANCE */}
+                          {showSecondGroupsYouMayJoin && (
+                            <GroupsYouMayJoinCard
+                              groups={groupsYouMayJoin}
+                              currentUser={currentUser}
+                              isLoading={gymjLoading && groupsYouMayJoin.length === 0}
+                              onJoin={(groupId: number) => joinFromSuggestion(groupId)}
+                              onHide={(groupId: number) => hideGroupSuggestion(groupId)}
+                              onOpenGroup={(groupId: number) => {
+                                setView('groups');
+                              }}
+                              onProfileClick={(userId: number) => openProfile(userId)}
+                              title="More Groups You May Join"
                             />
                           )}
                         </React.Fragment>
