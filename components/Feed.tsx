@@ -1236,7 +1236,7 @@ const getMediaTypeInfo = (post: any) => {
  * ✅ getPostMediaList Helper for Multiple Images Support
  * =========================
  */
-type NormalizedMedia = { url: string; kind: 'image' | 'video' };
+type NormalizedMedia = { url: string; kind: 'image' | 'video'; width?: number; height?: number };
 
 const getPostMediaList = (post: any): NormalizedMedia[] => {
   const out: NormalizedMedia[] = [];
@@ -1250,7 +1250,13 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
   for (const u of arrUrls) {
     const url = String(u || '').trim();
     if (!url) continue;
-    out.push({ url, kind: 'image' });
+    // If u has width/height properties, preserve them
+    out.push({ 
+      url, 
+      kind: 'image',
+      width: typeof u === 'object' ? u?.width : undefined,
+      height: typeof u === 'object' ? u?.height : undefined
+    });
   }
 
   const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
@@ -1266,7 +1272,12 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
       type.startsWith('video') ||
       ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
 
-    out.push({ url, kind: isVideo ? 'video' : 'image' });
+    out.push({ 
+      url, 
+      kind: isVideo ? 'video' : 'image',
+      width: m?.width,
+      height: m?.height
+    });
   }
 
   if (out.length === 0) {
@@ -1281,24 +1292,103 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
   return out.filter((x) => x.url);
 };
 
+type MediaOrientation = "portrait" | "landscape" | "square";
+
+const getOrientation = (item: {
+  width?: number;
+  height?: number;
+}): MediaOrientation => {
+  const w = Number(item?.width || 0);
+  const h = Number(item?.height || 0);
+
+  if (!w || !h) return "square";
+
+  const ratio = w / h;
+
+  if (ratio > 1.15) return "landscape";
+  if (ratio < 0.87) return "portrait";
+  return "square";
+};
+
+const classifyOrientations = (
+  media: { width?: number; height?: number }[]
+): MediaOrientation[] => {
+  return media.map(getOrientation);
+};
+
 /**
  * =========================
- * ✅ FIXED: MediaGrid Component - Full Width with Gallery Support (KEEP AS IS)
+ * ✅ UPDATED: MediaGrid Component - Supports 5, 6 images and +N overlay with smart layouts
  * =========================
  */
 const MediaGrid: React.FC<{
   media: { url: string }[];
   onOpen: (url: string, index: number) => void;
 }> = ({ media, onOpen }) => {
-  const total = media.length;
-  const show = total <= 4 ? media : media.slice(0, 4);
-  const extra = total - 4;
+  const total = Array.isArray(media) ? media.length : 0;
+
+  const [measuredMedia, setMeasuredMedia] = useState(media);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      const next = await Promise.all(
+        media.map(
+          (item) =>
+            new Promise<{ url: string; width?: number; height?: number }>((resolve) => {
+              if (item.width && item.height) {
+                resolve(item);
+                return;
+              }
+
+              const img = new Image();
+              img.onload = () => {
+                resolve({
+                  ...item,
+                  width: img.naturalWidth,
+                  height: img.naturalHeight,
+                });
+              };
+              img.onerror = () => resolve(item);
+              img.src = item.url;
+            })
+        )
+      );
+
+      if (!cancelled) {
+        setMeasuredMedia(next);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [media]);
+
+  const visible =
+    total <= 4
+      ? measuredMedia
+      : total === 5
+      ? measuredMedia.slice(0, 5)
+      : measuredMedia.slice(0, 6);
+
+  const extra =
+    total <= 5
+      ? 0
+      : total === 6
+      ? 0
+      : total - 6;
+
+  const orientations = classifyOrientations(visible);
 
   const Tile = ({
     url,
     index,
     className,
-    showOverlay,
+    showOverlay = false,
   }: {
     url: string;
     index: number;
@@ -1318,19 +1408,23 @@ const MediaGrid: React.FC<{
         src={url}
         alt=""
         loading="lazy"
-        className="w-full h-full object-cover"
+        className="absolute inset-0 w-full h-full object-cover"
         onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = 'none';
+          (e.currentTarget as HTMLImageElement).style.display = "none";
         }}
       />
 
       {showOverlay && extra > 0 && (
-        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-          <span className="text-white font-black text-3xl">+{extra}</span>
+        <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+          <span className="text-white font-bold text-[34px] leading-none">
+            +{extra}
+          </span>
         </div>
       )}
     </button>
   );
+
+  if (total === 0) return null;
 
   if (total === 1) {
     return (
@@ -1339,12 +1433,12 @@ const MediaGrid: React.FC<{
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onOpen(show[0].url, 0);
+            onOpen(visible[0].url, 0);
           }}
           className="w-full block"
         >
           <img
-            src={show[0].url}
+            src={visible[0].url}
             alt=""
             loading="lazy"
             className="w-full h-auto max-h-[650px] object-contain"
@@ -1357,8 +1451,8 @@ const MediaGrid: React.FC<{
   if (total === 2) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[320px] w-full" />
-        <Tile url={show[1].url} index={1} className="h-[320px] w-full" />
+        <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
+        <Tile url={visible[1].url} index={1} className="h-[320px] w-full" />
       </div>
     );
   }
@@ -1366,24 +1460,146 @@ const MediaGrid: React.FC<{
   if (total === 3) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={show[0].url} index={0} className="h-[420px] w-full" />
+        <Tile url={visible[0].url} index={0} className="h-[420px] w-full" />
         <div className="grid grid-rows-2 gap-[2px] h-[420px]">
-          <Tile url={show[1].url} index={1} className="w-full h-full" />
-          <Tile url={show[2].url} index={2} className="w-full h-full" />
+          <Tile url={visible[1].url} index={1} className="w-full h-full" />
+          <Tile url={visible[2].url} index={2} className="w-full h-full" />
         </div>
       </div>
     );
   }
 
+  if (total === 4) {
+    return (
+      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+        <Tile url={visible[0].url} index={0} className="h-[260px] w-full" />
+        <Tile url={visible[1].url} index={1} className="h-[260px] w-full" />
+        <Tile url={visible[2].url} index={2} className="h-[260px] w-full" />
+        <Tile url={visible[3].url} index={3} className="h-[260px] w-full" />
+      </div>
+    );
+  }
+
+  if (total === 5) {
+    return (
+      <div className="w-full bg-black">
+        <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+          <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
+          <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
+        </div>
+
+        <div className="grid grid-cols-3 gap-[2px]">
+          <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
+          <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
+          <Tile
+            url={visible[4].url}
+            index={4}
+            className="h-[170px] w-full"
+            showOverlay={extra > 0}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Smart 6-image layout based on orientation
+  if (total >= 6) {
+    const first = orientations[0];
+    const second = orientations[1];
+    const third = orientations[2];
+
+    const topPortraitPair = first === "portrait" && second === "portrait";
+    const firstLandscape = first === "landscape" || second === "landscape";
+    const tallLeft = third === "portrait";
+
+    // Layout A: Tall left + 3 stacked right - Best when 3rd image is portrait
+    if (tallLeft) {
+      return (
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
+            <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-[2px]">
+            <Tile url={visible[2].url} index={2} className="h-[340px] w-full" />
+            <div className="grid grid-rows-3 gap-[2px] h-[340px]">
+              <Tile url={visible[3].url} index={3} className="w-full h-full" />
+              <Tile url={visible[4].url} index={4} className="w-full h-full" />
+              <Tile
+                url={visible[5].url}
+                index={5}
+                className="w-full h-full"
+                showOverlay={extra > 0}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Layout B: 2 top large + 4 bottom squares - Better for landscapes/squares
+    if (firstLandscape || !topPortraitPair) {
+      return (
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile url={visible[0].url} index={0} className="h-[230px] w-full" />
+            <Tile url={visible[1].url} index={1} className="h-[230px] w-full" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-[2px]">
+            <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
+            <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
+            <Tile url={visible[4].url} index={4} className="h-[170px] w-full" />
+            <Tile
+              url={visible[5].url}
+              index={5}
+              className="h-[170px] w-full"
+              showOverlay={extra > 0}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Layout C: 1 big left + 2 stacked right on top, then 3 bottom tiles
+    // Good for portrait-heavy first image
+    return (
+      <div className="w-full bg-black">
+        <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+          <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
+          <div className="grid grid-rows-2 gap-[2px] h-[320px]">
+            <Tile url={visible[1].url} index={1} className="w-full h-full" />
+            <Tile url={visible[2].url} index={2} className="w-full h-full" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-[2px]">
+          <Tile url={visible[3].url} index={3} className="h-[150px] w-full" />
+          <Tile url={visible[4].url} index={4} className="h-[150px] w-full" />
+          <Tile
+            url={visible[5].url}
+            index={5}
+            className="h-[150px] w-full"
+            showOverlay={extra > 0}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback for any other case (should not reach here)
   return (
-    <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-      <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
-      <Tile url={show[1].url} index={1} className="h-[260px] w-full" />
-      <Tile url={show[2].url} index={2} className="h-[260px] w-full" />
+    <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
+      <Tile url={visible[0].url} index={0} className="h-[180px] w-full" />
+      <Tile url={visible[1].url} index={1} className="h-[180px] w-full" />
+      <Tile url={visible[2].url} index={2} className="h-[180px] w-full" />
+      <Tile url={visible[3].url} index={3} className="h-[180px] w-full" />
+      <Tile url={visible[4].url} index={4} className="h-[180px] w-full" />
       <Tile
-        url={show[3].url}
-        index={3}
-        className="h-[260px] w-full"
+        url={visible[5].url}
+        index={5}
+        className="h-[180px] w-full"
         showOverlay={extra > 0}
       />
     </div>
