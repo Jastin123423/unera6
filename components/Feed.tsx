@@ -6728,7 +6728,5 @@ export {
   safeUserId,
   avatarFrom,
   formatReelCount,
-  isReelPost,
-  normalizeReelFromFeed,
   getReelAuthorName
 };
