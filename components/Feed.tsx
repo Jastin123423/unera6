@@ -6262,6 +6262,7 @@ export { getMediaTypeInfo,
   safeArray,
   safeNumber,
   safeString,
+  ReelFeedCard,
   safePostId,
   safeUserId,
   avatarFrom };
