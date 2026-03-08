@@ -1,4 +1,4 @@
-// App.tsx (Complete file with direct feed item construction)
+// App.tsx (Complete file with feed adapters and proper event/group handling)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -51,27 +51,14 @@ import {
   Song,
 } from './types';
 
-/** ---------- Extended Feed Item Type ---------- */
-type FeedItem = PostType & {
-  source: 'post' | 'event' | 'music' | 'group_post' | 'product';
-  item_type: string;
-  event_id?: number;
-  song_id?: number;
-  group_post_id?: number;
-  product_id?: number;
-  group_id?: number;
-  group_name?: string;
-  group_image?: string;
-  my_rsvp_status?: string;
-  location?: string;
-  event_date?: string;
-  event_time?: string;
-  song_title?: string;
-  song_artist_name?: string;
-  song_cover_image_url?: string;
-  audio_url?: string;
-  song_duration_seconds?: number;
-};
+// Import feed adapters
+import {
+  makeEventFeedItem,
+  makeSongFeedItem,
+  makeGroupPostFeedItem,
+  makeProductFeedItem,
+  mergeFeedItems,
+} from "./utils/feedAdapters";
 
 /** ---------- Type for People You May Know suggestions ---------- */
 type PeopleSuggestion = {
@@ -549,6 +536,92 @@ const normalizePost = (p: any): PostType => {
   const mediaUrl = p?.media_url ?? p?.mediaUrl ?? (mediaUrls[0] ?? null);
 
   const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
+
+  // Handle event posts specifically
+  if (p?.type === 'event' || p?.meta?.kind === 'event') {
+    return {
+      ...p,
+      id: resolvedId,
+      user_id: safeNumber(p?.user_id),
+      content: safeString(p?.content),
+      type: 'event',
+      event_id: p?.event_id || p?.meta?.event_id,
+      media_url: p?.meta?.event?.cover_url || mediaUrl,
+      media_type: 'image',
+      media_urls: p?.meta?.event?.cover_url ? [p.meta.event.cover_url] : (mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : [])),
+      media_types: p?.meta?.event?.cover_url ? ['image'] : (mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : [])),
+      meta: {
+        kind: 'event',
+        event_id: p?.event_id || p?.meta?.event_id,
+        event: p?.meta?.event || {
+          id: p?.event_id,
+          title: p?.meta?.event?.title || p?.title,
+          description: p?.meta?.event?.description || p?.description,
+          date: p?.meta?.event?.date,
+          time: p?.meta?.event?.time,
+          location: p?.meta?.event?.location,
+          cover_url: p?.meta?.event?.cover_url || mediaUrl,
+          attendees: p?.meta?.event?.attendees || [],
+          interested: p?.meta?.event?.interested || [],
+        }
+      }
+    } as any;
+  }
+
+  // Handle group posts
+  if (p?.type === 'group_post' || p?.meta?.kind === 'group_post' || p?.group_post_id) {
+    return {
+      ...p,
+      id: resolvedId,
+      user_id: safeNumber(p?.user_id),
+      content: safeString(p?.content),
+      type: 'group_post',
+      group_post_id: p?.group_post_id || p?.id,
+      group_id: p?.group_id || p?.meta?.group_id,
+      group_name: p?.group_name || p?.meta?.group_name,
+      group_image: p?.group_image || p?.meta?.group_image,
+      media_url: mediaUrl,
+      media_type: mediaType,
+      media_urls: mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : []),
+      media_types: mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : []),
+      meta: {
+        kind: 'group_post',
+        group_post_id: p?.group_post_id || p?.id,
+        group_id: p?.group_id || p?.meta?.group_id,
+        group_name: p?.group_name || p?.meta?.group_name,
+      }
+    } as any;
+  }
+
+  // Handle music posts
+  if (p?.type === 'music' || p?.meta?.kind === 'music' || p?.song_id2 || p?.song_id) {
+    return {
+      ...p,
+      id: resolvedId,
+      user_id: safeNumber(p?.user_id),
+      content: safeString(p?.content || p?.song_title || ''),
+      type: 'music',
+      song_id2: p?.song_id2 || p?.song_id,
+      media_url: p?.song_cover_image_url || mediaUrl,
+      media_type: 'image',
+      media_urls: p?.song_cover_image_url ? [p.song_cover_image_url] : (mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : [])),
+      media_types: p?.song_cover_image_url ? ['image'] : (mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : [])),
+      song_title: p?.song_title || p?.title || '',
+      song_artist_name: p?.song_artist_name || p?.artist_name || '',
+      song_cover_image_url: p?.song_cover_image_url || p?.cover_image_url || '',
+      audio_url: p?.audio_url || p?.song_audio_url || '',
+      meta: {
+        kind: 'music',
+        song_id: p?.song_id2 || p?.song_id,
+        song: p?.meta?.song || {
+          title: p?.song_title || p?.title,
+          artist_name: p?.song_artist_name || p?.artist_name,
+          cover_image_url: p?.song_cover_image_url || p?.cover_image_url,
+          audio_url: p?.audio_url || p?.song_audio_url,
+        }
+      }
+    } as any;
+  }
 
   return {
     ...p,
@@ -4118,242 +4191,42 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // ✅ BUILD FEED ITEMS DIRECTLY - NO ADAPTERS NEEDED
+  // ✅ FEED ADAPTERS - Convert different sources to feed items
   // ============================================================================
   
   // Convert events to feed items
-  const eventFeedItems = useMemo(() => {
-    return safeArray(events).map((event) => {
-      const coverUrl = event.cover_url || event.image || DEFAULT_EVENT_COVER;
-      const meId = currentUser?.id ? Number(currentUser.id) : null;
-      
-      // Check if current user is attending or interested
-      const attendees = safeArray(event.attendees).map(Number);
-      const interested = safeArray(event.interestedIds || event.interested_ids).map(Number);
-      const isAttending = meId ? attendees.includes(meId) : false;
-      const isInterested = meId ? interested.includes(meId) : false;
-      
-      return {
-        // Core post fields
-        id: `event-${event.id}`,
-        source: 'event',
-        item_type: 'event',
-        event_id: event.id,
-        
-        // User fields
-        user_id: event.organizerId || event.creator_id || 0,
-        username: event.organizer_name || event.creator_name || '',
-        name: event.organizer_name || event.creator_name || 'Event Organizer',
-        profile_image_url: event.organizer_avatar || event.creator_avatar || '',
-        is_verified: false,
-        role: 'user',
-        
-        // Content fields
-        content: event.title || 'Untitled Event',
-        created_at: event.created_at || event.event_date || new Date().toISOString(),
-        
-        // Media fields (critical for image preview)
-        media_url: coverUrl,
-        media_type: 'image',
-        media_urls: [coverUrl],
-        media_types: ['image'],
-        images: [coverUrl],
-        
-        // Engagement fields
-        comments_count: 0,
-        reactions_count: 0,
-        shares: 0,
-        views: 0,
-        
-        // Event-specific fields
-        location: event.location || '',
-        event_date: event.event_date,
-        event_time: event.time,
-        
-        // RSVP status
-        my_rsvp_status: isAttending ? 'going' : (isInterested ? 'interested' : ''),
-        
-        // Meta data
-        meta: {
-          kind: 'event',
-          event_id: event.id,
-          event: {
-            id: event.id,
-            title: event.title,
-            description: event.description,
-            date: event.date,
-            time: event.time,
-            location: event.location,
-            cover_url: coverUrl,
-            attendees: event.attendees || [],
-            interested: event.interestedIds || event.interested_ids || [],
-          }
-        },
-        
-        // Type discriminator
-        type: 'event',
-        post_type: 'event',
-      } as FeedItem;
-    });
-  }, [events, currentUser]);
+  const injectedEventFeed = useMemo(() => {
+    return safeArray(events).map((event) =>
+      makeEventFeedItem(event, currentUser?.id ? Number(currentUser.id) : null)
+    );
+  }, [events, currentUser?.id]);
 
   // Convert songs to feed items
-  const songFeedItems = useMemo(() => {
-    return safeArray(songs).map((song) => {
-      const coverUrl = song.cover_url || song.cover_image_url || DEFAULT_MUSIC_COVER;
-      const audioUrl = song.audio_fetch_url || song.audio_url || '';
-      
-      return {
-        // Core post fields
-        id: `song-${song.id}`,
-        source: 'music',
-        item_type: 'music',
-        song_id: song.id,
-        
-        // User fields
-        user_id: song.uploader_id || song.artistId || song.artist_id || 0,
-        username: song.username || song.artist || song.artist_name || '',
-        name: song.uploader_name || song.artist || song.artist_name || 'Artist',
-        profile_image_url: song.uploader_avatar || '',
-        is_verified: false,
-        role: 'user',
-        
-        // Content fields
-        content: song.title || 'Untitled Song',
-        created_at: song.created_at || new Date().toISOString(),
-        
-        // Media fields (cover image for preview)
-        media_url: coverUrl,
-        media_type: 'image',
-        media_urls: [coverUrl],
-        media_types: ['image'],
-        images: [coverUrl],
-        
-        // Song-specific fields
-        song_title: song.title || '',
-        song_artist_name: song.artist || song.artist_name || '',
-        song_cover_image_url: coverUrl,
-        audio_url: audioUrl,
-        song_duration_seconds: song.duration || song.duration_seconds || 0,
-        
-        // Engagement fields
-        comments_count: 0,
-        reactions_count: song.likes_count || song.song_likes_count || 0,
-        shares: 0,
-        
-        // Meta data
-        meta: {
-          kind: 'music',
-          song_id: song.id,
-          song: {
-            id: song.id,
-            title: song.title,
-            artist_name: song.artist || song.artist_name,
-            cover_image_url: coverUrl,
-            audio_url: audioUrl,
-            duration: song.duration || song.duration_seconds,
-          }
-        },
-        
-        // Type discriminator
-        type: 'music',
-        post_type: 'music',
-      } as FeedItem;
-    });
+  const injectedSongFeed = useMemo(() => {
+    return safeArray(songs).map((song) => makeSongFeedItem(song));
   }, [songs]);
 
-  // Convert group posts to feed items
-  const groupPostFeedItems = useMemo(() => {
+  // Convert group posts to feed items (keeping this in App.tsx for now)
+  const injectedGroupPostFeed = useMemo(() => {
     return safeArray(groups).flatMap((group: any) => {
       const groupPosts = safeArray(group?.posts);
-      return groupPosts.map((groupPost: any) => {
-        const mediaUrls = Array.isArray(groupPost.media_urls) ? groupPost.media_urls : 
-                         (groupPost.media_url ? [groupPost.media_url] : []);
-        const mediaTypes = Array.isArray(groupPost.media_types) ? groupPost.media_types : 
-                          (groupPost.media_type ? [groupPost.media_type] : []);
-        
-        return {
-          // Core post fields
-          id: `group-post-${groupPost.id}`,
-          source: 'group_post',
-          item_type: 'group_post',
-          group_post_id: groupPost.id,
-          
-          // User fields
-          user_id: groupPost.user_id || 0,
-          username: groupPost.username || '',
-          name: groupPost.name || groupPost.username || 'Group Member',
-          profile_image_url: groupPost.profile_image_url || '',
-          is_verified: false,
-          role: 'user',
-          
-          // Content fields
-          content: groupPost.content || '',
-          created_at: groupPost.created_at || new Date().toISOString(),
-          
-          // Media fields
-          media_url: mediaUrls[0] || null,
-          media_type: mediaTypes[0] || null,
-          media_urls: mediaUrls,
-          media_types: mediaTypes,
-          images: mediaUrls.filter((_, i) => (mediaTypes[i] || 'image').startsWith('image/')),
-          
-          // Group-specific fields
-          group_id: group.id,
-          group_name: group.name,
-          group_image: group.profile_image || group.cover_image,
-          
-          // Engagement fields
-          comments_count: groupPost.comments_count || 0,
-          reactions_count: groupPost.reactions_count || 0,
-          shares: groupPost.shares || 0,
-          my_reaction: groupPost.my_reaction || null,
-          myReaction: groupPost.myReaction || groupPost.my_reaction || null,
-          
-          // Meta data
-          meta: {
-            kind: 'group_post',
-            group_post_id: groupPost.id,
-            group_id: group.id,
-            group_name: group.name,
-          },
-          
-          // Type discriminator
-          type: 'group_post',
-          post_type: 'group_post',
-        } as FeedItem;
-      });
+      return groupPosts.map((groupPost: any) =>
+        makeGroupPostFeedItem(groupPost, group)
+      );
     });
   }, [groups]);
 
   // Merge all feed sources into one unified feed
   const mergedFeed = useMemo(() => {
-    // Combine all feed sources
-    const allItems = [
-      ...safeArray(posts),              // from api/feeds
-      ...eventFeedItems,                // events from App.tsx
-      ...songFeedItems,                 // songs from App.tsx
-      ...groupPostFeedItems,            // group posts from App.tsx
-    ];
+    return mergeFeedItems(
+      safeArray(posts),              // from api/feeds
+      injectedEventFeed,             // events from App.tsx
+      injectedSongFeed,              // songs from App.tsx
+      injectedGroupPostFeed          // group posts from App.tsx
+    );
+  }, [posts, injectedEventFeed, injectedSongFeed, injectedGroupPostFeed]);
 
-    // Deduplicate by ID
-    const map = new Map();
-    allItems.forEach(item => {
-      const key = item.id || `${item.source}-${item.event_id || item.song_id || item.group_post_id || item.id}`;
-      if (!map.has(key)) {
-        map.set(key, item);
-      }
-    });
-
-    // Sort by created_at (newest first)
-    return Array.from(map.values()).sort((a, b) => {
-      const dateA = new Date(a.created_at || 0).getTime();
-      const dateB = new Date(b.created_at || 0).getTime();
-      return dateB - dateA;
-    });
-  }, [posts, eventFeedItems, songFeedItems, groupPostFeedItems]);
-
-  // Filter posts based on active hashtag - using mergedFeed
+  // Filter posts based on active hashtag - using mergedFeed instead of posts
   const filteredPosts = useMemo(() => {
     const baseFeed = safeArray(mergedFeed);
 
@@ -5117,6 +4990,15 @@ export default function App() {
     setView('reels');
   }, []);
 
+  const handleCommentAdded = useCallback(() => {
+    // This function is called when a comment is added
+    // It will refresh the post data to update the comment count
+    if (activeCommentsPostId) {
+      // Refresh the post data to get updated comment count
+      fetchPostsForHome(currentUser).catch(() => {});
+    }
+  }, [activeCommentsPostId, currentUser, fetchPostsForHome]);
+
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
     const event = events.find(e => e.id === eventId);
     
@@ -5338,15 +5220,15 @@ export default function App() {
                             followLoading={followLoading[postAuthorId] || false}
                             onViewProductFromPost={openProductFromPost}
                             onRSVPEvent={onRSVPEvent}
-                            // Event and Group handlers
                             onOpenEvent={(eventId: number) => setActiveEventId(eventId)}
                             onOpenGroup={(groupId: number) => {
                               setActiveGroupId(groupId);
                               setView('groups');
                             }}
+                            onCommentAdded={handleCommentAdded}
                           />
 
-                          {/* People You May Know Grid - FIRST APPEARANCE */}
+                          {/* ✅ People You May Know Grid - FIRST APPEARANCE */}
                           {showFirstPymk && (
                             <div className="relative">
                               <PeopleYouMayKnowGrid
@@ -5372,7 +5254,7 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* People You May Know Grid - SECOND APPEARANCE */}
+                          {/* ✅ People You May Know Grid - SECOND APPEARANCE */}
                           {showSecondPymk && (
                             <div className="relative">
                               <PeopleYouMayKnowGrid
@@ -5398,7 +5280,7 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* Groups You May Join Card - FIRST APPEARANCE */}
+                          {/* ✅ Groups You May Join Card - FIRST APPEARANCE */}
                           {showFirstGroupsYouMayJoin && (
                             <GroupsYouMayJoinCard
                               groups={groupsYouMayJoin}
@@ -5414,7 +5296,7 @@ export default function App() {
                             />
                           )}
 
-                          {/* Groups You May Join Card - SECOND APPEARANCE */}
+                          {/* ✅ Groups You May Join Card - SECOND APPEARANCE */}
                           {showSecondGroupsYouMayJoin && (
                             <GroupsYouMayJoinCard
                               groups={groupsYouMayJoin}
@@ -5807,6 +5689,7 @@ export default function App() {
             setCommentPostSnapshot(null);
           }}
           onComment={createGroupPostComment}
+          onCommentAdded={handleCommentAdded}
           onLikeComment={handleLikeComment}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
