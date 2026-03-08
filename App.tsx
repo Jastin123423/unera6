@@ -1,4 +1,4 @@
-// App.tsx (Complete file with reel feed integration)
+// App.tsx- (Complete file with reel feed integration)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
