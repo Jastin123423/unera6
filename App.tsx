@@ -1,4 +1,4 @@
-// App.tsx (Complete file with Groups You May Join integration
+// App.tsx (Complete file with reel feed integration)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -10,7 +10,9 @@ import {
   CreatePostModal,
   ShareBottomSheet,
   PeopleYouMayKnowGrid,
-  GroupsYouMayJoinCard, // ✅ NEW: Import the card component
+  GroupsYouMayJoinCard,
+  ReelFeedCard, // ✅ NEW: Import reel card
+  FeedItem,     // ✅ NEW: Import feed item type
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -780,6 +782,9 @@ const normalizeReel = (r: any): Reel => {
   const audioUrl = r?.audio_url ?? r?.audioUrl ?? '';
   const legacyIsTrimmed = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
 
+  // Find author from users if available (will be populated later)
+  const author = r?.author || r?.author_name;
+
   return {
     ...r,
     id: resolvedId,
@@ -802,6 +807,11 @@ const normalizeReel = (r: any): Reel => {
     comments: safeArray(r?.comments),
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
     isTrimmedAudio: isTrimmedAudio || legacyIsTrimmed,
+    author: author,
+    author_name: author,
+    avatar: r?.avatar || r?.author_image,
+    verified: r?.verified || false,
+    thumbnail_url: r?.thumbnail_url || r?.cover_url,
   } as any;
 };
 
@@ -2619,8 +2629,14 @@ export default function App() {
       
       const normalizedReels = reelsList.map(reel => {
         const normalized = normalizeReel(reel);
+        // Find author from users list
+        const author = users.find(u => Number(u.id) === Number(normalized.userId));
         return {
           ...normalized,
+          author: author?.name || normalized.author,
+          author_name: author?.name || normalized.author_name,
+          avatar: author?.profile_image_url || normalized.avatar,
+          verified: author?.is_verified || normalized.verified,
           audioUrl: toFetchableAudioUrl(normalized.audioUrl),
         };
       });
@@ -2631,7 +2647,7 @@ export default function App() {
     } finally {
       reelsInFlightRef.current = false;
     }
-  }, []);
+  }, [users]);
 
   const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
     if (reelData.soundKey) return reelData.soundKey;
@@ -2651,6 +2667,9 @@ export default function App() {
     return 'original:none';
   }, [currentUser]);
 
+  // ============================================================================
+  // ✅ UPDATED: createReel with feed injection
+  // ============================================================================
   const createReel = useCallback(async (reelData: Partial<Reel> & { 
     videoFile?: File | Blob; 
     audioFile?: File | Blob;
@@ -2731,8 +2750,16 @@ export default function App() {
       
       const newReel = normalizeReel(data.reel || data);
       
+      // ✅ Add author info from current user
+      newReel.author = currentUser.name;
+      newReel.author_name = currentUser.name;
+      newReel.avatar = currentUser.profile_image_url;
+      newReel.verified = currentUser.is_verified;
+      
+      // ✅ Add to reels state
       setReels(prev => [newReel, ...safeArray(prev)]);
       
+      // ✅ Fetch updated reels list
       fetchReels().catch(() => {});
       
       setLoginError('Reel posted successfully!');
@@ -2906,8 +2933,8 @@ export default function App() {
 
           setPosts((prev) => {
             const next = mergeFeed(prev, ordered);
-            stableFeedRef.current = next;
             lastGoodPostsRef.current = next;
+            stableFeedRef.current = next;
             return next;
           });
 
@@ -4160,6 +4187,48 @@ export default function App() {
     return Math.min(3, total - 1);
   }, [rankedPosts]);
 
+  // ============================================================================
+  // ✅ NEW: Transform feed items with reels
+  // ============================================================================
+  const feedItems = useMemo<FeedItem[]>(() => {
+    // Transform regular posts
+    const postItems = safeArray(rankedPosts).map(post => ({
+      ...post,
+      type: 'post' as const,
+      id: post.id,
+      created_at: post.created_at,
+    }));
+
+    // Transform reels into feed items
+    const reelItems = safeArray(reels).map(reel => ({
+      id: `reel-${reel.id}`,
+      type: 'reel' as const,
+      created_at: reel.created_at,
+      reel: {
+        id: reel.id,
+        user_id: reel.userId || reel.user_id,
+        author: reel.author || reel.author_name || 'User',
+        avatar: reel.avatar || reel.author_image,
+        verified: reel.verified || false,
+        video: reel.videoUrl || reel.video_url,
+        thumbnail: reel.thumbnail_url || reel.cover_url,
+        caption: reel.caption,
+        views: reel.views || reel.views_count || 0,
+        likes: reel.likes || reel.reactions?.length || 0,
+        comments: reel.comments?.length || 0,
+        shares: reel.shares || 0,
+        created_at: reel.created_at,
+      }
+    }));
+
+    // Merge and sort by date (newest first)
+    return [...reelItems, ...postItems].sort((a, b) => {
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return dateB - dateA;
+    });
+  }, [rankedPosts, reels]);
+
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
 
@@ -5035,9 +5104,27 @@ export default function App() {
                   },
                   getProductData
                 }}>
-                  {rankedPosts.length > 0 ? (
-                    rankedPosts.map((post, idx) => {
-                      const postAuthorId = Number((post as any).user_id);
+                  {feedItems.length > 0 ? (
+                    feedItems.map((item, idx) => {
+                      // Render reel cards
+                      if (item.type === 'reel') {
+                        return (
+                          <ReelFeedCard
+                            key={item.id}
+                            reel={item.reel}
+                            onOpenMenu={(reel) => {
+                              // Handle menu options (save, hide, report, etc.)
+                              console.log('Open reel menu:', reel);
+                            }}
+                            onProfileClick={(userId) => {
+                              openProfile(Number(userId));
+                            }}
+                          />
+                        );
+                      }
+
+                      // Render regular posts
+                      const postAuthorId = Number((item as any).user_id);
                       const isFollowing = checkIsFollowing(postAuthorId);
 
                       // Track if we've shown the first PYMK instance
@@ -5059,15 +5146,15 @@ export default function App() {
                         idx === groupsYouMayJoinInsertIndex;
 
                       return (
-                        <React.Fragment key={getStableItemKey(post, 'post')}>
+                        <React.Fragment key={getStableItemKey(item, 'post')}>
                           <Post
-                            post={post}
-                            author={getPostAuthor(post)}
+                            post={item as PostType}
+                            author={getPostAuthor(item as PostType)}
                             currentUser={currentUser}
                             users={users}
                             onProfileClick={(id) => openProfile(id)}
                             onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                            onShare={() => handleOpenShareSheet(post)}
+                            onShare={() => handleOpenShareSheet(item)}
                             onViewImage={setFullScreenImage}
                             onOpenComments={(postId: number) => onOpenComments(postId)}
                             onVideoClick={handleVideoClick}
@@ -5142,7 +5229,7 @@ export default function App() {
                               currentUser={currentUser}
                               isLoading={gymjLoading && groupsYouMayJoin.length === 0}
                               onJoin={(groupId: number) => joinFromSuggestion(groupId)}
-                              onHide={(groupId: number) => hideGroupSuggestion(groupId)}
+                              onLoginClick={() => setView('login')}
                               onOpenGroup={(groupId: number) => {
                                 // Navigate to groups page with selected group
                                 setView('groups');
@@ -5180,8 +5267,6 @@ export default function App() {
 
           {view === 'reels' && (
             <ReelsFeed
-              activeReelId={activeReelId}
-              onActiveReelConsumed={handleActiveReelConsumed}
               reels={reels}
               users={users}
               currentUser={currentUser}
@@ -5201,6 +5286,8 @@ export default function App() {
               onUseSound={useSoundFromReel}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
+              initialReelId={activeReelId}
+              onBack={() => setView('home')}
             />
           )}
 
