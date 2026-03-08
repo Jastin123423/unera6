@@ -53,22 +53,6 @@ export const onRequestOptions: PagesFunction = async () =>
 
 /**
  * POST /api/reels
- * Body:
- * {
- *   user_id: number,
- *   video_url: string,
- *   thumbnail_url?: string,
- *   caption?: string,
- *   song_name?: string,
- *   audio_url?: string,
- *   audio_start?: number,
- *   audio_end?: number,
- *   visibility?: 'public' | 'followers' | 'private',
- *   location?: string,
- *   song_id?: number,
- *   sound_id?: number,
- *   sound_key?: string
- * }
  */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -102,7 +86,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'user_id and video_url are required' }, 400);
     }
 
-    const insertSql = `
+    const result = await env.DB.prepare(
+      `
       INSERT INTO reels (
         user_id,
         video_url,
@@ -121,9 +106,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         sound_key
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
-    `;
-
-    const result = await env.DB.prepare(insertSql)
+      `
+    )
       .bind(
         user_id,
         video_url,
@@ -163,11 +147,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         r.sound_id,
         r.sound_key,
         r.created_at,
-        u.full_name,
+        u.name,
         u.username,
-        u.avatar_url,
-        u.profile_picture,
-        u.verified
+        u.profile_image_url,
+        u.is_verified
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
       WHERE r.id = ?
@@ -200,10 +183,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       sound_key: pickFirst((row as any).sound_key),
       created_at: (row as any).created_at,
 
-      author_name: pickFirst((row as any).full_name, (row as any).username, 'User'),
+      author_name: pickFirst((row as any).name, (row as any).username, 'User'),
       username: pickFirst((row as any).username),
-      avatar_url: pickFirst((row as any).avatar_url, (row as any).profile_picture),
-      verified: safeBool((row as any).verified),
+      avatar_url: pickFirst((row as any).profile_image_url),
+      verified: safeBool((row as any).is_verified),
 
       reactions: [],
       comments: [],
@@ -220,12 +203,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
 /**
  * GET /api/reels?viewerId=123
- * Returns reels with:
- * - real user profile info
- * - reactions from reel_reactions
- * - comments from reel_comments
- * - shares count from reel_shares
- * - my_reaction for viewer
  */
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -252,13 +229,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         r.views,
         r.shares,
         r.created_at,
-
-        u.full_name,
+        u.name,
         u.username,
-        u.avatar_url,
-        u.profile_picture,
-        u.verified
-
+        u.profile_image_url,
+        u.is_verified
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
       ORDER BY r.created_at DESC
@@ -373,10 +347,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         shares: shares_count,
         created_at: r.created_at,
 
-        author_name: pickFirst(r.full_name, r.username, 'User'),
+        author_name: pickFirst(r.name, r.username, 'User'),
         username: pickFirst(r.username),
-        avatar_url: pickFirst(r.avatar_url, r.profile_picture),
-        verified: safeBool(r.verified),
+        avatar_url: pickFirst(r.profile_image_url),
+        verified: safeBool(r.is_verified),
 
         reactions: reelReactions,
         comments: limitedComments,
