@@ -1,4 +1,5 @@
-//Feed.tsx 
+//Feed.tsx (Updated with fixes for Reel card)
+
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -15,6 +16,55 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
+
+// ==================== ICON COMPONENTS (for better rendering) ====================
+const Film: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#1877F2" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+    <line x1="7" y1="2" x2="7" y2="22"></line>
+    <line x1="17" y1="2" x2="17" y2="22"></line>
+    <line x1="2" y1="12" x2="22" y2="12"></line>
+    <line x1="2" y1="7" x2="7" y2="7"></line>
+    <line x1="2" y1="17" x2="7" y2="17"></line>
+    <line x1="17" y1="17" x2="22" y2="17"></line>
+    <line x1="17" y1="7" x2="22" y2="7"></line>
+  </svg>
+);
+
+const MoreHorizontal: React.FC<{ size?: number; color?: string }> = ({ size = 24, color = "#b0b3b8" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="1"></circle>
+    <circle cx="19" cy="12" r="1"></circle>
+    <circle cx="5" cy="12" r="1"></circle>
+  </svg>
+);
+
+const Play: React.FC<{ size?: number; color?: string; fill?: string; style?: React.CSSProperties }> = ({ size = 32, color = "#fff", fill = "#fff", style }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
+    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+  </svg>
+);
+
+const Eye: React.FC<{ size?: number; color?: string }> = ({ size = 18, color = "#fff" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+    <circle cx="12" cy="12" r="3"></circle>
+  </svg>
+);
+
+/**
+ * =========================
+ * ✅ FORMAT VIEW COUNT - Fixes issue #3 (views not displaying properly)
+ * =========================
+ */
+const formatViewCount = (n?: number): string => {
+  const v = Number(n || 0);
+
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(v);
+};
 
 /**
  * =========================
@@ -2700,13 +2750,13 @@ export const PeopleYouMayKnowGrid: React.FC<{
 
 /**
  * =========================
- * ✅ REEL FEED DATA TYPE
+ * ✅ REEL FEED DATA TYPE - FIXED with comprehensive name mapping
  * =========================
  */
 export type ReelFeedData = {
   id: number | string;
   user_id: number | string;
-  author: string;
+  author: string; // Fixed: This will now get real names, not fallback to "User"
   avatar?: string;
   verified?: boolean;
   video: string;
@@ -2717,19 +2767,147 @@ export type ReelFeedData = {
   comments?: number;
   shares?: number;
   created_at?: string;
+  // Audio/sound properties for Reels.tsx integration
+  audioUrl?: string;
+  audioStart?: number;
+  audioEnd?: number;
+  songName?: string;
+  songId?: string | number;
+  soundKey?: string;
 };
 
+/**
+ * =========================
+ * ✅ FORMAT VIEW COUNT - Fixed issue #3 (views not displaying properly)
+ * =========================
+ */
 const formatReelCount = (n?: number): string => {
   const v = Number(n || 0);
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1) + "M";
-  if (v >= 1_000) return (v / 1_000).toFixed(v >= 10_000 ? 0 : 1) + "K";
+  
+  // Handle all possible view count formats
+  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
   return String(v);
 };
 
 /**
  * =========================
- * ✅ REEL PREVIEW CARD FOR FEED
- * Opens full player in Reels.tsx
+ * ✅ GET DISPLAY NAME - Comprehensive name resolver for reel authors
+ * Fixes issue #1 (reel author name showing as "User")
+ * =========================
+ */
+const getReelAuthorName = (reel: any): string => {
+  // Check all possible name fields
+  return (
+    reel?.author_name ||
+    reel?.full_name ||
+    reel?.username ||
+    reel?.user_name ||
+    reel?.name ||
+    (reel?.user && (
+      reel.user.full_name ||
+      reel.user.username ||
+      reel.user.name
+    )) ||
+    (reel?.author && (
+      typeof reel.author === 'string' ? reel.author :
+      reel.author.full_name ||
+      reel.author.username ||
+      reel.author.name
+    )) ||
+    "User" // Final fallback only if absolutely nothing found
+  );
+};
+
+/**
+ * =========================
+ * ✅ REEL NORMALIZER HELPER - FIXED with proper field mapping
+ * Converts any API reel data to ReelFeedData format
+ * Fixes issues #1 and #3
+ * =========================
+ */
+export const normalizeReelFromFeed = (item: any): ReelFeedData => {
+  // Extract the actual reel data if it's wrapped
+  const reelData = item?.reel || item;
+  
+  return {
+    id: reelData?.id || item?.id || 0,
+    user_id: reelData?.user_id ?? reelData?.userId ?? item?.user_id ?? 0,
+    // FIX #1: Use comprehensive name resolver instead of simple fallback
+    author: getReelAuthorName(reelData) || getReelAuthorName(item),
+    avatar:
+      reelData?.avatar ||
+      reelData?.profile_image_url ||
+      reelData?.user?.profile_image_url ||
+      item?.avatar ||
+      "",
+    verified: Boolean(reelData?.verified || reelData?.is_verified || false),
+    // FIX #3: Check all possible view count fields
+    views: Number(
+      reelData?.views_count ??
+      reelData?.view_count ??
+      reelData?.views ??
+      reelData?.total_views ??
+      item?.views_count ??
+      item?.views ??
+      0
+    ),
+    likes: Number(
+      reelData?.likes_count ??
+      reelData?.likes ??
+      reelData?.reactions_count ??
+      0
+    ),
+    comments: Number(
+      reelData?.comments_count ??
+      reelData?.comments ??
+      0
+    ),
+    shares: Number(
+      reelData?.shares_count ??
+      reelData?.shares ??
+      0
+    ),
+    video: reelData?.video_url || reelData?.video || reelData?.media_url || item?.video_url || "",
+    thumbnail: reelData?.thumbnail_url || reelData?.thumbnail || reelData?.cover_url || "",
+    caption: reelData?.caption || reelData?.description || "",
+    created_at: reelData?.created_at || reelData?.createdAt || item?.created_at || "",
+    // Audio properties
+    audioUrl: reelData?.audio_url || reelData?.audioUrl || reelData?.song?.audio_url,
+    audioStart: Number(reelData?.audio_start || reelData?.audioStart || 0),
+    audioEnd: Number(reelData?.audio_end || reelData?.audioEnd || 0),
+    songName: reelData?.song_name || reelData?.songName || reelData?.song?.title,
+    songId: reelData?.song_id || reelData?.songId || reelData?.song?.id,
+    soundKey: reelData?.sound_key || reelData?.soundKey || `reel:${reelData?.id || 0}`,
+  };
+};
+
+/**
+ * =========================
+ * ✅ REEL DETECTION HELPER
+ * =========================
+ */
+export const isReelPost = (item: any): boolean => {
+  return (
+    item?.type === "reel" ||
+    item?.post_type === "reel" ||
+    item?.kind === "reel" ||
+    item?.feed_type === "reel" ||
+    item?.item_type === "reel" ||
+    // Check for video with 9:16 aspect ratio indicators
+    (item?.is_reel === true) ||
+    (item?.format === "reel") ||
+    // If it's a video and has sound properties, likely a reel
+    (item?.video && (item?.audio_url || item?.song_name))
+  );
+};
+
+/**
+ * =========================
+ * ✅ REEL PREVIEW CARD FOR FEED - FIXED with proper styling and data
+ * Opens full player in Reels.tsx with initialReelId
+ * Fixes issues #1, #2, #3
  * =========================
  */
 export const ReelFeedCard: React.FC<{
@@ -2739,6 +2917,7 @@ export const ReelFeedCard: React.FC<{
   onProfileClick?: (userId: number | string) => void;
 }> = ({ reel, onOpen, onOpenMenu, onProfileClick }) => {
   const openReel = () => {
+    // This will trigger App.tsx to switch to ReelsFeed with initialReelId
     onOpen?.(reel.id);
   };
 
@@ -2748,108 +2927,233 @@ export const ReelFeedCard: React.FC<{
   };
 
   return (
-    <div className="w-full">
-      <div className="bg-[#242526] w-full overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 pt-3 pb-2">
-          <div className="flex items-center gap-2">
-            <i className="fas fa-film text-[#1877F2] text-xl"></i>
-            <span className="text-[#E4E6EB] font-bold text-[22px] leading-none">
-              Reels
-            </span>
-          </div>
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenMenu?.(reel);
-            }}
-            className="w-9 h-9 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
-          >
-            <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
-          </button>
+    <div className="w-full" style={{ 
+      background: "#1c1e21",
+      borderTop: "1px solid rgba(255,255,255,0.08)",
+      borderBottom: "1px solid rgba(255,255,255,0.08)",
+      marginBottom: 10,
+      padding: "12px 0 14px"
+    }}>
+      {/* Header */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 14px 12px"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Film size={20} color="#1877f2" />
+          <span style={{ fontSize: 22, fontWeight: 700, color: "#e4e6eb" }}>
+            Reels
+          </span>
         </div>
 
-        {/* Preview */}
-        <div
-          onClick={openReel}
-          className="relative mx-4 mb-4 rounded-2xl overflow-hidden bg-black cursor-pointer shadow-[0_2px_10px_rgba(0,0,0,0.35)]"
-          style={{ aspectRatio: "9/16", maxHeight: 520 }}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenMenu?.(reel);
+          }}
+          style={{
+            border: "none",
+            background: "transparent",
+            color: "#b0b3b8",
+            cursor: "pointer",
+            width: 36,
+            height: 36,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center"
+          }}
         >
-          {reel.thumbnail ? (
-            <img
-              src={reel.thumbnail}
-              alt={reel.caption || "Reel preview"}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <video
-              src={reel.video}
-              muted
-              playsInline
-              preload="metadata"
-              className="w-full h-full object-cover"
-            />
-          )}
+          <MoreHorizontal size={24} />
+        </button>
+      </div>
 
-          {/* top/bottom gradient */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/10" />
+      {/* Preview - FIX #2: Full width with calc(100% - 28px) */}
+      <div
+        onClick={openReel}
+        style={{
+          position: "relative",
+          width: "calc(100% - 28px)", // This fixes the right-side gap
+          margin: "0 14px",
+          aspectRatio: "9 / 16",
+          maxHeight: "75vh",
+          borderRadius: 24,
+          overflow: "hidden",
+          background: "#111",
+          cursor: "pointer",
+        }}
+      >
+        {reel.thumbnail ? (
+          <img
+            src={reel.thumbnail}
+            alt={reel.caption || "Reel preview"}
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "block",
+              objectFit: "cover",
+            }}
+          />
+        ) : (
+          <video
+            src={reel.video}
+            muted
+            playsInline
+            preload="metadata"
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "block",
+              objectFit: "cover",
+            }}
+          />
+        )}
 
-          {/* play button */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-16 h-16 rounded-full border-4 border-white/90 flex items-center justify-center bg-black/25 backdrop-blur-[2px]">
-              <i className="fas fa-play text-white text-2xl ml-1"></i>
-            </div>
-          </div>
+        {/* Gradient overlay */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0.10), rgba(0,0,0,0.25))",
+          }}
+        />
 
-          {/* author + caption */}
-          <div className="absolute left-3 right-14 bottom-11 text-white">
-            <div
-              className="font-semibold text-sm flex items-center gap-1 cursor-pointer"
-              onClick={handleProfileClick}
-            >
-              <span className="truncate">{reel.author || "User"}</span>
-              {reel.verified && (
-                <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>
-              )}
-            </div>
-
-            {reel.caption ? (
-              <div className="text-xs text-white/90 line-clamp-2 mt-1">
-                {reel.caption}
-              </div>
-            ) : null}
-          </div>
-
-          {/* views */}
-          <div className="absolute left-3 bottom-3 flex items-center gap-2 text-white font-bold text-base drop-shadow-lg">
-            <i className="fas fa-eye text-lg"></i>
-            <span>{formatReelCount(reel.views)}</span>
-          </div>
-
-          {/* avatar */}
+        {/* Play button */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+          }}
+        >
           <div
-            className="absolute right-3 bottom-3 flex items-center gap-2 cursor-pointer"
-            onClick={handleProfileClick}
+            style={{
+              width: 74,
+              height: 74,
+              borderRadius: "50%",
+              border: "3px solid rgba(255,255,255,0.95)",
+              background: "rgba(255,255,255,0.12)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Play size={32} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
+          </div>
+        </div>
+
+        {/* Bottom overlay info - FIX #1: Shows real author name, not "User" */}
+        <div
+          style={{
+            position: "absolute",
+            left: 14,
+            right: 14,
+            bottom: 12,
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            {/* Author name - FIX #1: Now gets real name from reel.author */}
+            <div
+              style={{
+                color: "#fff",
+                fontSize: 15,
+                fontWeight: 700,
+                marginBottom: 6,
+                textShadow: "0 1px 3px rgba(0,0,0,0.4)",
+              }}
+            >
+              {reel.author}
+            </div>
+
+            {/* Views count - FIX #3: Shows actual view count */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: 700,
+                textShadow: "0 1px 3px rgba(0,0,0,0.4)",
+              }}
+            >
+              <Eye size={18} />
+              <span>{formatReelCount(reel.views)}</span>
+            </div>
+          </div>
+
+          {/* Avatar */}
+          <div
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: "50%",
+              overflow: "hidden",
+              border: "2px solid #fff",
+              background: "#1877f2",
+              flexShrink: 0,
+            }}
           >
             {reel.avatar ? (
               <img
                 src={reel.avatar}
                 alt={reel.author}
-                className="w-8 h-8 rounded-full border-2 border-white object-cover"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  display: "block",
+                }}
               />
             ) : (
-              <div className="w-8 h-8 rounded-full bg-[#1877F2] border-2 border-white flex items-center justify-center text-white text-xs font-bold">
+              <div
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontWeight: 700,
+                }}
+              >
                 {(reel.author || "U").charAt(0).toUpperCase()}
               </div>
             )}
           </div>
         </div>
-      </div>
 
-      {/* separator */}
-      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+        {/* Sound indicator (if audio is present) */}
+        {reel.songName && (
+          <div style={{
+            position: "absolute",
+            top: 12,
+            right: 12,
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(4px)",
+            padding: "4px 8px",
+            borderRadius: 20,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            border: "1px solid rgba(255,255,255,0.2)",
+          }}>
+            <i className="fas fa-music" style={{ color: "#1877F2", fontSize: 10 }}></i>
+            <span style={{ color: "#fff", fontSize: 10, fontWeight: "bold", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {reel.songName}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -4117,16 +4421,6 @@ export const Post: React.FC<{
     meta?.kind === 'event' ||
     !!p?.event_id ||
     !!meta?.event;
-
-  // ========== REEL DETECTION ==========
-  const isReelPost = (item: any) => {
-    return (
-      item?.type === "reel" ||
-      item?.post_type === "reel" ||
-      item?.kind === "reel" ||
-      item?.feed_type === "reel"
-    );
-  };
 
   // If it's an event post, render the EventPost component
   if (isEventPost) {
@@ -6421,7 +6715,8 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { getMediaTypeInfo,
+export { 
+  getMediaTypeInfo,
   getMarketplaceImages,
   getMarketplacePriceLine,
   normalizeEventFromFeed,
@@ -6431,4 +6726,9 @@ export { getMediaTypeInfo,
   safeString,
   safePostId,
   safeUserId,
-  avatarFrom };
+  avatarFrom,
+  formatReelCount,
+  isReelPost,
+  normalizeReelFromFeed,
+  getReelAuthorName
+};
