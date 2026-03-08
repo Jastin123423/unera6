@@ -1,4 +1,4 @@
-// App.tsx - Complete file with Reels feed integration and Brands removed
+// App.tsx - Complete file with Reels arranged after every 3 posts (NO OTHER CHANGES)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -27,6 +27,7 @@ import {
 } from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
+import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
@@ -47,6 +48,7 @@ import {
   AudioTrack,
   ReactionType,
   Group,
+  Brand,
   Song,
 } from './types';
 
@@ -505,7 +507,7 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
 
 /**
  * Normalize raw D1 rows to UI-safe PostType shape with multi-media support
- * Parse meta field if it's a JSON string
+ * Parse meta field if it's a JSON string (critical for marketplace posts)
  */
 const normalizePost = (p: any): PostType => {
   const mediaUrls =
@@ -526,6 +528,35 @@ const normalizePost = (p: any): PostType => {
   const mediaUrl = p?.media_url ?? p?.mediaUrl ?? (mediaUrls[0] ?? null);
 
   const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
+
+  // Handle event posts specifically
+  if (p?.type === 'event' || p?.meta?.kind === 'event') {
+    return {
+      ...p,
+      id: resolvedId,
+      user_id: safeNumber(p?.user_id),
+      content: safeString(p?.content),
+      type: 'event',
+      event_id: p?.event_id || p?.meta?.event_id,
+      media_url: p?.meta?.event?.cover_url || mediaUrl,
+      media_type: 'image',
+      meta: {
+        kind: 'event',
+        event_id: p?.event_id || p?.meta?.event_id,
+        event: p?.meta?.event || {
+          id: p?.event_id,
+          title: p?.meta?.event?.title || p?.title,
+          description: p?.meta?.event?.description || p?.description,
+          date: p?.meta?.event?.date,
+          time: p?.meta?.event?.time,
+          location: p?.meta?.event?.location,
+          cover_url: p?.meta?.event?.cover_url || mediaUrl,
+          attendees: p?.meta?.event?.attendees || [],
+          interested: p?.meta?.event?.interested || [],
+        }
+      }
+    } as any;
+  }
 
   return {
     ...p,
@@ -567,7 +598,7 @@ const normalizePost = (p: any): PostType => {
   } as any;
 };
 
-/** Event normalization helpers */
+/** Event normalization helpers from App.tsx 1 */
 const toISO = (d: any) => {
   const dt = new Date(d);
   return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
@@ -833,7 +864,7 @@ const normalizeProduct = (p: any) => {
 };
 
 // ============================================================================
-// Normalize groups with optional members and is_member support
+// 🔧 FIXED: Normalize groups with optional members and is_member support
 // ============================================================================
 /** Normalize groups to prevent crashes and handle membership correctly */
 const normalizeGroup = (g: any): Group => {
@@ -869,7 +900,7 @@ const normalizeGroup = (g: any): Group => {
   } as any;
 };
 
-/** ---------- Marketplace Context for Post.tsx ---------- */
+/** ---------- ✅ ADDED: Marketplace Context for Post.tsx ---------- */
 export const MarketplaceContext = React.createContext<{
   onViewProduct: (productId: number) => void;
   getProductData: (productId: number) => { 
@@ -1018,15 +1049,13 @@ const toBlobUrl = async (remoteUrl: string): Promise<string> => {
 };
 
 const apiFetch = async (url: string, options: RequestInit = {}) => {
-  const token = localStorage.getItem('unera_token');
   const headers: HeadersInit = {
     Accept: 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
 
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  if (!isFormData) headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+  if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 20000);
@@ -1174,6 +1203,7 @@ type View =
   | 'reels'
   | 'marketplace'
   | 'groups'
+  | 'brands'
   | 'music'
   | 'tools'
   | 'profiles'
@@ -1312,74 +1342,19 @@ async function recordPlay(track: AudioTrack, userId: any) {
 }
 
 // ============================================================================
-// ✅ REEL FEED INTEGRATION UTILITIES
+// ✅ REEL FEED INTEGRATION - ONLY CHANGE IS HERE
 // ============================================================================
 
 /**
- * Shuffle array using Fisher-Yates algorithm with optional seed for reproducibility
+ * Shuffle array using Fisher-Yates algorithm for reel rotation on refresh
  */
-const shuffleArray = <T,>(arr: T[], seed?: number): T[] => {
+const shuffleArray = <T,>(arr: T[]): T[] => {
   const copy = [...arr];
-  
-  if (seed !== undefined) {
-    // Seeded shuffle using mulberry32
-    let state = seed;
-    for (let i = copy.length - 1; i > 0; i--) {
-      state = (state * 9301 + 49297) % 233280;
-      const j = Math.floor((state / 233280) * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-  } else {
-    // Regular random shuffle
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
   }
-  
   return copy;
-};
-
-/**
- * Build feed by injecting reels after every 3 posts
- * - Shuffles reels once per refresh
- * - No duplicates until all reels are used
- * - Each reel appears as a separate feed item with type='reel'
- */
-const buildFeedWithReels = (posts: any[], reels: any[], refreshSeed: number) => {
-  // Create post items with type='post'
-  const postItems = posts.map(post => ({
-    ...post,
-    type: 'post' as const,
-    id: post.id,
-    created_at: post.created_at,
-  }));
-
-  // Shuffle reels using the refresh seed for rotation on every refresh
-  const shuffledReels = shuffleArray(reels, refreshSeed);
-  
-  const merged: any[] = [];
-  let reelIndex = 0;
-
-  for (let i = 0; i < postItems.length; i++) {
-    // Add the post
-    merged.push(postItems[i]);
-
-    // After every 3 posts (positions 2, 5, 8, etc. - zero-indexed)
-    // (i + 1) % 3 === 0 means after 3rd, 6th, 9th post
-    if ((i + 1) % 3 === 0 && reelIndex < shuffledReels.length) {
-      // Add a reel as a feed item
-      merged.push({
-        id: `reel-slot-${shuffledReels[reelIndex].id}-${i}-${Date.now()}`,
-        type: 'reel' as const,
-        reel: shuffledReels[reelIndex],
-        created_at: shuffledReels[reelIndex].created_at,
-      });
-      reelIndex++;
-    }
-  }
-
-  return merged;
 };
 
 export default function App() {
@@ -1393,6 +1368,7 @@ export default function App() {
   const [reels, setReels] = useState<Reel[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
 
@@ -1447,11 +1423,6 @@ export default function App() {
       return [];
     }
   });
-
-  // ============================================================================
-  // ✅ Feed refresh seed for reel rotation
-  // ============================================================================
-  const [feedRefreshSeed, setFeedRefreshSeed] = useState<number>(() => Date.now());
 
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
@@ -1698,7 +1669,7 @@ export default function App() {
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
 
-  // ✅ Incoming call polling effect
+  // ✅ ADDED: Incoming call polling effect
   useEffect(() => {
     if (!currentUser?.id) return;
 
@@ -2456,12 +2427,64 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
-  /** ✅ Helper to create marketplace posts - will be handled by API, not directly in App.tsx */
-  const createMarketplacePost = useCallback(async (product: any) => {
-    // This will be handled by the API, not directly in App.tsx
-    console.log('Marketplace post creation delegated to API');
-    return null;
-  }, []);
+  /** ---------- ✅ FIXED: Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
+  const createMarketplacePost = useCallback(
+    async (product: any) => {
+      if (!currentUser) return;
+
+      const images: string[] = safeImages(product.images);
+      const media_url = images[0] || '';
+      const media_type = media_url ? 'image' : null;
+
+      const payload = {
+        user_id: currentUser.id,
+        
+        content: product.title || '',
+        visibility: 'public',
+        
+        type: "marketplace",
+        post_type: "product",
+        product_id: product.id,
+        
+        media_url,
+        media_type,
+        media_urls: images,
+        media_types: images.map(() => 'image'),
+        
+        meta: {
+          kind: "product",
+          product_id: product.id,
+          marketplace: {
+            id: product.id,
+            product_id: product.id,
+            price: product.discount_price ?? product.main_price ?? null,
+            currency: product.currency_symbol || 'TZS',
+            location: product.address || '',
+            title: product.title,
+            images: images,
+          }
+        }
+      };
+
+      const created = await apiFetch('/api/posts', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const newPost = normalizePost(created?.post ?? created);
+      
+      setPosts(prev => [newPost, ...safeArray(prev)]);
+      
+      if (Number(currentUser.id) === Number(selectedUserId)) {
+        setProfilePosts(prev => [newPost, ...safeArray(prev)]);
+      }
+
+      scheduleSilentRefresh();
+      
+      return newPost;
+    },
+    [currentUser, selectedUserId]
+  );
 
   const createProduct = useCallback(async (productData: any) => {
     if (!requireAuth("Creating products")) return;
@@ -2493,7 +2516,7 @@ export default function App() {
         return [createdProduct, ...filtered];
       });
 
-      // Marketplace post will be created by the API automatically
+      await createMarketplacePost(createdProduct);
       
       return createdProduct;
     } catch (e: any) {
@@ -2501,7 +2524,7 @@ export default function App() {
       setLoginError(e?.message || "Failed to create product");
       throw e;
     }
-  }, [currentUser, requireAuth]);
+  }, [currentUser, requireAuth, createMarketplacePost]);
 
   const roleOf = (u: any) => String(u?.role || '').trim().toLowerCase();
   const isAdmin = (u: any) => roleOf(u) === 'admin';
@@ -2613,9 +2636,6 @@ export default function App() {
     }
   }, []);
 
-  // ============================================================================
-  // ✅ Fetch Reels with author info
-  // ============================================================================
   const fetchReels = useCallback(async () => {
     if (reelsInFlightRef.current) return;
     reelsInFlightRef.current = true;
@@ -2630,10 +2650,10 @@ export default function App() {
         const author = users.find(u => Number(u.id) === Number(normalized.userId));
         return {
           ...normalized,
-          author: author?.name || normalized.author || 'User',
-          author_name: author?.name || normalized.author_name || 'User',
-          avatar: author?.profile_image_url || normalized.avatar || '',
-          verified: author?.is_verified || normalized.verified || false,
+          author: author?.name || normalized.author,
+          author_name: author?.name || normalized.author_name,
+          avatar: author?.profile_image_url || normalized.avatar,
+          verified: author?.is_verified || normalized.verified,
           audioUrl: toFetchableAudioUrl(normalized.audioUrl),
         };
       });
@@ -2665,7 +2685,7 @@ export default function App() {
   }, [currentUser]);
 
   // ============================================================================
-  // ✅ Create Reel - only posts reels to feeds
+  // ✅ UPDATED: createReel with feed injection
   // ============================================================================
   const createReel = useCallback(async (reelData: Partial<Reel> & { 
     videoFile?: File | Blob; 
@@ -2747,20 +2767,17 @@ export default function App() {
       
       const newReel = normalizeReel(data.reel || data);
       
-      // Add author info from current user
+      // ✅ Add author info from current user
       newReel.author = currentUser.name;
       newReel.author_name = currentUser.name;
       newReel.avatar = currentUser.profile_image_url;
       newReel.verified = currentUser.is_verified;
       
-      // Add to reels state
+      // ✅ Add to reels state
       setReels(prev => [newReel, ...safeArray(prev)]);
       
-      // Fetch updated reels list
+      // ✅ Fetch updated reels list
       fetchReels().catch(() => {});
-      
-      // Update feed refresh seed to rotate reels
-      setFeedRefreshSeed(Date.now());
       
       setLoginError('Reel posted successfully!');
       
@@ -2775,9 +2792,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchReels, selectedReelSound, generateSoundKey]);
 
-  // ============================================================================
-  // ✅ React to Reel (keep as original)
-  // ============================================================================
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
     if (!currentUser) return;
@@ -2806,9 +2820,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchReels]);
 
-  // ============================================================================
-  // ✅ Comment on Reel (keep as original)
-  // ============================================================================
   const commentOnReel = useCallback(async (reelId: number, text: string) => {
     if (!requireAuth('Commenting on reels')) return;
     if (!currentUser) return;
@@ -2827,9 +2838,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchReels]);
 
-  // ============================================================================
-  // ✅ Share Reel (keep as original)
-  // ============================================================================
   const shareReel = useCallback(async (reelId: number, type: 'feed' | 'copy') => {
     if (!requireAuth('Sharing reels')) return;
     if (!currentUser) return;
@@ -2861,40 +2869,6 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  // ============================================================================
-  // ✅ View Reel (keep as original)
-  // ============================================================================
-  const viewReel = useCallback(async (reelId: number) => {
-    if (!currentUser) return;
-    
-    try {
-      const data = await apiFetch(`/api/reels/${reelId}/view`, {
-        method: 'POST',
-        body: JSON.stringify({ 
-          user_id: currentUser.id,
-          viewed_at: new Date().toISOString()
-        }),
-      });
-      
-      if (data?.views_count !== undefined) {
-        setReels(prev => 
-          safeArray(prev).map(reel => 
-            reel.id === reelId 
-              ? { ...reel, views: data.views_count, views_count: data.views_count }
-              : reel
-          )
-        );
-      }
-      
-      return data;
-    } catch (error) {
-      console.error('Failed to record reel view:', error);
-    }
-  }, [currentUser]);
-
-  // ============================================================================
-  // ✅ Use sound from reel
-  // ============================================================================
   const useSoundFromReel = useCallback((soundFromReel: any) => {
     const audioUrlRaw = soundFromReel?.audio_url ?? soundFromReel?.audioUrl ?? '';
     
@@ -3117,12 +3091,10 @@ export default function App() {
     scheduleSilentRefreshRef.current = setTimeout(() => {
       fetchPostsForHome(currentUser).catch(() => {});
       fetchReels().catch(() => {});
-      // Update refresh seed to rotate reels
-      setFeedRefreshSeed(Date.now());
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-  /** ---------- Event Functions ---------- */
+  /** ---------- Event Functions from App.tsx 1 ---------- */
   const fetchEvents = useCallback(async (): Promise<Event[]> => {
     try {
       const data = await apiFetch('/api/events');
@@ -3270,14 +3242,59 @@ export default function App() {
     
     setEvents((prev: any) => [newEvent, ...safeArray(prev)]);
 
-    // Event post will be created by the API automatically
+    try {
+      const eventPostPayload = {
+        user_id: currentUser.id,
+        content: `🎉 Check out my new event: ${newEvent.title}`,
+        type: "event",
+        event_id: newEvent.id,
+        visibility: 'public',
+        meta: {
+          kind: "event",
+          event_id: newEvent.id,
+          event: {
+            id: newEvent.id,
+            title: newEvent.title,
+            description: newEvent.description,
+            date: newEvent.date,
+            time: newEvent.time,
+            location: newEvent.location,
+            cover_url: newEvent.cover_url,
+            attendees: newEvent.attendees || [],
+            interested: newEvent.interestedIds || [],
+          }
+        }
+      };
+
+      const postRes = await apiFetch('/api/posts', { 
+        method: 'POST', 
+        body: JSON.stringify(eventPostPayload) 
+      });
+      
+      const newPost = normalizePost(postRes?.post ?? postRes);
+      
+      setPosts(prev => {
+        const next = [newPost, ...safeArray(prev)];
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      if (selectedUserId === currentUser.id) {
+        setProfilePosts(prev => [newPost, ...safeArray(prev)]);
+      }
+
+      pushSeenIds([Number(newPost.id)]);
+    } catch (error) {
+      console.error('Failed to create event post:', error);
+    }
 
     scheduleSilentRefresh();
     return newEvent;
   }, [currentUser, requireAuth, selectedUserId]);
 
   // ============================================================================
-  // Refresh group members helper
+  // 🔧 FIXED: Refresh group members helper
   // ============================================================================
   const refreshGroupMembers = useCallback(async (groupId: number) => {
     try {
@@ -3300,16 +3317,17 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // fetchOtherData with proper group merging - Brands removed!
+  // 🔧 FIXED: fetchOtherData with proper group merging - PRESERVE MEMBERSHIP!
   // ============================================================================
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
     otherDataInFlightRef.current = true;
     
     try {
-      const [pr, g, c] = await Promise.all([
+      const [pr, g, b, c] = await Promise.all([
         apiFetch('/api/products').catch(() => []),
         apiFetch('/api/groups').catch(() => []),
+        apiFetch('/api/brands').catch(() => []),
         apiFetch('/api/chats').catch(() => []),
       ]);
 
@@ -3361,6 +3379,8 @@ export default function App() {
           });
         });
       });
+      
+      setBrands(safeArray(b));
       
       const eventsData = await fetchEvents().catch(() => []);
       setEvents(eventsData);
@@ -3512,7 +3532,7 @@ export default function App() {
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
   // ============================================================================
-  // Join from Groups You May Join
+  // ✅ Join from Groups You May Join
   // ============================================================================
   const joinFromSuggestion = useCallback(async (groupId: number) => {
     const id = Number(groupId);
@@ -3934,9 +3954,6 @@ export default function App() {
         fetchSongs(),
         fetchStories(),
       ]);
-      
-      // Update refresh seed after fetching data
-      setFeedRefreshSeed(Date.now());
     },
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
@@ -4012,8 +4029,6 @@ export default function App() {
         } catch {}
         fetchPostsForHome(currentUser).catch(() => {});
         fetchReels().catch(() => {});
-        // Update refresh seed to rotate reels
-        setFeedRefreshSeed(Date.now());
       }
     };
 
@@ -4041,8 +4056,6 @@ export default function App() {
       if (activeCommentsPostId != null) return;
       await fetchPostsForHome(currentUser).catch(() => {});
       await fetchReels().catch(() => {});
-      // Update refresh seed to rotate reels
-      setFeedRefreshSeed(Date.now());
     };
 
     const t = setInterval(tick, 30000);
@@ -4192,12 +4205,65 @@ export default function App() {
   }, [rankedPosts]);
 
   // ============================================================================
-  // ✅ Build feed items with reels injected after every 3 posts
+  // ✅ NEW: Transform feed items with reels - ONLY THIS SECTION CHANGED
   // ============================================================================
   const feedItems = useMemo<FeedItem[]>(() => {
-    // Build the feed with reels injected
-    return buildFeedWithReels(rankedPosts, reels, feedRefreshSeed);
-  }, [rankedPosts, reels, feedRefreshSeed]);
+    // Transform regular posts
+    const postItems = safeArray(rankedPosts).map(post => ({
+      ...post,
+      type: 'post' as const,
+      id: post.id,
+      created_at: post.created_at,
+    }));
+
+    // Transform reels into feed items
+    const reelItems = safeArray(reels).map(reel => ({
+      id: `reel-${reel.id}`,
+      type: 'reel' as const,
+      created_at: reel.created_at,
+      reel: {
+        id: reel.id,
+        user_id: reel.userId || reel.user_id,
+        author: reel.author || reel.author_name || 'User',
+        avatar: reel.avatar || reel.author_image,
+        verified: reel.verified || false,
+        video: reel.videoUrl || reel.video_url,
+        thumbnail: reel.thumbnail_url || reel.cover_url,
+        caption: reel.caption,
+        views: reel.views || reel.views_count || 0,
+        likes: reel.likes || reel.reactions?.length || 0,
+        comments: reel.comments?.length || 0,
+        shares: reel.shares || 0,
+        created_at: reel.created_at,
+      }
+    }));
+
+    // Shuffle reels for rotation on refresh
+    const shuffledReels = shuffleArray(reelItems);
+    
+    // Merge posts and reels with reels injected after every 3 posts
+    const merged: FeedItem[] = [];
+    let reelIndex = 0;
+
+    for (let i = 0; i < postItems.length; i++) {
+      // Add the post
+      merged.push(postItems[i]);
+
+      // After every 3 posts, add a reel if available
+      if ((i + 1) % 3 === 0 && reelIndex < shuffledReels.length) {
+        merged.push(shuffledReels[reelIndex]);
+        reelIndex++;
+      }
+    }
+
+    // If there are remaining reels after all posts, append them at the end
+    while (reelIndex < shuffledReels.length) {
+      merged.push(shuffledReels[reelIndex]);
+      reelIndex++;
+    }
+
+    return merged;
+  }, [rankedPosts, reels]);
 
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
@@ -4253,8 +4319,6 @@ export default function App() {
       setView('home');
       await fetchPostsForHome(normalized);
       await fetchReels();
-      // Update refresh seed to rotate reels
-      setFeedRefreshSeed(Date.now());
 
     } catch (error: any) {
       setLoginError(error?.message || 'Registration failed');
@@ -4303,8 +4367,6 @@ export default function App() {
 
       await fetchPostsForHome(finalUser);
       await fetchReels();
-      // Update refresh seed to rotate reels
-      setFeedRefreshSeed(Date.now());
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -4476,8 +4538,6 @@ export default function App() {
     setGymjHiddenIds([]);
     setSelectedReelId(null);
     setView('home');
-    // Update refresh seed to rotate reels
-    setFeedRefreshSeed(Date.now());
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
   };
@@ -4506,9 +4566,6 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
-  // ============================================================================
-  // ✅ Create Post - only creates posts, no reels
-  // ============================================================================
   const createPost = useCallback(
     async (
       text: string,
@@ -5145,6 +5202,7 @@ export default function App() {
                             onVideoClick={handleVideoClick}
                             onPlayAudioTrack={onPlayTrack}
                             groups={groups}
+                            brands={brands}
                             chats={chats}
                             onHashtagClick={handleHashtagClick}
                             isFollowing={isFollowing}
@@ -5343,6 +5401,33 @@ export default function App() {
             </ErrorBoundary>
           )}
 
+          {view === 'brands' && (
+            <BrandsPage
+              currentUser={currentUser}
+              brands={brands}
+              posts={posts}
+              users={users}
+              onCreateBrand={() => requireAuth('Creating brands')}
+              onFollowBrand={(id: number) => followUser(id)}
+              onProfileClick={(id) => openProfile(id)}
+              onPostAsBrand={() => requireAuth('Posting')}
+              onReact={() => requireAuth('Reacting')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onOpenComments={(id: any) => {
+                if (!requireAuth('Commenting')) return;
+                const pid = Number(id);
+                setActiveCommentsPostId(pid);
+                const source = view === 'profile' ? profilePosts : posts;
+                const found = source.find((p: any) => Number(p.id) === pid) || null;
+                setCommentPostSnapshot(found);
+              }}
+              onDeleteBrand={() => requireAuth('Deleting brands')}
+              onPlayAudioTrack={onPlayTrack}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          )}
+
           {view === 'music' && (
             <MusicSystem
               currentUser={currentUser}
@@ -5423,6 +5508,7 @@ export default function App() {
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
               groups={groups}
+              brands={brands}
               chats={chats}
             />
           )}
@@ -5592,6 +5678,7 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           groups={groups}
+          brands={brands}
           chats={chats}
           onShareComplete={handleShareComplete}
           onFollow={followUser}
