@@ -228,6 +228,7 @@ const unwrapFeedItem = (item: any): any => {
   if (item.type === 'marketplace' && item.marketplace) return item.marketplace;
   if (item.type === 'music' && item.music) return item.music;
   if (item.type === 'podcast' && item.podcast) return item.podcast;
+  if (item.type === 'reel' && item.reel) return item.reel;
   
   // If item has a data wrapper
   if (item.data) return item.data;
@@ -2696,6 +2697,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
     </div>
   );
 };
+
 /**
  * =========================
  * ✅ REEL FEED DATA TYPE
@@ -2850,8 +2852,8 @@ export const ReelFeedCard: React.FC<{
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
-}; fc
-    
+};
+
 /**
  * =========================
  * ✅ GROUPS YOU MAY JOIN - FACEBOOK STYLE FEED CARD
@@ -4115,6 +4117,16 @@ export const Post: React.FC<{
     meta?.kind === 'event' ||
     !!p?.event_id ||
     !!meta?.event;
+
+  // ========== REEL DETECTION ==========
+  const isReelPost = (item: any) => {
+    return (
+      item?.type === "reel" ||
+      item?.post_type === "reel" ||
+      item?.kind === "reel" ||
+      item?.feed_type === "reel"
+    );
+  };
 
   // If it's an event post, render the EventPost component
   if (isEventPost) {
