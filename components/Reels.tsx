@@ -3025,4 +3025,4 @@ if (typeof document !== 'undefined') {
 
 // Export components
 export default ReelsFeed;
-export { SoundDetailView };
+
