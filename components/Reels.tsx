@@ -1,4 +1,4 @@
-// Reels.tsx (Complete file with view counting functionality)
+// Reels.tsx (Complete file with avatarFrom helper and view counting)
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
@@ -31,6 +31,33 @@ interface Sound {
   soundKey?: string;
   originalUrl?: string;
 }
+
+// ==================== AVATAR HELPER - PROTECTS PROFILE IMAGES ====================
+const avatarFrom = (u: any) => {
+  // Try all possible image field variations
+  const img = String(
+    u?.profile_image_url ??
+    u?.profileImage ??
+    u?.avatar ??
+    u?.author_image ??
+    u?.authorImage ??
+    u?.image ??
+    u?.picture ??
+    ''
+  ).trim();
+
+  if (img && img !== 'null' && img !== 'undefined') return img;
+
+  // Generate initials from name/username
+  const label =
+    String(u?.name ?? '').trim() ||
+    String(u?.username ?? '').trim() ||
+    String(u?.author_name ?? '').trim() ||
+    String(u?.author_username ?? '').trim() ||
+    'User';
+
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=1877F2&color=fff&bold=true`;
+};
 
 // ==================== FORMAT VIEW COUNT HELPER ====================
 const formatViewCount = (num?: number): string => {
@@ -175,7 +202,7 @@ const ReelCommentsSheet: React.FC<{
             return (
               <div key={c.id} className="flex gap-4">
                 <img 
-                  src={author?.profile_image_url || author?.profileImage} 
+                  src={avatarFrom(author)} 
                   className="w-10 h-10 rounded-full object-cover border-2 border-white/5" 
                   alt="" 
                 />
@@ -1453,10 +1480,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   };
 
   const formatCount = (num: number): string => {
-    if (!num && num !== 0) return '0';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
+    return formatViewCount(num);
   };
 
   return (
@@ -1493,8 +1517,12 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
             {sound.name}
           </h2>
           <div className="flex items-center gap-2 mb-1">
-            {sound.creator?.profile_image_url && (
-              <img src={sound.creator.profile_image_url} className="w-6 h-6 rounded-full object-cover" alt="" />
+            {sound.creator && (
+              <img 
+                src={avatarFrom(sound.creator)} 
+                className="w-6 h-6 rounded-full object-cover" 
+                alt="" 
+              />
             )}
             <p className="text-[#1877F2] font-black text-sm uppercase tracking-widest">
               BY {sound.creator?.name || 'Original Sound'}
@@ -1854,7 +1882,7 @@ const SoundItem: React.FC<{
       <div className="relative w-16 h-16 shrink-0">
         {sound.coverImage || sound.creator?.profile_image_url ? (
           <img 
-            src={sound.coverImage || sound.creator?.profile_image_url} 
+            src={sound.coverImage || avatarFrom(sound.creator)} 
             className="w-full h-full rounded-2xl object-cover shadow-2xl" 
             alt="" 
           />
@@ -2895,7 +2923,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       <div className="mb-4">
                         <div className="flex items-center gap-3 mb-2">
                           <img 
-                            src={author.profile_image_url || author.profileImage} 
+                            src={avatarFrom(author)} 
                             className="w-10 h-10 rounded-full border-2 border-white/30 object-cover cursor-pointer" 
                             alt="" 
                             onClick={() => onProfileClick(author.id)} 
@@ -3123,3 +3151,4 @@ if (typeof document !== 'undefined') {
 
 // Export components
 export default ReelsFeed;
+export { SoundDetailView };
