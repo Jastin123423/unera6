@@ -2717,7 +2717,7 @@ export type ReelFeedData = {
   created_at?: string;
 };
 
-const formatCount = (n?: number): string => {
+const formatReelCount = (n?: number): string => {
   const v = Number(n || 0);
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1) + "M";
   if (v >= 1_000) return (v / 1_000).toFixed(v >= 10_000 ? 0 : 1) + "K";
@@ -2726,8 +2726,8 @@ const formatCount = (n?: number): string => {
 
 /**
  * =========================
- * REEL PREVIEW CARD
- * Opens Reels.tsx and plays selected reel
+ * ✅ REEL PREVIEW CARD FOR FEED
+ * Opens full player in Reels.tsx
  * =========================
  */
 export const ReelFeedCard: React.FC<{
@@ -2736,14 +2736,8 @@ export const ReelFeedCard: React.FC<{
   onOpenMenu?: (reel: ReelFeedData) => void;
   onProfileClick?: (userId: number | string) => void;
 }> = ({ reel, onOpen, onOpenMenu, onProfileClick }) => {
-
-  /** =========================
-   * OPEN REEL PLAYER
-   * ========================= */
   const openReel = () => {
-    if (onOpen) {
-      onOpen(reel.id); // 🔥 This tells App.tsx which reel to open
-    }
+    onOpen?.(reel.id);
   };
 
   const handleProfileClick = (e: React.MouseEvent) => {
@@ -2753,9 +2747,7 @@ export const ReelFeedCard: React.FC<{
 
   return (
     <div className="w-full">
-
       <div className="bg-[#242526] w-full overflow-hidden">
-
         {/* Header */}
         <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <div className="flex items-center gap-2">
@@ -2776,18 +2768,16 @@ export const ReelFeedCard: React.FC<{
           </button>
         </div>
 
-        {/* Reel Preview */}
+        {/* Preview */}
         <div
           onClick={openReel}
-          className="relative mx-4 mb-4 rounded-2xl overflow-hidden bg-black cursor-pointer"
+          className="relative mx-4 mb-4 rounded-2xl overflow-hidden bg-black cursor-pointer shadow-[0_2px_10px_rgba(0,0,0,0.35)]"
           style={{ aspectRatio: "9/16", maxHeight: 520 }}
         >
-
-          {/* Thumbnail or muted preview */}
           {reel.thumbnail ? (
             <img
               src={reel.thumbnail}
-              alt={reel.caption || "Reel"}
+              alt={reel.caption || "Reel preview"}
               className="w-full h-full object-cover"
               loading="lazy"
             />
@@ -2801,23 +2791,42 @@ export const ReelFeedCard: React.FC<{
             />
           )}
 
-          {/* Gradient */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+          {/* top/bottom gradient */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/10" />
 
-          {/* Play Button */}
+          {/* play button */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-16 h-16 rounded-full border-4 border-white/90 flex items-center justify-center bg-black/30 backdrop-blur">
+            <div className="w-16 h-16 rounded-full border-4 border-white/90 flex items-center justify-center bg-black/25 backdrop-blur-[2px]">
               <i className="fas fa-play text-white text-2xl ml-1"></i>
             </div>
           </div>
 
-          {/* Views */}
-          <div className="absolute left-3 bottom-3 flex items-center gap-2 text-white font-bold text-base">
-            <i className="fas fa-eye"></i>
-            <span>{formatCount(reel.views)}</span>
+          {/* author + caption */}
+          <div className="absolute left-3 right-14 bottom-11 text-white">
+            <div
+              className="font-semibold text-sm flex items-center gap-1 cursor-pointer"
+              onClick={handleProfileClick}
+            >
+              <span className="truncate">{reel.author || "User"}</span>
+              {reel.verified && (
+                <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>
+              )}
+            </div>
+
+            {reel.caption ? (
+              <div className="text-xs text-white/90 line-clamp-2 mt-1">
+                {reel.caption}
+              </div>
+            ) : null}
           </div>
 
-          {/* Creator */}
+          {/* views */}
+          <div className="absolute left-3 bottom-3 flex items-center gap-2 text-white font-bold text-base drop-shadow-lg">
+            <i className="fas fa-eye text-lg"></i>
+            <span>{formatReelCount(reel.views)}</span>
+          </div>
+
+          {/* avatar */}
           <div
             className="absolute right-3 bottom-3 flex items-center gap-2 cursor-pointer"
             onClick={handleProfileClick}
@@ -2830,20 +2839,18 @@ export const ReelFeedCard: React.FC<{
               />
             ) : (
               <div className="w-8 h-8 rounded-full bg-[#1877F2] border-2 border-white flex items-center justify-center text-white text-xs font-bold">
-                {reel.author?.charAt(0) || "U"}
+                {(reel.author || "U").charAt(0).toUpperCase()}
               </div>
             )}
           </div>
-
         </div>
       </div>
 
-      {/* Feed separator */}
+      {/* separator */}
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-
     </div>
   );
-};
+}; fc
     
 /**
  * =========================
