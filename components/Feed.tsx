@@ -1,4 +1,4 @@
-// Feed.tsx 
+//Feed.tsx 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -3872,10 +3872,11 @@ export const EventFeedCard: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: POST CARD WITH NEW PROPS AND CLICK HANDLERS
+ * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
+ * AND PROFESSIONAL REACTION TEXT FORMATTING
  * =========================
  */
-export interface PostProps {
+export const Post: React.FC<{
   post: PostType;
   author: User | any;
   currentUser: User | null;
@@ -3885,14 +3886,12 @@ export interface PostProps {
   onShare: (id: number, newShareCount: number) => void;
   onDelete?: (id: number) => void;
   onViewImage: (url: string) => void;
-  onOpenComments: (id: number) => void;
+  onOpenComments: (id: number) => void; // This now expects just the postId
   onVideoClick: (p: PostType) => void;
   onPlayAudioTrack?: (t: AudioTrack) => void;
   onHashtagClick?: (tag: string) => void;
   onViewProductFromPost?: (productId: number) => void;
   onOpenGroup?: (groupId: number) => void;
-  onOpenEvent?: (eventId: number) => void;
-  onEventRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
   onOpenAudio?: (item: any) => void;
   onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
   groups?: Group[];
@@ -3904,9 +3903,7 @@ export interface PostProps {
   onEventClick?: (eventId: number) => void;
   onOpenReactions?: (postId: number) => void;
   onEdit?: (postId: number, content: string) => void;
-}
-
-export const Post: React.FC<PostProps> = ({
+}> = ({
   post,
   author,
   currentUser,
@@ -3933,8 +3930,6 @@ export const Post: React.FC<PostProps> = ({
   onEventClick,
   onOpenReactions,
   onEdit,
-  onOpenEvent,
-  onEventRSVP,
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -3976,7 +3971,7 @@ export const Post: React.FC<PostProps> = ({
         currentUser={currentUser}
         users={users}
         onProfileClick={onProfileClick}
-        onRSVP={onRSVP || onEventRSVP}
+        onRSVP={onRSVP}
         onFollow={onFollow}
         isFollowing={isFollowing}
         followLoading={followLoading}
@@ -3986,7 +3981,7 @@ export const Post: React.FC<PostProps> = ({
         groups={groups}
         brands={brands}
         chats={chats}
-        onEventClick={onEventClick || onOpenEvent}
+        onEventClick={onEventClick}
       />
     );
   }
@@ -4214,24 +4209,11 @@ export const Post: React.FC<PostProps> = ({
     }
   };
 
-  // ========== HANDLE POST CARD CLICK FOR EVENT/GROUP ==========
-  const handleCardClick = () => {
-    // If it's an event post, open event modal
-    if (isEventPost && p.event_id && onOpenEvent) {
-      onOpenEvent(Number(p.event_id));
-    }
-    // If it's a group post, you might want different behavior
-    // You can add group handling here if needed
-  };
-
   // ========== REGULAR POST RENDERING ==========
   return (
     <>
-      {/* Unified post wrapper - add onClick handler for events */}
-      <div 
-        className="w-full"
-        onClick={handleCardClick}
-      >
+      {/* Unified post wrapper */}
+      <div className="w-full">
         <div className="bg-[#242526] w-full overflow-hidden">
           {/* ===== POST HEADER - Use GroupPostHeader for group posts ===== */}
           {isGroupPost ? (
