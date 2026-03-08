@@ -2696,7 +2696,155 @@ export const PeopleYouMayKnowGrid: React.FC<{
     </div>
   );
 };
+/**
+ * =========================
+ * ✅ REEL FEED DATA TYPE
+ * =========================
+ */
+export type ReelFeedData = {
+  id: number | string;
+  user_id: number | string;
+  author: string;
+  avatar?: string;
+  verified?: boolean;
+  video: string;
+  thumbnail?: string;
+  caption?: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  created_at?: string;
+};
 
+const formatCount = (n?: number): string => {
+  const v = Number(n || 0);
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1) + "M";
+  if (v >= 1_000) return (v / 1_000).toFixed(v >= 10_000 ? 0 : 1) + "K";
+  return String(v);
+};
+
+/**
+ * =========================
+ * REEL PREVIEW CARD
+ * Opens Reels.tsx and plays selected reel
+ * =========================
+ */
+export const ReelFeedCard: React.FC<{
+  reel: ReelFeedData;
+  onOpen?: (reelId: number | string) => void;
+  onOpenMenu?: (reel: ReelFeedData) => void;
+  onProfileClick?: (userId: number | string) => void;
+}> = ({ reel, onOpen, onOpenMenu, onProfileClick }) => {
+
+  /** =========================
+   * OPEN REEL PLAYER
+   * ========================= */
+  const openReel = () => {
+    if (onOpen) {
+      onOpen(reel.id); // 🔥 This tells App.tsx which reel to open
+    }
+  };
+
+  const handleProfileClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onProfileClick?.(reel.user_id);
+  };
+
+  return (
+    <div className="w-full">
+
+      <div className="bg-[#242526] w-full overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+          <div className="flex items-center gap-2">
+            <i className="fas fa-film text-[#1877F2] text-xl"></i>
+            <span className="text-[#E4E6EB] font-bold text-[22px] leading-none">
+              Reels
+            </span>
+          </div>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenMenu?.(reel);
+            }}
+            className="w-9 h-9 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
+          >
+            <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
+          </button>
+        </div>
+
+        {/* Reel Preview */}
+        <div
+          onClick={openReel}
+          className="relative mx-4 mb-4 rounded-2xl overflow-hidden bg-black cursor-pointer"
+          style={{ aspectRatio: "9/16", maxHeight: 520 }}
+        >
+
+          {/* Thumbnail or muted preview */}
+          {reel.thumbnail ? (
+            <img
+              src={reel.thumbnail}
+              alt={reel.caption || "Reel"}
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <video
+              src={reel.video}
+              muted
+              playsInline
+              preload="metadata"
+              className="w-full h-full object-cover"
+            />
+          )}
+
+          {/* Gradient */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+
+          {/* Play Button */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-16 h-16 rounded-full border-4 border-white/90 flex items-center justify-center bg-black/30 backdrop-blur">
+              <i className="fas fa-play text-white text-2xl ml-1"></i>
+            </div>
+          </div>
+
+          {/* Views */}
+          <div className="absolute left-3 bottom-3 flex items-center gap-2 text-white font-bold text-base">
+            <i className="fas fa-eye"></i>
+            <span>{formatCount(reel.views)}</span>
+          </div>
+
+          {/* Creator */}
+          <div
+            className="absolute right-3 bottom-3 flex items-center gap-2 cursor-pointer"
+            onClick={handleProfileClick}
+          >
+            {reel.avatar ? (
+              <img
+                src={reel.avatar}
+                alt={reel.author}
+                className="w-8 h-8 rounded-full border-2 border-white object-cover"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-[#1877F2] border-2 border-white flex items-center justify-center text-white text-xs font-bold">
+                {reel.author?.charAt(0) || "U"}
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+
+      {/* Feed separator */}
+      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+
+    </div>
+  );
+};
+    
 /**
  * =========================
  * ✅ GROUPS YOU MAY JOIN - FACEBOOK STYLE FEED CARD
