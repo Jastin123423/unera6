@@ -1,5 +1,4 @@
-// App.tsx- (Complete file with reel feed integration)
-
+// App.tsx - Complete file with fixed Reels integration
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -11,8 +10,8 @@ import {
   ShareBottomSheet,
   PeopleYouMayKnowGrid,
   GroupsYouMayJoinCard,
-  ReelFeedCard, // ✅ NEW: Import reel card
-  FeedItem,     // ✅ NEW: Import feed item type
+  ReelFeedCard,
+  FeedItem,
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -812,6 +811,8 @@ const normalizeReel = (r: any): Reel => {
     avatar: r?.avatar || r?.author_image,
     verified: r?.verified || false,
     thumbnail_url: r?.thumbnail_url || r?.cover_url,
+    reactions_count: safeNumber(r?.reactions_count ?? r?.reactions?.length ?? 0),
+    views_count: safeNumber(r?.views_count ?? r?.views ?? 0),
   } as any;
 };
 
@@ -1365,6 +1366,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
+  const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
 
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -1583,10 +1585,9 @@ export default function App() {
   }, [users]);
 
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [activeReelId, setActiveReelId] = useState<number | null>(null);
   
   const handleActiveReelConsumed = useCallback(() => {
-    setActiveReelId(null);
+    setSelectedReelId(null);
   }, []);
   
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
@@ -4500,6 +4501,7 @@ export default function App() {
     setPymkHiddenIds([]);
     setGroupsYouMayJoin([]);
     setGymjHiddenIds([]);
+    setSelectedReelId(null);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -4521,6 +4523,7 @@ export default function App() {
     }
 
     setView(target);
+    setSelectedReelId(null); // Clear selected reel when navigating away from reels
 
     if (['home', 'reels', 'marketplace', 'groups'].includes(target)) {
       setActiveTab(target as any);
@@ -4931,7 +4934,7 @@ export default function App() {
       return;
     }
     
-    setActiveReelId(videoId);
+    setSelectedReelId(videoId);
     setView('reels');
   }, []);
 
@@ -5112,6 +5115,10 @@ export default function App() {
                           <ReelFeedCard
                             key={item.id}
                             reel={item.reel}
+                            onOpen={(reelId) => {
+                              setSelectedReelId(reelId);
+                              setView('reels');
+                            }}
                             onOpenMenu={(reel) => {
                               // Handle menu options (save, hide, report, etc.)
                               console.log('Open reel menu:', reel);
@@ -5286,7 +5293,7 @@ export default function App() {
               onUseSound={useSoundFromReel}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              initialReelId={activeReelId}
+              initialReelId={selectedReelId}
               onBack={() => setView('home')}
             />
           )}
