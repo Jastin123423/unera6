@@ -1,4 +1,4 @@
-// Feed.tsx 
+//Feed.tsx 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -15,7 +15,6 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
-import { useNavigate } from 'react-router-dom';
 
 /**
  * =========================
@@ -229,7 +228,6 @@ const unwrapFeedItem = (item: any): any => {
   if (item.type === 'marketplace' && item.marketplace) return item.marketplace;
   if (item.type === 'music' && item.music) return item.music;
   if (item.type === 'podcast' && item.podcast) return item.podcast;
-  if (item.type === 'reel' && item.reel) return item.reel;
   
   // If item has a data wrapper
   if (item.data) return item.data;
@@ -3857,7 +3855,7 @@ export const EventFeedCard: React.FC<{
 
 /**
  * =========================
- * ACTIVE COMMENTS STATE WITH LOCKED SNAPSHOT
+ * ✅ ACTIVE COMMENTS STATE WITH LOCKED SNAPSHOT
  * =========================
  */
 // This should be declared in the parent component that uses the Post component
@@ -4580,7 +4578,7 @@ export const Post: React.FC<{
                 className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (productId) onViewProductFromPost?.(productId);
+                  if (productId) onViewProduct?.(productId);
                 }}
               >
                 View product
@@ -4729,154 +4727,6 @@ export const Post: React.FC<{
         }}
       />
     </>
-  );
-};
-
-  // Add this after your other components (around line 4000-4500)
-// Replace the previous ReelFeedCard with this version
-
-/**
- * =========================
- * ✅ REEL FEED DATA TYPE
- * =========================
- */
-export type ReelFeedData = {
-  id: number | string;
-  user_id: number | string;
-  author: string;
-  avatar?: string;
-  verified?: boolean;
-  video: string;
-  thumbnail?: string;
-  caption?: string;
-  views?: number;
-  likes?: number;
-  comments?: number;
-  shares?: number;
-  created_at?: string;
-};
-
-const formatCount = (n?: number): string => {
-  const v = Number(n || 0);
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1) + 'M';
-  if (v >= 1_000) return (v / 1_000).toFixed(v >= 10_000 ? 0 : 1) + 'K';
-  return String(v);
-};
-
-/**
- * =========================
- * REEL PREVIEW CARD - FACEBOOK STYLE
- * =========================
- */
-export const ReelFeedCard: React.FC<{
-  reel: ReelFeedData;
-  onOpen?: (reelId: number | string) => void; // Optional navigation handler
-  onOpenMenu?: (reel: ReelFeedData) => void;
-  onProfileClick?: (userId: number | string) => void;
-}> = ({ reel, onOpen, onOpenMenu, onProfileClick }) => {
-  const openReel = () => {
-    // If onOpen is provided, use it (for navigation)
-    if (onOpen) {
-      onOpen(reel.id);
-    } else {
-      // Fallback: just log or do nothing
-      console.log('Open reel:', reel.id);
-    }
-  };
-
-  const handleProfileClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onProfileClick) {
-      onProfileClick(reel.user_id);
-    }
-  };
-
-  return (
-    <div className="w-full">
-      <div className="bg-[#242526] w-full overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 pt-3 pb-2">
-          <div className="flex items-center gap-2">
-            <i className="fas fa-film text-[#1877F2] text-xl"></i>
-            <span className="text-[#E4E6EB] font-bold text-[22px] leading-none">
-              Reels
-            </span>
-          </div>
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenMenu?.(reel);
-            }}
-            className="w-9 h-9 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
-          >
-            <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
-          </button>
-        </div>
-
-        {/* Video Preview */}
-        <div 
-          onClick={openReel}
-          className="relative mx-4 mb-4 rounded-2xl overflow-hidden bg-black cursor-pointer"
-          style={{ aspectRatio: '9/16', maxHeight: 520 }}
-        >
-          {/* Preview thumbnail or muted video */}
-          {reel.thumbnail ? (
-            <img
-              src={reel.thumbnail}
-              alt={reel.caption || 'Reel preview'}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <video
-              src={reel.video}
-              muted
-              playsInline
-              preload="metadata"
-              className="w-full h-full object-cover"
-            />
-          )}
-
-          {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-
-          {/* Centered Play Button */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-16 h-16 rounded-full border-4 border-white/90 flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
-              <i className="fas fa-play text-white text-2xl ml-1"></i>
-            </div>
-          </div>
-
-          {/* Views count - bottom left */}
-          <div className="absolute left-3 bottom-3 flex items-center gap-2 text-white font-bold text-base drop-shadow-lg">
-            <i className="fas fa-eye text-lg"></i>
-            <span>{formatCount(reel.views)}</span>
-          </div>
-
-          {/* Optional: Creator info overlay */}
-          <div 
-            className="absolute right-3 bottom-3 flex items-center gap-2 cursor-pointer"
-            onClick={handleProfileClick}
-          >
-            {reel.avatar ? (
-              <img 
-                src={reel.avatar} 
-                alt={reel.author}
-                className="w-8 h-8 rounded-full border-2 border-white object-cover"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-[#1877F2] border-2 border-white flex items-center justify-center text-white text-xs font-bold">
-                {reel.author?.charAt(0) || 'U'}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Facebook-style separator */}
-      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-    </div>
   );
 };
 
@@ -6331,74 +6181,6 @@ export const CommentsSheet: React.FC<{
           </button>
         </form>
       </div>
-    </div>
-  );
-};
-
-/**
- * =========================
- * SUGGESTED PRODUCTS WIDGET
- * =========================
- */
-export const SuggestedProductsWidget: React.FC<{
-  products: Product[];
-  currentUser: User;
-  onViewProduct: (product: Product) => void;
-  onSeeAll: () => void;
-}> = ({ products, currentUser, onViewProduct, onSeeAll }) => {
-  const suggested = (products || [])
-    .filter((p: any) => p.seller_id !== safeUserId(currentUser))
-    .slice(0, 4);
-
-  if (suggested.length === 0) return null;
-
-  return (
-    <div className="w-full">
-      <div className="bg-[#242526] w-full p-4">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
-          <button
-            onClick={onSeeAll}
-            className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
-          >
-            See all
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          {suggested.map((product: any) => {
-            const countryData = MARKETPLACE_COUNTRIES.find((c) =>
-              String(product.address || '').toLowerCase().includes(c.name.toLowerCase())
-            );
-            const symbol = countryData ? countryData.symbol : '$';
-
-            return (
-              <div
-                key={String(product.id)}
-                className="cursor-pointer group"
-                onClick={() => onViewProduct(product)}
-              >
-                <div className="aspect-square rounded-lg overflow-hidden relative mb-1.5 shadow-sm border border-[#3E4042]">
-                  <img
-                    src={product.images?.[0]}
-                    alt={product.title}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
-                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
-                    {symbol}
-                    {product.main_price}
-                  </div>
-                </div>
-                <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">
-                  {product.title}
-                </h4>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      
-      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
 };
