@@ -1,4 +1,6 @@
-// Reels.tsx (Complete file with avatarFrom helper and view counting)
+
+
+// Reels.tsx (Complete file with initialReelId and onBack support)_
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
@@ -31,91 +33,6 @@ interface Sound {
   soundKey?: string;
   originalUrl?: string;
 }
-
-// ==================== AVATAR HELPER - PROTECTS PROFILE IMAGES ====================
-const avatarFrom = (u: any) => {
-  // Try all possible image field variations
-  const img = String(
-    u?.profile_image_url ??
-    u?.profileImage ??
-    u?.avatar ??
-    u?.author_image ??
-    u?.authorImage ??
-    u?.image ??
-    u?.picture ??
-    ''
-  ).trim();
-
-  if (img && img !== 'null' && img !== 'undefined') return img;
-
-  // Generate initials from name/username
-  const label =
-    String(u?.name ?? '').trim() ||
-    String(u?.username ?? '').trim() ||
-    String(u?.author_name ?? '').trim() ||
-    String(u?.author_username ?? '').trim() ||
-    'User';
-
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=1877F2&color=fff&bold=true`;
-};
-
-// ==================== FORMAT VIEW COUNT HELPER ====================
-const formatViewCount = (num?: number): string => {
-  const v = Number(num || 0);
-  
-  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(v);
-};
-
-// ==================== API HELPER ====================
-const apiFetch = async (url: string, options: RequestInit = {}) => {
-  const token = localStorage.getItem('unera_token');
-  const headers: HeadersInit = {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers || {}),
-  };
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-  try {
-    const res = await fetch(url, { 
-      ...options, 
-      headers,
-      signal: controller.signal 
-    });
-
-    const contentType = res.headers.get('content-type') || '';
-    let data: any = null;
-
-    try {
-      if (contentType.includes('application/json')) data = await res.json();
-      else {
-        const text = await res.text();
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = { error: text };
-        }
-      }
-    } catch (e: any) {
-      data = { error: e?.message || 'Failed to parse response' };
-    }
-
-    if (!res.ok) {
-      const msg = data?.error || data?.message || `HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-
-    return data;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-};
 
 // ==================== HALF-SCREEN COMMENTS SHEET ====================
 const ReelCommentsSheet: React.FC<{
@@ -202,7 +119,7 @@ const ReelCommentsSheet: React.FC<{
             return (
               <div key={c.id} className="flex gap-4">
                 <img 
-                  src={avatarFrom(author)} 
+                  src={author?.profile_image_url || author?.profileImage} 
                   className="w-10 h-10 rounded-full object-cover border-2 border-white/5" 
                   alt="" 
                 />
@@ -1480,7 +1397,10 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   };
 
   const formatCount = (num: number): string => {
-    return formatViewCount(num);
+    if (!num && num !== 0) return '0';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
   };
 
   return (
@@ -1517,12 +1437,8 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
             {sound.name}
           </h2>
           <div className="flex items-center gap-2 mb-1">
-            {sound.creator && (
-              <img 
-                src={avatarFrom(sound.creator)} 
-                className="w-6 h-6 rounded-full object-cover" 
-                alt="" 
-              />
+            {sound.creator?.profile_image_url && (
+              <img src={sound.creator.profile_image_url} className="w-6 h-6 rounded-full object-cover" alt="" />
             )}
             <p className="text-[#1877F2] font-black text-sm uppercase tracking-widest">
               BY {sound.creator?.name || 'Original Sound'}
@@ -1638,6 +1554,13 @@ const ReelThumbnail: React.FC<{
   reel: Reel;
   onClick: () => void;
 }> = ({ reel, onClick }) => {
+  const formatCount = (num: number): string => {
+    if (!num && num !== 0) return '0';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  };
+
   return (
     <div 
       onClick={onClick} 
@@ -1652,7 +1575,7 @@ const ReelThumbnail: React.FC<{
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       <div className="absolute bottom-2 left-2 flex items-center gap-1.5 text-white text-[10px] font-black bg-black/40 px-2 py-1 rounded-lg backdrop-blur-md">
         <i className="fas fa-eye text-[8px]"></i> 
-        {formatViewCount(reel.views)} 
+        {formatCount(reel.views || 0)} 
       </div>
       <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <div className="w-8 h-8 bg-black/60 rounded-full flex items-center justify-center">
@@ -1882,7 +1805,7 @@ const SoundItem: React.FC<{
       <div className="relative w-16 h-16 shrink-0">
         {sound.coverImage || sound.creator?.profile_image_url ? (
           <img 
-            src={sound.coverImage || avatarFrom(sound.creator)} 
+            src={sound.coverImage || sound.creator?.profile_image_url} 
             className="w-full h-full rounded-2xl object-cover shadow-2xl" 
             alt="" 
           />
@@ -1910,12 +1833,12 @@ const SoundItem: React.FC<{
         <div className="flex items-center gap-3 mt-1">
           {sound.creationCount !== undefined && sound.creationCount > 0 && (
             <span className="text-[#45BD62] text-[10px] font-bold uppercase tracking-widest">
-              {formatViewCount(sound.creationCount)} uses
+              {sound.creationCount.toLocaleString()} uses
             </span>
           )}
           {sound.playCount !== undefined && sound.playCount > 0 && (
             <span className="text-white/60 text-[10px] font-medium">
-              {formatViewCount(sound.playCount)} plays
+              {sound.playCount.toLocaleString()} plays
             </span>
           )}
         </div>
@@ -2547,9 +2470,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
   const [soundDetailLoading, setSoundDetailLoading] = useState(false);
   
-  // State for tracking viewed reels to prevent duplicate view counting
-  const viewedReelsRef = useRef<Set<number>>(new Set());
-  
   // Refs
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -2560,39 +2480,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   useEffect(() => {
     activeIdRef.current = playingReelId;
   }, [playingReelId]);
-
-  // ✅ Function to increment view count via API
-  const incrementViewCount = useCallback(async (reelId: number) => {
-    // Prevent duplicate view counting for the same reel
-    if (viewedReelsRef.current.has(reelId)) return;
-    
-    try {
-      // Mark as viewed immediately to prevent multiple calls
-      viewedReelsRef.current.add(reelId);
-      
-      // Call API to increment view count
-      const token = localStorage.getItem('unera_token');
-      const response = await fetch(`/api/reels/${reelId}/view`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (data.success && data.views_count !== undefined) {
-        // Update the local reel data with new view count
-        // This will be reflected when the user comes back to feed
-        console.log(`View count updated for reel ${reelId}: ${data.views_count}`);
-      }
-    } catch (error) {
-      console.error('Failed to increment view count:', error);
-      // Remove from viewed set so we can try again later
-      viewedReelsRef.current.delete(reelId);
-    }
-  }, []);
 
   // ✅ Scroll to and play initial reel from feed
   useEffect(() => {
@@ -2605,13 +2492,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       if (el) {
         el.scrollIntoView({ behavior: 'auto', block: 'start' });
       }
-      
-      // Increment view count for initial reel
-      incrementViewCount(initialReelId);
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [initialReelId, reels, incrementViewCount]);
+  }, [initialReelId, reels]);
 
   // Mark user interaction for audio autoplay - UNLOCK AUDIO ON FIRST TAP
   useEffect(() => {
@@ -2729,14 +2613,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       if (userInteractedRef.current) {
         startAudioForReel(id);
       }
-      
-      // ✅ Increment view count when reel starts playing
-      incrementViewCount(id);
 
     } catch {
       // Autoplay blocked - will play on user interaction
     }
-  }, [stopAudio, startAudioForReel, incrementViewCount]);
+  }, [stopAudio, startAudioForReel]);
 
   // INTERSECTION OBSERVER - ONLY CALLS playOnly()
   useEffect(() => {
@@ -2827,7 +2708,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   }, [playOnly, startAudioForReel, stopAudio]);
 
   const formatCount = (num: number): string => {
-    return formatViewCount(num);
+    if (!num && num !== 0) return '0';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
   };
 
   return (
@@ -2923,7 +2807,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       <div className="mb-4">
                         <div className="flex items-center gap-3 mb-2">
                           <img 
-                            src={avatarFrom(author)} 
+                            src={author.profile_image_url || author.profileImage} 
                             className="w-10 h-10 rounded-full border-2 border-white/30 object-cover cursor-pointer" 
                             alt="" 
                             onClick={() => onProfileClick(author.id)} 
@@ -3004,14 +2888,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                           <i className="fas fa-share text-lg text-white" />
                           <span className="text-white text-sm font-bold">{formatCount(reel.shares || 0)}</span>
                         </button>
-                      </div>
-                    </div>
-
-                    {/* View count overlay */}
-                    <div className="absolute top-4 left-4 z-20 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20">
-                      <div className="flex items-center gap-2 text-white text-xs font-bold">
-                        <i className="fas fa-eye text-[#1877F2]"></i>
-                        <span>{formatViewCount(reel.views)}</span>
                       </div>
                     </div>
 
@@ -3151,4 +3027,3 @@ if (typeof document !== 'undefined') {
 
 // Export components
 export default ReelsFeed;
-
