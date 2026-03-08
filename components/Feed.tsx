@@ -4732,6 +4732,9 @@ export const Post: React.FC<{
   );
 };
 
+  // Add this after your other components (around line 4000-4500)
+// Replace the previous ReelFeedCard with this version
+
 /**
  * =========================
  * ✅ REEL FEED DATA TYPE
@@ -4767,19 +4770,18 @@ const formatCount = (n?: number): string => {
  */
 export const ReelFeedCard: React.FC<{
   reel: ReelFeedData;
+  onOpen?: (reelId: number | string) => void; // Optional navigation handler
   onOpenMenu?: (reel: ReelFeedData) => void;
   onProfileClick?: (userId: number | string) => void;
-}> = ({ reel, onOpenMenu, onProfileClick }) => {
-  const navigate = useNavigate();
-
+}> = ({ reel, onOpen, onOpenMenu, onProfileClick }) => {
   const openReel = () => {
-    // Navigate to reels page with this reel active
-    navigate(`/reels/${reel.id}`, {
-      state: { 
-        fromFeed: true,
-        reelId: reel.id 
-      },
-    });
+    // If onOpen is provided, use it (for navigation)
+    if (onOpen) {
+      onOpen(reel.id);
+    } else {
+      // Fallback: just log or do nothing
+      console.log('Open reel:', reel.id);
+    }
   };
 
   const handleProfileClick = (e: React.MouseEvent) => {
