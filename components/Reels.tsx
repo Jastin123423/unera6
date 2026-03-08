@@ -1,3 +1,5 @@
+// Reels.tsx (Complete file with initialReelId and onBack support)
+
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
 
@@ -2431,6 +2433,7 @@ interface ReelsFeedProps {
   checkIsFollowing: (targetUserId: number) => boolean;
   followLoading: { [key: number]: boolean };
   initialReelId?: number | null;
+  onBack?: () => void;
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({ 
@@ -2450,6 +2453,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   checkIsFollowing,
   followLoading = {},
   initialReelId,
+  onBack,
 }) => {
   // Single global audio reference - ONE AUDIO ELEMENT TO RULE THEM ALL
   const globalAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -2474,6 +2478,23 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   useEffect(() => {
     activeIdRef.current = playingReelId;
   }, [playingReelId]);
+
+  // ✅ Scroll to and play initial reel
+  useEffect(() => {
+    if (!initialReelId || reels.length === 0) return;
+    
+    // Small delay to ensure DOM is ready
+    const timer = setTimeout(() => {
+      playOnly(initialReelId);
+      
+      const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'auto', block: 'start' });
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [initialReelId, reels, playOnly]);
 
   // Mark user interaction for audio autoplay - UNLOCK AUDIO ON FIRST TAP
   useEffect(() => {
@@ -2501,7 +2522,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       window.removeEventListener("click", unlock);
       window.removeEventListener("touchstart", unlock);
     };
-  }, []);
+  }, [startAudioForReel]);
 
   // Start audio for a reel (only if video is playing and user has interacted)
   const startAudioForReel = useCallback((id: number) => {
@@ -2596,19 +2617,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       // Autoplay blocked - will play on user interaction
     }
   }, [stopAudio, startAudioForReel]);
-
-  // Scroll to and play initial reel
-  useEffect(() => {
-    if (!initialReelId) return;
-    playOnly(initialReelId);
-
-    requestAnimationFrame(() => {
-      const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
-      if (el) {
-        el.scrollIntoView({ behavior: 'instant', block: 'start' });
-      }
-    });
-  }, [initialReelId, playOnly]);
 
   // INTERSECTION OBSERVER - ONLY CALLS playOnly()
   useEffect(() => {
@@ -2710,11 +2718,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       {/* Single global audio element */}
       <audio ref={globalAudioRef} hidden playsInline />
 
-      {/* Top bar */}
+      {/* Top bar with back button */}
       <div className="absolute top-0 left-0 right-0 z-30 h-14 px-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent">
         <button
-          onClick={() => window.history.back()}
-          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center"
+          onClick={onBack || (() => window.history.back())}
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
         >
           <i className="fas fa-arrow-left text-white text-sm" />
         </button>
@@ -2763,7 +2771,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               const isFollowing = checkIsFollowing(Number(author.id));
               const isLoadingFollow = !!followLoading[Number(author.id)];
               
-              const hasLiked = reel.reactions.some(r => 
+              const hasLiked = reel.reactions?.some(r => 
                 Number(r.userId ?? r.user_id) === Number(currentUser?.id)
               );
 
@@ -3002,3 +3010,4 @@ if (typeof document !== 'undefined') {
 
 // Export components
 export default ReelsFeed;
+export { CreateReelModal, SoundDetailView };
