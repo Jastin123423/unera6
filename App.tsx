@@ -1,4 +1,4 @@
-// App.tsx - Complete file with Reels feed integration and clean endpoints
+// App.tsx - Complete file with Reels feed integration and Brands removed
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -27,7 +27,6 @@ import {
 } from './components/MenuPages';
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
-import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
@@ -48,7 +47,6 @@ import {
   AudioTrack,
   ReactionType,
   Group,
-  Brand,
   Song,
 } from './types';
 
@@ -1176,7 +1174,6 @@ type View =
   | 'reels'
   | 'marketplace'
   | 'groups'
-  | 'brands'
   | 'music'
   | 'tools'
   | 'profiles'
@@ -1396,7 +1393,6 @@ export default function App() {
   const [reels, setReels] = useState<Reel[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
 
@@ -2780,7 +2776,7 @@ export default function App() {
   }, [currentUser, requireAuth, fetchReels, selectedReelSound, generateSoundKey]);
 
   // ============================================================================
-  // ✅ React to Reel - POST /api/reels/:id/react
+  // ✅ React to Reel (keep as original)
   // ============================================================================
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
@@ -2811,7 +2807,7 @@ export default function App() {
   }, [currentUser, requireAuth, fetchReels]);
 
   // ============================================================================
-  // ✅ Comment on Reel - POST /api/reels/:id/comments
+  // ✅ Comment on Reel (keep as original)
   // ============================================================================
   const commentOnReel = useCallback(async (reelId: number, text: string) => {
     if (!requireAuth('Commenting on reels')) return;
@@ -2832,20 +2828,7 @@ export default function App() {
   }, [currentUser, requireAuth, fetchReels]);
 
   // ============================================================================
-  // ✅ Get Reel Comments - GET /api/reels/:id/comments
-  // ============================================================================
-  const getReelComments = useCallback(async (reelId: number) => {
-    try {
-      const data = await apiFetch(`/api/reels/${reelId}/comments`);
-      return safeArray(data?.comments ?? data);
-    } catch (error) {
-      console.error('Failed to fetch reel comments:', error);
-      return [];
-    }
-  }, []);
-
-  // ============================================================================
-  // ✅ Share Reel - POST /api/reels/:id/share
+  // ✅ Share Reel (keep as original)
   // ============================================================================
   const shareReel = useCallback(async (reelId: number, type: 'feed' | 'copy') => {
     if (!requireAuth('Sharing reels')) return;
@@ -2879,10 +2862,10 @@ export default function App() {
   }, [currentUser, requireAuth]);
 
   // ============================================================================
-  // ✅ View Reel - POST /api/reels/:id/view
+  // ✅ View Reel (keep as original)
   // ============================================================================
   const viewReel = useCallback(async (reelId: number) => {
-    if (!currentUser) return; // Allow guest views? Optional
+    if (!currentUser) return;
     
     try {
       const data = await apiFetch(`/api/reels/${reelId}/view`, {
@@ -2893,7 +2876,6 @@ export default function App() {
         }),
       });
       
-      // Update the reel in state with new view count
       if (data?.views_count !== undefined) {
         setReels(prev => 
           safeArray(prev).map(reel => 
@@ -3140,7 +3122,7 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-  /** ---------- Event Functions from App.tsx 1 ---------- */
+  /** ---------- Event Functions ---------- */
   const fetchEvents = useCallback(async (): Promise<Event[]> => {
     try {
       const data = await apiFetch('/api/events');
@@ -3318,17 +3300,16 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // fetchOtherData with proper group merging - PRESERVE MEMBERSHIP!
+  // fetchOtherData with proper group merging - Brands removed!
   // ============================================================================
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
     otherDataInFlightRef.current = true;
     
     try {
-      const [pr, g, b, c] = await Promise.all([
+      const [pr, g, c] = await Promise.all([
         apiFetch('/api/products').catch(() => []),
         apiFetch('/api/groups').catch(() => []),
-        apiFetch('/api/brands').catch(() => []),
         apiFetch('/api/chats').catch(() => []),
       ]);
 
@@ -3380,8 +3361,6 @@ export default function App() {
           });
         });
       });
-      
-      setBrands(safeArray(b));
       
       const eventsData = await fetchEvents().catch(() => []);
       setEvents(eventsData);
@@ -5166,7 +5145,6 @@ export default function App() {
                             onVideoClick={handleVideoClick}
                             onPlayAudioTrack={onPlayTrack}
                             groups={groups}
-                            brands={brands}
                             chats={chats}
                             onHashtagClick={handleHashtagClick}
                             isFollowing={isFollowing}
@@ -5365,33 +5343,6 @@ export default function App() {
             </ErrorBoundary>
           )}
 
-          {view === 'brands' && (
-            <BrandsPage
-              currentUser={currentUser}
-              brands={brands}
-              posts={posts}
-              users={users}
-              onCreateBrand={() => requireAuth('Creating brands')}
-              onFollowBrand={(id: number) => followUser(id)}
-              onProfileClick={(id) => openProfile(id)}
-              onPostAsBrand={() => requireAuth('Posting')}
-              onReact={() => requireAuth('Reacting')}
-              onShare={(post: any) => handleOpenShareSheet(post)}
-              onOpenComments={(id: any) => {
-                if (!requireAuth('Commenting')) return;
-                const pid = Number(id);
-                setActiveCommentsPostId(pid);
-                const source = view === 'profile' ? profilePosts : posts;
-                const found = source.find((p: any) => Number(p.id) === pid) || null;
-                setCommentPostSnapshot(found);
-              }}
-              onDeleteBrand={() => requireAuth('Deleting brands')}
-              onPlayAudioTrack={onPlayTrack}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
-            />
-          )}
-
           {view === 'music' && (
             <MusicSystem
               currentUser={currentUser}
@@ -5472,7 +5423,6 @@ export default function App() {
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
               groups={groups}
-              brands={brands}
               chats={chats}
             />
           )}
@@ -5642,7 +5592,6 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           groups={groups}
-          brands={brands}
           chats={chats}
           onShareComplete={handleShareComplete}
           onFollow={followUser}
