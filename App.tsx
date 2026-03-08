@@ -1,4 +1,4 @@
-// App.tsx (Complete file with feed adapters and proper event/group handling)
+// App.tsx (Complete file with Groups You May Join integration
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -10,7 +10,7 @@ import {
   CreatePostModal,
   ShareBottomSheet,
   PeopleYouMayKnowGrid,
-  GroupsYouMayJoinCard,
+  GroupsYouMayJoinCard, // ✅ NEW: Import the card component
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -50,15 +50,6 @@ import {
   Brand,
   Song,
 } from './types';
-
-// Import feed adapters
-import {
-  makeEventFeedItem,
-  makeSongFeedItem,
-  makeGroupPostFeedItem,
-  makeProductFeedItem,
-  mergeFeedItems,
-} from "./utils/feedAdapters";
 
 /** ---------- Type for People You May Know suggestions ---------- */
 type PeopleSuggestion = {
@@ -548,8 +539,6 @@ const normalizePost = (p: any): PostType => {
       event_id: p?.event_id || p?.meta?.event_id,
       media_url: p?.meta?.event?.cover_url || mediaUrl,
       media_type: 'image',
-      media_urls: p?.meta?.event?.cover_url ? [p.meta.event.cover_url] : (mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : [])),
-      media_types: p?.meta?.event?.cover_url ? ['image'] : (mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : [])),
       meta: {
         kind: 'event',
         event_id: p?.event_id || p?.meta?.event_id,
@@ -563,61 +552,6 @@ const normalizePost = (p: any): PostType => {
           cover_url: p?.meta?.event?.cover_url || mediaUrl,
           attendees: p?.meta?.event?.attendees || [],
           interested: p?.meta?.event?.interested || [],
-        }
-      }
-    } as any;
-  }
-
-  // Handle group posts
-  if (p?.type === 'group_post' || p?.meta?.kind === 'group_post' || p?.group_post_id) {
-    return {
-      ...p,
-      id: resolvedId,
-      user_id: safeNumber(p?.user_id),
-      content: safeString(p?.content),
-      type: 'group_post',
-      group_post_id: p?.group_post_id || p?.id,
-      group_id: p?.group_id || p?.meta?.group_id,
-      group_name: p?.group_name || p?.meta?.group_name,
-      group_image: p?.group_image || p?.meta?.group_image,
-      media_url: mediaUrl,
-      media_type: mediaType,
-      media_urls: mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : []),
-      media_types: mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : []),
-      meta: {
-        kind: 'group_post',
-        group_post_id: p?.group_post_id || p?.id,
-        group_id: p?.group_id || p?.meta?.group_id,
-        group_name: p?.group_name || p?.meta?.group_name,
-      }
-    } as any;
-  }
-
-  // Handle music posts
-  if (p?.type === 'music' || p?.meta?.kind === 'music' || p?.song_id2 || p?.song_id) {
-    return {
-      ...p,
-      id: resolvedId,
-      user_id: safeNumber(p?.user_id),
-      content: safeString(p?.content || p?.song_title || ''),
-      type: 'music',
-      song_id2: p?.song_id2 || p?.song_id,
-      media_url: p?.song_cover_image_url || mediaUrl,
-      media_type: 'image',
-      media_urls: p?.song_cover_image_url ? [p.song_cover_image_url] : (mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : [])),
-      media_types: p?.song_cover_image_url ? ['image'] : (mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : [])),
-      song_title: p?.song_title || p?.title || '',
-      song_artist_name: p?.song_artist_name || p?.artist_name || '',
-      song_cover_image_url: p?.song_cover_image_url || p?.cover_image_url || '',
-      audio_url: p?.audio_url || p?.song_audio_url || '',
-      meta: {
-        kind: 'music',
-        song_id: p?.song_id2 || p?.song_id,
-        song: p?.meta?.song || {
-          title: p?.song_title || p?.title,
-          artist_name: p?.song_artist_name || p?.artist_name,
-          cover_image_url: p?.song_cover_image_url || p?.cover_image_url,
-          audio_url: p?.audio_url || p?.song_audio_url,
         }
       }
     } as any;
@@ -663,7 +597,7 @@ const normalizePost = (p: any): PostType => {
   } as any;
 };
 
-/** Event normalization helpers */
+/** Event normalization helpers from App.tsx 1 */
 const toISO = (d: any) => {
   const dt = new Date(d);
   return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
@@ -919,7 +853,7 @@ const normalizeProduct = (p: any) => {
 };
 
 // ============================================================================
-// Normalize groups with optional members and is_member support
+// 🔧 FIXED: Normalize groups with optional members and is_member support
 // ============================================================================
 /** Normalize groups to prevent crashes and handle membership correctly */
 const normalizeGroup = (g: any): Group => {
@@ -1462,11 +1396,6 @@ export default function App() {
     }
   });
 
-  // ============================================================================
-  // ✅ Active group for navigation
-  // ============================================================================
-  const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
-
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
   
@@ -1713,7 +1642,7 @@ export default function App() {
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
 
-  // Incoming call polling effect
+  // ✅ ADDED: Incoming call polling effect
   useEffect(() => {
     if (!currentUser?.id) return;
 
@@ -1855,7 +1784,7 @@ export default function App() {
     if (!gymjHydrated) setGymjLoading(true);
 
     try {
-      const data = await apiFetch(`/api/group-suggestions?user_id=${currentUser.id}&limit=20`);
+      const data = await apiFetch(`/api/group-suggestions?user_id=${currentUser.id}&limit=8`);
       const raw = safeArray<any>(data?.groups ?? data);
       const hiddenSet = new Set(gymjHiddenIds.map(Number));
 
@@ -2471,7 +2400,7 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
-  /** ---------- Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
+  /** ---------- ✅ FIXED: Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
   const createMarketplacePost = useCallback(
     async (product: any) => {
       if (!currentUser) return;
@@ -3121,7 +3050,7 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-  /** ---------- Event Functions ---------- */
+  /** ---------- Event Functions from App.tsx 1 ---------- */
   const fetchEvents = useCallback(async (): Promise<Event[]> => {
     try {
       const data = await apiFetch('/api/events');
@@ -3276,10 +3205,6 @@ export default function App() {
         type: "event",
         event_id: newEvent.id,
         visibility: 'public',
-        media_url: newEvent.cover_url,
-        media_type: 'image',
-        media_urls: [newEvent.cover_url],
-        media_types: ['image'],
         meta: {
           kind: "event",
           event_id: newEvent.id,
@@ -3325,7 +3250,7 @@ export default function App() {
   }, [currentUser, requireAuth, selectedUserId]);
 
   // ============================================================================
-  // Refresh group members helper
+  // 🔧 FIXED: Refresh group members helper
   // ============================================================================
   const refreshGroupMembers = useCallback(async (groupId: number) => {
     try {
@@ -3348,7 +3273,7 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // fetchOtherData with proper group merging - PRESERVE MEMBERSHIP!
+  // 🔧 FIXED: fetchOtherData with proper group merging - PRESERVE MEMBERSHIP!
   // ============================================================================
   const fetchOtherData = useCallback(async () => {
     if (otherDataInFlightRef.current) return;
@@ -3563,7 +3488,7 @@ export default function App() {
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
   // ============================================================================
-  // Join from Groups You May Join
+  // ✅ Join from Groups You May Join
   // ============================================================================
   const joinFromSuggestion = useCallback(async (groupId: number) => {
     const id = Number(groupId);
@@ -4190,62 +4115,21 @@ export default function App() {
     setActiveHashtag(null);
   }, []);
 
-  // ============================================================================
-  // ✅ FEED ADAPTERS - Convert different sources to feed items
-  // ============================================================================
-  
-  // Convert events to feed items
-  const injectedEventFeed = useMemo(() => {
-    return safeArray(events).map((event) =>
-      makeEventFeedItem(event, currentUser?.id ? Number(currentUser.id) : null)
-    );
-  }, [events, currentUser?.id]);
-
-  // Convert songs to feed items
-  const injectedSongFeed = useMemo(() => {
-    return safeArray(songs).map((song) => makeSongFeedItem(song));
-  }, [songs]);
-
-  // Convert group posts to feed items (keeping this in App.tsx for now)
-  const injectedGroupPostFeed = useMemo(() => {
-    return safeArray(groups).flatMap((group: any) => {
-      const groupPosts = safeArray(group?.posts);
-      return groupPosts.map((groupPost: any) =>
-        makeGroupPostFeedItem(groupPost, group)
-      );
-    });
-  }, [groups]);
-
-  // Merge all feed sources into one unified feed
-  const mergedFeed = useMemo(() => {
-    return mergeFeedItems(
-      safeArray(posts),              // from api/feeds
-      injectedEventFeed,             // events from App.tsx
-      injectedSongFeed,              // songs from App.tsx
-      injectedGroupPostFeed          // group posts from App.tsx
-    );
-  }, [posts, injectedEventFeed, injectedSongFeed, injectedGroupPostFeed]);
-
-  // Filter posts based on active hashtag - using mergedFeed instead of posts
   const filteredPosts = useMemo(() => {
-    const baseFeed = safeArray(mergedFeed);
-
-    if (!activeHashtag) return baseFeed;
-
+    if (!activeHashtag) return posts;
+    
     const tagWithoutHash = activeHashtag.replace('#', '').toLowerCase();
-    return baseFeed.filter((p: any) => {
+    return posts.filter((p: any) => {
       const content = String(p.content || '').toLowerCase();
       return content.includes(`#${tagWithoutHash}`) || content.includes(` ${tagWithoutHash} `);
     });
-  }, [mergedFeed, activeHashtag]);
+  }, [posts, activeHashtag]);
 
-  // Rank posts for display - using filteredPosts
   const rankedPosts = useMemo(() => {
-    const feedToRank =
-      stableFeedRef.current.length > 0 ? stableFeedRef.current : filteredPosts;
-
+    const feedToRank = stableFeedRef.current.length > 0 ? stableFeedRef.current : 
+                     activeHashtag ? filteredPosts : posts;
     return Array.isArray(feedToRank) ? feedToRank : [];
-  }, [filteredPosts]);
+  }, [posts, filteredPosts, activeHashtag]);
 
   // ============================================================================
   // ✅ PYMK Insert Indices
@@ -4268,20 +4152,12 @@ export default function App() {
   }, [rankedPosts]);
 
   // ============================================================================
-  // ✅ Groups You May Join Insert Indices - TWO appearances!
+  // ✅ Groups You May Join Insert Index
   // ============================================================================
-  const groupsYouMayJoinInsertIndex1 = useMemo(() => {
+  const groupsYouMayJoinInsertIndex = useMemo(() => {
     const total = safeArray(rankedPosts).length;
     if (total < 4) return -1;
-    // First appearance at position 3 (after 3 posts)
     return Math.min(3, total - 1);
-  }, [rankedPosts]);
-
-  const groupsYouMayJoinInsertIndex2 = useMemo(() => {
-    const total = safeArray(rankedPosts).length;
-    if (total < 18) return -1;
-    // Second appearance between 15-25, we'll use position 16
-    return Math.min(16, total - 1);
   }, [rankedPosts]);
 
   const activePost = useMemo(() => {
@@ -4392,7 +4268,7 @@ export default function App() {
   };
 
   // ============================================================================
-  // followUser
+  // ✅ followUser
   // ============================================================================
   const followUser = useCallback(
     async (targetUserId: number) => {
@@ -4481,7 +4357,7 @@ export default function App() {
   );
 
   // ============================================================================
-  // followFromPymk
+  // ✅ followFromPymk
   // ============================================================================
   const followFromPymk = useCallback(async (targetUserId: number) => {
     const id = Number(targetUserId);
@@ -4990,15 +4866,6 @@ export default function App() {
     setView('reels');
   }, []);
 
-  const handleCommentAdded = useCallback(() => {
-    // This function is called when a comment is added
-    // It will refresh the post data to update the comment count
-    if (activeCommentsPostId) {
-      // Refresh the post data to get updated comment count
-      fetchPostsForHome(currentUser).catch(() => {});
-    }
-  }, [activeCommentsPostId, currentUser, fetchPostsForHome]);
-
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
     const event = events.find(e => e.id === eventId);
     
@@ -5185,17 +5052,11 @@ export default function App() {
                         peopleYouMayKnowInsertIndex2 >= 0 &&
                         idx === peopleYouMayKnowInsertIndex2;
 
-                      // Track if we've shown the first Groups You May Join instance
-                      const showFirstGroupsYouMayJoin = currentUser &&
+                      // Track if we've shown the Groups You May Join instance
+                      const showGroupsYouMayJoin = currentUser &&
                         groupsYouMayJoin.length > 0 &&
-                        groupsYouMayJoinInsertIndex1 >= 0 &&
-                        idx === groupsYouMayJoinInsertIndex1;
-
-                      // Track if we've shown the second Groups You May Join instance
-                      const showSecondGroupsYouMayJoin = currentUser &&
-                        groupsYouMayJoin.length > 0 &&
-                        groupsYouMayJoinInsertIndex2 >= 0 &&
-                        idx === groupsYouMayJoinInsertIndex2;
+                        groupsYouMayJoinInsertIndex >= 0 &&
+                        idx === groupsYouMayJoinInsertIndex;
 
                       return (
                         <React.Fragment key={getStableItemKey(post, 'post')}>
@@ -5220,12 +5081,6 @@ export default function App() {
                             followLoading={followLoading[postAuthorId] || false}
                             onViewProductFromPost={openProductFromPost}
                             onRSVPEvent={onRSVPEvent}
-                            onOpenEvent={(eventId: number) => setActiveEventId(eventId)}
-                            onOpenGroup={(groupId: number) => {
-                              setActiveGroupId(groupId);
-                              setView('groups');
-                            }}
-                            onCommentAdded={handleCommentAdded}
                           />
 
                           {/* ✅ People You May Know Grid - FIRST APPEARANCE */}
@@ -5280,8 +5135,8 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* ✅ Groups You May Join Card - FIRST APPEARANCE */}
-                          {showFirstGroupsYouMayJoin && (
+                          {/* ✅ Groups You May Join Card */}
+                          {showGroupsYouMayJoin && (
                             <GroupsYouMayJoinCard
                               groups={groupsYouMayJoin}
                               currentUser={currentUser}
@@ -5289,27 +5144,12 @@ export default function App() {
                               onJoin={(groupId: number) => joinFromSuggestion(groupId)}
                               onHide={(groupId: number) => hideGroupSuggestion(groupId)}
                               onOpenGroup={(groupId: number) => {
-                                setActiveGroupId(groupId);
+                                // Navigate to groups page with selected group
                                 setView('groups');
+                                // If you have state for selected group in GroupsPage, you'd set it here
+                                // For now, just navigate to groups
                               }}
                               onProfileClick={(userId: number) => openProfile(userId)}
-                            />
-                          )}
-
-                          {/* ✅ Groups You May Join Card - SECOND APPEARANCE */}
-                          {showSecondGroupsYouMayJoin && (
-                            <GroupsYouMayJoinCard
-                              groups={groupsYouMayJoin}
-                              currentUser={currentUser}
-                              isLoading={gymjLoading && groupsYouMayJoin.length === 0}
-                              onJoin={(groupId: number) => joinFromSuggestion(groupId)}
-                              onHide={(groupId: number) => hideGroupSuggestion(groupId)}
-                              onOpenGroup={(groupId: number) => {
-                                setActiveGroupId(groupId);
-                                setView('groups');
-                              }}
-                              onProfileClick={(userId: number) => openProfile(userId)}
-                              title="More Groups You May Join"
                             />
                           )}
                         </React.Fragment>
@@ -5412,7 +5252,7 @@ export default function App() {
                 onHashtagClick={handleHashtagClick}
                 onViewImage={setFullScreenImage}
                 onVideoClick={handleVideoClick}
-                initialGroupId={activeGroupId}
+                initialGroupId={null}
                 onApplyToJob={async (postId: number, applicationData?: any) => {
                   console.log('Apply to job:', postId, applicationData);
                 }}
@@ -5689,7 +5529,6 @@ export default function App() {
             setCommentPostSnapshot(null);
           }}
           onComment={createGroupPostComment}
-          onCommentAdded={handleCommentAdded}
           onLikeComment={handleLikeComment}
           getCommentAuthor={(id) => users.find((u) => u.id === id)}
           onProfileClick={(id) => openProfile(id)}
