@@ -1282,7 +1282,7 @@ interface SoundDetailViewProps {
   onReelClick: (id: number) => void;
 }
 
-const SoundDetailView: React.FC<SoundDetailViewProps> = ({ 
+export const SoundDetailView: React.FC<SoundDetailViewProps> = ({ 
   sound, 
   onClose, 
   onUseSound, 
@@ -2479,11 +2479,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     activeIdRef.current = playingReelId;
   }, [playingReelId]);
 
-  // ✅ Scroll to and play initial reel
+  // ✅ Scroll to and play initial reel from feed
   useEffect(() => {
     if (!initialReelId || reels.length === 0) return;
     
-    // Small delay to ensure DOM is ready
     const timer = setTimeout(() => {
       playOnly(initialReelId);
       
@@ -2494,7 +2493,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [initialReelId, reels, playOnly]);
+  }, [initialReelId, reels]);
 
   // Mark user interaction for audio autoplay - UNLOCK AUDIO ON FIRST TAP
   useEffect(() => {
@@ -2522,7 +2521,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       window.removeEventListener("click", unlock);
       window.removeEventListener("touchstart", unlock);
     };
-  }, [startAudioForReel]);
+  }, []);
 
   // Start audio for a reel (only if video is playing and user has interacted)
   const startAudioForReel = useCallback((id: number) => {
@@ -2944,6 +2943,22 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             <i className="fas fa-plus text-2xl"></i>
           </button>
         </div>
+      )}
+
+      {/* Sound Detail View Modal */}
+      {selectedSoundData && (
+        <SoundDetailView
+          sound={selectedSoundData}
+          onClose={() => setSelectedSoundData(null)}
+          onUseSound={(sound) => {
+            onUseSound(sound);
+            setSelectedSoundData(null);
+          }}
+          onReelClick={(id) => {
+            setSelectedSoundData(null);
+            playOnly(id);
+          }}
+        />
       )}
     </div>
   );
