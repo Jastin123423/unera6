@@ -1,4 +1,4 @@
-//Feed.tsx 
+// Feed.tsx 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -15,6 +15,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * =========================
@@ -228,6 +229,7 @@ const unwrapFeedItem = (item: any): any => {
   if (item.type === 'marketplace' && item.marketplace) return item.marketplace;
   if (item.type === 'music' && item.music) return item.music;
   if (item.type === 'podcast' && item.podcast) return item.podcast;
+  if (item.type === 'reel' && item.reel) return item.reel;
   
   // If item has a data wrapper
   if (item.data) return item.data;
@@ -3855,7 +3857,7 @@ export const EventFeedCard: React.FC<{
 
 /**
  * =========================
- * ✅ ACTIVE COMMENTS STATE WITH LOCKED SNAPSHOT
+ * ACTIVE COMMENTS STATE WITH LOCKED SNAPSHOT
  * =========================
  */
 // This should be declared in the parent component that uses the Post component
@@ -4578,7 +4580,7 @@ export const Post: React.FC<{
                 className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (productId) onViewProduct?.(productId);
+                  if (productId) onViewProductFromPost?.(productId);
                 }}
               >
                 View product
@@ -4727,6 +4729,152 @@ export const Post: React.FC<{
         }}
       />
     </>
+  );
+};
+
+/**
+ * =========================
+ * ✅ REEL FEED DATA TYPE
+ * =========================
+ */
+export type ReelFeedData = {
+  id: number | string;
+  user_id: number | string;
+  author: string;
+  avatar?: string;
+  verified?: boolean;
+  video: string;
+  thumbnail?: string;
+  caption?: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  created_at?: string;
+};
+
+const formatCount = (n?: number): string => {
+  const v = Number(n || 0);
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1) + 'M';
+  if (v >= 1_000) return (v / 1_000).toFixed(v >= 10_000 ? 0 : 1) + 'K';
+  return String(v);
+};
+
+/**
+ * =========================
+ * REEL PREVIEW CARD - FACEBOOK STYLE
+ * =========================
+ */
+export const ReelFeedCard: React.FC<{
+  reel: ReelFeedData;
+  onOpenMenu?: (reel: ReelFeedData) => void;
+  onProfileClick?: (userId: number | string) => void;
+}> = ({ reel, onOpenMenu, onProfileClick }) => {
+  const navigate = useNavigate();
+
+  const openReel = () => {
+    // Navigate to reels page with this reel active
+    navigate(`/reels/${reel.id}`, {
+      state: { 
+        fromFeed: true,
+        reelId: reel.id 
+      },
+    });
+  };
+
+  const handleProfileClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onProfileClick) {
+      onProfileClick(reel.user_id);
+    }
+  };
+
+  return (
+    <div className="w-full">
+      <div className="bg-[#242526] w-full overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+          <div className="flex items-center gap-2">
+            <i className="fas fa-film text-[#1877F2] text-xl"></i>
+            <span className="text-[#E4E6EB] font-bold text-[22px] leading-none">
+              Reels
+            </span>
+          </div>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenMenu?.(reel);
+            }}
+            className="w-9 h-9 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
+          >
+            <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
+          </button>
+        </div>
+
+        {/* Video Preview */}
+        <div 
+          onClick={openReel}
+          className="relative mx-4 mb-4 rounded-2xl overflow-hidden bg-black cursor-pointer"
+          style={{ aspectRatio: '9/16', maxHeight: 520 }}
+        >
+          {/* Preview thumbnail or muted video */}
+          {reel.thumbnail ? (
+            <img
+              src={reel.thumbnail}
+              alt={reel.caption || 'Reel preview'}
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <video
+              src={reel.video}
+              muted
+              playsInline
+              preload="metadata"
+              className="w-full h-full object-cover"
+            />
+          )}
+
+          {/* Gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+
+          {/* Centered Play Button */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-16 h-16 rounded-full border-4 border-white/90 flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
+              <i className="fas fa-play text-white text-2xl ml-1"></i>
+            </div>
+          </div>
+
+          {/* Views count - bottom left */}
+          <div className="absolute left-3 bottom-3 flex items-center gap-2 text-white font-bold text-base drop-shadow-lg">
+            <i className="fas fa-eye text-lg"></i>
+            <span>{formatCount(reel.views)}</span>
+          </div>
+
+          {/* Optional: Creator info overlay */}
+          <div 
+            className="absolute right-3 bottom-3 flex items-center gap-2 cursor-pointer"
+            onClick={handleProfileClick}
+          >
+            {reel.avatar ? (
+              <img 
+                src={reel.avatar} 
+                alt={reel.author}
+                className="w-8 h-8 rounded-full border-2 border-white object-cover"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-[#1877F2] border-2 border-white flex items-center justify-center text-white text-xs font-bold">
+                {reel.author?.charAt(0) || 'U'}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Facebook-style separator */}
+      <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+    </div>
   );
 };
 
@@ -6262,7 +6410,6 @@ export { getMediaTypeInfo,
   safeArray,
   safeNumber,
   safeString,
-  ReelFeedCard,
   safePostId,
   safeUserId,
   avatarFrom };
