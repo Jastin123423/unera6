@@ -1,26 +1,29 @@
-// Reels.tsx (Complete file with TikTok-like loading + fullscreen overlay + long-press prevention)
+// Reels.tsx (Final Production Version - TikTok-Level Performance)
 // Features:
-// - True fullscreen overlay (z-[9999]) that covers entire app
-// - Long-press prevention with pointer-events-none video + overlay
-// - 3-layer media caching (memory + blob + service worker)
-// - Smart preloading of adjacent reels
-// - Poster thumbnails for instant visual feedback
-// - Service worker for cross-session cache
+// - True fullscreen overlay with z-[9999]
+// - Memory-safe caching (max 10 items)
+// - Proper awaitable media resolution
+// - Clean audio sync management
+// - Optimized for mobile performance
+// - Long-press prevention
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
 
-// ==================== MEDIA CACHE SYSTEM ====================
-// Layer 1: In-memory blob URL cache (fastest)
-const mediaBlobCache = new Map<string, string>(); // original URL -> blob URL
+// ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
+// Layer 1: Limited in-memory blob URL cache (max 10 items)
+const mediaBlobCache = new Map<string, { blobUrl: string, timestamp: number }>(); 
 const mediaWarmPromises = new Map<string, Promise<string>>();
+const CACHE_MAX_SIZE = 10;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-async function fetchAsBlobUrl(url: string): Promise<string> {
+async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
   if (!url) throw new Error("Missing media URL");
 
-  // Layer 1 hit: return immediately
-  if (mediaBlobCache.has(url)) {
-    return mediaBlobCache.get(url)!;
+  // Check cache with TTL
+  const cached = mediaBlobCache.get(url);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.blobUrl;
   }
 
   // Deduplicate concurrent fetches
@@ -28,27 +31,34 @@ async function fetchAsBlobUrl(url: string): Promise<string> {
     return mediaWarmPromises.get(url)!;
   }
 
-  // Layer 2: Fetch with cache hints
+  // For videos, prefer native browser cache (memory efficient)
+  if (type === 'video') {
+    mediaWarmPromises.set(url, Promise.resolve(url));
+    setTimeout(() => mediaWarmPromises.delete(url), 1000);
+    return url;
+  }
+
+  // Only audio gets blob URLs (smaller, need trimming)
   const p = fetch(url, { 
-    cache: "force-cache", // Use browser cache first
-    headers: { "Accept": "video/mp4,audio/mpeg,*/*" }
+    cache: "force-cache",
+    headers: { "Accept": "audio/mpeg,*/*" }
   })
     .then(async (res) => {
       if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
       
-      // Layer 3: Convert to blob URL for instant subsequent access
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
-      mediaBlobCache.set(url, blobUrl);
       
-      // Cleanup old blob URLs (prevent memory leaks)
-      if (mediaBlobCache.size > 50) {
-        const firstKey = mediaBlobCache.keys().next().value;
-        const oldBlob = mediaBlobCache.get(firstKey);
-        if (oldBlob) URL.revokeObjectURL(oldBlob);
-        mediaBlobCache.delete(firstKey);
+      // Cleanup old cache entries
+      if (mediaBlobCache.size >= CACHE_MAX_SIZE) {
+        const oldestKey = Array.from(mediaBlobCache.entries())
+          .sort((a, b) => a[1].timestamp - b[1].timestamp)[0][0];
+        const oldest = mediaBlobCache.get(oldestKey);
+        if (oldest) URL.revokeObjectURL(oldest.blobUrl);
+        mediaBlobCache.delete(oldestKey);
       }
       
+      mediaBlobCache.set(url, { blobUrl, timestamp: Date.now() });
       return blobUrl;
     })
     .finally(() => {
@@ -59,16 +69,7 @@ async function fetchAsBlobUrl(url: string): Promise<string> {
   return p;
 }
 
-// ==================== SERVICE WORKER REGISTRATION ====================
-// Layer 4: Persistent cache across sessions
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(console.error);
-  });
-}
-
 // ==================== TYPES & INTERFACES ====================
-
 type ReelSound = {
   songName: string;
   audioUrl: string;
@@ -2530,6 +2531,17 @@ const CameraStudio: React.FC<{
   );
 };
 
+// ==================== SERVICE WORKER REGISTRATION ====================
+// Moved from module top-level to useEffect in parent component
+// This should be called in your app's root component
+export const registerServiceWorker = () => {
+  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(console.error);
+    });
+  }
+};
+
 // ==================== ENHANCED REELS FEED - TIKTOK-STYLE FULLSCREEN ====================
 interface ReelsFeedProps {
   reels: Reel[];
@@ -2579,7 +2591,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   ); 
   const [showComments, setShowComments] = useState(false);
   const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
-  const [soundDetailLoading, setSoundDetailLoading] = useState(false);
   
   // TikTok loading states
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
@@ -2596,37 +2607,36 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const userInteractedRef = useRef(false);
   const globalAudioRef = useRef<HTMLAudioElement | null>(null);
   const warmupTimerRef = useRef<any>(null);
+  const audioSyncCleanupRef = useRef<(() => void) | null>(null);
 
-  // ==================== MEDIA RESOLUTION ====================
+  // Memoize active index for performance
+  const activeIndex = useMemo(
+    () => reels.findIndex(r => r.id === activeReelId),
+    [reels, activeReelId]
+  );
+
+  // ==================== MEDIA RESOLUTION (NOW TRULY AWAITABLE) ====================
   const resolveReelMedia = useCallback(async (reel: Reel) => {
     const id = reel.id;
     const videoUrl = reel.videoUrl || (reel as any).video_url || '';
     const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
 
     try {
-      // Resolve video URL
+      // Resolve video URL (videos use native browser cache for memory efficiency)
       if (videoUrl && !resolvedVideoUrls[id]) {
-        // Try to get from cache, otherwise fetch
-        const cachedVideo = mediaBlobCache.get(videoUrl);
-        if (cachedVideo) {
-          setResolvedVideoUrls(prev => ({ ...prev, [id]: cachedVideo }));
-        } else {
-          // Fetch in background without blocking
-          fetchAsBlobUrl(videoUrl).then(blobUrl => {
-            setResolvedVideoUrls(prev => prev[id] ? prev : { ...prev, [id]: blobUrl });
-          }).catch(err => console.warn('Failed to resolve video:', err));
-        }
+        // For videos, we don't create blob URLs - let browser cache handle it
+        setResolvedVideoUrls(prev => prev[id] ? prev : { ...prev, [id]: videoUrl });
       }
 
-      // Resolve audio URL (if separate audio file exists)
+      // Resolve audio URL (only audio gets blob URLs for trimming)
       if (audioUrl && !resolvedAudioUrls[id]) {
         const cachedAudio = mediaBlobCache.get(audioUrl);
         if (cachedAudio) {
-          setResolvedAudioUrls(prev => ({ ...prev, [id]: cachedAudio }));
+          setResolvedAudioUrls(prev => ({ ...prev, [id]: cachedAudio.blobUrl }));
         } else {
-          fetchAsBlobUrl(audioUrl).then(blobUrl => {
-            setResolvedAudioUrls(prev => prev[id] ? prev : { ...prev, [id]: blobUrl });
-          }).catch(err => console.warn('Failed to resolve audio:', err));
+          // Actually await this for audio
+          const blobUrl = await fetchAsBlobUrl(audioUrl, 'audio');
+          setResolvedAudioUrls(prev => prev[id] ? prev : { ...prev, [id]: blobUrl });
         }
       }
     } catch (err) {
@@ -2641,8 +2651,20 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const videoUrl = reel.videoUrl || (reel as any).video_url;
       const audioUrl = reel.audioUrl || (reel as any).audio_url;
 
-      if (videoUrl) await fetchAsBlobUrl(videoUrl);
-      if (audioUrl) await fetchAsBlobUrl(audioUrl);
+      // For videos, just trigger browser preload (no blob conversion)
+      if (videoUrl) {
+        const link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = 'video';
+        link.href = videoUrl;
+        document.head.appendChild(link);
+        setTimeout(() => link.remove(), 5000);
+      }
+      
+      // For audio, we need blob URLs for trimming
+      if (audioUrl) {
+        await fetchAsBlobUrl(audioUrl, 'audio');
+      }
     } catch (err) {
       console.warn("Failed to warm reel media", err);
     }
@@ -2686,19 +2708,19 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   useEffect(() => {
     if (!activeReelId) return;
     const reel = reels.find(r => r.id === activeReelId);
-    if (reel) resolveReelMedia(reel);
+    if (reel) {
+      resolveReelMedia(reel);
+    }
   }, [activeReelId, reels, resolveReelMedia]);
 
   // Also resolve next reels
   useEffect(() => {
-    if (!activeReelId) return;
-    const currentIndex = reels.findIndex(r => r.id === activeReelId);
-    if (currentIndex === -1) return;
+    if (!activeReelId || activeIndex === -1) return;
 
-    [reels[currentIndex + 1], reels[currentIndex + 2]]
+    [reels[activeIndex + 1], reels[activeIndex + 2]]
       .filter(Boolean)
       .forEach((r) => resolveReelMedia(r as Reel));
-  }, [activeReelId, reels, resolveReelMedia]);
+  }, [activeReelId, activeIndex, reels, resolveReelMedia]);
 
   // ==================== PLAYBACK CONTROL ====================
   useEffect(() => {
@@ -2756,8 +2778,14 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, []);
 
-  // Start audio for a reel (only if video is playing and user has interacted)
+  // Start audio for a reel with proper cleanup
   const startAudioForReel = useCallback((id: number) => {
+    // Clean up previous audio sync
+    if (audioSyncCleanupRef.current) {
+      audioSyncCleanupRef.current();
+      audioSyncCleanupRef.current = null;
+    }
+
     const reel = reels.find(r => r.id === id);
     const video = videoRefs.current[id];
     const audio = globalAudioRef.current;
@@ -2798,16 +2826,22 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
     video.addEventListener('timeupdate', syncAudio);
     
+    // Store cleanup function
+    audioSyncCleanupRef.current = () => {
+      video.removeEventListener('timeupdate', syncAudio);
+    };
+
     audio.currentTime = start;
     audio.play().catch(() => {});
 
-    return () => {
-      video.removeEventListener('timeupdate', syncAudio);
-    };
   }, [reels, resolvedAudioUrls]);
 
-  // Stop audio
+  // Stop audio with cleanup
   const stopAudio = useCallback(() => {
+    if (audioSyncCleanupRef.current) {
+      audioSyncCleanupRef.current();
+      audioSyncCleanupRef.current = null;
+    }
     const audio = globalAudioRef.current;
     if (!audio) return;
     audio.pause();
@@ -2828,14 +2862,14 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       }
     });
 
-    // Stop global audio
+    // Stop global audio with cleanup
     stopAudio();
 
     const reel = reels.find(r => r.id === id);
     const video = videoRefs.current[id];
     if (!video || !reel) return;
 
-    // Ensure media is resolved
+    // Ensure media is resolved - NOW TRULY AWAITS
     await resolveReelMedia(reel);
 
     setActiveReelId(id);
@@ -2906,6 +2940,15 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       window.removeEventListener("touchstart", unlock);
     };
   }, [startAudioForReel]);
+
+  // Cleanup audio sync on unmount
+  useEffect(() => {
+    return () => {
+      if (audioSyncCleanupRef.current) {
+        audioSyncCleanupRef.current();
+      }
+    };
+  }, []);
 
   // INTERSECTION OBSERVER - ONLY CALLS playOnly()
   useEffect(() => {
@@ -3056,7 +3099,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               )}
             </div>
           ) : (
-            reels.map((reel: Reel) => {
+            reels.map((reel: Reel, reelIndex) => {
               const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
               if (!author) return null;
               
@@ -3072,8 +3115,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               const videoUrl = resolvedVideoUrls[reel.id] || originalVideoUrl;
               
               // Determine if this reel is near the active one for preload strategy
-              const reelIndex = reels.findIndex(r => r.id === reel.id);
-              const activeIndex = reels.findIndex(r => r.id === activeReelId);
               const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
 
               return (
@@ -3250,26 +3291,34 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         />
       )}
       
-      {/* Create reel button */}
+      {/* Create reel button - clearly visible and fully functional */}
       {currentUser && (
-        <div className="absolute bottom-24 right-8 z-40">
+        <div className="absolute bottom-24 right-8 z-[10000]">
+          {/* Selected sound indicator - always visible when sound is selected */}
           {selectedSound?.audioUrl && (
-            <div className="mb-4 bg-[#242526] rounded-lg p-3 shadow-xl border border-[#3A3B3C]">
-              <p className="text-white text-xs font-medium mb-2">
-                Using: {selectedSound.songName}
-              </p>
+            <div className="mb-4 bg-[#242526] rounded-lg p-3 shadow-xl border border-[#3A3B3C] animate-fade-in">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-6 h-6 bg-[#1877F2] rounded-full flex items-center justify-center">
+                  <i className="fas fa-music text-white text-xs"></i>
+                </div>
+                <p className="text-white text-xs font-medium truncate max-w-[150px]">
+                  {selectedSound.songName}
+                </p>
+              </div>
               <button 
                 onClick={onCreateReelClick}
-                className="w-full bg-[#1877F2] text-white px-4 py-2 rounded-md text-xs font-semibold hover:bg-[#166FE5] transition-colors"
+                className="w-full bg-[#1877F2] text-white px-4 py-2 rounded-md text-xs font-semibold hover:bg-[#166FE5] transition-colors active:scale-95"
               >
                 Create Reel
               </button>
             </div>
           )}
           
+          {/* Main create button */}
           <button
             onClick={onCreateReelClick}
-            className="w-14 h-14 bg-[#1877F2] rounded-full flex items-center justify-center text-white shadow-lg hover:scale-105 active:scale-95 transition-all border-4 border-[#242526]"
+            className="w-14 h-14 bg-[#1877F2] rounded-full flex items-center justify-center text-white shadow-lg hover:scale-110 active:scale-95 transition-all border-4 border-[#242526] hover:shadow-[0_0_20px_rgba(24,119,242,0.5)]"
+            aria-label="Create new reel"
           >
             <i className="fas fa-plus text-2xl"></i>
           </button>
@@ -3295,7 +3344,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   );
 };
 
-// ==================== STYLES ====================
+// ==================== STYLES (DEDUPLICATED) ====================
 const styles = `
 @keyframes slide-up {
   0% { transform: translateY(100%); }
@@ -3364,11 +3413,17 @@ const styles = `
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* Ensure create button is always on top */
+.z-\\[10000\\] {
+  z-index: 10000;
+}
 `;
 
-// Add styles to document
-if (typeof document !== 'undefined') {
+// Add styles to document with deduplication
+if (typeof document !== 'undefined' && !document.getElementById('reels-styles')) {
   const styleSheet = document.createElement("style");
+  styleSheet.id = 'reels-styles';
   styleSheet.innerText = styles;
   document.head.appendChild(styleSheet);
 }
