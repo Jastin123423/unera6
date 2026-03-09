@@ -1,7 +1,70 @@
-// Reels.tsx (Complete file with view counting functionality)
+// Reels.tsx (Complete file with TikTok-like loading strategy)
+// Features:
+// - 3-layer media caching (memory + blob + service worker)
+// - Smart preloading of adjacent reels
+// - Poster thumbnails for instant visual feedback
+// - Single merged video files (recommended architecture)
+// - Service worker for cross-session cache
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
+
+// ==================== MEDIA CACHE SYSTEM ====================
+// Layer 1: In-memory blob URL cache (fastest)
+const mediaBlobCache = new Map<string, string>(); // original URL -> blob URL
+const mediaWarmPromises = new Map<string, Promise<string>>();
+
+async function fetchAsBlobUrl(url: string): Promise<string> {
+  if (!url) throw new Error("Missing media URL");
+
+  // Layer 1 hit: return immediately
+  if (mediaBlobCache.has(url)) {
+    return mediaBlobCache.get(url)!;
+  }
+
+  // Deduplicate concurrent fetches
+  if (mediaWarmPromises.has(url)) {
+    return mediaWarmPromises.get(url)!;
+  }
+
+  // Layer 2: Fetch with cache hints
+  const p = fetch(url, { 
+    cache: "force-cache", // Use browser cache first
+    headers: { "Accept": "video/mp4,audio/mpeg,*/*" }
+  })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
+      
+      // Layer 3: Convert to blob URL for instant subsequent access
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      mediaBlobCache.set(url, blobUrl);
+      
+      // Cleanup old blob URLs (prevent memory leaks)
+      if (mediaBlobCache.size > 50) {
+        const firstKey = mediaBlobCache.keys().next().value;
+        const oldBlob = mediaBlobCache.get(firstKey);
+        if (oldBlob) URL.revokeObjectURL(oldBlob);
+        mediaBlobCache.delete(firstKey);
+      }
+      
+      return blobUrl;
+    })
+    .finally(() => {
+      mediaWarmPromises.delete(url);
+    });
+
+  mediaWarmPromises.set(url, p);
+  return p;
+}
+
+// ==================== SERVICE WORKER REGISTRATION ====================
+// Layer 4: Persistent cache across sessions
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(console.error);
+  });
+}
 
 // ==================== TYPES & INTERFACES ====================
 
@@ -2466,7 +2529,7 @@ const CameraStudio: React.FC<{
   );
 };
 
-// ==================== ENHANCED REELS FEED - PROFESSIONAL TIKTOK/FACEBOOK STYLE ====================
+// ==================== ENHANCED REELS FEED - TIKTOK-STYLE LOADING ====================
 interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
@@ -2506,9 +2569,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   initialReelId,
   onBack,
 }) => {
-  // Single global audio reference - ONE AUDIO ELEMENT TO RULE THEM ALL
-  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
-  
+  // ==================== STATE ====================
   const [activeReelId, setActiveReelId] = useState<number | null>(
     initialReelId || (reels[0]?.id || null)
   );
@@ -2519,19 +2580,149 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
   const [soundDetailLoading, setSoundDetailLoading] = useState(false);
   
+  // TikTok loading states
+  const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
+  const [resolvedAudioUrls, setResolvedAudioUrls] = useState<Record<number, string>>({});
+  
   // State for tracking viewed reels to prevent duplicate view counting
   const viewedReelsRef = useRef<Set<number>>(new Set());
   
-  // Refs
+  // ==================== REFS ====================
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const activeIdRef = useRef<number | null>(null);
   const userInteractedRef = useRef(false);
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  const warmupTimerRef = useRef<any>(null);
 
+  // ==================== MEDIA RESOLUTION ====================
+  const resolveReelMedia = useCallback(async (reel: Reel) => {
+    const id = reel.id;
+    const videoUrl = reel.videoUrl || (reel as any).video_url || '';
+    const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
+
+    try {
+      // Resolve video URL
+      if (videoUrl && !resolvedVideoUrls[id]) {
+        // Try to get from cache, otherwise fetch
+        const cachedVideo = mediaBlobCache.get(videoUrl);
+        if (cachedVideo) {
+          setResolvedVideoUrls(prev => ({ ...prev, [id]: cachedVideo }));
+        } else {
+          // Fetch in background without blocking
+          fetchAsBlobUrl(videoUrl).then(blobUrl => {
+            setResolvedVideoUrls(prev => prev[id] ? prev : { ...prev, [id]: blobUrl });
+          }).catch(err => console.warn('Failed to resolve video:', err));
+        }
+      }
+
+      // Resolve audio URL (if separate audio file exists)
+      if (audioUrl && !resolvedAudioUrls[id]) {
+        const cachedAudio = mediaBlobCache.get(audioUrl);
+        if (cachedAudio) {
+          setResolvedAudioUrls(prev => ({ ...prev, [id]: cachedAudio }));
+        } else {
+          fetchAsBlobUrl(audioUrl).then(blobUrl => {
+            setResolvedAudioUrls(prev => prev[id] ? prev : { ...prev, [id]: blobUrl });
+          }).catch(err => console.warn('Failed to resolve audio:', err));
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to resolve reel media", err);
+    }
+  }, [resolvedVideoUrls, resolvedAudioUrls]);
+
+  // ==================== WARM NEARBY REELS ====================
+  // TikTok-style: preload current + next 2 + previous
+  const warmReelMedia = useCallback(async (reel: Reel) => {
+    try {
+      const videoUrl = reel.videoUrl || (reel as any).video_url;
+      const audioUrl = reel.audioUrl || (reel as any).audio_url;
+
+      if (videoUrl) await fetchAsBlobUrl(videoUrl);
+      if (audioUrl) await fetchAsBlobUrl(audioUrl);
+    } catch (err) {
+      console.warn("Failed to warm reel media", err);
+    }
+  }, []);
+
+  // Preload nearby reels when active reel changes
+  useEffect(() => {
+    if (!activeReelId || reels.length === 0) return;
+
+    const currentIndex = reels.findIndex(r => r.id === activeReelId);
+    if (currentIndex === -1) return;
+
+    // Clear any pending warmup
+    if (warmupTimerRef.current) {
+      clearTimeout(warmupTimerRef.current);
+    }
+
+    // Warm nearby reels with slight delay to prioritize current
+    warmupTimerRef.current = setTimeout(() => {
+      const targets = [
+        reels[currentIndex],     // current
+        reels[currentIndex + 1], // next
+        reels[currentIndex + 2], // next + 1
+        reels[currentIndex - 1], // previous
+      ].filter(Boolean) as Reel[];
+
+      targets.forEach((reel) => {
+        warmReelMedia(reel);
+        resolveReelMedia(reel); // Also resolve URLs for rendering
+      });
+    }, 300);
+
+    return () => {
+      if (warmupTimerRef.current) {
+        clearTimeout(warmupTimerRef.current);
+      }
+    };
+  }, [activeReelId, reels, warmReelMedia, resolveReelMedia]);
+
+  // Resolve current reel media immediately
+  useEffect(() => {
+    if (!activeReelId) return;
+    const reel = reels.find(r => r.id === activeReelId);
+    if (reel) resolveReelMedia(reel);
+  }, [activeReelId, reels, resolveReelMedia]);
+
+  // Also resolve next reels
+  useEffect(() => {
+    if (!activeReelId) return;
+    const currentIndex = reels.findIndex(r => r.id === activeReelId);
+    if (currentIndex === -1) return;
+
+    [reels[currentIndex + 1], reels[currentIndex + 2]]
+      .filter(Boolean)
+      .forEach((r) => resolveReelMedia(r as Reel));
+  }, [activeReelId, reels, resolveReelMedia]);
+
+  // ==================== PLAYBACK CONTROL ====================
   useEffect(() => {
     activeIdRef.current = playingReelId;
   }, [playingReelId]);
+
+  // Wait until video is playable
+  const waitUntilPlayable = useCallback((video: HTMLVideoElement) => {
+    return new Promise<void>((resolve) => {
+      if (video.readyState >= 3) { // HAVE_FUTURE_DATA or more
+        resolve();
+        return;
+      }
+
+      const onCanPlay = () => {
+        video.removeEventListener('canplay', onCanPlay);
+        resolve();
+      };
+
+      video.addEventListener('canplay', onCanPlay, { once: true });
+      
+      // Fallback timeout
+      setTimeout(resolve, 2000);
+    });
+  }, []);
 
   // ✅ Function to increment view count via API
   const incrementViewCount = useCallback(async (reelId: number) => {
@@ -2555,8 +2746,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const data = await response.json();
       
       if (data.success && data.views_count !== undefined) {
-        // Update the local reel data with new view count
-        // This will be reflected when the user comes back to feed
         console.log(`View count updated for reel ${reelId}: ${data.views_count}`);
       }
     } catch (error) {
@@ -2564,53 +2753,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       // Remove from viewed set so we can try again later
       viewedReelsRef.current.delete(reelId);
     }
-  }, []);
-
-  // ✅ Scroll to and play initial reel from feed
-  useEffect(() => {
-    if (!initialReelId || reels.length === 0) return;
-    
-    const timer = setTimeout(() => {
-      playOnly(initialReelId);
-      
-      const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
-      if (el) {
-        el.scrollIntoView({ behavior: 'auto', block: 'start' });
-      }
-      
-      // Increment view count for initial reel
-      incrementViewCount(initialReelId);
-    }, 100);
-
-    return () => clearTimeout(timer);
-  }, [initialReelId, reels, incrementViewCount]);
-
-  // Mark user interaction for audio autoplay - UNLOCK AUDIO ON FIRST TAP
-  useEffect(() => {
-    const unlock = () => {
-      userInteractedRef.current = true;
-
-      const id = activeIdRef.current;
-      if (!id) return;
-
-      const video = videoRefs.current[id];
-      if (video) {
-        video.muted = false;
-        if (video.paused) {
-          video.play().catch(() => {});
-        }
-      }
-
-      startAudioForReel(id);
-    };
-
-    window.addEventListener("click", unlock, { once: true });
-    window.addEventListener("touchstart", unlock, { once: true });
-
-    return () => {
-      window.removeEventListener("click", unlock);
-      window.removeEventListener("touchstart", unlock);
-    };
   }, []);
 
   // Start audio for a reel (only if video is playing and user has interacted)
@@ -2623,7 +2765,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     if (video.paused) return;
     if (!userInteractedRef.current) return;
 
-    const url = reel.audioUrl || (reel as any).audio_url;
+    const originalAudioUrl = reel.audioUrl || (reel as any).audio_url;
+    const url = resolvedAudioUrls[id] || originalAudioUrl;
+    
     if (!url) return;
 
     if (audio.src !== url) {
@@ -2659,7 +2803,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return () => {
       video.removeEventListener('timeupdate', syncAudio);
     };
-  }, [reels]);
+  }, [reels, resolvedAudioUrls]);
 
   // Stop audio
   const stopAudio = useCallback(() => {
@@ -2686,8 +2830,12 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     // Stop global audio
     stopAudio();
 
+    const reel = reels.find(r => r.id === id);
     const video = videoRefs.current[id];
-    if (!video) return;
+    if (!video || !reel) return;
+
+    // Ensure media is resolved
+    await resolveReelMedia(reel);
 
     setActiveReelId(id);
     setPlayingReelId(id);
@@ -2696,6 +2844,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     video.muted = !userInteractedRef.current;
 
     try {
+      await waitUntilPlayable(video);
       await video.play();
 
       if (userInteractedRef.current) {
@@ -2705,10 +2854,57 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       // ✅ Increment view count when reel starts playing
       incrementViewCount(id);
 
-    } catch {
-      // Autoplay blocked - will play on user interaction
+    } catch (err) {
+      console.warn("Autoplay/play failed", err);
     }
-  }, [stopAudio, startAudioForReel, incrementViewCount]);
+  }, [stopAudio, startAudioForReel, incrementViewCount, reels, resolveReelMedia, waitUntilPlayable]);
+
+  // ✅ Scroll to and play initial reel from feed
+  useEffect(() => {
+    if (!initialReelId || reels.length === 0) return;
+    
+    const timer = setTimeout(() => {
+      playOnly(initialReelId);
+      
+      const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'auto', block: 'start' });
+      }
+      
+      // Increment view count for initial reel
+      incrementViewCount(initialReelId);
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [initialReelId, reels, playOnly, incrementViewCount]);
+
+  // Mark user interaction for audio autoplay - UNLOCK AUDIO ON FIRST TAP
+  useEffect(() => {
+    const unlock = () => {
+      userInteractedRef.current = true;
+
+      const id = activeIdRef.current;
+      if (!id) return;
+
+      const video = videoRefs.current[id];
+      if (video) {
+        video.muted = false;
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+      }
+
+      startAudioForReel(id);
+    };
+
+    window.addEventListener("click", unlock, { once: true });
+    window.addEventListener("touchstart", unlock, { once: true });
+
+    return () => {
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+  }, [startAudioForReel]);
 
   // INTERSECTION OBSERVER - ONLY CALLS playOnly()
   useEffect(() => {
@@ -2865,7 +3061,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               );
 
               const sound = extractSoundFromReel(reel);
-              const videoUrl = reel.videoUrl || (reel as any).video_url || '';
+              const originalVideoUrl = reel.videoUrl || (reel as any).video_url || '';
+              const videoUrl = resolvedVideoUrls[reel.id] || originalVideoUrl;
+              
+              // Determine if this reel is near the active one for preload strategy
+              const reelIndex = reels.findIndex(r => r.id === reel.id);
+              const activeIndex = reels.findIndex(r => r.id === activeReelId);
+              const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
 
               return (
                 <div 
@@ -2879,7 +3081,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                     <video 
                       ref={el => { if (el) videoRefs.current[reel.id] = el; }}
                       src={videoUrl}
-                      preload="metadata"
+                      poster={(reel as any).thumbnail_url || (reel as any).thumbnail || ''}
+                      preload={isNearActive ? "auto" : "metadata"}
                       playsInline
                       loop
                       controls={false}
