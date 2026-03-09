@@ -1,3 +1,4 @@
+// functions/api/reel-comments.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = { DB: D1Database };
@@ -27,22 +28,21 @@ export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
 /**
- * POST /api/reels/:reelId/comments
- * Body: { text, user_id? }
+ * POST /api/reel-comments
+ * Body: { reel_id, text, user_id? }
  */
-export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    const reel_id = toNum(params?.reelId, 0);
     const body = await request.json().catch(() => ({} as any));
 
+    const reel_id = toNum(body.reel_id, 0);
     const headerUserId = toNum(request.headers.get('x-user-id'), 0);
     const bodyUserId = toNum(body.user_id, 0);
     const user_id = headerUserId || bodyUserId || 0;
-
     const text = String(body.text ?? '').trim();
 
     if (!reel_id) {
-      return json({ success: false, error: 'Invalid reelId' }, 400);
+      return json({ success: false, error: 'reel_id is required' }, 400);
     }
 
     if (!user_id) {
@@ -53,7 +53,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       return json({ success: false, error: 'text is required' }, 400);
     }
 
-    // Optional: confirm reel exists
+    if (text.length > 2000) {
+      return json({ success: false, error: 'Comment is too long' }, 400);
+    }
+
     const reel = await env.DB
       .prepare(`SELECT id FROM reels WHERE id = ? LIMIT 1`)
       .bind(reel_id)
@@ -61,6 +64,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
     if (!reel) {
       return json({ success: false, error: 'Reel not found' }, 404);
+    }
+
+    const user = await env.DB
+      .prepare(`SELECT id FROM users WHERE id = ? LIMIT 1`)
+      .bind(user_id)
+      .first();
+
+    if (!user) {
+      return json({ success: false, error: 'User not found' }, 404);
     }
 
     const ins = await env.DB
@@ -101,7 +113,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
     return json({
       success: true,
-      comment: comment ?? { id: comment_id, reel_id, user_id, text },
+      comment: comment ?? {
+        id: comment_id,
+        reel_id,
+        user_id,
+        text,
+      },
       comments_count,
     });
   } catch (e: any) {
@@ -110,27 +127,37 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 };
 
 /**
- * GET /api/reels/:reelId/comments
+ * GET /api/reel-comments?reel_id=123
  */
-export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
+export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    const reel_id = toNum(params?.reelId, 0);
+    const url = new URL(request.url);
+    const reel_id = toNum(url.searchParams.get('reel_id'), 0);
 
     if (!reel_id) {
-      return json({ success: false, error: 'Invalid reelId' }, 400);
+      return json({ success: false, error: 'reel_id required' }, 400);
+    }
+
+    const reel = await env.DB
+      .prepare(`SELECT id FROM reels WHERE id = ? LIMIT 1`)
+      .bind(reel_id)
+      .first();
+
+    if (!reel) {
+      return json({ success: false, error: 'Reel not found' }, 404);
     }
 
     const res = await env.DB
       .prepare(
         `SELECT
-           id,
-           reel_id,
-           user_id,
-           text,
-           created_at
-         FROM reel_comments
-         WHERE reel_id = ?
-         ORDER BY created_at DESC
+           rc.id,
+           rc.reel_id,
+           rc.user_id,
+           rc.text,
+           rc.created_at
+         FROM reel_comments rc
+         WHERE rc.reel_id = ?
+         ORDER BY rc.created_at DESC, rc.id DESC
          LIMIT 200`
       )
       .bind(reel_id)
