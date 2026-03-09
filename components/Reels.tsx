@@ -1,9 +1,10 @@
-// Reels.tsx (Complete file with TikTok-like loading strategy)
+// Reels.tsx (Complete file with TikTok-like loading + fullscreen overlay + long-press prevention)
 // Features:
+// - True fullscreen overlay (z-[9999]) that covers entire app
+// - Long-press prevention with pointer-events-none video + overlay
 // - 3-layer media caching (memory + blob + service worker)
 // - Smart preloading of adjacent reels
 // - Poster thumbnails for instant visual feedback
-// - Single merged video files (recommended architecture)
 // - Service worker for cross-session cache
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
@@ -2529,7 +2530,7 @@ const CameraStudio: React.FC<{
   );
 };
 
-// ==================== ENHANCED REELS FEED - TIKTOK-STYLE LOADING ====================
+// ==================== ENHANCED REELS FEED - TIKTOK-STYLE FULLSCREEN ====================
 interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
@@ -2999,35 +3000,41 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   };
 
   return (
-    <div className="w-full h-[calc(100dvh-56px)] bg-black overflow-hidden font-sans relative">
+    <div
+      className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {/* Single global audio element */}
       <audio ref={globalAudioRef} hidden playsInline />
 
-      {/* Top bar with back button */}
-      <div className="absolute top-0 left-0 right-0 z-30 h-14 px-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent">
+      {/* Top bar with back button - floating overlay */}
+      <div
+        className="absolute top-0 left-0 right-0 z-30 px-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pointer-events-none"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 8px)", height: "64px" }}
+      >
         <button
           onClick={onBack || (() => window.history.back())}
-          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors pointer-events-auto"
         >
           <i className="fas fa-arrow-left text-white text-sm" />
         </button>
 
-        <div className="text-white font-black text-[12px] tracking-widest uppercase">
+        <div className="text-white font-black text-[12px] tracking-widest uppercase pointer-events-auto">
           Reels
         </div>
 
         <button
-          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center"
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center pointer-events-auto"
         >
           <i className="fas fa-ellipsis-h text-white text-sm" />
         </button>
       </div>
 
       {/* TikTok-style fullscreen feed */}
-      <div className="w-full h-full flex justify-center pt-14">
+      <div className="w-full h-full">
         <div
           ref={scrollerRef}
-          className="w-full max-w-[600px] lg:max-w-[800px] xl:max-w-[1000px] h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-black"
+          className="reel-video-shell w-full h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-black"
         >
           {reels.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-white p-8">
@@ -3070,15 +3077,17 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
 
               return (
-                <div 
-                  key={reel.id} 
+                <div
+                  key={reel.id}
                   id={`reel-${reel.id}`}
-                  data-reel-id={reel.id} 
-                  className="reel-container w-full h-[calc(100dvh-56px)] snap-start relative bg-black overflow-hidden flex items-center justify-center"
+                  data-reel-id={reel.id}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className="reel-container w-full h-[100dvh] snap-start relative bg-black overflow-hidden"
                 >
-                  {/* TikTok-style fullscreen video container */}
-                  <div className="w-full h-full relative bg-black">
-                    <video 
+                  {/* TikTok-style fullscreen video container with overlay for touch */}
+                  <div className="reel-video-shell w-full h-full relative bg-black">
+                    {/* Video element - non-interactive */}
+                    <video
                       ref={el => { if (el) videoRefs.current[reel.id] = el; }}
                       src={videoUrl}
                       poster={(reel as any).thumbnail_url || (reel as any).thumbnail || ''}
@@ -3087,15 +3096,36 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       loop
                       controls={false}
                       disablePictureInPicture
-                      className="w-full h-full object-cover"
+                      controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
+                      className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+                      style={{
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        userSelect: 'none'
+                      }}
                       muted={playingReelId !== reel.id || !userInteractedRef.current}
+                      draggable={false}
+                      tabIndex={-1}
+                      onContextMenu={(e) => e.preventDefault()}
+                    />
+
+                    {/* Touch overlay - handles all user interactions */}
+                    <div
+                      className="absolute inset-0 z-10"
                       onClick={() => handleVideoClick(reel.id)}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onTouchStart={(e) => {
+                        // Prevent multi-touch gestures
+                        if (e.touches.length > 1) {
+                          e.preventDefault();
+                        }
+                      }}
                     />
 
                     {/* BOTTOM ACTION BAR - Like, Comment, Share at the bottom */}
-                    <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4">
-                      {/* Profile and caption section */}
-                      <div className="mb-4">
+                    <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4 pointer-events-none">
+                      {/* Profile and caption section - pointer-events-auto for buttons */}
+                      <div className="mb-4 pointer-events-auto">
                         <div className="flex items-center gap-3 mb-2">
                           <img 
                             src={author.profile_image_url || author.profileImage} 
@@ -3149,7 +3179,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       </div>
 
                       {/* Action buttons - horizontal layout at bottom */}
-                      <div className="flex items-center justify-around py-2">
+                      <div className="flex items-center justify-around py-2 pointer-events-auto">
                         {/* Like button */}
                         <button 
                           onClick={() => onReact(reel.id, "like")}
@@ -3193,7 +3223,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                     {/* Small play icon overlay when paused */}
                     {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
                       <div 
-                        className="absolute inset-0 flex items-center justify-center cursor-pointer"
+                        className="absolute inset-0 flex items-center justify-center cursor-pointer z-30"
                         onClick={() => handleVideoClick(reel.id)}
                       >
                         <div className="w-16 h-16 bg-black/60 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20">
@@ -3314,6 +3344,25 @@ const styles = `
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Reel video shell - prevent long-press menu */
+.reel-video-shell,
+.reel-video-shell * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.reel-video-shell video {
+  pointer-events: none;
+}
+
+/* Prevent context menu on the entire reel container */
+.reel-container {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 `;
 
