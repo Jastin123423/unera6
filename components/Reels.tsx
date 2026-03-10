@@ -3420,23 +3420,17 @@ if (typeof document !== 'undefined' && !document.getElementById('reels-styles'))
   styleSheet.innerText = styles;
   document.head.appendChild(styleSheet);
 }
-
+// ==================== SINGLE EXPORT BLOCK ====================
+// Export everything from one place to avoid duplicates
 export {
+  // Utilities & Hooks
   trimAudioUrlToWavBlob,
   fetchAsBlobUrl,
   useAudioFocus,
   formatViewCount,
-  registerServiceWorker
-};
-
-// Export types
-export type { 
-  ReelSound, 
-  Sound
-};
-
-// Export all components (but NOT re-exporting the ones already exported above)
-export {
+  registerServiceWorker,
+  
+  // Components
   CreateReelModal,
   SoundDetailView,
   ReelCommentsSheet,
@@ -3444,8 +3438,17 @@ export {
   SoundItem,
   UploadLoader,
   CameraStudio,
-  AudioTrimmer
+  AudioTrimmer,
+  
+  // Main component as named export
+  ReelsFeed
 };
 
-// Export main component as default
+// Export types separately (they don't conflict with value exports)
+export type { 
+  ReelSound, 
+  Sound 
+};
+
+// Default export
 export default ReelsFeed;
