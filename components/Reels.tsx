@@ -1,11 +1,4 @@
-// Reels.tsx (Final Production Version - TikTok-Level Performance)
-// Features:
-// - True fullscreen overlay with z-[9999]
-// - Memory-safe caching (max 10 items)
-// - Proper awaitable media resolution
-// - Clean audio sync management
-// - Optimized for mobile performance
-// - Long-press prevention
+
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
@@ -3428,5 +3421,34 @@ if (typeof document !== 'undefined' && !document.getElementById('reels-styles'))
   document.head.appendChild(styleSheet);
 }
 
+export {
+  trimAudioUrlToWavBlob,
+  fetchAsBlobUrl,
+  useAudioFocus,
+  formatViewCount,
+  registerServiceWorker
+};
+
+// Export types
+export type { 
+  ReelSound, 
+  Sound,
+  MusicPickerProps,
+  SoundDetailViewProps,
+  ReelsFeedProps 
+};
+
 // Export components
+export { 
+  CreateReelModal,
+  SoundDetailView,
+  ReelCommentsSheet,
+  MusicPicker,
+  SoundItem,
+  UploadLoader,
+  CameraStudio,
+  AudioTrimmer 
+};
+
+// Export main component as default
 export default ReelsFeed;
