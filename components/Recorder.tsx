@@ -15,11 +15,11 @@ import { User } from '../types';
  * - Professional lyric overlay styles
  * - Camera + gallery in one screen
  * - REAL loaders for audio trimming (copied from Reels.tsx)
- * - REAL API integration for sounds (copied from App.tsx)
- * - Matches App.tsx createReel() expectations
+ * - REAL API integration for sounds (copied from Reels.tsx)
  */
 
 // ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
+// Layer 1: Limited in-memory blob URL cache (max 10 items)
 const mediaBlobCache = new Map<string, { blobUrl: string, timestamp: number }>(); 
 const mediaWarmPromises = new Map<string, Promise<string>>();
 const CACHE_MAX_SIZE = 10;
@@ -28,21 +28,25 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
   if (!url) throw new Error("Missing media URL");
 
+  // Check cache with TTL
   const cached = mediaBlobCache.get(url);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.blobUrl;
   }
 
+  // Deduplicate concurrent fetches
   if (mediaWarmPromises.has(url)) {
     return mediaWarmPromises.get(url)!;
   }
 
+  // For videos, prefer native browser cache (memory efficient)
   if (type === 'video') {
     mediaWarmPromises.set(url, Promise.resolve(url));
     setTimeout(() => mediaWarmPromises.delete(url), 1000);
     return url;
   }
 
+  // Only audio gets blob URLs (smaller, need trimming)
   const p = fetch(url, { 
     cache: "force-cache",
     headers: { "Accept": "audio/mpeg,*/*" }
@@ -53,6 +57,7 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       
+      // Cleanup old cache entries
       if (mediaBlobCache.size >= CACHE_MAX_SIZE) {
         const oldestKey = Array.from(mediaBlobCache.entries())
           .sort((a, b) => a[1].timestamp - b[1].timestamp)[0][0];
@@ -72,7 +77,7 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
   return p;
 }
 
-// ==================== AUDIO TRIMMING UTILITIES ====================
+// ==================== AUDIO TRIMMING UTILITIES (EXACT COPY FROM REELS.TSX) ====================
 async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch audio");
@@ -95,22 +100,26 @@ function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
     for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
   };
 
+  // RIFF header
   writeString(0, "RIFF");
   view.setUint32(4, 36 + dataSize, true);
   writeString(8, "WAVE");
 
+  // fmt chunk
   writeString(12, "fmt ");
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
+  view.setUint16(20, 1, true); // PCM
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
   view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 16, true);
+  view.setUint16(34, 16, true); // bits
 
+  // data chunk
   writeString(36, "data");
   view.setUint32(40, dataSize, true);
 
+  // Interleave + PCM16
   let offset = 44;
   for (let i = 0; i < length; i++) {
     for (let ch = 0; ch < numChannels; ch++) {
@@ -179,7 +188,7 @@ const useAudioFocus = () => {
   return { stopAllAudio };
 };
 
-// ==================== API HELPER (EXACT COPY FROM APP.TSX) ====================
+// ==================== API HELPER (EXACT COPY FROM REELS.TSX) ====================
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('unera_token');
   const headers: HeadersInit = {
@@ -227,102 +236,7 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-// ==================== UPLOAD TO CLOUDFLARE R2 (EXACT COPY FROM APP.TSX) ====================
-const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('filename', file.name);
-    formData.append('type', file.type);
-    formData.append('folder', folder);
-    formData.append('timestamp', Date.now().toString());
-
-    const response = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Upload failed: ${response.status}`);
-    }
-
-    const result = await response.json();
-    if (!result.url) throw new Error('No URL returned from upload');
-
-    return { url: result.url, type: file.type, filename: file.name };
-  } catch (error) {
-    console.error('Upload failed:', error);
-    throw error;
-  }
-};
-
-const isAbsoluteUrl = (u: string) => u.startsWith('http://') || u.startsWith('https://');
-const isBlobUrl = (u: string) => u.startsWith('blob:');
-
-const ensureR2Url = async (input: any, folder: string, fallbackName: string) => {
-  if (!input) return '';
-
-  if (typeof input === 'string' && isAbsoluteUrl(input)) {
-    return input;
-  }
-
-  if (typeof input === 'string' && isBlobUrl(input)) {
-    try {
-      const res = await fetch(input);
-      if (!res.ok) throw new Error(`Failed to fetch blob: ${res.status}`);
-      
-      const blob = await res.blob();
-      
-      const fileType = folder.includes('audio') ? blob.type || 'audio/wav' : 'application/octet-stream';
-      const fileName = folder.includes('audio') ? 
-        `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
-        fallbackName;
-      
-      const file = new File([blob], fileName, { type: fileType });
-      const up = await uploadToCloudflareR2(file, folder);
-      return up.url;
-    } catch (error) {
-      console.error('Failed to process blob URL:', error);
-      throw new Error('Failed to process audio file');
-    }
-  }
-
-  if (typeof File !== 'undefined' && input instanceof File) {
-    if (folder.includes('audio') && !input.type) {
-      const fileType = 'audio/wav';
-      const fileName = `audio-${Date.now()}.wav`;
-      const newFile = new File([input], fileName, { type: fileType });
-      const up = await uploadToCloudflareR2(newFile, folder);
-      return up.url;
-    }
-    const up = await uploadToCloudflareR2(input, folder);
-    return up.url;
-  }
-
-  if (typeof Blob !== 'undefined' && input instanceof Blob) {
-    const fileType = folder.includes('audio') ? input.type || 'audio/wav' : 'application/octet-stream';
-    const fileName = folder.includes('audio') ? 
-      `audio-${Date.now()}.${fileType.split('/')[1] || 'wav'}` : 
-      fallbackName;
-    
-    const file = new File([input], fileName, { type: fileType });
-    const up = await uploadToCloudflareR2(file, folder);
-    return up.url;
-  }
-
-  return '';
-};
-
-// ==================== TO FETCHABLE AUDIO URL (EXACT COPY FROM APP.TSX) ====================
-const toFetchableAudioUrl = (u?: string | null): string => {
-  if (!u) return '';
-  if (isAbsoluteUrl(u)) return u;
-  if (isBlobUrl(u)) return u;
-  return u;
-};
-
-// ==================== FORMAT VIEW COUNT HELPER ====================
+// ==================== FORMAT VIEW COUNT HELPER (EXACT COPY FROM REELS.TSX) ====================
 const formatViewCount = (num?: number): string => {
   const v = Number(num || 0);
   
@@ -419,7 +333,7 @@ export interface RecorderSubmitPayload {
   audioEnd?: number;
   soundKey?: string;
   songId?: string | number;
-  originalSoundId?: string | number; // ✅ Added for createReel() compatibility
+  originalSoundId?: string | number;
   lyricsText?: string;
   lyricsTheme?: LyricThemeId;
   lyricsEnabled?: boolean;
@@ -454,7 +368,7 @@ const EFFECTS = [
   { id: 'mono', name: 'Mono', filter: 'grayscale(1) contrast(1.12)' },
 ] as const;
 
-// ==================== ENHANCED AUDIO TRIMMER ====================
+// ==================== ENHANCED AUDIO TRIMMER (EXACT COPY FROM REELS.TSX) ====================
 const AudioTrimmer: React.FC<{ 
   url: string, 
   onClose: () => void, 
@@ -616,6 +530,7 @@ const AudioTrimmer: React.FC<{
     setTrimError('');
     
     try {
+      // REAL trimming progress - not fake
       setTrimProgress(10);
       
       const { blob, duration: trimDuration } = await trimAudioUrlToWavBlob(url, start, end);
@@ -934,11 +849,14 @@ const Recorder: React.FC<RecorderProps> = ({
   const [trimStart, setTrimStart] = useState<number>(selectedSound?.audioStart || 0);
   const [trimEnd, setTrimEnd] = useState<number>(selectedSound?.audioEnd || 0);
 
-  // ==================== SOUND FETCHING (EXACT COPY FROM APP.TSX) ====================
+  // ==================== SOUND FETCHING (EXACT COPY FROM REELS.TSX) ====================
   const [availableSounds, setAvailableSounds] = useState<RecorderSoundOption[]>(sounds);
   const [popularSounds, setPopularSounds] = useState<RecorderSoundOption[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(false);
   const [loadingPopularSounds, setLoadingPopularSounds] = useState(false);
+
+  // ==================== TRIMMED AUDIO STATE ====================
+  const [trimmedAudioFile, setTrimmedAudioFile] = useState<File | null>(null);
 
   // Fetch popular sounds
   useEffect(() => {
@@ -946,23 +864,23 @@ const Recorder: React.FC<RecorderProps> = ({
       setLoadingPopularSounds(true);
       try {
         const data = await apiFetch('/api/sounds/popular?limit=20');
-        const list = data?.sounds ?? data?.data ?? (Array.isArray(data) ? data : []);
-        
-        setPopularSounds(list.map((sound: any) => ({
-          id: sound.id,
-          name: sound.name || sound.title,
-          url: toFetchableAudioUrl(sound.url || sound.audio_url),
-          originalUrl: sound.originalUrl || sound.url || sound.audio_url,
-          duration: sound.duration || 30,
-          start: sound.start || 0,
-          end: sound.end || sound.duration || 30,
-          coverImage: sound.coverImage || sound.cover_url || sound.cover,
-          creatorName: sound.creatorName || sound.creator_name || sound.artist,
-          creatorImage: sound.creatorImage || sound.creator_image || sound.artist_image,
-          playCount: sound.playCount || sound.plays || 0,
-          creationCount: sound.creationCount || sound.uses || 0,
-          soundKey: sound.soundKey || sound.sound_key || `sound:${sound.id}`
-        })));
+        if (data?.success && data.sounds) {
+          setPopularSounds(data.sounds.map((sound: any) => ({
+            id: sound.id,
+            name: sound.name,
+            url: sound.url,
+            originalUrl: sound.originalUrl || sound.url,
+            duration: sound.duration,
+            start: sound.start || 0,
+            end: sound.end || sound.duration || 60,
+            coverImage: sound.coverImage,
+            creatorName: sound.creatorName,
+            creatorImage: sound.creatorImage,
+            playCount: sound.playCount,
+            creationCount: sound.creationCount,
+            soundKey: sound.soundKey || `sound:${sound.id}`
+          })));
+        }
       } catch (error) {
         console.error('Failed to fetch popular sounds:', error);
       } finally {
@@ -979,23 +897,23 @@ const Recorder: React.FC<RecorderProps> = ({
       setLoadingSongs(true);
       try {
         const data = await apiFetch('/api/songs');
-        const list = data?.songs ?? data?.data ?? (Array.isArray(data) ? data : []);
-        
-        const songSounds = list.map((song: any) => ({
-          id: song.id,
-          name: song.title || song.name,
-          url: toFetchableAudioUrl(song.audio_url || song.url),
-          originalUrl: song.audio_url || song.url,
-          duration: song.duration || 30,
-          start: 0,
-          end: song.duration || 30,
-          coverImage: song.cover_url || song.cover,
-          creatorName: song.artist || song.creator_name,
-          creatorImage: song.artist_image || song.cover_url,
-          playCount: song.playCount || song.plays || 0,
-          soundKey: `song:${song.id}`
-        }));
-        setAvailableSounds(songSounds);
+        if (data?.success && data.songs) {
+          const songSounds = data.songs.map((song: any) => ({
+            id: `song:${song.id}`,
+            name: song.title,
+            url: song.audio_url,
+            originalUrl: song.audio_url,
+            duration: song.duration,
+            start: 0,
+            end: song.duration || 60,
+            coverImage: song.cover_url,
+            creatorName: song.artist,
+            creatorImage: song.cover_url,
+            playCount: song.playCount || 0,
+            soundKey: `song:${song.id}`
+          }));
+          setAvailableSounds(songSounds);
+        }
       } catch (error) {
         console.error('Failed to fetch songs:', error);
       } finally {
@@ -1322,6 +1240,7 @@ const Recorder: React.FC<RecorderProps> = ({
     cleanupCamera();
     stopSoundPreview();
     setVideoFile(null);
+    setTrimmedAudioFile(null);
     setNextPreviewUrl(null);
     setMode('choose');
     setCaption('');
@@ -1333,22 +1252,11 @@ const Recorder: React.FC<RecorderProps> = ({
   }, [cleanupCamera, setNextPreviewUrl, stopSoundPreview]);
 
   const generateSoundKey = useCallback((): string => {
+    if (trimmedAudioFile) return `trimmed:${Date.now()}`;
     if (currentSelectedSound?.soundKey) return currentSelectedSound.soundKey;
-    
-    if (currentSelectedSound?.songId) {
-      return `song:${currentSelectedSound.songId}`;
-    }
-    
-    if (trimStart !== 0 || trimEnd !== 0) {
-      return `trimmed:${currentUser?.id || 'unknown'}:${Date.now()}`;
-    }
-    
-    if (currentSelectedSound?.audioUrl) {
-      return `original:${currentUser?.id || 'unknown'}:${Date.now()}`;
-    }
-    
+    if (currentSelectedSound?.songId) return `song:${currentSelectedSound.songId}`;
     return 'original:none';
-  }, [currentSelectedSound, currentUser, trimStart, trimEnd]);
+  }, [currentSelectedSound, trimmedAudioFile]);
 
   const handleSubmit = useCallback(async () => {
     if (!videoFile) {
@@ -1357,10 +1265,16 @@ const Recorder: React.FC<RecorderProps> = ({
       return;
     }
 
+    if (typeof onSubmit !== 'function') {
+      setSubmitState('error');
+      setSubmitError('Recorder submit handler is missing.');
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitState('uploading');
     setSubmitError('');
-    setSubmitProgress(5);
+    setSubmitProgress(10);
 
     const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -1369,62 +1283,37 @@ const Recorder: React.FC<RecorderProps> = ({
     window.addEventListener('beforeunload', beforeUnloadHandler);
 
     try {
-      setSubmitProgress(15);
-      
-      // Upload video to R2
-      setSubmitProgress(30);
-      const videoUrl = await ensureR2Url(
-        videoFile,
-        'reels',
-        `reel-${Date.now()}.mp4`
-      );
-
-      setSubmitProgress(50);
-
-      // Upload audio if trimmed
-      let audioFileToUpload: File | undefined = undefined;
-      if (trimmingSound && (trimStart !== 0 || trimEnd !== 0)) {
-        // Audio is already trimmed via AudioTrimmer
-        // The trimmed file will be passed through onSubmit
-      }
-
-      setSubmitProgress(70);
-
       const soundKey = generateSoundKey();
-      const isTrimmedAudio = soundKey.startsWith('trimmed:');
-      
-      const audioStart = isTrimmedAudio ? 0 : (selectedSound?.audioStart || trimStart || 0);
-      const audioEnd = isTrimmedAudio ? 0 : (selectedSound?.audioEnd || trimEnd || 0);
+      const isTrimmedAudio = !!currentSelectedSound?.isTrimmedAudio || soundKey.startsWith('trimmed:');
 
-      // ✅ Match createReel() expectations exactly
+      const audioStart = isTrimmedAudio ? 0 : (trimStart || 0);
+      const audioEnd = isTrimmedAudio ? 0 : (trimEnd || 0);
+
+      setSubmitProgress(25);
+
       await onSubmit({
         caption: caption.trim(),
         location: location.trim(),
         visibility,
         videoFile,
-        audioFile: trimmingSound ? undefined : undefined, // Will be handled via ensureR2Url in createReel
+        audioFile: trimmedAudioFile || undefined,
         songName: currentSelectedSound?.songName || 'Original Sound',
         audioUrl: currentSelectedSound?.originalUrl || currentSelectedSound?.audioUrl || '',
         audioStart,
         audioEnd,
         soundKey,
         songId: currentSelectedSound?.songId,
-        originalSoundId: currentSelectedSound?.songId, // ✅ Added for createReel()
+        originalSoundId: currentSelectedSound?.songId,
         lyricsText: lyricsText.trim(),
         lyricsTheme,
         lyricsEnabled,
       });
 
-      setSubmitProgress(90);
-      
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
       setSubmitProgress(100);
       setSubmitState('success');
-      
       window.removeEventListener('beforeunload', beforeUnloadHandler);
-      
-      await sleep(1000);
+
+      await sleep(800);
       onBack();
     } catch (error: any) {
       console.error('Submit error:', error);
@@ -1434,7 +1323,22 @@ const Recorder: React.FC<RecorderProps> = ({
     } finally {
       setIsSubmitting(false);
     }
-  }, [caption, currentSelectedSound, location, lyricsEnabled, lyricsText, lyricsTheme, onBack, onSubmit, soundEnd, soundStart, trimEnd, trimStart, trimmingSound, videoFile, visibility, generateSoundKey, selectedSound]);
+  }, [
+    videoFile,
+    onSubmit,
+    caption,
+    location,
+    visibility,
+    currentSelectedSound,
+    trimStart,
+    trimEnd,
+    lyricsText,
+    lyricsTheme,
+    lyricsEnabled,
+    generateSoundKey,
+    onBack,
+    trimmedAudioFile
+  ]);
 
   useEffect(() => {
     setTrimStart(selectedSound?.audioStart || 0);
@@ -1472,26 +1376,31 @@ const Recorder: React.FC<RecorderProps> = ({
     bottom: `${lyricsBottomOffset}%`,
   }), [lyricsBottomOffset, lyricsScale]);
 
-  const handleTrimConfirm = (start: number, end: number, trimmedFile?: File) => {
+  const handleTrimConfirm = useCallback((start: number, end: number, trimmedFile?: File) => {
     setTrimStart(start);
     setTrimEnd(end);
     setIsTrimmerOpen(false);
-    
-    if (trimmedFile && currentSelectedSound) {
-      // Update selected sound with trimmed info
+
+    if (trimmedFile) {
+      setTrimmedAudioFile(trimmedFile);
+    } else {
+      setTrimmedAudioFile(null);
+    }
+
+    if (currentSelectedSound) {
       onSelectSound?.({
         ...currentSelectedSound,
         audioStart: start,
         audioEnd: end,
-        isTrimmedAudio: true,
+        isTrimmedAudio: !!trimmedFile,
       });
     }
-  };
+  }, [currentSelectedSound, onSelectSound]);
 
-  const handleSoundSelect = (sound: RecorderSoundOption) => {
+  const handleSoundSelect = useCallback((sound: RecorderSoundOption) => {
     const normalized: ReelSound = {
       songName: sound.name,
-      audioUrl: toFetchableAudioUrl(sound.url),
+      audioUrl: sound.url,
       originalUrl: sound.originalUrl || sound.url,
       audioStart: sound.start || 0,
       audioEnd: sound.end || sound.duration || 0,
@@ -1499,13 +1408,16 @@ const Recorder: React.FC<RecorderProps> = ({
       soundKey: sound.soundKey || `song:${sound.id}`,
       isTrimmedAudio: false,
     };
-    onSelectSound?.(normalized);
+
+    setTrimmedAudioFile(null);
     setTrimStart(normalized.audioStart || 0);
     setTrimEnd(normalized.audioEnd || 0);
-    setIsSoundPickerOpen(false);
     setTrimmingSound(sound);
+
+    onSelectSound?.(normalized);
+    setIsSoundPickerOpen(false);
     setIsTrimmerOpen(true);
-  };
+  }, [onSelectSound]);
 
   return (
     <div className="fixed inset-0 z-[9999] bg-black text-white overflow-hidden font-sans recorder-page">
@@ -1762,6 +1674,21 @@ const Recorder: React.FC<RecorderProps> = ({
               <div className="mt-3 text-white/55 text-xs">
                 Fast trim mode: only start/end metadata changes, so there is no fake trimming delay.
               </div>
+
+              <button
+                onClick={() => {
+                  const sound = availableSounds.find(s => s.id === currentSelectedSound.songId) || 
+                              popularSounds.find(s => s.id === currentSelectedSound.songId);
+                  if (sound) {
+                    setTrimmingSound(sound);
+                    setIsTrimmerOpen(true);
+                  }
+                }}
+                className="w-full mt-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-[0.14em] hover:bg-white/10 transition-colors"
+              >
+                <i className="fas fa-scissors mr-2"></i>
+                Advanced Trim & Export
+              </button>
             </div>
           )}
         </div>
@@ -2124,6 +2051,7 @@ const Recorder: React.FC<RecorderProps> = ({
                   onSelectSound?.(null);
                   setTrimStart(0);
                   setTrimEnd(0);
+                  setTrimmedAudioFile(null);
                 }}
                 className="px-4 py-2 rounded-2xl bg-white/8 border border-white/10 text-xs font-black uppercase tracking-[0.14em]"
               >
@@ -2278,6 +2206,20 @@ const RangeRow: React.FC<{
     </div>
   );
 };
+
+// =========================
+// HELPER FUNCTIONS
+// =========================
+const normalizeSoundFromOption = (sound: RecorderSoundOption): ReelSound => ({
+  songName: sound.name,
+  audioUrl: sound.url,
+  originalUrl: sound.originalUrl || sound.url,
+  audioStart: sound.start || 0,
+  audioEnd: sound.end || sound.duration || 0,
+  songId: sound.id,
+  soundKey: sound.soundKey || `song:${sound.id}`,
+  isTrimmedAudio: false,
+});
 
 // =========================
 // STYLES
