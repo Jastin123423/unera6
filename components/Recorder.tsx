@@ -10,6 +10,7 @@ import { User } from '../types';
  * - Adjustable filter intensity
  * - Beauty overlays for skin softening
  * - Filters applied to both camera and preview
+ * - Improved UI layout with better spacing
  */
 
 // ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
@@ -144,7 +145,7 @@ async function trimAudioUrlToWavBlob(audioUrl: string, startSec: number, endSec:
   const wavBlob = audioBufferToWavBlob(trimmed);
 
   try { await ctx.close(); } catch {}
-  return { blob: wavBlob, duration: frameCount / sr };
+  return { blob: wavBlob };
 }
 
 // ==================== AUDIO FOCUS MANAGER ====================
@@ -273,9 +274,7 @@ type FilterPreset = {
     sepia?: number;
     grayscale?: number;
     hueRotate?: number;
-    blur?: number; // For beauty effects (very subtle)
   };
-  // Special flags
   hasBeautyOverlay?: boolean;
   description?: string;
 };
@@ -442,16 +441,13 @@ const FILTER_PRESETS: FilterPreset[] = [
 
 // Helper to build filter string with intensity
 const buildFilterString = (preset: FilterPreset, intensity: number): string => {
-  // If intensity is 0, return no filter
   if (intensity === 0 || preset.id === 'none') return 'none';
 
   const mix = (neutral: number, target?: number) => {
     if (target === undefined) return neutral;
-    // Linear interpolation between neutral (1 or 0) and target
     return neutral + (target - neutral) * intensity;
   };
 
-  // Base neutral values
   const brightness = mix(1, preset.base.brightness);
   const contrast = mix(1, preset.base.contrast);
   const saturate = mix(1, preset.base.saturate);
@@ -586,7 +582,6 @@ const AudioTrimmer: React.FC<{
   const [duration, setDuration] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
   const [activeThumb, setActiveThumb] = useState<'start' | 'end'>('start');
   const [isTrimming, setIsTrimming] = useState(false);
   const [trimProgress, setTrimProgress] = useState(0);
@@ -732,7 +727,7 @@ const AudioTrimmer: React.FC<{
     try {
       setTrimProgress(10);
       
-      const { blob, duration: trimDuration } = await trimAudioUrlToWavBlob(url, start, end);
+      const { blob } = await trimAudioUrlToWavBlob(url, start, end);
       
       setTrimProgress(80);
       
@@ -934,8 +929,8 @@ const AudioTrimmer: React.FC<{
               max={duration} 
               step="0.1" 
               value={start} 
-              onMouseDown={() => { if (!isTrimming) { setIsDragging(true); setActiveThumb('start'); } }}
-              onMouseUp={() => setIsDragging(false)}
+              onMouseDown={() => { if (!isTrimming) { setActiveThumb('start'); } }}
+              onMouseUp={() => {}}
               onChange={(e) => !isTrimming && handleStartChange(parseFloat(e.target.value))}
               className={`precision-slider slider-blue ${activeThumb === 'start' ? 'slider-active' : ''}`}
               disabled={isTrimming}
@@ -946,8 +941,8 @@ const AudioTrimmer: React.FC<{
               max={duration} 
               step="0.1" 
               value={end} 
-              onMouseDown={() => { if (!isTrimming) { setIsDragging(true); setActiveThumb('end'); } }}
-              onMouseUp={() => setIsDragging(false)}
+              onMouseDown={() => { if (!isTrimming) { setActiveThumb('end'); } }}
+              onMouseUp={() => {}}
               onChange={(e) => !isTrimming && handleEndChange(parseFloat(e.target.value))}
               className={`precision-slider slider-red ${activeThumb === 'end' ? 'slider-active' : ''}`}
               disabled={isTrimming}
@@ -1028,7 +1023,7 @@ const Recorder: React.FC<RecorderProps> = ({
   // ==================== ENHANCED FILTER STATE ====================
   const [selectedFilterId, setSelectedFilterId] = useState<string>('none');
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('beauty');
-  const [filterIntensity, setFilterIntensity] = useState(0.75); // 75% default feels natural
+  const [filterIntensity, setFilterIntensity] = useState(0.75);
 
   const activeFilter = useMemo(
     () => FILTER_PRESETS.find((f) => f.id === selectedFilterId) || FILTER_PRESETS[0],
@@ -1045,10 +1040,11 @@ const Recorder: React.FC<RecorderProps> = ({
     [activeFilter]
   );
 
-  const filteredFilters = useMemo(
-    () => FILTER_PRESETS.filter(f => f.category === filterCategory),
-    [filterCategory]
-  );
+  const filteredFilters = useMemo(() => {
+    const categoryFilters = FILTER_PRESETS.filter(f => f.category === filterCategory && f.id !== 'none');
+    const original = FILTER_PRESETS.find(f => f.id === 'none');
+    return original ? [original, ...categoryFilters] : categoryFilters;
+  }, [filterCategory]);
 
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [cameraError, setCameraError] = useState('');
@@ -1163,7 +1159,6 @@ const Recorder: React.FC<RecorderProps> = ({
   const soundLabel = currentSelectedSound?.songName || 'Original Sound';
   const soundStart = trimStart;
   const soundEnd = trimEnd;
-  const soundDurationWindow = soundEnd > soundStart ? soundEnd - soundStart : 0;
 
   const lyricPreset = useMemo(
     () => LYRIC_PRESETS.find((p) => p.id === lyricsTheme) || LYRIC_PRESETS[0],
@@ -1299,7 +1294,6 @@ const Recorder: React.FC<RecorderProps> = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     
-    // Apply filter
     ctx.filter = activeFilterString;
 
     if (facingMode === 'user') {
@@ -1326,7 +1320,7 @@ const Recorder: React.FC<RecorderProps> = ({
       const rawStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode,
-          width: { ideal: 720 }, // Lower resolution for better performance
+          width: { ideal: 720 },
           height: { ideal: 1280 },
         },
         audio: {
@@ -1947,10 +1941,18 @@ const Recorder: React.FC<RecorderProps> = ({
                 autoPlay
                 playsInline
                 muted
-                className="absolute inset-0 w-full h-full object-cover"
+                className="absolute inset-0 w-full h-full object-cover opacity-0" // Hidden, canvas shows the filtered view
                 style={{
-                  filter: activeFilterString,
                   transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
+                }}
+              />
+
+              {/* Canvas showing filtered video */}
+              <canvas
+                ref={canvasRef}
+                className="absolute inset-0 w-full h-full"
+                style={{
+                  display: 'block',
                 }}
               />
 
@@ -1976,16 +1978,18 @@ const Recorder: React.FC<RecorderProps> = ({
                 </div>
               )}
 
-              <div className="absolute top-20 left-4 right-4 z-30 flex items-center justify-between gap-3">
-                <div className="rounded-full bg-black/45 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
-                  {isPreparingCamera ? 'Preparing camera...' : isRecording ? `REC ${formatClock(recordingSec)}` : 'Ready'}
+              {/* Top status bar */}
+              <div className="absolute top-16 left-4 right-4 z-30 flex items-center justify-between">
+                <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
+                  {isPreparingCamera ? 'Preparing...' : isRecording ? `REC ${formatClock(recordingSec)}` : 'Ready'}
                 </div>
-                <div className="rounded-full bg-black/45 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
-                  {maxDurationSec}s max
+                <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
+                  {maxDurationSec}s
                 </div>
               </div>
 
-              <div className="absolute right-4 top-[22%] z-30 flex flex-col gap-4">
+              {/* Right side controls - moved up to avoid overlap */}
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-3">
                 <IconPillButton
                   icon="fa-rotate"
                   label="Flip"
@@ -1993,116 +1997,123 @@ const Recorder: React.FC<RecorderProps> = ({
                 />
                 <IconPillButton
                   icon="fa-music"
-                  label={soundPreviewEnabled ? 'Sound On' : 'Sound Off'}
+                  label="Sound"
                   active={soundPreviewEnabled}
                   onClick={() => setSoundPreviewEnabled((prev) => !prev)}
                 />
                 <IconPillButton
                   icon="fa-sliders"
-                  label="Sound"
+                  label="Audio"
                   active={!!currentSelectedSound}
                   onClick={() => setIsSoundPickerOpen(true)}
                 />
                 <IconPillButton
                   icon="fa-closed-captioning"
-                  label={lyricsEnabled ? 'Lyrics On' : 'Lyrics Off'}
+                  label="Lyrics"
                   active={lyricsEnabled}
                   onClick={() => setLyricsEnabled((prev) => !prev)}
                 />
               </div>
 
-              {/* Filter Category Tabs */}
-              <div className="absolute bottom-48 left-0 right-0 z-30 px-4">
-                <div className="flex justify-center gap-2 mb-4">
+              {/* Filter Category Tabs - moved higher */}
+              <div className="absolute bottom-40 left-0 right-0 z-30 px-4">
+                <div className="flex justify-center gap-2 mb-3">
                   {FILTER_CATEGORIES.map((cat) => (
                     <button
                       key={cat.id}
                       onClick={() => setFilterCategory(cat.id)}
-                      className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-[0.14em] transition-all ${
+                      className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.14em] transition-all ${
                         filterCategory === cat.id
                           ? 'bg-[#1877F2] text-white'
-                          : 'bg-black/45 text-white/70 border border-white/10'
+                          : 'bg-black/50 text-white/70 border border-white/10'
                       }`}
                     >
-                      <i className={`fas ${cat.icon} mr-2`} />
+                      <i className={`fas ${cat.icon} mr-1 text-[8px]`} />
                       {cat.name}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Filter Row */}
-              <div className="absolute bottom-32 left-0 right-0 z-30 px-4">
-                <div className="overflow-x-auto scrollbar-hide flex gap-3 px-2">
+              {/* Filter Row - horizontal scrollable */}
+              <div className="absolute bottom-28 left-0 right-0 z-30 px-4">
+                <div className="overflow-x-auto scrollbar-hide flex gap-2 pb-2">
                   {filteredFilters.map((filter) => (
                     <button
                       key={filter.id}
                       onClick={() => setSelectedFilterId(filter.id)}
-                      className={`min-w-[90px] rounded-2xl px-3 py-3 border text-center transition-all ${
+                      className={`min-w-[70px] rounded-xl px-2 py-2 border text-center transition-all flex-shrink-0 ${
                         selectedFilterId === filter.id 
                           ? 'bg-[#1877F2] border-[#1877F2] text-white scale-105' 
-                          : 'bg-black/45 border-white/10 text-white/75 hover:bg-black/60'
+                          : 'bg-black/50 border-white/10 text-white/75 hover:bg-black/70'
                       }`}
                       title={filter.description}
                     >
                       <div 
-                        className="w-10 h-10 rounded-full mx-auto mb-2 bg-gradient-to-br from-[#1877F2] to-[#F3425F]" 
+                        className="w-8 h-8 rounded-full mx-auto mb-1 bg-gradient-to-br from-[#1877F2] to-[#F3425F]" 
                         style={{ 
-                          filter: buildFilterString(filter, 1) // Show full strength in preview
+                          filter: buildFilterString(filter, 1)
                         }} 
                       />
-                      <div className="text-[9px] font-black uppercase tracking-[0.14em]">{filter.name}</div>
+                      <div className="text-[8px] font-black uppercase tracking-[0.1em] whitespace-nowrap">
+                        {filter.name}
+                      </div>
                     </button>
                   ))}
                 </div>
 
                 {/* Filter Intensity Slider */}
-                <div className="mt-4 px-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[10px] font-black uppercase tracking-[0.14em] text-white/70">
-                      Filter strength
+                {selectedFilterId !== 'none' && (
+                  <div className="mt-2 px-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[8px] font-black uppercase tracking-[0.14em] text-white/50">
+                        Intensity
+                      </div>
+                      <div className="text-[8px] font-black uppercase tracking-[0.14em] text-[#7fb6ff]">
+                        {Math.round(filterIntensity * 100)}%
+                      </div>
                     </div>
-                    <div className="text-[10px] font-black uppercase tracking-[0.14em] text-[#7fb6ff]">
-                      {Math.round(filterIntensity * 100)}%
-                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={filterIntensity}
+                      onChange={(e) => setFilterIntensity(Number(e.target.value))}
+                      className="w-full h-1"
+                      style={{ ['--value-percent' as any]: `${filterIntensity * 100}%` }}
+                    />
                   </div>
-
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={filterIntensity}
-                    onChange={(e) => setFilterIntensity(Number(e.target.value))}
-                    className="w-full accent-[#1877F2]"
-                  />
-                </div>
+                )}
               </div>
 
-              <div className="absolute bottom-8 left-0 right-0 z-30 px-6 flex items-center justify-between gap-4">
+              {/* Bottom recording controls */}
+              <div className="absolute bottom-8 left-0 right-0 z-30 px-8 flex items-center justify-between">
                 <button
                   onClick={() => setMode('choose')}
-                  className="w-12 h-12 rounded-full bg-black/45 border border-white/10 flex items-center justify-center active:scale-95"
+                  className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
                 >
-                  <i className="fas fa-xmark" />
+                  <i className="fas fa-xmark text-white" />
                 </button>
 
                 <button
                   onClick={isRecording ? stopRecording : startRecording}
-                  className={`w-24 h-24 rounded-full border-4 border-white flex items-center justify-center active:scale-95 transition ${isRecording ? 'bg-red-600/25' : 'bg-white/5'}`}
+                  className="relative"
                 >
-                  {isRecording ? (
-                    <div className="w-10 h-10 rounded-xl bg-red-600" />
-                  ) : (
-                    <div className="w-16 h-16 rounded-full bg-red-600 shadow-[0_0_30px_rgba(220,38,38,0.6)]" />
-                  )}
+                  <div className={`w-20 h-20 rounded-full border-4 ${isRecording ? 'border-red-500' : 'border-white'} flex items-center justify-center transition-all`}>
+                    {isRecording ? (
+                      <div className="w-10 h-10 rounded-xl bg-red-600" />
+                    ) : (
+                      <div className="w-16 h-16 rounded-full bg-red-600 shadow-[0_0_30px_rgba(220,38,38,0.6)]" />
+                    )}
+                  </div>
                 </button>
 
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-12 h-12 rounded-full bg-black/45 border border-white/10 flex items-center justify-center active:scale-95"
+                  className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
                 >
-                  <i className="fas fa-image" />
+                  <i className="fas fa-image text-white" />
                 </button>
               </div>
             </>
@@ -2479,10 +2490,14 @@ const IconPillButton: React.FC<{
   return (
     <button
       onClick={onClick}
-      className={`w-14 rounded-[22px] px-2 py-3 backdrop-blur-md border text-center active:scale-95 transition ${active ? 'bg-[#1877F2]/25 border-[#1877F2]/50 text-white' : 'bg-black/45 border-white/10 text-white/90'}`}
+      className={`w-12 rounded-2xl px-2 py-3 backdrop-blur-md border text-center active:scale-95 transition ${
+        active 
+          ? 'bg-[#1877F2]/40 border-[#1877F2]/60 text-white' 
+          : 'bg-black/60 border-white/15 text-white/90 hover:bg-black/70'
+      }`}
     >
       <i className={`fas ${icon} text-base mb-1`} />
-      <div className="text-[9px] font-black uppercase tracking-[0.12em] leading-tight">{label}</div>
+      <div className="text-[8px] font-black uppercase tracking-[0.1em] leading-tight">{label}</div>
     </button>
   );
 };
@@ -2498,6 +2513,7 @@ const RangeRow: React.FC<{
 }> = ({ label, value, min, max, step, display, onChange }) => {
   const safeMax = Number.isFinite(max) ? max : min + step;
   const safeValue = Math.min(Math.max(value, min), safeMax);
+  const percent = safeMax > min ? ((safeValue - min) / (safeMax - min)) * 100 : 0;
 
   return (
     <div>
@@ -2513,6 +2529,7 @@ const RangeRow: React.FC<{
         value={safeValue}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full"
+        style={{ ['--value-percent' as any]: `${percent}%` }}
       />
     </div>
   );
@@ -2649,22 +2666,22 @@ input[type=range] {
 
 input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: #1877F2;
   cursor: pointer;
-  box-shadow: 0 2px 10px rgba(24,119,242,0.5);
+  box-shadow: 0 2px 8px rgba(24,119,242,0.5);
   border: 2px solid white;
 }
 
 input[type=range]::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: #1877F2;
   cursor: pointer;
-  box-shadow: 0 2px 10px rgba(24,119,242,0.5);
+  box-shadow: 0 2px 8px rgba(24,119,242,0.5);
   border: 2px solid white;
 }
 
