@@ -37,7 +37,7 @@ import { TermsOfServicePage } from './components/TermsOfService';
 import { ChatWindow } from './components/Chat';
 import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
-import { Recorder } from './components/Recorder';
+import Recorder from './components/Recorder';
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
