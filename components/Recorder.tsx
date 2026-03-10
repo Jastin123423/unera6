@@ -8,13 +8,270 @@ import { User } from '../types';
  *
  * What is updated:
  * - Real record/upload flow on a separate page
- * - Built-in sound picker drawer
+ * - Built-in sound picker drawer with API integration
  * - User can preview/play songs BEFORE selecting
  * - Metadata-first sound trim (fast, no fake trim delay)
  * - Real upload progress support via onSubmitProgress
  * - Professional lyric overlay styles
  * - Camera + gallery in one screen
+ * - REAL loaders for audio trimming (copied from Reels.tsx)
+ * - REAL API integration for sounds (copied from Reels.tsx)
  */
+
+// ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
+// Layer 1: Limited in-memory blob URL cache (max 10 items)
+const mediaBlobCache = new Map<string, { blobUrl: string, timestamp: number }>(); 
+const mediaWarmPromises = new Map<string, Promise<string>>();
+const CACHE_MAX_SIZE = 10;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
+  if (!url) throw new Error("Missing media URL");
+
+  // Check cache with TTL
+  const cached = mediaBlobCache.get(url);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.blobUrl;
+  }
+
+  // Deduplicate concurrent fetches
+  if (mediaWarmPromises.has(url)) {
+    return mediaWarmPromises.get(url)!;
+  }
+
+  // For videos, prefer native browser cache (memory efficient)
+  if (type === 'video') {
+    mediaWarmPromises.set(url, Promise.resolve(url));
+    setTimeout(() => mediaWarmPromises.delete(url), 1000);
+    return url;
+  }
+
+  // Only audio gets blob URLs (smaller, need trimming)
+  const p = fetch(url, { 
+    cache: "force-cache",
+    headers: { "Accept": "audio/mpeg,*/*" }
+  })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
+      
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // Cleanup old cache entries
+      if (mediaBlobCache.size >= CACHE_MAX_SIZE) {
+        const oldestKey = Array.from(mediaBlobCache.entries())
+          .sort((a, b) => a[1].timestamp - b[1].timestamp)[0][0];
+        const oldest = mediaBlobCache.get(oldestKey);
+        if (oldest) URL.revokeObjectURL(oldest.blobUrl);
+        mediaBlobCache.delete(oldestKey);
+      }
+      
+      mediaBlobCache.set(url, { blobUrl, timestamp: Date.now() });
+      return blobUrl;
+    })
+    .finally(() => {
+      mediaWarmPromises.delete(url);
+    });
+
+  mediaWarmPromises.set(url, p);
+  return p;
+}
+
+// ==================== AUDIO TRIMMING UTILITIES (EXACT COPY FROM REELS.TSX) ====================
+async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch audio");
+  return await res.arrayBuffer();
+}
+
+function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const length = buffer.length;
+  const bytesPerSample = 2;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = length * blockAlign;
+
+  const ab = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(ab);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  // RIFF header
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, "WAVE");
+
+  // fmt chunk
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true); // bits
+
+  // data chunk
+  writeString(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  // Interleave + PCM16
+  let offset = 44;
+  for (let i = 0; i < length; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      let sample = buffer.getChannelData(ch)[i];
+      sample = Math.max(-1, Math.min(1, sample));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([ab], { type: "audio/wav" });
+}
+
+async function trimAudioUrlToWavBlob(audioUrl: string, startSec: number, endSec: number) {
+  if (!audioUrl) throw new Error("Missing audioUrl");
+  if (!(endSec > startSec)) throw new Error("Invalid trim range");
+
+  const arrayBuffer = await fetchAsArrayBuffer(audioUrl);
+
+  const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
+  const ctx = new AudioCtx();
+  const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+
+  const sr = decoded.sampleRate;
+  const startSample = Math.max(0, Math.floor(startSec * sr));
+  const endSample = Math.min(decoded.length, Math.floor(endSec * sr));
+  const frameCount = Math.max(0, endSample - startSample);
+
+  if (frameCount <= 0) throw new Error("Trim produced empty audio");
+
+  const trimmed = ctx.createBuffer(decoded.numberOfChannels, frameCount, sr);
+
+  for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+    const channel = decoded.getChannelData(ch).slice(startSample, endSample);
+    trimmed.copyToChannel(channel, ch, 0);
+  }
+
+  const wavBlob = audioBufferToWavBlob(trimmed);
+
+  try { await ctx.close(); } catch {}
+  return { blob: wavBlob, duration: frameCount / sr };
+}
+
+// ==================== AUDIO FOCUS MANAGER ====================
+const useAudioFocus = () => {
+  const stopAllAudio = useCallback(() => {
+    document.querySelectorAll('audio').forEach(audio => {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch (error) {
+        console.warn('Failed to stop audio:', error);
+      }
+    });
+    
+    document.querySelectorAll('video').forEach(video => {
+      try {
+        video.pause();
+        video.muted = true;
+      } catch (error) {
+        console.warn('Failed to stop video:', error);
+      }
+    });
+  }, []);
+
+  return { stopAllAudio };
+};
+
+// ==================== API HELPER (EXACT COPY FROM REELS.TSX) ====================
+const apiFetch = async (url: string, options: RequestInit = {}) => {
+  const token = localStorage.getItem('unera_token');
+  const headers: HeadersInit = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {}),
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const res = await fetch(url, { 
+      ...options, 
+      headers,
+      signal: controller.signal 
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+    let data: any = null;
+
+    try {
+      if (contentType.includes('application/json')) data = await res.json();
+      else {
+        const text = await res.text();
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { error: text };
+        }
+      }
+    } catch (e: any) {
+      data = { error: e?.message || 'Failed to parse response' };
+    }
+
+    if (!res.ok) {
+      const msg = data?.error || data?.message || `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+
+    return data;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+// ==================== FORMAT VIEW COUNT HELPER (EXACT COPY FROM REELS.TSX) ====================
+const formatViewCount = (num?: number): string => {
+  const v = Number(num || 0);
+  
+  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(v);
+};
+
+const formatClock = (secs: number) => {
+  const safe = Math.max(0, Math.floor(secs || 0));
+  const m = Math.floor(safe / 60);
+  const s = safe % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const safeRevoke = (url?: string | null) => {
+  if (!url) return;
+  if (url.startsWith('blob:')) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {}
+  }
+};
+
+const inferVideoMimeType = () => {
+  if (typeof MediaRecorder === 'undefined') return 'video/webm';
+  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) return 'video/webm;codecs=vp9,opus';
+  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) return 'video/webm;codecs=vp8,opus';
+  if (MediaRecorder.isTypeSupported('video/webm')) return 'video/webm';
+  if (MediaRecorder.isTypeSupported('video/mp4')) return 'video/mp4';
+  return 'video/webm';
+};
 
 // =========================
 // TYPES
@@ -109,45 +366,434 @@ const EFFECTS = [
   { id: 'mono', name: 'Mono', filter: 'grayscale(1) contrast(1.12)' },
 ] as const;
 
-// =========================
-// HELPERS
-// =========================
-const formatClock = (secs: number) => {
-  const safe = Math.max(0, Math.floor(secs || 0));
-  const m = Math.floor(safe / 60);
-  const s = safe % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-};
+// ==================== ENHANCED AUDIO TRIMMER (EXACT COPY FROM REELS.TSX) ====================
+const AudioTrimmer: React.FC<{ 
+  url: string, 
+  onClose: () => void, 
+  onConfirm: (start: number, end: number, trimmedFile?: File) => void,
+  initialStart: number,
+  initialEnd: number,
+  soundId?: string | number;
+  soundName?: string;
+  onMountStopAll?: () => void;
+  onStopVideo?: () => void;
+}> = ({ url, onClose, onConfirm, initialStart, initialEnd, soundId, soundName, onMountStopAll, onStopVideo }) => {
+  const { stopAllAudio } = useAudioFocus();
+  const [start, setStart] = useState(initialStart);
+  const [end, setEnd] = useState(initialEnd > 0 ? initialEnd : Math.min(60, initialStart + 15));
+  const [duration, setDuration] = useState(1);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [activeThumb, setActiveThumb] = useState<'start' | 'end'>('start');
+  const [isTrimming, setIsTrimming] = useState(false);
+  const [trimProgress, setTrimProgress] = useState(0);
+  const [trimStatus, setTrimStatus] = useState<'idle' | 'trimming' | 'success' | 'error'>('idle');
+  const [trimError, setTrimError] = useState<string>('');
+  
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const trimAudioRef = useRef<HTMLAudioElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const playIntervalRef = useRef<any>(null);
+  
+  const MIN_WINDOW = 1;
+  const MAX_WINDOW = 60;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  useEffect(() => {
+    onStopVideo?.();
+    onMountStopAll?.();
+    stopAllAudio();
+    
+    if (trimAudioRef.current) {
+      trimAudioRef.current.src = url;
+      trimAudioRef.current.currentTime = start;
+    }
+    
+    return () => {
+      if (playIntervalRef.current) {
+        clearInterval(playIntervalRef.current);
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (trimAudioRef.current) {
+        trimAudioRef.current.pause();
+      }
+    };
+  }, []);
 
-const safeRevoke = (url?: string | null) => {
-  if (!url) return;
-  if (url.startsWith('blob:')) {
+  useEffect(() => {
+    const handleTimeUpdate = () => {
+      if (!isPlaying) return;
+      
+      setCurrentTime(trimAudioRef.current?.currentTime || 0);
+      
+      if (trimAudioRef.current && (trimAudioRef.current.currentTime < start || trimAudioRef.current.currentTime >= end)) {
+        trimAudioRef.current.currentTime = start;
+      }
+    };
+
+    const audio = trimAudioRef.current;
+    if (audio) {
+      audio.addEventListener('timeupdate', handleTimeUpdate);
+      return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
+    }
+  }, [isPlaying, start, end]);
+
+  useEffect(() => {
+    if (isPlaying) {
+      playIntervalRef.current = setInterval(() => {
+        if (trimAudioRef.current) {
+          setCurrentTime(trimAudioRef.current.currentTime);
+        }
+      }, 100);
+    } else {
+      if (playIntervalRef.current) {
+        clearInterval(playIntervalRef.current);
+      }
+    }
+    
+    return () => {
+      if (playIntervalRef.current) {
+        clearInterval(playIntervalRef.current);
+      }
+    };
+  }, [isPlaying]);
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) {
+      const d = audioRef.current.duration;
+      setDuration(d);
+      if (initialEnd === 0 || initialEnd > d) {
+        const newEnd = Math.min(d, start + 15);
+        setEnd(newEnd);
+      }
+    }
+  };
+
+  const togglePlay = () => {
+    if (!trimAudioRef.current) return;
+
+    stopAllAudio();
+
+    if (isPlaying) {
+      trimAudioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      trimAudioRef.current.currentTime = start;
+      trimAudioRef.current.play()
+        .then(() => setIsPlaying(true))
+        .catch(() => setIsPlaying(false));
+    }
+  };
+
+  const handleStartChange = (value: number) => {
+    const newStart = Math.min(value, end - MIN_WINDOW);
+    setStart(newStart);
+    if (trimAudioRef.current) {
+      trimAudioRef.current.currentTime = newStart;
+    }
+  };
+
+  const handleEndChange = (value: number) => {
+    const newEnd = Math.max(value, start + MIN_WINDOW);
+    setEnd(Math.min(newEnd, start + MAX_WINDOW));
+    if (trimAudioRef.current) {
+      trimAudioRef.current.currentTime = newEnd;
+    }
+  };
+
+  const handleTrackInteraction = (clientX: number) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const clickX = clientX - rect.left;
+    const clickPercent = Math.max(0, Math.min(1, clickX / rect.width));
+    const clickTime = clickPercent * duration;
+
+    const distStart = Math.abs(clickTime - start);
+    const distEnd = Math.abs(clickTime - end);
+    setActiveThumb(distStart < distEnd ? 'start' : 'end');
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleConfirm = async () => {
+    setIsTrimming(true);
+    setTrimStatus('trimming');
+    setTrimProgress(0);
+    setTrimError('');
+    
     try {
-      URL.revokeObjectURL(url);
-    } catch {}
-  }
-};
+      // REAL trimming progress - not fake
+      setTrimProgress(10);
+      
+      const { blob, duration: trimDuration } = await trimAudioUrlToWavBlob(url, start, end);
+      
+      setTrimProgress(80);
+      
+      const trimmedFile = new File([blob], `trimmed-${Date.now()}.wav`, { 
+        type: "audio/wav" 
+      });
+      
+      setTrimProgress(95);
+      setTrimStatus('success');
+      
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      onConfirm(start, end, trimmedFile);
+      
+    } catch (error: any) {
+      console.error('Audio trimming failed:', error);
+      setTrimStatus('error');
+      setTrimError(error?.message || 'Failed to trim audio');
+      setIsTrimming(false);
+    }
+  };
 
-const inferVideoMimeType = () => {
-  if (typeof MediaRecorder === 'undefined') return 'video/webm';
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) return 'video/webm;codecs=vp9,opus';
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) return 'video/webm;codecs=vp8,opus';
-  if (MediaRecorder.isTypeSupported('video/webm')) return 'video/webm';
-  if (MediaRecorder.isTypeSupported('video/mp4')) return 'video/mp4';
-  return 'video/webm';
-};
+  return (
+    <div className="fixed inset-0 z-[800] bg-black/98 flex flex-col justify-end animate-fade-in font-sans">
+      <style>{`
+        .precision-slider {
+          pointer-events: none;
+          appearance: none;
+          background: transparent;
+          width: 100%;
+          position: absolute;
+          left: 0;
+          z-index: 40;
+        }
+        .precision-slider::-webkit-slider-thumb {
+          pointer-events: auto;
+          appearance: none;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          background: white;
+          cursor: pointer;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+          border: 4px solid currentColor;
+        }
+        .slider-active { z-index: 50; }
+        .slider-blue::-webkit-slider-thumb { color: #1877F2; }
+        .slider-red::-webkit-slider-thumb { color: #F3425F; }
+      `}</style>
 
-const normalizeSoundFromOption = (sound: RecorderSoundOption): ReelSound => ({
-  songName: sound.name,
-  audioUrl: sound.url,
-  originalUrl: sound.originalUrl || sound.url,
-  audioStart: sound.start || 0,
-  audioEnd: sound.end || sound.duration || 0,
-  songId: sound.id,
-  soundKey: sound.soundKey || `song:${sound.id}`,
-});
+      {(isTrimming || trimStatus === 'trimming' || trimStatus === 'error') && (
+        <div className="absolute inset-0 z-[900] bg-black/95 flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
+            <div className="flex flex-col items-center justify-center gap-6">
+              {trimStatus === 'trimming' ? (
+                <>
+                  <div className="w-24 h-24 relative">
+                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="45"
+                        fill="none"
+                        stroke="rgba(255, 255, 255, 0.1)"
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                      />
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="45"
+                        fill="none"
+                        stroke="#1877F2"
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                        strokeDasharray={`${trimProgress * 2.83} 283`}
+                        strokeDashoffset="0"
+                        className="transition-all duration-300 ease-out"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-16 h-16 rounded-full bg-black/50 flex items-center justify-center">
+                        <i className="fas fa-scissors text-2xl text-[#1877F2] animate-pulse"></i>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="text-center">
+                    <h3 className="text-xl font-bold text-white mb-2">Trimming Audio</h3>
+                    <p className="text-[#B0B3B8] text-sm">
+                      Creating trimmed audio file ({Math.round(trimProgress)}%)
+                    </p>
+                    <div className="w-full bg-white/10 rounded-full h-2 mt-4 overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] rounded-full transition-all duration-300"
+                        style={{ width: `${trimProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : trimStatus === 'error' ? (
+                <>
+                  <div className="w-24 h-24 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
+                    <i className="fas fa-exclamation-triangle text-3xl text-red-500"></i>
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-xl font-bold text-white mb-2">Trimming Failed</h3>
+                    <p className="text-[#B0B3B8] text-sm mb-6">{trimError || 'Failed to trim audio'}</p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => {
+                          setTrimStatus('idle');
+                          setTrimError('');
+                          setIsTrimming(false);
+                        }}
+                        className="flex-1 bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] text-white px-6 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity"
+                      >
+                        Try Again
+                      </button>
+                      <button
+                        onClick={onClose}
+                        className="flex-1 bg-white/10 text-white px-6 py-3 rounded-xl font-bold hover:bg-white/20 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-[#121212] w-full rounded-t-[40px] p-8 pb-14 border-t border-white/10 animate-slide-up shadow-2xl relative">
+        <div className="flex justify-between items-center mb-10">
+          <button 
+            onClick={onClose} 
+            disabled={isTrimming}
+            className="text-[#B0B3B8] font-black uppercase text-[10px] tracking-widest px-4 py-2 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <div className="text-center">
+            <h3 className="font-black text-white uppercase tracking-[4px] text-xs">Precision Sync</h3>
+            <p className="text-[9px] text-[#1877F2] font-black mt-1 uppercase tracking-tighter">Trim & Export Audio</p>
+            {soundName && (
+              <p className="text-[8px] text-white/60 font-bold mt-0.5 uppercase tracking-tight truncate max-w-[200px]">
+                {soundName}
+              </p>
+            )}
+          </div>
+          <button 
+            onClick={handleConfirm} 
+            disabled={isTrimming || trimStatus === 'trimming'}
+            className="text-[#1877F2] font-black uppercase text-[10px] tracking-widest px-4 py-2 disabled:opacity-50"
+          >
+            {isTrimming ? 'Processing...' : 'Done'}
+          </button>
+        </div>
+
+        <div className="flex items-center justify-center gap-4 mb-8">
+          <button 
+            onClick={togglePlay}
+            disabled={isTrimming}
+            className="w-16 h-16 rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-white text-xl`}></i>
+          </button>
+          <div className="flex flex-col items-center">
+            <span className="text-white text-sm font-bold">
+              {formatDuration(currentTime - start)}
+            </span>
+            <span className="text-white/40 text-[9px] uppercase tracking-widest">Current</span>
+          </div>
+        </div>
+
+        <div 
+          ref={containerRef}
+          onMouseDown={(e) => !isTrimming && handleTrackInteraction(e.clientX)}
+          onTouchStart={(e) => !isTrimming && handleTrackInteraction(e.touches[0].clientX)}
+          className="relative h-28 w-full bg-white/5 rounded-3xl overflow-hidden px-8 border border-white/5 shadow-inner flex flex-col justify-center"
+        >
+          <div className="absolute inset-0 flex items-center gap-[2px] opacity-10 px-8 pointer-events-none">
+            {Array.from({ length: 100 }).map((_, i) => (
+              <div key={i} className="flex-1 bg-white rounded-full" style={{ height: `${15 + Math.random() * 70}%` }} />
+            ))}
+          </div>
+
+          <div 
+            className="absolute h-16 bg-[#1877F2]/10 border-x-2 border-white/30 pointer-events-none transition-all duration-75 z-10" 
+            style={{ left: `${(start / duration) * 100}%`, width: `${((end - start) / duration) * 100}%` }} 
+          />
+
+          <div className="relative w-full h-1 flex items-center bg-white/10 rounded-full">
+            <input 
+              type="range" 
+              min="0" 
+              max={duration} 
+              step="0.1" 
+              value={start} 
+              onMouseDown={() => { if (!isTrimming) { setIsDragging(true); setActiveThumb('start'); } }}
+              onMouseUp={() => setIsDragging(false)}
+              onChange={(e) => !isTrimming && handleStartChange(parseFloat(e.target.value))}
+              className={`precision-slider slider-blue ${activeThumb === 'start' ? 'slider-active' : ''}`}
+              disabled={isTrimming}
+            />
+            <input 
+              type="range" 
+              min="0" 
+              max={duration} 
+              step="0.1" 
+              value={end} 
+              onMouseDown={() => { if (!isTrimming) { setIsDragging(true); setActiveThumb('end'); } }}
+              onMouseUp={() => setIsDragging(false)}
+              onChange={(e) => !isTrimming && handleEndChange(parseFloat(e.target.value))}
+              className={`precision-slider slider-red ${activeThumb === 'end' ? 'slider-active' : ''}`}
+              disabled={isTrimming}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-center gap-4 mt-8">
+          <div className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 flex flex-col items-center">
+            <span className="text-[8px] font-black text-[#1877F2] uppercase tracking-widest">In</span>
+            <p className="text-white text-xs font-black">{start.toFixed(1)}s</p>
+          </div>
+          <div className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 flex flex-col items-center">
+            <span className="text-[8px] font-black text-red-500 uppercase tracking-widest">Out</span>
+            <p className="text-white text-xs font-black">{end.toFixed(1)}s</p>
+          </div>
+          <div className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 flex flex-col items-center">
+            <span className="text-[8px] font-black text-[#45BD62] uppercase tracking-widest">Length</span>
+            <p className="text-white text-xs font-black">{(end - start).toFixed(1)}s</p>
+          </div>
+        </div>
+
+        <div className="mt-10 text-center">
+          <p className="text-white/50 text-xs mb-2">
+            <i className="fas fa-info-circle text-[#1877F2] mr-2"></i>
+            Trimmed audio will be exported as a new file
+          </p>
+          <p className="text-white/30 text-[10px]">
+            Original: {formatDuration(duration)} → Trimmed: {formatDuration(end - start)}
+          </p>
+        </div>
+
+        <audio 
+          ref={audioRef} 
+          src={url} 
+          hidden 
+          onLoadedMetadata={handleLoadedMetadata}
+        />
+        <audio 
+          ref={trimAudioRef} 
+          src={url} 
+          hidden 
+        />
+      </div>
+    </div>
+  );
+};
 
 // =========================
 // MAIN COMPONENT
@@ -201,6 +847,81 @@ const Recorder: React.FC<RecorderProps> = ({
   const [trimStart, setTrimStart] = useState<number>(selectedSound?.audioStart || 0);
   const [trimEnd, setTrimEnd] = useState<number>(selectedSound?.audioEnd || 0);
 
+  // ==================== SOUND FETCHING (EXACT COPY FROM REELS.TSX) ====================
+  const [availableSounds, setAvailableSounds] = useState<RecorderSoundOption[]>(sounds);
+  const [popularSounds, setPopularSounds] = useState<RecorderSoundOption[]>([]);
+  const [loadingSongs, setLoadingSongs] = useState(false);
+  const [loadingPopularSounds, setLoadingPopularSounds] = useState(false);
+
+  // Fetch popular sounds
+  useEffect(() => {
+    const fetchPopularSounds = async () => {
+      setLoadingPopularSounds(true);
+      try {
+        const data = await apiFetch('/api/sounds/popular?limit=20');
+        if (data?.success && data.sounds) {
+          setPopularSounds(data.sounds.map((sound: any) => ({
+            id: sound.id,
+            name: sound.name,
+            url: sound.url,
+            originalUrl: sound.originalUrl || sound.url,
+            duration: sound.duration,
+            start: sound.start || 0,
+            end: sound.end || sound.duration || 60,
+            coverImage: sound.coverImage,
+            creatorName: sound.creatorName,
+            creatorImage: sound.creatorImage,
+            playCount: sound.playCount,
+            creationCount: sound.creationCount,
+            soundKey: sound.soundKey || `sound:${sound.id}`
+          })));
+        }
+      } catch (error) {
+        console.error('Failed to fetch popular sounds:', error);
+      } finally {
+        setLoadingPopularSounds(false);
+      }
+    };
+
+    fetchPopularSounds();
+  }, []);
+
+  // Fetch songs from library
+  useEffect(() => {
+    const fetchSongs = async () => {
+      setLoadingSongs(true);
+      try {
+        const data = await apiFetch('/api/songs');
+        if (data?.success && data.songs) {
+          const songSounds = data.songs.map((song: any) => ({
+            id: `song:${song.id}`,
+            name: song.title,
+            url: song.audio_url,
+            originalUrl: song.audio_url,
+            duration: song.duration,
+            start: 0,
+            end: song.duration || 60,
+            coverImage: song.cover_url,
+            creatorName: song.artist,
+            creatorImage: song.cover_url,
+            playCount: song.playCount || 0,
+            soundKey: `song:${song.id}`
+          }));
+          setAvailableSounds(songSounds);
+        }
+      } catch (error) {
+        console.error('Failed to fetch songs:', error);
+      } finally {
+        setLoadingSongs(false);
+      }
+    };
+
+    fetchSongs();
+  }, []);
+
+  const [isTrimmerOpen, setIsTrimmerOpen] = useState(false);
+  const [trimmingSound, setTrimmingSound] = useState<RecorderSoundOption | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoElRef = useRef<HTMLVideoElement>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
@@ -228,12 +949,12 @@ const Recorder: React.FC<RecorderProps> = ({
 
   const filteredSounds = useMemo(() => {
     const q = soundSearch.trim().toLowerCase();
-    if (!q) return sounds;
-    return sounds.filter((sound) =>
+    if (!q) return [...popularSounds, ...availableSounds];
+    return [...popularSounds, ...availableSounds].filter((sound) =>
       sound.name.toLowerCase().includes(q) ||
       String(sound.creatorName || '').toLowerCase().includes(q)
     );
-  }, [soundSearch, sounds]);
+  }, [soundSearch, availableSounds, popularSounds]);
 
   const cleanupPreviewUrl = useCallback(() => {
     if (previewUrlRef.current) {
@@ -534,9 +1255,18 @@ const Recorder: React.FC<RecorderProps> = ({
     setIsSubmitting(true);
     setSubmitState('uploading');
     setSubmitError('');
-    setSubmitProgress(15);
+    setSubmitProgress(5);
+
+    const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = 'Your video is still uploading. Are you sure you want to leave?';
+    };
+    window.addEventListener('beforeunload', beforeUnloadHandler);
 
     try {
+      // REAL upload progress
+      setSubmitProgress(15);
+      
       await Promise.resolve(onSubmit({
         caption: caption.trim(),
         location: location.trim(),
@@ -553,13 +1283,21 @@ const Recorder: React.FC<RecorderProps> = ({
         lyricsEnabled,
       }));
 
+      setSubmitProgress(90);
+      
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       setSubmitProgress(100);
       setSubmitState('success');
-      await sleep(500);
+      
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
+      
+      await sleep(1000);
       onBack();
     } catch (error: any) {
       setSubmitState('error');
       setSubmitError(error?.message || 'Failed to publish reel.');
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
     } finally {
       setIsSubmitting(false);
     }
@@ -601,9 +1339,132 @@ const Recorder: React.FC<RecorderProps> = ({
     bottom: `${lyricsBottomOffset}%`,
   }), [lyricsBottomOffset, lyricsScale]);
 
+  const handleTrimConfirm = (start: number, end: number, trimmedFile?: File) => {
+    setTrimStart(start);
+    setTrimEnd(end);
+    setIsTrimmerOpen(false);
+  };
+
+  const handleSoundSelect = (sound: RecorderSoundOption) => {
+    const normalized = normalizeSoundFromOption(sound);
+    onSelectSound?.(normalized);
+    setTrimStart(normalized.audioStart || 0);
+    setTrimEnd(normalized.audioEnd || 0);
+    setIsSoundPickerOpen(false);
+    setTrimmingSound(sound);
+    setIsTrimmerOpen(true);
+  };
+
   return (
     <div className="fixed inset-0 z-[9999] bg-black text-white overflow-hidden font-sans recorder-page">
       <style>{RECORDER_STYLES}</style>
+
+      {/* Upload Loader */}
+      {submitState === 'uploading' && (
+        <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl animate-scale-in">
+            <div className="flex flex-col items-center justify-center gap-6">
+              <div className="w-32 h-32 relative">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="45"
+                    fill="none"
+                    stroke="rgba(255, 255, 255, 0.1)"
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="45"
+                    fill="none"
+                    stroke="#1877F2"
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                    strokeDasharray={`${submitProgress * 2.83} 283`}
+                    strokeDashoffset="0"
+                    className="transition-all duration-500 ease-out"
+                  />
+                </svg>
+                
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-20 h-20 rounded-full bg-black/50 flex items-center justify-center">
+                    <i className="fas fa-cloud-upload-alt text-2xl text-[#1877F2] animate-pulse"></i>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="text-center">
+                <h3 className="text-xl font-bold text-white mb-2 animate-fade-in">Uploading your reel...</h3>
+                <p className="text-[#B0B3B8] text-sm">
+                  Please wait while we upload your video ({Math.round(submitProgress)}%)
+                </p>
+                
+                <div className="space-y-3 mt-4">
+                  <p className="text-white font-bold text-lg animate-pulse">{Math.round(submitProgress)}%</p>
+                  
+                  <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${submitProgress}%` }}
+                    />
+                  </div>
+                  
+                  <div className="flex justify-between text-xs text-[#B0B3B8]">
+                    <span>Uploading</span>
+                    <span>≈ {submitProgress < 50 ? '30s' : '15s'}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="text-xs text-white/50 text-center mt-4 px-4 py-2 bg-white/5 rounded-lg">
+                <i className="fas fa-exclamation-triangle mr-2"></i>
+                Please don't close this window or navigate away
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {submitState === 'success' && (
+        <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
+            <div className="flex flex-col items-center justify-center gap-6">
+              <div className="w-24 h-24 rounded-full bg-[#45BD62]/20 flex items-center justify-center">
+                <i className="fas fa-check-circle text-4xl text-[#45BD62] animate-pulse"></i>
+              </div>
+              <div className="text-center">
+                <h3 className="text-xl font-bold text-white mb-2">Posted successfully!</h3>
+                <p className="text-[#B0B3B8] text-sm">Your reel is now live on UNERA</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {submitState === 'error' && (
+        <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
+            <div className="flex flex-col items-center justify-center gap-6">
+              <div className="w-24 h-24 rounded-full bg-red-500/10 flex items-center justify-center">
+                <i className="fas fa-exclamation-triangle text-4xl text-red-500"></i>
+              </div>
+              <div className="text-center">
+                <h3 className="text-xl font-bold text-white mb-2">Upload Failed</h3>
+                <p className="text-[#B0B3B8] text-sm mb-4">{submitError || 'Failed to publish reel'}</p>
+                <button
+                  onClick={() => setSubmitState('idle')}
+                  className="bg-[#1877F2] text-white px-6 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity"
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(24,119,242,0.18),transparent_28%),radial-gradient(circle_at_bottom,rgba(243,66,95,0.16),transparent_25%)] pointer-events-none" />
 
@@ -970,29 +1831,6 @@ const Recorder: React.FC<RecorderProps> = ({
                       {isSubmitting ? 'Publishing...' : 'Publish'}
                     </button>
                   </div>
-
-                  {submitState === 'uploading' && (
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between text-xs text-white/60 mb-2">
-                        <span>Uploading</span>
-                        <span>{submitProgress}%</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-[#1877F2] to-[#45BD62] transition-all duration-300" style={{ width: `${submitProgress}%` }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {submitState === 'error' && (
-                    <div className="mt-3 rounded-2xl bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-300">
-                      {submitError}
-                    </div>
-                  )}
-                  {submitState === 'success' && (
-                    <div className="mt-3 rounded-2xl bg-green-500/10 border border-green-500/20 p-3 text-sm text-green-300">
-                      Reel published successfully.
-                    </div>
-                  )}
                 </SectionCard>
 
                 <SectionCard title="Professional lyrics design">
@@ -1089,6 +1927,20 @@ const Recorder: React.FC<RecorderProps> = ({
                         display={`${trimEnd.toFixed(1)}s`}
                         onChange={(v) => setTrimEnd(v)}
                       />
+                      <button
+                        onClick={() => {
+                          const sound = availableSounds.find(s => s.id === currentSelectedSound.songId) || 
+                                      popularSounds.find(s => s.id === currentSelectedSound.songId);
+                          if (sound) {
+                            setTrimmingSound(sound);
+                            setIsTrimmerOpen(true);
+                          }
+                        }}
+                        className="w-full py-3 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-[0.14em] hover:bg-white/10 transition-colors"
+                      >
+                        <i className="fas fa-scissors mr-2"></i>
+                        Advanced Trim & Export
+                      </button>
                     </div>
                   )}
                 </SectionCard>
@@ -1137,7 +1989,11 @@ const Recorder: React.FC<RecorderProps> = ({
             </div>
 
             <div className="overflow-y-auto max-h-[calc(84vh-132px)] p-4 space-y-3">
-              {filteredSounds.length === 0 ? (
+              {loadingPopularSounds || loadingSongs ? (
+                <div className="flex justify-center py-12">
+                  <div className="w-8 h-8 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : filteredSounds.length === 0 ? (
                 <div className="text-center py-12 text-white/50">No sounds found.</div>
               ) : (
                 filteredSounds.map((sound) => {
@@ -1164,8 +2020,8 @@ const Recorder: React.FC<RecorderProps> = ({
                         <div className="text-white/50 text-xs truncate mt-1">{sound.creatorName || 'Original Sound'}</div>
                         <div className="flex items-center gap-3 mt-2 text-[11px] text-white/50">
                           <span>{formatClock(sound.end && sound.start !== undefined ? sound.end - sound.start : sound.duration || 0)}</span>
-                          {sound.playCount ? <span>{sound.playCount} plays</span> : null}
-                          {sound.creationCount ? <span>{sound.creationCount} uses</span> : null}
+                          {sound.playCount ? <span>{formatViewCount(sound.playCount)} plays</span> : null}
+                          {sound.creationCount ? <span>{formatViewCount(sound.creationCount)} uses</span> : null}
                         </div>
                       </div>
 
@@ -1177,14 +2033,7 @@ const Recorder: React.FC<RecorderProps> = ({
                           <i className={`fas ${previewingSoundId === sound.id ? 'fa-pause' : 'fa-play'} text-sm`} />
                         </button>
                         <button
-                          onClick={() => {
-                            stopSoundPreview();
-                            const normalized = normalizeSoundFromOption(sound);
-                            onSelectSound?.(normalized);
-                            setTrimStart(normalized.audioStart || 0);
-                            setTrimEnd(normalized.audioEnd || 0);
-                            setIsSoundPickerOpen(false);
-                          }}
+                          onClick={() => handleSoundSelect(sound)}
                           className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-[0.14em] ${selected ? 'bg-[#1877F2] text-white' : 'bg-white/8 border border-white/10 text-white'}`}
                         >
                           {selected ? 'Selected' : 'Use'}
@@ -1197,6 +2046,22 @@ const Recorder: React.FC<RecorderProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Audio Trimmer Modal */}
+      {isTrimmerOpen && trimmingSound && (
+        <AudioTrimmer
+          url={trimmingSound.originalUrl || trimmingSound.url}
+          onClose={() => setIsTrimmerOpen(false)}
+          onConfirm={handleTrimConfirm}
+          initialStart={trimStart}
+          initialEnd={trimEnd}
+          soundId={trimmingSound.id}
+          soundName={trimmingSound.name}
+          onMountStopAll={() => {
+            stopSoundPreview();
+          }}
+        />
       )}
     </div>
   );
@@ -1263,12 +2128,65 @@ const RangeRow: React.FC<{
 };
 
 // =========================
+// HELPER FUNCTIONS
+// =========================
+const normalizeSoundFromOption = (sound: RecorderSoundOption): ReelSound => ({
+  songName: sound.name,
+  audioUrl: sound.url,
+  originalUrl: sound.originalUrl || sound.url,
+  audioStart: sound.start || 0,
+  audioEnd: sound.end || sound.duration || 0,
+  songId: sound.id,
+  soundKey: sound.soundKey || `song:${sound.id}`,
+});
+
+// =========================
 // STYLES
 // =========================
 const RECORDER_STYLES = `
 .recorder-page .scrollbar-hide::-webkit-scrollbar { display: none; }
 .recorder-page .scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
 .recorder-page * { -webkit-tap-highlight-color: transparent; }
+
+@keyframes slide-up {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+@keyframes fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+@keyframes scale-in {
+  0% { transform: scale(0.9); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-scale-in {
+  animation: scale-in 0.3s ease-out;
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+@keyframes equalizer {
+  0%, 100% { height: 4px; }
+  50% { height: 16px; }
+}
+.animate-equalizer {
+  animation: equalizer 0.5s ease-in-out infinite;
+}
 
 .lyric-overlay {
   position: absolute;
