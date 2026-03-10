@@ -4,12 +4,12 @@ import { User } from '../types';
 /**
  * Recorder.tsx
  *
- * Dedicated TikTok-style creator page for UNERA.
+ * Production-ready TikTok-style creator page for UNERA.
  * 
  * FEATURES:
  * - Filter families (Beauty, Bright, Mood, Vintage, B&W)
  * - Adjustable filter intensity with real-time preview
- * - Beauty overlays for skin softening
+ * - Beauty overlays for skin softening (UI only)
  * - Filters applied to both camera and preview
  * - Professional audio trimming with real progress
  * - Sound picker with preview before selecting
@@ -1238,21 +1238,11 @@ const Recorder: React.FC<RecorderProps> = ({
     [cleanupPreviewUrl]
   );
 
-  const cleanupCamera = useCallback(() => {
+  // Lightweight camera cleanup that doesn't interfere with recorder
+  const stopCameraTracks = useCallback(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
-    }
-
-    if (recordTimerRef.current) {
-      window.clearInterval(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {}
     }
 
     if (recordingStreamRef.current) {
@@ -1274,6 +1264,21 @@ const Recorder: React.FC<RecorderProps> = ({
     setIsRecording(false);
     setRecordingSec(0);
   }, []);
+
+  const cleanupCamera = useCallback(() => {
+    stopCameraTracks();
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+
+    if (recordTimerRef.current) {
+      window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+  }, [stopCameraTracks]);
 
   const renderCameraFrame = useCallback(() => {
     const video = videoElRef.current;
@@ -1401,6 +1406,9 @@ const Recorder: React.FC<RecorderProps> = ({
       };
 
       recorder.onstop = () => {
+        // Stop camera tracks immediately after recording completes
+        stopCameraTracks();
+        
         const blob = new Blob(recordedChunksRef.current, { type: mimeType });
         const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
         const file = new File([blob], `reel-${Date.now()}.${ext}`, { type: blob.type || mimeType });
@@ -1436,7 +1444,7 @@ const Recorder: React.FC<RecorderProps> = ({
       setCameraError(error?.message || 'Could not start recording.');
       setIsRecording(false);
     }
-  }, [currentSelectedSound, maxDurationSec, setNextPreviewUrl, soundPreviewEnabled, soundStart, stopRecording]);
+  }, [currentSelectedSound, maxDurationSec, setNextPreviewUrl, soundPreviewEnabled, soundStart, stopRecording, stopCameraTracks]);
 
   const handlePickVideo = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1468,7 +1476,14 @@ const Recorder: React.FC<RecorderProps> = ({
     setPlayPreview(true);
     setSelectedFilterId('none');
     setFilterIntensity(0.75);
-  }, [cleanupCamera, setNextPreviewUrl, stopSoundPreview]);
+    setTrimStart(0);
+    setTrimEnd(0);
+    setSoundSearch('');
+    setPreviewingSoundId(null);
+    
+    // Clear parent selected sound
+    onSelectSound?.(null);
+  }, [cleanupCamera, setNextPreviewUrl, stopSoundPreview, onSelectSound]);
 
   const generateSoundKey = useCallback((): string => {
     if (trimmedAudioFile) return `trimmed:${Date.now()}`;
@@ -1946,7 +1961,7 @@ const Recorder: React.FC<RecorderProps> = ({
                 className="absolute inset-0 w-full h-full object-cover opacity-0"
               />
 
-              {/* Canvas showing filtered video - what user sees and gets recorded */}
+              {/* Canvas showing filtered video - base visual that user sees and gets recorded */}
               <canvas
                 ref={canvasRef}
                 className="absolute inset-0 w-full h-full"
