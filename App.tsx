@@ -1,4 +1,4 @@
-// App.tsx - Complete file with Reels arranged after every 3 posts
+// App.tsx - Complete file with updated Recorder integration
 // UPDATED: Separated Photo/Video buttons and increased suggestion card sizes
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
@@ -1219,7 +1219,7 @@ type View =
   | 'profile'
   | 'login'
   | 'register'
-  | 'recorder'; // ✅ ADDED: Recorder view
+  | 'recorder';
 
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -1619,7 +1619,7 @@ export default function App() {
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
 
-  // ✅ ADDED: Recorder modal state
+  // ✅ UPDATED: Recorder state
   const [showRecorder, setShowRecorder] = useState(false);
 
   const [activeSharePost, setActiveSharePost] = useState<any>(null);
@@ -1817,7 +1817,7 @@ export default function App() {
     if (!gymjHydrated) setGymjLoading(true);
 
     try {
-      const data = await apiFetch(`/api/group-suggestions?user_id=${currentUser.id}&limit=12`); // ✅ INCREASED limit
+      const data = await apiFetch(`/api/group-suggestions?user_id=${currentUser.id}&limit=12`);
       const raw = safeArray<any>(data?.groups ?? data);
       const hiddenSet = new Set(gymjHiddenIds.map(Number));
 
@@ -2691,7 +2691,7 @@ export default function App() {
   }, [currentUser]);
 
   // ============================================================================
-  // ✅ UPDATED: createReel with feed injection
+  // ✅ UPDATED: createReel with feed injection and error rethrow
   // ============================================================================
   const createReel = useCallback(async (reelData: Partial<Reel> & { 
     videoFile?: File | Blob; 
@@ -2713,12 +2713,14 @@ export default function App() {
         throw new Error('Video was not uploaded. Please select a video [video file missing]');
       }
 
+      // Upload video to R2
       const videoUrl = await ensureR2Url(
         videoFile,
         'reels',
         `reel-${Date.now()}.mp4`
       );
 
+      // Upload audio if provided
       let audioUrl = null;
       if (audioFile) {
         audioUrl = await ensureR2Url(
@@ -2730,16 +2732,20 @@ export default function App() {
         audioUrl = reelData.audioUrl;
       }
 
+      // Validate video upload
       if (!videoUrl || !videoUrl.startsWith('http')) {
         throw new Error('Reel video upload failed (no valid R2 URL).');
       }
 
+      // Generate sound key for tracking
       const soundKey = generateSoundKey(reelData, selectedReelSound);
       const isTrimmedAudio = soundKey.startsWith('trimmed:');
       
+      // Set audio trim points
       const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
       const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
       
+      // Prepare sound payload
       const soundPayload = selectedReelSound || {
         songName: reelData.songName || 'Original Sound',
         audioUrl: audioUrl || '',
@@ -2748,6 +2754,7 @@ export default function App() {
         songId: reelData.originalSoundId,
       };
 
+      // Prepare API payload
       const payload = {
         user_id: currentUser.id,
         caption: reelData.caption || '',
@@ -2766,32 +2773,38 @@ export default function App() {
       
       console.log("Sending to API:", payload);
       
+      // Create reel via API
       const data = await apiFetch('/api/reels', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
       
+      // Normalize the response
       const newReel = normalizeReel(data.reel || data);
       
-      // ✅ Add author info from current user
+      // Add author info from current user
       newReel.author = currentUser.name;
       newReel.author_name = currentUser.name;
       newReel.avatar = currentUser.profile_image_url;
       newReel.verified = currentUser.is_verified;
       
-      // ✅ Add to reels state
+      // Add to reels state (optimistic update)
       setReels(prev => [newReel, ...safeArray(prev)]);
       
-      // ✅ Fetch updated reels list
+      // Fetch updated reels list to ensure consistency
       fetchReels().catch(() => {});
       
+      // Show success message
       setLoginError('Reel posted successfully!');
       
+      // Clear selected sound
       setSelectedReelSound(null);
       
     } catch (error: any) {
       console.error('Failed to create reel:', error);
       setLoginError(error?.message || 'Failed to create reel');
+      // Rethrow the error so Recorder knows upload failed
+      throw error;
     } finally {
       setIsFeedRefreshing(false);
       setShowCreateReelModal(false);
@@ -4979,23 +4992,16 @@ export default function App() {
     setView('reels');
   }, []);
 
-  // ✅ ADDED: Handlers for Photo and Video buttons
+  // ✅ UPDATED: Handlers for Photo and Video buttons
   const handlePhotoClick = useCallback(() => {
     if (!requireAuth('Creating posts')) return;
     setShowCreatePostModal(true);
-    // The file input in CreatePostModal will handle photo selection
   }, [requireAuth]);
 
   const handleVideoClickFromCreate = useCallback(() => {
     if (!requireAuth('Creating videos')) return;
     setShowRecorder(true);
   }, [requireAuth]);
-
-  const handleRecorderComplete = useCallback((videoBlob: Blob, audioBlob?: Blob) => {
-    setShowRecorder(false);
-    setShowCreateReelModal(true);
-    // The video will be passed through the reel creation flow
-  }, []);
 
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
     const event = events.find(e => e.id === eventId);
@@ -5361,13 +5367,6 @@ export default function App() {
             />
           )}
 
-          {view === 'recorder' && (
-            <Recorder
-              onClose={() => setShowRecorder(false)}
-              onComplete={handleRecorderComplete}
-            />
-          )}
-
           {view === 'marketplace' && (
             <MarketplacePage
               currentUser={currentUser}
@@ -5687,10 +5686,45 @@ export default function App() {
         />
       )}
 
+      {/* ✅ UPDATED: Recorder Modal with new props */}
       {showRecorder && currentUser && (
         <Recorder
-          onClose={() => setShowRecorder(false)}
-          onComplete={handleRecorderComplete}
+          currentUser={currentUser}
+          selectedSound={selectedReelSound}
+          sounds={songs.map((song: any) => ({
+            id: song.id,
+            name: song.title || song.name || 'Song',
+            url: song.audio_fetch_url || song.audio_url || song.url || '',
+            originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+            duration: song.duration || 30,
+            start: 0,
+            end: song.duration || 30,
+            coverImage: song.cover_url || song.cover || '',
+            creatorName: song.artist || '',
+            creatorImage: song.artist_image || song.cover_url || '',
+            playCount: song.playCount || song.plays || 0,
+            creationCount: song.creationCount || song.uses || 0,
+            soundKey: `song:${song.id}`,
+          }))}
+          onSelectSound={setSelectedReelSound}
+          onBack={() => setShowRecorder(false)}
+          onSubmit={async (reelData) => {
+            await createReel({
+              ...reelData,
+              audioUrl:
+                reelData.audioUrl ||
+                (selectedReelSound?.songId &&
+                  songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+                selectedReelSound?.audioUrl ||
+                '',
+              originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+              songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+              audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+              audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+            });
+
+            setShowRecorder(false);
+          }}
         />
       )}
 
@@ -5732,32 +5766,10 @@ export default function App() {
         />
       )}
 
-      {showCreateReelModal && currentUser && (
-        <CreateReelModal
-          currentUser={currentUser}
-          onClose={() => {
-            setShowCreateReelModal(false);
-          }}
-          onCreate={(reelData: any) => {
-            return createReel({
-              ...reelData,
-              audioUrl:
-                reelData.audioUrl ||
-                (selectedReelSound?.songId && songs.find(s => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
-                selectedReelSound?.audioUrl ||
-                '',
-              originalSoundId: selectedReelSound?.songId,
-              songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-              audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
-              audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-            });
-          }}
-          songs={songs}
-          selectedSound={selectedReelSound}
-          onPickSound={setSelectedReelSound}
-          toBlobUrl={toBlobUrl}
-        />
-      )}
+      {/* ❌ REMOVED: Old CreateReelModal - Now using Recorder directly */}
+      {/* {showCreateReelModal && currentUser && (
+        <CreateReelModal ... />
+      )} */}
 
       {activeStoryId && activeStory && (
         <StoryViewerModal
