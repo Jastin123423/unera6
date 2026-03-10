@@ -32,7 +32,6 @@ const openDB = (): Promise<IDBDatabase> => {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
       
-      // For production, we'd migrate instead of delete, but for now:
       if (db.objectStoreNames.contains(DRAFTS_STORE)) {
         db.deleteObjectStore(DRAFTS_STORE);
       }
@@ -1384,7 +1383,6 @@ const Recorder: React.FC<RecorderProps> = ({
 
     audio.pause();
     
-    // Use cached version if available
     const playableUrl = await fetchAsBlobUrl(sound.url, 'audio').catch(() => sound.url);
     audio.src = playableUrl;
     audio.currentTime = start;
@@ -1510,10 +1508,14 @@ const Recorder: React.FC<RecorderProps> = ({
       return;
     }
 
+    // Use visualViewport for true fullscreen on mobile
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const displayWidth = Math.max(canvas.clientWidth, window.innerWidth);
-    const displayHeight = Math.max(canvas.clientHeight, window.innerHeight);
+    const viewportWidth = window.visualViewport?.width || window.innerWidth;
+    const viewportHeight = window.visualViewport?.height || window.innerHeight;
     
+    const displayWidth = Math.max(canvas.clientWidth, viewportWidth);
+    const displayHeight = Math.max(canvas.clientHeight, viewportHeight);
+
     const targetWidth = Math.floor(displayWidth * dpr);
     const targetHeight = Math.floor(displayHeight * dpr);
 
@@ -1550,12 +1552,12 @@ const Recorder: React.FC<RecorderProps> = ({
         throw new Error('Camera is not supported on this device/browser.');
       }
 
+      // Remove aspectRatio constraint - let canvas handle the cropping
       const rawStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode,
-          width: { ideal: 720 },
-          height: { ideal: 1280 },
-          aspectRatio: { ideal: 9 / 16 },
+          width: { ideal: 1080 },
+          height: { ideal: 1920 },
         },
         audio: {
           echoCancellation: true,
@@ -1574,7 +1576,8 @@ const Recorder: React.FC<RecorderProps> = ({
       await videoElRef.current.play();
       cameraReadyRef.current = true;
 
-      renderCameraFrame();
+      // Start frame rendering
+      animationFrameRef.current = requestAnimationFrame(renderCameraFrame);
 
       const canvasStream = canvasRef.current.captureStream(30);
       const micTrack = rawStream.getAudioTracks()[0];
@@ -1591,6 +1594,24 @@ const Recorder: React.FC<RecorderProps> = ({
       setIsPreparingCamera(false);
     }
   }, [cleanupCamera, facingMode, renderCameraFrame]);
+
+  // Separate effect for frame rendering to avoid camera restarts
+  useEffect(() => {
+    if (mode !== 'camera' || !cameraReadyRef.current) return;
+
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+
+    animationFrameRef.current = requestAnimationFrame(renderCameraFrame);
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [mode, renderCameraFrame]);
 
   const stopRecording = useCallback(() => {
     if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
@@ -1640,7 +1661,12 @@ const Recorder: React.FC<RecorderProps> = ({
         setNextPreviewUrl(URL.createObjectURL(file));
         setMode('preview');
 
+        // Delete previous draft if exists, then save new one
         try {
+          if (currentDraftId) {
+            await deleteDraft(currentDraftId).catch(() => {});
+          }
+          
           const draftId = await saveDraft(file, {
             caption,
             location,
@@ -1691,7 +1717,7 @@ const Recorder: React.FC<RecorderProps> = ({
       setCameraError(error?.message || 'Could not start recording.');
       setIsRecording(false);
     }
-  }, [currentSelectedSound, maxDurationSec, setNextPreviewUrl, soundPreviewEnabled, soundStart, stopRecording, caption, location, visibility, trimStart, trimEnd, lyricsText, lyricsTheme, lyricsEnabled, selectedFilterId, filterIntensity, resolvePlayableSoundUrl]);
+  }, [currentSelectedSound, maxDurationSec, setNextPreviewUrl, soundPreviewEnabled, soundStart, stopRecording, caption, location, visibility, trimStart, trimEnd, lyricsText, lyricsTheme, lyricsEnabled, selectedFilterId, filterIntensity, resolvePlayableSoundUrl, currentDraftId]);
 
   const handlePickVideo = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1762,7 +1788,6 @@ const Recorder: React.FC<RecorderProps> = ({
         setCurrentDraftId(draftId);
         
         setSubmitState('success');
-        // Use toast instead of alert for better UX
         showLocalSavedNotice(setLocalSaveNotice);
         setTimeout(() => onBack(), 1800);
       } catch (error) {
@@ -1933,11 +1958,11 @@ const Recorder: React.FC<RecorderProps> = ({
     video.play().catch(() => {});
   }, [mode, videoPreviewUrl]);
 
-  // Camera start effect - only depends on mode and facingMode, not filters
+  // Camera start effect - only depends on mode and facingMode
   useEffect(() => {
     if (mode !== 'camera') return;
     startCamera();
-  }, [mode, facingMode, startCamera]);
+  }, [mode, facingMode]);
 
   const lyricStyle = useMemo<React.CSSProperties>(() => ({
     transform: `translateX(-50%) scale(${lyricsScale})`,
@@ -1992,7 +2017,10 @@ const Recorder: React.FC<RecorderProps> = ({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-black text-white overflow-hidden font-sans recorder-page">
+    <div
+      className="fixed inset-0 z-[9999] bg-black text-white overflow-hidden font-sans recorder-page"
+      style={{ width: '100vw', height: '100dvh' }}
+    >
       <style>{RECORDER_STYLES}</style>
 
       {isOffline && (
@@ -2373,18 +2401,21 @@ const Recorder: React.FC<RecorderProps> = ({
       )}
 
       {mode === 'camera' && (
-        <div className="absolute inset-0 bg-black overflow-hidden">
+        <div
+          className="absolute inset-0 bg-black overflow-hidden"
+          style={{ width: '100vw', height: '100dvh' }}
+        >
           <video
             ref={videoElRef}
             autoPlay
             playsInline
             muted
-            className="absolute inset-0 w-full h-full opacity-0"
+            className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none"
           />
 
           <canvas
             ref={canvasRef}
-            className="absolute inset-0 w-full h-full"
+            className="absolute inset-0 w-full h-full block"
           />
 
           {isBeautyEffect && (
