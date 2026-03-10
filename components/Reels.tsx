@@ -3432,14 +3432,11 @@ export {
 // Export types
 export type { 
   ReelSound, 
-  Sound,
-  MusicPickerProps,
-  SoundDetailViewProps,
-  ReelsFeedProps 
+  Sound
 };
 
-// Export components
-export { 
+// Export all components (but NOT re-exporting the ones already exported above)
+export {
   CreateReelModal,
   SoundDetailView,
   ReelCommentsSheet,
@@ -3447,7 +3444,7 @@ export {
   SoundItem,
   UploadLoader,
   CameraStudio,
-  AudioTrimmer 
+  AudioTrimmer
 };
 
 // Export main component as default
