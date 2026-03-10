@@ -5,21 +5,14 @@ import { User } from '../types';
  * Recorder.tsx
  *
  * Dedicated TikTok-style creator page for UNERA.
- *
- * What is updated:
- * - Real record/upload flow on a separate page
- * - Built-in sound picker drawer with API integration
- * - User can preview/play songs BEFORE selecting
- * - Metadata-first sound trim (fast, no fake trim delay)
- * - Real upload progress support via onSubmitProgress
- * - Professional lyric overlay styles
- * - Camera + gallery in one screen
- * - REAL loaders for audio trimming (copied from Reels.tsx)
- * - REAL API integration for sounds (copied from Reels.tsx)
+ * Updated with professional filter system:
+ * - Filter families (Beauty, Bright, Mood, Vintage, B&W)
+ * - Adjustable filter intensity
+ * - Beauty overlays for skin softening
+ * - Filters applied to both camera and preview
  */
 
 // ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
-// Layer 1: Limited in-memory blob URL cache (max 10 items)
 const mediaBlobCache = new Map<string, { blobUrl: string, timestamp: number }>(); 
 const mediaWarmPromises = new Map<string, Promise<string>>();
 const CACHE_MAX_SIZE = 10;
@@ -28,25 +21,21 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
   if (!url) throw new Error("Missing media URL");
 
-  // Check cache with TTL
   const cached = mediaBlobCache.get(url);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.blobUrl;
   }
 
-  // Deduplicate concurrent fetches
   if (mediaWarmPromises.has(url)) {
     return mediaWarmPromises.get(url)!;
   }
 
-  // For videos, prefer native browser cache (memory efficient)
   if (type === 'video') {
     mediaWarmPromises.set(url, Promise.resolve(url));
     setTimeout(() => mediaWarmPromises.delete(url), 1000);
     return url;
   }
 
-  // Only audio gets blob URLs (smaller, need trimming)
   const p = fetch(url, { 
     cache: "force-cache",
     headers: { "Accept": "audio/mpeg,*/*" }
@@ -57,7 +46,6 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       
-      // Cleanup old cache entries
       if (mediaBlobCache.size >= CACHE_MAX_SIZE) {
         const oldestKey = Array.from(mediaBlobCache.entries())
           .sort((a, b) => a[1].timestamp - b[1].timestamp)[0][0];
@@ -77,7 +65,7 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
   return p;
 }
 
-// ==================== AUDIO TRIMMING UTILITIES (EXACT COPY FROM REELS.TSX) ====================
+// ==================== AUDIO TRIMMING UTILITIES ====================
 async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch audio");
@@ -100,26 +88,22 @@ function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
     for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
   };
 
-  // RIFF header
   writeString(0, "RIFF");
   view.setUint32(4, 36 + dataSize, true);
   writeString(8, "WAVE");
 
-  // fmt chunk
   writeString(12, "fmt ");
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
+  view.setUint16(20, 1, true);
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
   view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 16, true); // bits
+  view.setUint16(34, 16, true);
 
-  // data chunk
   writeString(36, "data");
   view.setUint32(40, dataSize, true);
 
-  // Interleave + PCM16
   let offset = 44;
   for (let i = 0; i < length; i++) {
     for (let ch = 0; ch < numChannels; ch++) {
@@ -188,7 +172,7 @@ const useAudioFocus = () => {
   return { stopAllAudio };
 };
 
-// ==================== API HELPER (EXACT COPY FROM REELS.TSX) ====================
+// ==================== API HELPER ====================
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('unera_token');
   const headers: HeadersInit = {
@@ -236,7 +220,7 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-// ==================== FORMAT VIEW COUNT HELPER (EXACT COPY FROM REELS.TSX) ====================
+// ==================== FORMAT HELPERS ====================
 const formatViewCount = (num?: number): string => {
   const v = Number(num || 0);
   
@@ -272,6 +256,229 @@ const inferVideoMimeType = () => {
   if (MediaRecorder.isTypeSupported('video/mp4')) return 'video/mp4';
   return 'video/webm';
 };
+
+// =========================
+// ENHANCED FILTER SYSTEM
+// =========================
+type FilterCategory = 'beauty' | 'bright' | 'mood' | 'vintage' | 'bw';
+
+type FilterPreset = {
+  id: string;
+  name: string;
+  category: FilterCategory;
+  base: {
+    brightness?: number;
+    contrast?: number;
+    saturate?: number;
+    sepia?: number;
+    grayscale?: number;
+    hueRotate?: number;
+    blur?: number; // For beauty effects (very subtle)
+  };
+  // Special flags
+  hasBeautyOverlay?: boolean;
+  description?: string;
+};
+
+// Professional filter presets organized by families
+const FILTER_PRESETS: FilterPreset[] = [
+  // Original
+  { id: 'none', name: 'Original', category: 'bright', base: {} },
+
+  // ===== BEAUTY / SOFT SKIN FILTERS =====
+  { 
+    id: 'softGlow', 
+    name: 'Soft Glow', 
+    category: 'beauty',
+    base: { brightness: 1.06, contrast: 0.94, saturate: 1.06, sepia: 0.04 },
+    hasBeautyOverlay: true,
+    description: 'Softens skin, reduces harsh contrast'
+  },
+  { 
+    id: 'smoothWarm', 
+    name: 'Smooth Warm', 
+    category: 'beauty',
+    base: { brightness: 1.05, contrast: 0.95, saturate: 1.08, sepia: 0.08 },
+    hasBeautyOverlay: true,
+    description: 'Warms skin tones, gentle glow'
+  },
+  { 
+    id: 'cleanSkin', 
+    name: 'Clean Skin', 
+    category: 'beauty',
+    base: { brightness: 1.07, contrast: 0.93, saturate: 1.03 },
+    hasBeautyOverlay: true,
+    description: 'Brightens face, reduces shadows'
+  },
+  { 
+    id: 'peach', 
+    name: 'Peach', 
+    category: 'beauty',
+    base: { brightness: 1.06, contrast: 0.95, saturate: 1.08, sepia: 0.12, hueRotate: -4 },
+    hasBeautyOverlay: true,
+    description: 'Warm peach tone, flattering for skin'
+  },
+
+  // ===== BRIGHT SOCIAL FILTERS =====
+  { 
+    id: 'vividPop', 
+    name: 'Vivid Pop', 
+    category: 'bright',
+    base: { brightness: 1.04, contrast: 1.08, saturate: 1.18 },
+    description: 'Punchy colors, vibrant look'
+  },
+  { 
+    id: 'sunny', 
+    name: 'Sunny', 
+    category: 'bright',
+    base: { brightness: 1.08, contrast: 1.02, saturate: 1.10, sepia: 0.06 },
+    description: 'Bright and warm like sunlight'
+  },
+  { 
+    id: 'fresh', 
+    name: 'Fresh', 
+    category: 'bright',
+    base: { brightness: 1.05, contrast: 1.01, saturate: 1.12, hueRotate: -3 },
+    description: 'Clean, slightly cool bright look'
+  },
+  { 
+    id: 'clearDay', 
+    name: 'Clear Day', 
+    category: 'bright',
+    base: { brightness: 1.06, contrast: 1.04, saturate: 1.08 },
+    description: 'Crisp and clear like a perfect day'
+  },
+
+  // ===== MOODY AESTHETIC FILTERS =====
+  { 
+    id: 'coolBlue', 
+    name: 'Cool Blue', 
+    category: 'mood',
+    base: { brightness: 1.02, contrast: 1.04, saturate: 0.95, hueRotate: 6 },
+    description: 'Cool, calm aesthetic'
+  },
+  { 
+    id: 'fade', 
+    name: 'Fade', 
+    category: 'mood',
+    base: { brightness: 1.04, contrast: 0.88, saturate: 0.92 },
+    description: 'Muted, faded film look'
+  },
+  { 
+    id: 'cinema', 
+    name: 'Cinema', 
+    category: 'mood',
+    base: { brightness: 0.98, contrast: 1.12, saturate: 0.92, sepia: 0.06 },
+    description: 'Cinematic contrast and tone'
+  },
+  { 
+    id: 'tokyo', 
+    name: 'Tokyo', 
+    category: 'mood',
+    base: { brightness: 1.01, contrast: 1.06, saturate: 1.08, hueRotate: 2 },
+    description: 'Neon-inspired cool tone'
+  },
+  { 
+    id: 'cocoa', 
+    name: 'Cocoa', 
+    category: 'mood',
+    base: { brightness: 0.96, contrast: 1.02, saturate: 0.94, sepia: 0.14 },
+    description: 'Warm, rich brown tones'
+  },
+
+  // ===== VINTAGE / FILM FILTERS =====
+  { 
+    id: 'retro', 
+    name: 'Retro', 
+    category: 'vintage',
+    base: { brightness: 1.00, contrast: 0.92, saturate: 0.88, sepia: 0.20 },
+    description: 'Classic vintage film look'
+  },
+  { 
+    id: 'dust', 
+    name: 'Dust', 
+    category: 'vintage',
+    base: { brightness: 1.03, contrast: 0.90, saturate: 0.86, sepia: 0.16 },
+    description: 'Faded, dusty aesthetic'
+  },
+  { 
+    id: 'goldenFilm', 
+    name: 'Golden', 
+    category: 'vintage',
+    base: { brightness: 1.02, contrast: 0.94, saturate: 0.96, sepia: 0.24 },
+    description: 'Warm golden vintage tone'
+  },
+  { 
+    id: 'oldCam', 
+    name: 'Old Cam', 
+    category: 'vintage',
+    base: { brightness: 1.00, contrast: 0.88, saturate: 0.84, sepia: 0.18 },
+    description: 'Aged camera look'
+  },
+
+  // ===== BLACK & WHITE =====
+  { 
+    id: 'monoSoft', 
+    name: 'Mono Soft', 
+    category: 'bw',
+    base: { grayscale: 1, brightness: 1.04, contrast: 0.95 },
+    description: 'Soft black and white'
+  },
+  { 
+    id: 'monoBold', 
+    name: 'Mono Bold', 
+    category: 'bw',
+    base: { grayscale: 1, contrast: 1.16 },
+    description: 'High contrast black and white'
+  },
+  { 
+    id: 'monoWarm', 
+    name: 'Mono Warm', 
+    category: 'bw',
+    base: { grayscale: 1, sepia: 0.15, brightness: 1.02, contrast: 1.04 },
+    description: 'Warm-toned black and white'
+  },
+];
+
+// Helper to build filter string with intensity
+const buildFilterString = (preset: FilterPreset, intensity: number): string => {
+  // If intensity is 0, return no filter
+  if (intensity === 0 || preset.id === 'none') return 'none';
+
+  const mix = (neutral: number, target?: number) => {
+    if (target === undefined) return neutral;
+    // Linear interpolation between neutral (1 or 0) and target
+    return neutral + (target - neutral) * intensity;
+  };
+
+  // Base neutral values
+  const brightness = mix(1, preset.base.brightness);
+  const contrast = mix(1, preset.base.contrast);
+  const saturate = mix(1, preset.base.saturate);
+  const sepia = mix(0, preset.base.sepia);
+  const grayscale = mix(0, preset.base.grayscale);
+  const hueRotate = (preset.base.hueRotate || 0) * intensity;
+
+  const filters: string[] = [];
+
+  if (brightness !== 1) filters.push(`brightness(${brightness})`);
+  if (contrast !== 1) filters.push(`contrast(${contrast})`);
+  if (saturate !== 1) filters.push(`saturate(${saturate})`);
+  if (sepia > 0) filters.push(`sepia(${sepia})`);
+  if (grayscale > 0) filters.push(`grayscale(${grayscale})`);
+  if (hueRotate !== 0) filters.push(`hue-rotate(${hueRotate}deg)`);
+
+  return filters.length > 0 ? filters.join(' ') : 'none';
+};
+
+// Filter categories with display names
+const FILTER_CATEGORIES: { id: FilterCategory; name: string; icon: string }[] = [
+  { id: 'beauty', name: 'Beauty', icon: 'fa-spa' },
+  { id: 'bright', name: 'Bright', icon: 'fa-sun' },
+  { id: 'mood', name: 'Mood', icon: 'fa-moon' },
+  { id: 'vintage', name: 'Vintage', icon: 'fa-camera-retro' },
+  { id: 'bw', name: 'B&W', icon: 'fa-circle' },
+];
 
 // =========================
 // TYPES
@@ -337,6 +544,8 @@ export interface RecorderSubmitPayload {
   lyricsText?: string;
   lyricsTheme?: LyricThemeId;
   lyricsEnabled?: boolean;
+  filterId?: string;
+  filterIntensity?: number;
 }
 
 interface RecorderProps {
@@ -359,16 +568,7 @@ const LYRIC_PRESETS: LyricPreset[] = [
   { id: 'outline', name: 'Outline', className: 'lyric-outline' },
 ];
 
-const EFFECTS = [
-  { id: 'none', name: 'Original', filter: 'none' },
-  { id: 'vivid', name: 'Vivid', filter: 'contrast(1.08) saturate(1.18) brightness(1.03)' },
-  { id: 'soft', name: 'Soft', filter: 'brightness(1.06) contrast(0.96) saturate(1.05)' },
-  { id: 'cold', name: 'Cool', filter: 'saturate(0.92) hue-rotate(8deg) contrast(1.03)' },
-  { id: 'warm', name: 'Warm', filter: 'sepia(0.16) saturate(1.12) brightness(1.02)' },
-  { id: 'mono', name: 'Mono', filter: 'grayscale(1) contrast(1.12)' },
-] as const;
-
-// ==================== ENHANCED AUDIO TRIMMER (EXACT COPY FROM REELS.TSX) ====================
+// ==================== ENHANCED AUDIO TRIMMER ====================
 const AudioTrimmer: React.FC<{ 
   url: string, 
   onClose: () => void, 
@@ -530,7 +730,6 @@ const AudioTrimmer: React.FC<{
     setTrimError('');
     
     try {
-      // REAL trimming progress - not fake
       setTrimProgress(10);
       
       const { blob, duration: trimDuration } = await trimAudioUrlToWavBlob(url, start, end);
@@ -826,10 +1025,29 @@ const Recorder: React.FC<RecorderProps> = ({
   const [lyricsScale, setLyricsScale] = useState(1);
   const [lyricsBottomOffset, setLyricsBottomOffset] = useState(18);
 
-  const [selectedEffectId, setSelectedEffectId] = useState<string>('none');
-  const activeEffect = useMemo(
-    () => EFFECTS.find((e) => e.id === selectedEffectId) || EFFECTS[0],
-    [selectedEffectId]
+  // ==================== ENHANCED FILTER STATE ====================
+  const [selectedFilterId, setSelectedFilterId] = useState<string>('none');
+  const [filterCategory, setFilterCategory] = useState<FilterCategory>('beauty');
+  const [filterIntensity, setFilterIntensity] = useState(0.75); // 75% default feels natural
+
+  const activeFilter = useMemo(
+    () => FILTER_PRESETS.find((f) => f.id === selectedFilterId) || FILTER_PRESETS[0],
+    [selectedFilterId]
+  );
+
+  const activeFilterString = useMemo(
+    () => buildFilterString(activeFilter, filterIntensity),
+    [activeFilter, filterIntensity]
+  );
+
+  const isBeautyEffect = useMemo(
+    () => activeFilter.hasBeautyOverlay || false,
+    [activeFilter]
+  );
+
+  const filteredFilters = useMemo(
+    () => FILTER_PRESETS.filter(f => f.category === filterCategory),
+    [filterCategory]
   );
 
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
@@ -849,7 +1067,7 @@ const Recorder: React.FC<RecorderProps> = ({
   const [trimStart, setTrimStart] = useState<number>(selectedSound?.audioStart || 0);
   const [trimEnd, setTrimEnd] = useState<number>(selectedSound?.audioEnd || 0);
 
-  // ==================== SOUND FETCHING (EXACT COPY FROM REELS.TSX) ====================
+  // ==================== SOUND FETCHING ====================
   const [availableSounds, setAvailableSounds] = useState<RecorderSoundOption[]>(sounds);
   const [popularSounds, setPopularSounds] = useState<RecorderSoundOption[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(false);
@@ -1080,7 +1298,9 @@ const Recorder: React.FC<RecorderProps> = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
-    ctx.filter = activeEffect.filter;
+    
+    // Apply filter
+    ctx.filter = activeFilterString;
 
     if (facingMode === 'user') {
       ctx.translate(canvas.width, 0);
@@ -1091,7 +1311,7 @@ const Recorder: React.FC<RecorderProps> = ({
     ctx.restore();
 
     animationFrameRef.current = requestAnimationFrame(renderCameraFrame);
-  }, [activeEffect.filter, facingMode]);
+  }, [activeFilterString, facingMode]);
 
   const startCamera = useCallback(async () => {
     cleanupCamera();
@@ -1106,8 +1326,8 @@ const Recorder: React.FC<RecorderProps> = ({
       const rawStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode,
-          width: { ideal: 1080 },
-          height: { ideal: 1920 },
+          width: { ideal: 720 }, // Lower resolution for better performance
+          height: { ideal: 1280 },
         },
         audio: {
           echoCancellation: true,
@@ -1249,6 +1469,8 @@ const Recorder: React.FC<RecorderProps> = ({
     setSubmitError('');
     setSubmitProgress(0);
     setPlayPreview(true);
+    setSelectedFilterId('none');
+    setFilterIntensity(0.75);
   }, [cleanupCamera, setNextPreviewUrl, stopSoundPreview]);
 
   const generateSoundKey = useCallback((): string => {
@@ -1307,6 +1529,8 @@ const Recorder: React.FC<RecorderProps> = ({
         lyricsText: lyricsText.trim(),
         lyricsTheme,
         lyricsEnabled,
+        filterId: selectedFilterId,
+        filterIntensity,
       });
 
       setSubmitProgress(100);
@@ -1337,7 +1561,9 @@ const Recorder: React.FC<RecorderProps> = ({
     lyricsEnabled,
     generateSoundKey,
     onBack,
-    trimmedAudioFile
+    trimmedAudioFile,
+    selectedFilterId,
+    filterIntensity
   ]);
 
   useEffect(() => {
@@ -1723,10 +1949,22 @@ const Recorder: React.FC<RecorderProps> = ({
                 muted
                 className="absolute inset-0 w-full h-full object-cover"
                 style={{
-                  filter: activeEffect.filter,
+                  filter: activeFilterString,
                   transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
                 }}
               />
+
+              {/* Beauty overlay for skin softening */}
+              {isBeautyEffect && (
+                <div 
+                  className="absolute inset-0 pointer-events-none z-15"
+                  style={{
+                    backdropFilter: 'blur(1.2px)',
+                    background: 'rgba(255, 240, 240, 0.02)',
+                    mixBlendMode: 'soft-light',
+                  }}
+                />
+              )}
 
               {lyricsEnabled && (
                 <div className="absolute inset-0 pointer-events-none z-20">
@@ -1773,18 +2011,71 @@ const Recorder: React.FC<RecorderProps> = ({
                 />
               </div>
 
-              <div className="absolute bottom-36 left-0 right-0 z-30 px-4">
-                <div className="overflow-x-auto scrollbar-hide flex gap-3 px-2">
-                  {EFFECTS.map((effect) => (
+              {/* Filter Category Tabs */}
+              <div className="absolute bottom-48 left-0 right-0 z-30 px-4">
+                <div className="flex justify-center gap-2 mb-4">
+                  {FILTER_CATEGORIES.map((cat) => (
                     <button
-                      key={effect.id}
-                      onClick={() => setSelectedEffectId(effect.id)}
-                      className={`min-w-[82px] rounded-2xl px-3 py-3 border text-center transition ${selectedEffectId === effect.id ? 'bg-[#1877F2] border-[#1877F2] text-white' : 'bg-black/45 border-white/10 text-white/75'}`}
+                      key={cat.id}
+                      onClick={() => setFilterCategory(cat.id)}
+                      className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-[0.14em] transition-all ${
+                        filterCategory === cat.id
+                          ? 'bg-[#1877F2] text-white'
+                          : 'bg-black/45 text-white/70 border border-white/10'
+                      }`}
                     >
-                      <div className="w-9 h-9 rounded-full mx-auto mb-2 bg-gradient-to-br from-[#1877F2] to-[#F3425F]" style={{ filter: effect.filter }} />
-                      <div className="text-[10px] font-black uppercase tracking-[0.14em]">{effect.name}</div>
+                      <i className={`fas ${cat.icon} mr-2`} />
+                      {cat.name}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Filter Row */}
+              <div className="absolute bottom-32 left-0 right-0 z-30 px-4">
+                <div className="overflow-x-auto scrollbar-hide flex gap-3 px-2">
+                  {filteredFilters.map((filter) => (
+                    <button
+                      key={filter.id}
+                      onClick={() => setSelectedFilterId(filter.id)}
+                      className={`min-w-[90px] rounded-2xl px-3 py-3 border text-center transition-all ${
+                        selectedFilterId === filter.id 
+                          ? 'bg-[#1877F2] border-[#1877F2] text-white scale-105' 
+                          : 'bg-black/45 border-white/10 text-white/75 hover:bg-black/60'
+                      }`}
+                      title={filter.description}
+                    >
+                      <div 
+                        className="w-10 h-10 rounded-full mx-auto mb-2 bg-gradient-to-br from-[#1877F2] to-[#F3425F]" 
+                        style={{ 
+                          filter: buildFilterString(filter, 1) // Show full strength in preview
+                        }} 
+                      />
+                      <div className="text-[9px] font-black uppercase tracking-[0.14em]">{filter.name}</div>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Filter Intensity Slider */}
+                <div className="mt-4 px-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[10px] font-black uppercase tracking-[0.14em] text-white/70">
+                      Filter strength
+                    </div>
+                    <div className="text-[10px] font-black uppercase tracking-[0.14em] text-[#7fb6ff]">
+                      {Math.round(filterIntensity * 100)}%
+                    </div>
+                  </div>
+
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={filterIntensity}
+                    onChange={(e) => setFilterIntensity(Number(e.target.value))}
+                    className="w-full accent-[#1877F2]"
+                  />
                 </div>
               </div>
 
@@ -1828,12 +2119,25 @@ const Recorder: React.FC<RecorderProps> = ({
                   ref={previewVideoRef}
                   src={videoPreviewUrl}
                   className="w-full h-full object-cover"
+                  style={{ filter: activeFilterString }}
                   playsInline
                   loop
                   controls={false}
                   muted={!currentSelectedSound || !soundPreviewEnabled}
                   autoPlay
                 />
+
+                {/* Beauty overlay in preview too */}
+                {isBeautyEffect && (
+                  <div 
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      backdropFilter: 'blur(1.2px)',
+                      background: 'rgba(255, 240, 240, 0.02)',
+                      mixBlendMode: 'soft-light',
+                    }}
+                  />
+                )}
 
                 {lyricsEnabled && (
                   <div className="absolute inset-0 pointer-events-none">
@@ -1866,6 +2170,13 @@ const Recorder: React.FC<RecorderProps> = ({
                     <i className={`fas ${playPreview ? 'fa-pause' : 'fa-play'} text-xs`} />
                   </button>
                 </div>
+
+                {/* Filter info badge */}
+                {selectedFilterId !== 'none' && (
+                  <div className="absolute top-3 right-16 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] uppercase tracking-[0.2em] font-black text-[#7fb6ff]">
+                    {activeFilter.name} • {Math.round(filterIntensity * 100)}%
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4">
@@ -2208,20 +2519,6 @@ const RangeRow: React.FC<{
 };
 
 // =========================
-// HELPER FUNCTIONS
-// =========================
-const normalizeSoundFromOption = (sound: RecorderSoundOption): ReelSound => ({
-  songName: sound.name,
-  audioUrl: sound.url,
-  originalUrl: sound.originalUrl || sound.url,
-  audioStart: sound.start || 0,
-  audioEnd: sound.end || sound.duration || 0,
-  songId: sound.id,
-  soundKey: sound.soundKey || `song:${sound.id}`,
-  isTrimmedAudio: false,
-});
-
-// =========================
 // STYLES
 // =========================
 const RECORDER_STYLES = `
@@ -2337,6 +2634,50 @@ const RECORDER_STYLES = `
   0% { filter: brightness(1); }
   50% { filter: brightness(1.2); }
   100% { filter: brightness(1); }
+}
+
+/* Custom range input styling */
+input[type=range] {
+  -webkit-appearance: none;
+  height: 4px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  background-image: linear-gradient(to right, #1877F2, #2D8CFF);
+  background-size: var(--value-percent, 0%) 100%;
+  background-repeat: no-repeat;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #1877F2;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(24,119,242,0.5);
+  border: 2px solid white;
+}
+
+input[type=range]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #1877F2;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(24,119,242,0.5);
+  border: 2px solid white;
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: transparent;
+  border-radius: 2px;
+}
+
+input[type=range]::-moz-range-track {
+  height: 4px;
+  background: transparent;
+  border-radius: 2px;
 }
 `;
 
