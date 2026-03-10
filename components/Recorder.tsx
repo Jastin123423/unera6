@@ -79,9 +79,9 @@ const saveDraft = async (videoFile: File, meta: Partial<DraftMeta>): Promise<str
       videoBlob: videoFile,
       videoType: videoFile.type,
       videoSize: videoFile.size,
-      ...meta,
       createdAt: Date.now(),
       status: 'draft',
+      ...meta, // This allows meta.status to override default if needed
     };
 
     const request = store.put(draft);
@@ -151,7 +151,7 @@ const deleteDraft = async (draftId: string): Promise<void> => {
 };
 
 // Show local save notice
-let localSaveTimeout: NodeJS.Timeout;
+let localSaveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const showLocalSavedNotice = (setter: (msg: string) => void) => {
   setter('Saved locally');
@@ -159,6 +159,7 @@ const showLocalSavedNotice = (setter: (msg: string) => void) => {
   localSaveTimeout = setTimeout(() => setter(''), 1800);
 };
 
+// Enhanced fetch with cache support for offline use
 async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
   if (!url) throw new Error("Missing media URL");
 
@@ -206,13 +207,16 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
   return p;
 }
 
-// ==================== AUDIO TRIMMING UTILITIES ====================
+// Enhanced array buffer fetch with cache support
 async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
-  const res = await fetch(url);
+  // Try to get cached blob URL first
+  const localUrl = await fetchAsBlobUrl(url, 'audio').catch(() => url);
+  const res = await fetch(localUrl);
   if (!res.ok) throw new Error("Failed to fetch audio");
   return await res.arrayBuffer();
 }
 
+// ==================== AUDIO TRIMMING UTILITIES ====================
 function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
   const numChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
@@ -1152,6 +1156,7 @@ const Recorder: React.FC<RecorderProps> = ({
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [drafts, setDrafts] = useState<DraftMeta[]>([]);
   const [localSaveNotice, setLocalSaveNotice] = useState('');
+  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
 
   const [caption, setCaption] = useState('');
   const [location, setLocation] = useState('');
@@ -1219,6 +1224,16 @@ const Recorder: React.FC<RecorderProps> = ({
 
   // Flag to block network during recording/camera mode
   const isRecordingOrCameraMode = mode === 'camera' || isRecording;
+
+  // Helper to resolve playable sound URL (cached if possible)
+  const resolvePlayableSoundUrl = useCallback(async (sound?: ReelSound | null) => {
+    if (!sound?.audioUrl) return '';
+    try {
+      return await fetchAsBlobUrl(sound.audioUrl, 'audio');
+    } catch {
+      return sound.audioUrl;
+    }
+  }, []);
 
   // Monitor online/offline status
   useEffect(() => {
@@ -1521,8 +1536,8 @@ const Recorder: React.FC<RecorderProps> = ({
 
     // Use display size with DPR for sharper rendering
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const displayWidth = canvas.clientWidth || window.innerWidth;
-    const displayHeight = canvas.clientHeight || window.innerHeight;
+    const displayWidth = Math.max(canvas.clientWidth, window.innerWidth);
+    const displayHeight = Math.max(canvas.clientHeight, window.innerHeight);
     
     const targetWidth = Math.floor(displayWidth * dpr);
     const targetHeight = Math.floor(displayHeight * dpr);
@@ -1652,7 +1667,7 @@ const Recorder: React.FC<RecorderProps> = ({
 
         // Auto-save draft locally for crash recovery
         try {
-          await saveDraft(file, {
+          const draftId = await saveDraft(file, {
             caption,
             location,
             visibility,
@@ -1666,6 +1681,7 @@ const Recorder: React.FC<RecorderProps> = ({
             filterId: selectedFilterId,
             filterIntensity,
           });
+          setCurrentDraftId(draftId);
           showLocalSavedNotice(setLocalSaveNotice);
         } catch (e) {
           console.warn('Auto-draft save failed:', e);
@@ -1678,10 +1694,13 @@ const Recorder: React.FC<RecorderProps> = ({
 
       if (currentSelectedSound?.audioUrl && soundPreviewEnabled) {
         if (!soundAudioRef.current) {
-          soundAudioRef.current = new Audio(currentSelectedSound.audioUrl);
+          soundAudioRef.current = new Audio();
         }
+        
+        // Use cached version if available
+        const playableUrl = await resolvePlayableSoundUrl(currentSelectedSound);
         soundAudioRef.current.pause();
-        soundAudioRef.current.src = currentSelectedSound.audioUrl;
+        soundAudioRef.current.src = playableUrl;
         soundAudioRef.current.currentTime = soundStart;
         soundAudioRef.current.volume = 1;
         soundAudioRef.current.play().catch(() => {});
@@ -1699,7 +1718,7 @@ const Recorder: React.FC<RecorderProps> = ({
       setCameraError(error?.message || 'Could not start recording.');
       setIsRecording(false);
     }
-  }, [currentSelectedSound, maxDurationSec, setNextPreviewUrl, soundPreviewEnabled, soundStart, stopRecording, caption, location, visibility, trimStart, trimEnd, lyricsText, lyricsTheme, lyricsEnabled, selectedFilterId, filterIntensity]);
+  }, [currentSelectedSound, maxDurationSec, setNextPreviewUrl, soundPreviewEnabled, soundStart, stopRecording, caption, location, visibility, trimStart, trimEnd, lyricsText, lyricsTheme, lyricsEnabled, selectedFilterId, filterIntensity, resolvePlayableSoundUrl]);
 
   const handlePickVideo = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1731,6 +1750,7 @@ const Recorder: React.FC<RecorderProps> = ({
     setPlayPreview(true);
     setSelectedFilterId('none');
     setFilterIntensity(0.75);
+    setCurrentDraftId(null);
   }, [cleanupCamera, setNextPreviewUrl, stopSoundPreview]);
 
   const generateSoundKey = useCallback((): string => {
@@ -1748,8 +1768,11 @@ const Recorder: React.FC<RecorderProps> = ({
     }
 
     if (isOffline) {
-      // Save as draft when offline
+      // Save as draft when offline - update existing draft if we have one
       try {
+        if (currentDraftId) {
+          await deleteDraft(currentDraftId);
+        }
         const draftId = await saveDraft(videoFile, {
           caption,
           location,
@@ -1764,6 +1787,7 @@ const Recorder: React.FC<RecorderProps> = ({
           filterId: selectedFilterId,
           filterIntensity,
         });
+        setCurrentDraftId(draftId);
         
         setSubmitState('success');
         alert('Saved as draft. Will upload when online.');
@@ -1825,13 +1849,22 @@ const Recorder: React.FC<RecorderProps> = ({
       setSubmitState('success');
       window.removeEventListener('beforeunload', beforeUnloadHandler);
 
+      // Delete the auto-saved draft if it exists
+      if (currentDraftId) {
+        await deleteDraft(currentDraftId);
+        setCurrentDraftId(null);
+      }
+
       await sleep(800);
       onBack();
     } catch (error: any) {
       console.error('Submit error:', error);
       
-      // Save draft on upload failure
+      // Save draft on upload failure - update existing draft if we have one
       try {
+        if (currentDraftId) {
+          await deleteDraft(currentDraftId);
+        }
         await saveDraft(videoFile, {
           caption,
           location,
@@ -1872,7 +1905,8 @@ const Recorder: React.FC<RecorderProps> = ({
     trimmedAudioFile,
     selectedFilterId,
     filterIntensity,
-    isOffline
+    isOffline,
+    currentDraftId
   ]);
 
   const loadDraftAndPublish = useCallback(async (draftId: string) => {
@@ -1891,6 +1925,7 @@ const Recorder: React.FC<RecorderProps> = ({
       setLyricsEnabled(draft.meta.lyricsEnabled ?? lyricsEnabled);
       setSelectedFilterId(draft.meta.filterId || 'none');
       setFilterIntensity(draft.meta.filterIntensity || 0.75);
+      setCurrentDraftId(draftId);
       
       setNextPreviewUrl(URL.createObjectURL(draft.file));
       setMode('preview');
@@ -2321,12 +2356,17 @@ const Recorder: React.FC<RecorderProps> = ({
                 {drafts.map((draft) => (
                   <div
                     key={draft.id}
-                    className="rounded-[24px] bg-white/5 border border-white/10 p-4"
+                    className={`rounded-[24px] border p-4 ${
+                      draft.status === 'failed' ? 'border-red-500/30 bg-red-500/5' : 'bg-white/5 border-white/10'
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <div className="text-xs text-white/50 mb-1">
                           {new Date(draft.createdAt).toLocaleDateString()}
+                          {draft.status === 'failed' && (
+                            <span className="ml-2 text-red-400">Failed</span>
+                          )}
                         </div>
                         <div className="font-bold">{draft.caption || 'Untitled'}</div>
                         {draft.soundName && (
@@ -2365,115 +2405,112 @@ const Recorder: React.FC<RecorderProps> = ({
       )}
 
       {mode === 'camera' && (
-        <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
-          {/* Fixed 9:16 TikTok-style stage */}
-          <div className="relative h-full aspect-[9/16] max-w-full max-h-full bg-black">
-            <video
-              ref={videoElRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute inset-0 w-full h-full opacity-0"
+        <div className="absolute inset-0 bg-black overflow-hidden">
+          <video
+            ref={videoElRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute inset-0 w-full h-full opacity-0"
+          />
+
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full"
+          />
+
+          {isBeautyEffect && (
+            <div
+              className="absolute inset-0 pointer-events-none z-15"
+              style={{
+                backdropFilter: 'blur(1.2px)',
+                background: 'rgba(255, 240, 240, 0.02)',
+                mixBlendMode: 'soft-light',
+              }}
             />
+          )}
 
-            <canvas
-              ref={canvasRef}
-              className="absolute inset-0 w-full h-full"
+          {lyricsEnabled && (
+            <div className="absolute inset-0 pointer-events-none z-20">
+              <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
+                {lyricsText.split('\n').map((line, idx) => (
+                  <div key={idx}>{line || '\u00A0'}</div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Top status bar */}
+          <div className="absolute top-16 left-4 right-4 z-30 flex items-center justify-between">
+            <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
+              {isPreparingCamera ? 'Preparing...' : isRecording ? `REC ${formatClock(recordingSec)}` : 'Ready'}
+            </div>
+            <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
+              {maxDurationSec}s
+            </div>
+          </div>
+
+          {/* Right side controls */}
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-3">
+            <IconPillButton
+              icon="fa-rotate"
+              label="Flip"
+              onClick={() => setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))}
             />
+            <IconPillButton
+              icon="fa-music"
+              label="Sound"
+              active={soundPreviewEnabled}
+              onClick={() => setSoundPreviewEnabled((prev) => !prev)}
+            />
+            <IconPillButton
+              icon="fa-sliders"
+              label="Audio"
+              active={!!currentSelectedSound}
+              onClick={() => setIsSoundPickerOpen(true)}
+            />
+            <IconPillButton
+              icon="fa-closed-captioning"
+              label="Lyrics"
+              active={lyricsEnabled}
+              onClick={() => setLyricsEnabled((prev) => !prev)}
+            />
+            <IconPillButton
+              icon="fa-wand-magic-sparkles"
+              label="Effects"
+              active={selectedFilterId !== 'none'}
+              onClick={() => setIsEffectsOpen(true)}
+            />
+          </div>
 
-            {isBeautyEffect && (
-              <div
-                className="absolute inset-0 pointer-events-none z-15"
-                style={{
-                  backdropFilter: 'blur(1.2px)',
-                  background: 'rgba(255, 240, 240, 0.02)',
-                  mixBlendMode: 'soft-light',
-                }}
-              />
-            )}
+          {/* Bottom recording controls */}
+          <div className="absolute bottom-8 left-0 right-0 z-30 px-8 flex items-center justify-between">
+            <button
+              onClick={() => setMode('choose')}
+              className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
+            >
+              <i className="fas fa-xmark text-white" />
+            </button>
 
-            {lyricsEnabled && (
-              <div className="absolute inset-0 pointer-events-none z-20">
-                <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
-                  {lyricsText.split('\n').map((line, idx) => (
-                    <div key={idx}>{line || '\u00A0'}</div>
-                  ))}
-                </div>
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              className="relative"
+            >
+              <div className={`w-20 h-20 rounded-full border-4 ${isRecording ? 'border-red-500' : 'border-white'} flex items-center justify-center transition-all`}>
+                {isRecording ? (
+                  <div className="w-10 h-10 rounded-xl bg-red-600" />
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-red-600 shadow-[0_0_30px_rgba(220,38,38,0.6)]" />
+                )}
               </div>
-            )}
+            </button>
 
-            {/* Top status bar */}
-            <div className="absolute top-4 left-4 right-4 z-30 flex items-center justify-between">
-              <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
-                {isPreparingCamera ? 'Preparing...' : isRecording ? `REC ${formatClock(recordingSec)}` : 'Ready'}
-              </div>
-              <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
-                {maxDurationSec}s
-              </div>
-            </div>
-
-            {/* Right side controls */}
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-3">
-              <IconPillButton
-                icon="fa-rotate"
-                label="Flip"
-                onClick={() => setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))}
-              />
-              <IconPillButton
-                icon="fa-music"
-                label="Sound"
-                active={soundPreviewEnabled}
-                onClick={() => setSoundPreviewEnabled((prev) => !prev)}
-              />
-              <IconPillButton
-                icon="fa-sliders"
-                label="Audio"
-                active={!!currentSelectedSound}
-                onClick={() => setIsSoundPickerOpen(true)}
-              />
-              <IconPillButton
-                icon="fa-closed-captioning"
-                label="Lyrics"
-                active={lyricsEnabled}
-                onClick={() => setLyricsEnabled((prev) => !prev)}
-              />
-              <IconPillButton
-                icon="fa-wand-magic-sparkles"
-                label="Effects"
-                active={selectedFilterId !== 'none'}
-                onClick={() => setIsEffectsOpen(true)}
-              />
-            </div>
-
-            {/* Bottom recording controls */}
-            <div className="absolute bottom-8 left-0 right-0 z-30 px-8 flex items-center justify-between">
-              <button
-                onClick={() => setMode('choose')}
-                className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
-              >
-                <i className="fas fa-xmark text-white" />
-              </button>
-
-              <button
-                onClick={isRecording ? stopRecording : startRecording}
-                className="relative"
-              >
-                <div className={`w-20 h-20 rounded-full border-4 ${isRecording ? 'border-red-500' : 'border-white'} flex items-center justify-center transition-all`}>
-                  {isRecording ? (
-                    <div className="w-10 h-10 rounded-xl bg-red-600" />
-                  ) : (
-                    <div className="w-16 h-16 rounded-full bg-red-600 shadow-[0_0_30px_rgba(220,38,38,0.6)]" />
-                  )}
-                </div>
-              </button>
-
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
-              >
-                <i className="fas fa-image text-white" />
-              </button>
-            </div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
+            >
+              <i className="fas fa-image text-white" />
+            </button>
           </div>
         </div>
       )}
