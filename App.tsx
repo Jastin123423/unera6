@@ -1,4 +1,5 @@
-// App.tsx - Complete file with Reels arranged after every 3 posts (NO OTHER CHANGES)
+// App.tsx - Complete file with Reels arranged after every 3 posts
+// UPDATED: Separated Photo/Video buttons and increased suggestion card sizes
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -36,6 +37,7 @@ import { TermsOfServicePage } from './components/TermsOfService';
 import { ChatWindow } from './components/Chat';
 import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
+import { Recorder } from './components/Recorder';
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -1216,7 +1218,8 @@ type View =
   | 'help'
   | 'profile'
   | 'login'
-  | 'register';
+  | 'register'
+  | 'recorder'; // ✅ ADDED: Recorder view
 
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -1616,6 +1619,9 @@ export default function App() {
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
 
+  // ✅ ADDED: Recorder modal state
+  const [showRecorder, setShowRecorder] = useState(false);
+
   const [activeSharePost, setActiveSharePost] = useState<any>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareInProgress, setShareInProgress] = useState(false);
@@ -1811,7 +1817,7 @@ export default function App() {
     if (!gymjHydrated) setGymjLoading(true);
 
     try {
-      const data = await apiFetch(`/api/group-suggestions?user_id=${currentUser.id}&limit=8`);
+      const data = await apiFetch(`/api/group-suggestions?user_id=${currentUser.id}&limit=12`); // ✅ INCREASED limit
       const raw = safeArray<any>(data?.groups ?? data);
       const hiddenSet = new Set(gymjHiddenIds.map(Number));
 
@@ -4973,6 +4979,24 @@ export default function App() {
     setView('reels');
   }, []);
 
+  // ✅ ADDED: Handlers for Photo and Video buttons
+  const handlePhotoClick = useCallback(() => {
+    if (!requireAuth('Creating posts')) return;
+    setShowCreatePostModal(true);
+    // The file input in CreatePostModal will handle photo selection
+  }, [requireAuth]);
+
+  const handleVideoClickFromCreate = useCallback(() => {
+    if (!requireAuth('Creating videos')) return;
+    setShowRecorder(true);
+  }, [requireAuth]);
+
+  const handleRecorderComplete = useCallback((videoBlob: Blob, audioBlob?: Blob) => {
+    setShowRecorder(false);
+    setShowCreateReelModal(true);
+    // The video will be passed through the reel creation flow
+  }, []);
+
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
     const event = events.find(e => e.id === eventId);
     
@@ -5124,6 +5148,8 @@ export default function App() {
                     if (!requireAuth('Creating posts')) return;
                     setShowCreatePostModal(true);
                   }}
+                  onPhotoClick={handlePhotoClick}
+                  onVideoClick={handleVideoClickFromCreate}
                   onCreateEventClick={() => {
                     if (!requireAuth('Creating events')) return;
                     setShowCreateEventModal(true);
@@ -5279,6 +5305,8 @@ export default function App() {
                                 // For now, just navigate to groups
                               }}
                               onProfileClick={(userId: number) => openProfile(userId)}
+                              title="Groups You May Join"
+                              maxDisplay={8}
                             />
                           )}
                         </React.Fragment>
@@ -5330,6 +5358,13 @@ export default function App() {
               followLoading={followLoading}
               initialReelId={selectedReelId}
               onBack={() => setView('home')}
+            />
+          )}
+
+          {view === 'recorder' && (
+            <Recorder
+              onClose={() => setShowRecorder(false)}
+              onComplete={handleRecorderComplete}
             />
           )}
 
@@ -5645,6 +5680,17 @@ export default function App() {
             setShowCreatePostModal(false);
             setShowCreateEventModal(true);
           }}
+          onOpenRecorder={() => {
+            setShowCreatePostModal(false);
+            setShowRecorder(true);
+          }}
+        />
+      )}
+
+      {showRecorder && currentUser && (
+        <Recorder
+          onClose={() => setShowRecorder(false)}
+          onComplete={handleRecorderComplete}
         />
       )}
 
