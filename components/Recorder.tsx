@@ -4,12 +4,12 @@ import { User } from '../types';
 // ==================== OFFLINE STORAGE & CACHE SYSTEM ====================
 const mediaBlobCache = new Map<string, { blobUrl: string, timestamp: number }>(); 
 const mediaWarmPromises = new Map<string, Promise<string>>();
-const CACHE_MAX_SIZE = 20; // Increased for offline support
+const CACHE_MAX_SIZE = 20;
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-// IndexedDB for offline drafts - store Blob directly, no ArrayBuffer conversion
+// IndexedDB for offline drafts - store Blob directly
 const DB_NAME = 'UneraRecorderDB';
-const DB_VERSION = 2; // Increment version for schema change
+const DB_VERSION = 2;
 const DRAFTS_STORE = 'drafts';
 
 let dbInstance: IDBDatabase | null = null;
@@ -32,12 +32,11 @@ const openDB = (): Promise<IDBDatabase> => {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
       
-      // Delete old store if exists (schema changed)
+      // For production, we'd migrate instead of delete, but for now:
       if (db.objectStoreNames.contains(DRAFTS_STORE)) {
         db.deleteObjectStore(DRAFTS_STORE);
       }
       
-      // Create new store with Blob support
       const store = db.createObjectStore(DRAFTS_STORE, { keyPath: 'id' });
       store.createIndex('createdAt', 'createdAt', { unique: false });
       store.createIndex('status', 'status', { unique: false });
@@ -65,7 +64,6 @@ interface DraftMeta {
   videoType?: string;
 }
 
-// Save draft with direct Blob storage (no ArrayBuffer conversion)
 const saveDraft = async (videoFile: File, meta: Partial<DraftMeta>): Promise<string> => {
   const db = await openDB();
   const draftId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
@@ -81,7 +79,7 @@ const saveDraft = async (videoFile: File, meta: Partial<DraftMeta>): Promise<str
       videoSize: videoFile.size,
       createdAt: Date.now(),
       status: 'draft',
-      ...meta, // This allows meta.status to override default if needed
+      ...meta,
     };
 
     const request = store.put(draft);
@@ -150,7 +148,6 @@ const deleteDraft = async (draftId: string): Promise<void> => {
   });
 };
 
-// Show local save notice
 let localSaveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const showLocalSavedNotice = (setter: (msg: string) => void) => {
@@ -159,7 +156,6 @@ const showLocalSavedNotice = (setter: (msg: string) => void) => {
   localSaveTimeout = setTimeout(() => setter(''), 1800);
 };
 
-// Enhanced fetch with cache support for offline use
 async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
   if (!url) throw new Error("Missing media URL");
 
@@ -207,9 +203,7 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
   return p;
 }
 
-// Enhanced array buffer fetch with cache support
 async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
-  // Try to get cached blob URL first
   const localUrl = await fetchAsBlobUrl(url, 'audio').catch(() => url);
   const res = await fetch(localUrl);
   if (!res.ok) throw new Error("Failed to fetch audio");
@@ -317,7 +311,7 @@ const useAudioFocus = () => {
   return { stopAllAudio };
 };
 
-// ==================== API HELPER WITH OFFLINE SUPPORT ====================
+// ==================== API HELPER ====================
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('unera_token');
   const headers: HeadersInit = {
@@ -423,12 +417,8 @@ type FilterPreset = {
   description?: string;
 };
 
-// Professional filter presets organized by families
 const FILTER_PRESETS: FilterPreset[] = [
-  // Original
   { id: 'none', name: 'Original', category: 'bright', base: {} },
-
-  // ===== BEAUTY / SOFT SKIN FILTERS =====
   { 
     id: 'softGlow', 
     name: 'Soft Glow', 
@@ -461,8 +451,6 @@ const FILTER_PRESETS: FilterPreset[] = [
     hasBeautyOverlay: true,
     description: 'Warm peach tone, flattering for skin'
   },
-
-  // ===== BRIGHT SOCIAL FILTERS =====
   { 
     id: 'vividPop', 
     name: 'Vivid Pop', 
@@ -491,8 +479,6 @@ const FILTER_PRESETS: FilterPreset[] = [
     base: { brightness: 1.06, contrast: 1.04, saturate: 1.08 },
     description: 'Crisp and clear like a perfect day'
   },
-
-  // ===== MOODY AESTHETIC FILTERS =====
   { 
     id: 'coolBlue', 
     name: 'Cool Blue', 
@@ -528,8 +514,6 @@ const FILTER_PRESETS: FilterPreset[] = [
     base: { brightness: 0.96, contrast: 1.02, saturate: 0.94, sepia: 0.14 },
     description: 'Warm, rich brown tones'
   },
-
-  // ===== VINTAGE / FILM FILTERS =====
   { 
     id: 'retro', 
     name: 'Retro', 
@@ -558,8 +542,6 @@ const FILTER_PRESETS: FilterPreset[] = [
     base: { brightness: 1.00, contrast: 0.88, saturate: 0.84, sepia: 0.18 },
     description: 'Aged camera look'
   },
-
-  // ===== BLACK & WHITE =====
   { 
     id: 'monoSoft', 
     name: 'Mono Soft', 
@@ -583,7 +565,6 @@ const FILTER_PRESETS: FilterPreset[] = [
   },
 ];
 
-// Helper to build filter string with intensity
 const buildFilterString = (preset: FilterPreset, intensity: number): string => {
   if (intensity === 0 || preset.id === 'none') return 'none';
 
@@ -611,7 +592,6 @@ const buildFilterString = (preset: FilterPreset, intensity: number): string => {
   return filters.length > 0 ? filters.join(' ') : 'none';
 };
 
-// Filter categories with display names
 const FILTER_CATEGORIES: { id: FilterCategory; name: string; icon: string }[] = [
   { id: 'beauty', name: 'Beauty', icon: 'fa-spa' },
   { id: 'bright', name: 'Bright', icon: 'fa-sun' },
@@ -1168,7 +1148,6 @@ const Recorder: React.FC<RecorderProps> = ({
   const [lyricsScale, setLyricsScale] = useState(1);
   const [lyricsBottomOffset, setLyricsBottomOffset] = useState(18);
 
-  // ==================== ENHANCED FILTER STATE ====================
   const [selectedFilterId, setSelectedFilterId] = useState<string>('none');
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('beauty');
   const [filterIntensity, setFilterIntensity] = useState(0.75);
@@ -1213,19 +1192,15 @@ const Recorder: React.FC<RecorderProps> = ({
   const [trimStart, setTrimStart] = useState<number>(selectedSound?.audioStart || 0);
   const [trimEnd, setTrimEnd] = useState<number>(selectedSound?.audioEnd || 0);
 
-  // ==================== SOUND FETCHING ====================
   const [availableSounds, setAvailableSounds] = useState<RecorderSoundOption[]>(sounds);
   const [popularSounds, setPopularSounds] = useState<RecorderSoundOption[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(false);
   const [loadingPopularSounds, setLoadingPopularSounds] = useState(false);
 
-  // ==================== TRIMMED AUDIO STATE ====================
   const [trimmedAudioFile, setTrimmedAudioFile] = useState<File | null>(null);
 
-  // Flag to block network during recording/camera mode
   const isRecordingOrCameraMode = mode === 'camera' || isRecording;
 
-  // Helper to resolve playable sound URL (cached if possible)
   const resolvePlayableSoundUrl = useCallback(async (sound?: ReelSound | null) => {
     if (!sound?.audioUrl) return '';
     try {
@@ -1282,7 +1257,6 @@ const Recorder: React.FC<RecorderProps> = ({
           }));
           setPopularSounds(sounds);
           
-          // Warm up top sounds for offline use - only when not recording
           if (!isRecordingOrCameraMode) {
             sounds.slice(0, 5).forEach((sound: any) => {
               if (sound.url) {
@@ -1391,7 +1365,7 @@ const Recorder: React.FC<RecorderProps> = ({
     setPreviewingSoundId(null);
   }, []);
 
-  const playSoundPreview = useCallback((sound: RecorderSoundOption) => {
+  const playSoundPreview = useCallback(async (sound: RecorderSoundOption) => {
     if (!sound.url) return;
 
     if (!soundAudioRef.current) {
@@ -1409,7 +1383,10 @@ const Recorder: React.FC<RecorderProps> = ({
     }
 
     audio.pause();
-    audio.src = sound.url;
+    
+    // Use cached version if available
+    const playableUrl = await fetchAsBlobUrl(sound.url, 'audio').catch(() => sound.url);
+    audio.src = playableUrl;
     audio.currentTime = start;
     audio.onended = () => setPreviewingSoundId(null);
     audio.ontimeupdate = () => {
@@ -1473,7 +1450,6 @@ const Recorder: React.FC<RecorderProps> = ({
     setRecordingSec(0);
   }, []);
 
-  // Professional smart cover helper with improved crop handling
   const drawVideoSmartCover = useCallback((
     ctx: CanvasRenderingContext2D,
     video: HTMLVideoElement,
@@ -1534,7 +1510,6 @@ const Recorder: React.FC<RecorderProps> = ({
       return;
     }
 
-    // Use display size with DPR for sharper rendering
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const displayWidth = Math.max(canvas.clientWidth, window.innerWidth);
     const displayHeight = Math.max(canvas.clientHeight, window.innerHeight);
@@ -1665,7 +1640,6 @@ const Recorder: React.FC<RecorderProps> = ({
         setNextPreviewUrl(URL.createObjectURL(file));
         setMode('preview');
 
-        // Auto-save draft locally for crash recovery
         try {
           const draftId = await saveDraft(file, {
             caption,
@@ -1697,7 +1671,6 @@ const Recorder: React.FC<RecorderProps> = ({
           soundAudioRef.current = new Audio();
         }
         
-        // Use cached version if available
         const playableUrl = await resolvePlayableSoundUrl(currentSelectedSound);
         soundAudioRef.current.pause();
         soundAudioRef.current.src = playableUrl;
@@ -1768,7 +1741,6 @@ const Recorder: React.FC<RecorderProps> = ({
     }
 
     if (isOffline) {
-      // Save as draft when offline - update existing draft if we have one
       try {
         if (currentDraftId) {
           await deleteDraft(currentDraftId);
@@ -1790,8 +1762,9 @@ const Recorder: React.FC<RecorderProps> = ({
         setCurrentDraftId(draftId);
         
         setSubmitState('success');
-        alert('Saved as draft. Will upload when online.');
-        onBack();
+        // Use toast instead of alert for better UX
+        showLocalSavedNotice(setLocalSaveNotice);
+        setTimeout(() => onBack(), 1800);
       } catch (error) {
         setSubmitState('error');
         setSubmitError('Failed to save draft offline.');
@@ -1849,7 +1822,6 @@ const Recorder: React.FC<RecorderProps> = ({
       setSubmitState('success');
       window.removeEventListener('beforeunload', beforeUnloadHandler);
 
-      // Delete the auto-saved draft if it exists
       if (currentDraftId) {
         await deleteDraft(currentDraftId);
         setCurrentDraftId(null);
@@ -1860,12 +1832,11 @@ const Recorder: React.FC<RecorderProps> = ({
     } catch (error: any) {
       console.error('Submit error:', error);
       
-      // Save draft on upload failure - update existing draft if we have one
       try {
         if (currentDraftId) {
           await deleteDraft(currentDraftId);
         }
-        await saveDraft(videoFile, {
+        const failedDraftId = await saveDraft(videoFile, {
           caption,
           location,
           visibility,
@@ -1880,6 +1851,7 @@ const Recorder: React.FC<RecorderProps> = ({
           filterIntensity,
           status: 'failed',
         });
+        setCurrentDraftId(failedDraftId);
       } catch {}
       
       setSubmitState('error');
@@ -1930,7 +1902,7 @@ const Recorder: React.FC<RecorderProps> = ({
       setNextPreviewUrl(URL.createObjectURL(draft.file));
       setMode('preview');
       
-      await deleteDraft(draftId);
+      // Don't delete draft here - wait until successful publish
     } catch (error) {
       console.error('Failed to load draft:', error);
     }
@@ -1961,7 +1933,7 @@ const Recorder: React.FC<RecorderProps> = ({
     video.play().catch(() => {});
   }, [mode, videoPreviewUrl]);
 
-  // Separate useEffect for camera start to avoid unnecessary restarts
+  // Camera start effect - only depends on mode and facingMode, not filters
   useEffect(() => {
     if (mode !== 'camera') return;
     startCamera();
@@ -2015,7 +1987,6 @@ const Recorder: React.FC<RecorderProps> = ({
     setIsTrimmerOpen(true);
   }, [onSelectSound]);
 
-  // Handle filter selection from effects drawer
   const handleFilterSelect = useCallback((filterId: string) => {
     setSelectedFilterId(filterId);
   }, []);
@@ -2024,7 +1995,6 @@ const Recorder: React.FC<RecorderProps> = ({
     <div className="fixed inset-0 z-[9999] bg-black text-white overflow-hidden font-sans recorder-page">
       <style>{RECORDER_STYLES}</style>
 
-      {/* Offline Banner */}
       {isOffline && (
         <div className="absolute top-16 left-0 right-0 z-50 flex justify-center pointer-events-none">
           <div className="bg-yellow-500/90 text-black px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest shadow-lg">
@@ -2034,7 +2004,6 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
-      {/* Local Save Notice */}
       {localSaveNotice && (
         <div className="absolute top-24 left-0 right-0 z-50 flex justify-center pointer-events-none animate-fade-in">
           <div className="bg-green-500/90 text-black px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest shadow-lg">
@@ -2044,7 +2013,6 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
-      {/* Upload Loader */}
       {submitState === 'uploading' && (
         <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
@@ -2421,7 +2389,7 @@ const Recorder: React.FC<RecorderProps> = ({
 
           {isBeautyEffect && (
             <div
-              className="absolute inset-0 pointer-events-none z-15"
+              className="absolute inset-0 pointer-events-none z-[15]"
               style={{
                 backdropFilter: 'blur(1.2px)',
                 background: 'rgba(255, 240, 240, 0.02)',
@@ -2440,7 +2408,6 @@ const Recorder: React.FC<RecorderProps> = ({
             </div>
           )}
 
-          {/* Top status bar */}
           <div className="absolute top-16 left-4 right-4 z-30 flex items-center justify-between">
             <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
               {isPreparingCamera ? 'Preparing...' : isRecording ? `REC ${formatClock(recordingSec)}` : 'Ready'}
@@ -2450,7 +2417,6 @@ const Recorder: React.FC<RecorderProps> = ({
             </div>
           </div>
 
-          {/* Right side controls */}
           <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-3">
             <IconPillButton
               icon="fa-rotate"
@@ -2483,7 +2449,6 @@ const Recorder: React.FC<RecorderProps> = ({
             />
           </div>
 
-          {/* Bottom recording controls */}
           <div className="absolute bottom-8 left-0 right-0 z-30 px-8 flex items-center justify-between">
             <button
               onClick={() => setMode('choose')}
@@ -2532,7 +2497,6 @@ const Recorder: React.FC<RecorderProps> = ({
                   autoPlay
                 />
 
-                {/* Beauty overlay in preview too */}
                 {isBeautyEffect && (
                   <div 
                     className="absolute inset-0 pointer-events-none"
@@ -2581,7 +2545,6 @@ const Recorder: React.FC<RecorderProps> = ({
                   </button>
                 </div>
 
-                {/* Filter info badge */}
                 {selectedFilterId !== 'none' && (
                   <div className="absolute top-3 right-16 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] uppercase tracking-[0.2em] font-black text-[#7fb6ff]">
                     {activeFilter.name} • {Math.round(filterIntensity * 100)}%
@@ -2756,7 +2719,6 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
-      {/* Effects Drawer */}
       {isEffectsOpen && (
         <div className="absolute inset-0 z-[10030] bg-black/70 backdrop-blur-sm flex items-end animate-fade-in">
           <div className="w-full max-h-[75vh] rounded-t-[32px] border-t border-white/10 bg-[#0e0e0e] overflow-hidden animate-slide-up">
@@ -2951,7 +2913,6 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
-      {/* Audio Trimmer Modal */}
       {isTrimmerOpen && trimmingSound && (
         <AudioTrimmer
           url={trimmingSound.originalUrl || trimmingSound.url}
@@ -3154,7 +3115,6 @@ const RECORDER_STYLES = `
   100% { filter: brightness(1); }
 }
 
-/* Custom range input styling */
 input[type=range] {
   -webkit-appearance: none;
   height: 4px;
