@@ -5,15 +5,18 @@ import { User } from '../types';
  * Recorder.tsx
  *
  * Dedicated TikTok-style creator page for UNERA.
- * Updated with professional filter system:
+ * 
+ * FEATURES:
  * - Filter families (Beauty, Bright, Mood, Vintage, B&W)
- * - Adjustable filter intensity
+ * - Adjustable filter intensity with real-time preview
  * - Beauty overlays for skin softening
  * - Filters applied to both camera and preview
- * - Improved UI layout with better spacing
+ * - Professional audio trimming with real progress
+ * - Sound picker with preview before selecting
+ * - Lyric overlays with multiple themes
  */
 
-// ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
+// ==================== MEDIA CACHE SYSTEM ====================
 const mediaBlobCache = new Map<string, { blobUrl: string, timestamp: number }>(); 
 const mediaWarmPromises = new Map<string, Promise<string>>();
 const CACHE_MAX_SIZE = 10;
@@ -1916,8 +1919,6 @@ const Recorder: React.FC<RecorderProps> = ({
 
       {mode === 'camera' && (
         <div className="absolute inset-0 bg-black">
-          <canvas ref={canvasRef} className="hidden" />
-
           {cameraError ? (
             <div className="h-full flex items-center justify-center px-6">
               <div className="w-full max-w-[360px] rounded-[28px] bg-white/5 border border-white/10 p-7 text-center">
@@ -1936,18 +1937,16 @@ const Recorder: React.FC<RecorderProps> = ({
             </div>
           ) : (
             <>
+              {/* Hidden video element - source for canvas */}
               <video
                 ref={videoElRef}
                 autoPlay
                 playsInline
                 muted
-                className="absolute inset-0 w-full h-full object-cover opacity-0" // Hidden, canvas shows the filtered view
-                style={{
-                  transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
-                }}
+                className="absolute inset-0 w-full h-full object-cover opacity-0"
               />
 
-              {/* Canvas showing filtered video */}
+              {/* Canvas showing filtered video - what user sees and gets recorded */}
               <canvas
                 ref={canvasRef}
                 className="absolute inset-0 w-full h-full"
@@ -1956,7 +1955,7 @@ const Recorder: React.FC<RecorderProps> = ({
                 }}
               />
 
-              {/* Beauty overlay for skin softening */}
+              {/* Beauty overlay for skin softening - UI only, not recorded */}
               {isBeautyEffect && (
                 <div 
                   className="absolute inset-0 pointer-events-none z-15"
@@ -1968,6 +1967,7 @@ const Recorder: React.FC<RecorderProps> = ({
                 />
               )}
 
+              {/* Lyrics overlay */}
               {lyricsEnabled && (
                 <div className="absolute inset-0 pointer-events-none z-20">
                   <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
@@ -1988,7 +1988,7 @@ const Recorder: React.FC<RecorderProps> = ({
                 </div>
               </div>
 
-              {/* Right side controls - moved up to avoid overlap */}
+              {/* Right side controls - vertically centered */}
               <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-3">
                 <IconPillButton
                   icon="fa-rotate"
@@ -2015,7 +2015,7 @@ const Recorder: React.FC<RecorderProps> = ({
                 />
               </div>
 
-              {/* Filter Category Tabs - moved higher */}
+              {/* Filter Category Tabs */}
               <div className="absolute bottom-40 left-0 right-0 z-30 px-4">
                 <div className="flex justify-center gap-2 mb-3">
                   {FILTER_CATEGORIES.map((cat) => (
@@ -2062,7 +2062,7 @@ const Recorder: React.FC<RecorderProps> = ({
                   ))}
                 </div>
 
-                {/* Filter Intensity Slider */}
+                {/* Filter Intensity Slider - only shows when filter selected */}
                 {selectedFilterId !== 'none' && (
                   <div className="mt-2 px-2">
                     <div className="flex items-center justify-between mb-1">
