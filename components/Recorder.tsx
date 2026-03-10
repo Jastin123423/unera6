@@ -1,11 +1,151 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '../types';
 
-// ==================== MEDIA CACHE SYSTEM ====================
+// ==================== OFFLINE STORAGE & CACHE SYSTEM ====================
 const mediaBlobCache = new Map<string, { blobUrl: string, timestamp: number }>(); 
 const mediaWarmPromises = new Map<string, Promise<string>>();
-const CACHE_MAX_SIZE = 10;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_MAX_SIZE = 20; // Increased for offline support
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+// IndexedDB for offline drafts
+const DB_NAME = 'UneraRecorderDB';
+const DB_VERSION = 1;
+const DRAFTS_STORE = 'drafts';
+
+let dbInstance: IDBDatabase | null = null;
+
+const openDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    if (dbInstance) {
+      resolve(dbInstance);
+      return;
+    }
+
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      dbInstance = request.result;
+      resolve(dbInstance);
+    };
+
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(DRAFTS_STORE)) {
+        const store = db.createObjectStore(DRAFTS_STORE, { keyPath: 'id' });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+        store.createIndex('status', 'status', { unique: false });
+      }
+    };
+  });
+};
+
+interface DraftMeta {
+  id: string;
+  caption: string;
+  location?: string;
+  visibility: Visibility;
+  soundId?: string | number;
+  soundName?: string;
+  trimStart?: number;
+  trimEnd?: number;
+  lyricsText?: string;
+  lyricsTheme?: LyricThemeId;
+  lyricsEnabled?: boolean;
+  filterId?: string;
+  filterIntensity?: number;
+  createdAt: number;
+  status: 'draft' | 'uploading' | 'failed';
+  videoSize?: number;
+  videoType?: string;
+}
+
+const saveDraft = async (videoFile: File, meta: Partial<DraftMeta>): Promise<string> => {
+  const db = await openDB();
+  const draftId = `draft-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([DRAFTS_STORE], 'readwrite');
+    const store = transaction.objectStore(DRAFTS_STORE);
+    
+    const videoBlob = videoFile.slice();
+    const reader = new FileReader();
+    
+    reader.onload = async (e) => {
+      const videoData = e.target?.result;
+      
+      const draft = {
+        id: draftId,
+        videoData,
+        videoType: videoFile.type,
+        videoSize: videoFile.size,
+        ...meta,
+        createdAt: Date.now(),
+        status: 'draft'
+      };
+      
+      const request = store.put(draft);
+      request.onsuccess = () => resolve(draftId);
+      request.onerror = () => reject(request.error);
+    };
+    
+    reader.readAsArrayBuffer(videoBlob);
+  });
+};
+
+const loadDraft = async (draftId: string): Promise<{ file: File; meta: any } | null> => {
+  const db = await openDB();
+  
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([DRAFTS_STORE], 'readonly');
+    const store = transaction.objectStore(DRAFTS_STORE);
+    const request = store.get(draftId);
+    
+    request.onsuccess = () => {
+      const draft = request.result;
+      if (!draft) {
+        resolve(null);
+        return;
+      }
+      
+      const { videoData, videoType, ...meta } = draft;
+      const file = new File([new Blob([videoData])], `draft-${draftId}.mp4`, { type: videoType || 'video/mp4' });
+      resolve({ file, meta });
+    };
+    
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const getDrafts = async (): Promise<DraftMeta[]> => {
+  const db = await openDB();
+  
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([DRAFTS_STORE], 'readonly');
+    const store = transaction.objectStore(DRAFTS_STORE);
+    const index = store.index('createdAt');
+    const request = index.getAll();
+    
+    request.onsuccess = () => {
+      const drafts = request.result.map(({ videoData, ...meta }) => meta);
+      resolve(drafts);
+    };
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const deleteDraft = async (draftId: string): Promise<void> => {
+  const db = await openDB();
+  
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([DRAFTS_STORE], 'readwrite');
+    const store = transaction.objectStore(DRAFTS_STORE);
+    const request = store.delete(draftId);
+    
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
 
 async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
   if (!url) throw new Error("Missing media URL");
@@ -161,7 +301,7 @@ const useAudioFocus = () => {
   return { stopAllAudio };
 };
 
-// ==================== API HELPER ====================
+// ==================== API HELPER WITH OFFLINE SUPPORT ====================
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('unera_token');
   const headers: HeadersInit = {
@@ -494,7 +634,7 @@ type LyricPreset = {
   className: string;
 };
 
-type EditorMode = 'choose' | 'camera' | 'preview';
+type EditorMode = 'choose' | 'camera' | 'preview' | 'drafts';
 
 export type RecorderSoundOption = {
   id: string | number;
@@ -997,6 +1137,8 @@ const Recorder: React.FC<RecorderProps> = ({
   const [submitState, setSubmitState] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [submitError, setSubmitError] = useState('');
   const [submitProgress, setSubmitProgress] = useState(0);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [drafts, setDrafts] = useState<DraftMeta[]>([]);
 
   const [caption, setCaption] = useState('');
   const [location, setLocation] = useState('');
@@ -1045,6 +1187,7 @@ const Recorder: React.FC<RecorderProps> = ({
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [soundPreviewEnabled, setSoundPreviewEnabled] = useState(true);
   const [playPreview, setPlayPreview] = useState(true);
+  const [previewFillMode, setPreviewFillMode] = useState<'contain' | 'cover'>('cover');
 
   const [isSoundPickerOpen, setIsSoundPickerOpen] = useState(false);
   const [soundSearch, setSoundSearch] = useState('');
@@ -1061,6 +1204,27 @@ const Recorder: React.FC<RecorderProps> = ({
   // ==================== TRIMMED AUDIO STATE ====================
   const [trimmedAudioFile, setTrimmedAudioFile] = useState<File | null>(null);
 
+  // Monitor online/offline status
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Load drafts on mount
+  useEffect(() => {
+    if (mode === 'drafts') {
+      getDrafts().then(setDrafts).catch(console.error);
+    }
+  }, [mode]);
+
   // Fetch popular sounds
   useEffect(() => {
     const fetchPopularSounds = async () => {
@@ -1068,7 +1232,7 @@ const Recorder: React.FC<RecorderProps> = ({
       try {
         const data = await apiFetch('/api/sounds/popular?limit=20');
         if (data?.success && data.sounds) {
-          setPopularSounds(data.sounds.map((sound: any) => ({
+          const sounds = data.sounds.map((sound: any) => ({
             id: sound.id,
             name: sound.name,
             url: sound.url,
@@ -1082,7 +1246,18 @@ const Recorder: React.FC<RecorderProps> = ({
             playCount: sound.playCount,
             creationCount: sound.creationCount,
             soundKey: sound.soundKey || `sound:${sound.id}`
-          })));
+          }));
+          setPopularSounds(sounds);
+          
+          // Warm up top sounds for offline use
+          sounds.slice(0, 5).forEach((sound: any) => {
+            if (sound.url) {
+              fetchAsBlobUrl(sound.url, 'audio').catch(() => {});
+            }
+            if (sound.coverImage) {
+              fetch(sound.coverImage, { cache: 'force-cache' }).catch(() => {});
+            }
+          });
         }
       } catch (error) {
         console.error('Failed to fetch popular sounds:', error);
@@ -1261,8 +1436,8 @@ const Recorder: React.FC<RecorderProps> = ({
     setRecordingSec(0);
   }, []);
 
-  // Helper function to draw video with contain strategy
-  const drawVideoContain = useCallback((
+  // Professional smart cover helper (TikTok style)
+  const drawVideoSmartCover = useCallback((
     ctx: CanvasRenderingContext2D,
     video: HTMLVideoElement,
     canvas: HTMLCanvasElement
@@ -1277,24 +1452,39 @@ const Recorder: React.FC<RecorderProps> = ({
     const videoRatio = vw / vh;
     const canvasRatio = cw / ch;
 
-    let drawWidth = cw;
-    let drawHeight = ch;
-    let dx = 0;
-    let dy = 0;
+    // Fullscreen first with minimal crop
+    let sx = 0;
+    let sy = 0;
+    let sw = vw;
+    let sh = vh;
 
     if (videoRatio > canvasRatio) {
-      // video is wider
-      drawWidth = cw;
-      drawHeight = cw / videoRatio;
-      dy = (ch - drawHeight) / 2;
+      // video is wider than screen -> crop left/right
+      sw = vh * canvasRatio;
+      sx = (vw - sw) / 2;
     } else {
-      // video is taller
-      drawHeight = ch;
-      drawWidth = ch * videoRatio;
-      dx = (cw - drawWidth) / 2;
+      // video is taller than screen -> crop top/bottom
+      sh = vw / canvasRatio;
+      sy = (vh - sh) / 2;
     }
 
-    ctx.drawImage(video, dx, dy, drawWidth, drawHeight);
+    // Optional crop safety: reduce excessive crop by slightly letterboxing if mismatch is large
+    const cropRatioW = sw / vw;
+    const cropRatioH = sh / vh;
+    const keptRatio = Math.min(cropRatioW, cropRatioH);
+
+    // If we would lose too much frame, fallback closer to contain
+    if (keptRatio < 0.84) {
+      const scale = Math.min(cw / vw, ch / vh);
+      const dw = vw * scale;
+      const dh = vh * scale;
+      const dx = (cw - dw) / 2;
+      const dy = (ch - dh) / 2;
+      ctx.drawImage(video, dx, dy, dw, dh);
+      return;
+    }
+
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
   }, []);
 
   const renderCameraFrame = useCallback(() => {
@@ -1336,11 +1526,11 @@ const Recorder: React.FC<RecorderProps> = ({
       ctx.scale(-1, 1);
     }
 
-    drawVideoContain(ctx, video, canvas);
+    drawVideoSmartCover(ctx, video, canvas);
     ctx.restore();
 
     animationFrameRef.current = requestAnimationFrame(renderCameraFrame);
-  }, [activeFilterString, facingMode, drawVideoContain]);
+  }, [activeFilterString, facingMode, drawVideoSmartCover]);
 
   const startCamera = useCallback(async () => {
     cleanupCamera();
@@ -1355,8 +1545,8 @@ const Recorder: React.FC<RecorderProps> = ({
       const rawStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode,
-          width: { ideal: 720 },
-          height: { ideal: 1280 },
+          width: { ideal: 1080, min: 720 },
+          height: { ideal: 1920, min: 1280 },
         },
         audio: {
           echoCancellation: true,
@@ -1516,6 +1706,34 @@ const Recorder: React.FC<RecorderProps> = ({
       return;
     }
 
+    if (isOffline) {
+      // Save as draft when offline
+      try {
+        const draftId = await saveDraft(videoFile, {
+          caption,
+          location,
+          visibility,
+          soundId: currentSelectedSound?.songId,
+          soundName: currentSelectedSound?.songName,
+          trimStart,
+          trimEnd,
+          lyricsText,
+          lyricsTheme,
+          lyricsEnabled,
+          filterId: selectedFilterId,
+          filterIntensity,
+        });
+        
+        setSubmitState('success');
+        alert('Saved as draft. Will upload when online.');
+        onBack();
+      } catch (error) {
+        setSubmitState('error');
+        setSubmitError('Failed to save draft offline.');
+      }
+      return;
+    }
+
     if (typeof onSubmit !== 'function') {
       setSubmitState('error');
       setSubmitError('Recorder submit handler is missing.');
@@ -1592,8 +1810,35 @@ const Recorder: React.FC<RecorderProps> = ({
     onBack,
     trimmedAudioFile,
     selectedFilterId,
-    filterIntensity
+    filterIntensity,
+    isOffline
   ]);
+
+  const loadDraftAndPublish = useCallback(async (draftId: string) => {
+    try {
+      const draft = await loadDraft(draftId);
+      if (!draft) return;
+      
+      setVideoFile(draft.file);
+      setCaption(draft.meta.caption || '');
+      setLocation(draft.meta.location || '');
+      setVisibility(draft.meta.visibility || 'public');
+      setTrimStart(draft.meta.trimStart || 0);
+      setTrimEnd(draft.meta.trimEnd || 0);
+      setLyricsText(draft.meta.lyricsText || lyricsText);
+      setLyricsTheme(draft.meta.lyricsTheme || lyricsTheme);
+      setLyricsEnabled(draft.meta.lyricsEnabled ?? lyricsEnabled);
+      setSelectedFilterId(draft.meta.filterId || 'none');
+      setFilterIntensity(draft.meta.filterIntensity || 0.75);
+      
+      setNextPreviewUrl(URL.createObjectURL(draft.file));
+      setMode('preview');
+      
+      await deleteDraft(draftId);
+    } catch (error) {
+      console.error('Failed to load draft:', error);
+    }
+  }, [lyricsText, lyricsTheme, lyricsEnabled, setNextPreviewUrl]);
 
   useEffect(() => {
     setTrimStart(selectedSound?.audioStart || 0);
@@ -1682,6 +1927,16 @@ const Recorder: React.FC<RecorderProps> = ({
   return (
     <div className="fixed inset-0 z-[9999] bg-black text-white overflow-hidden font-sans recorder-page">
       <style>{RECORDER_STYLES}</style>
+
+      {/* Offline Banner */}
+      {isOffline && (
+        <div className="absolute top-16 left-0 right-0 z-50 flex justify-center pointer-events-none">
+          <div className="bg-yellow-500/90 text-black px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest shadow-lg">
+            <i className="fas fa-wifi-slash mr-2"></i>
+            Offline Mode - Saving as Draft
+          </div>
+        </div>
+      )}
 
       {/* Upload Loader */}
       {submitState === 'uploading' && (
@@ -1804,6 +2059,10 @@ const Recorder: React.FC<RecorderProps> = ({
               setMode('choose');
               return;
             }
+            if (mode === 'drafts') {
+              setMode('choose');
+              return;
+            }
             onBack();
           }}
           className="w-11 h-11 rounded-full bg-white/10 border border-white/10 flex items-center justify-center active:scale-95 transition"
@@ -1814,7 +2073,9 @@ const Recorder: React.FC<RecorderProps> = ({
         <div className="text-center">
           <div className="text-[10px] tracking-[0.35em] uppercase text-[#7fb6ff] font-black">{brandName} Studio</div>
           <div className="text-[12px] font-black tracking-[0.2em] uppercase">
-            {mode === 'choose' ? 'Create Reel' : mode === 'camera' ? 'Record' : 'Preview'}
+            {mode === 'choose' ? 'Create Reel' : 
+             mode === 'camera' ? 'Record' : 
+             mode === 'preview' ? 'Preview' : 'Drafts'}
           </div>
         </div>
 
@@ -1882,6 +2143,22 @@ const Recorder: React.FC<RecorderProps> = ({
                   <div className="text-sm font-black uppercase tracking-[0.18em] text-[#7fb6ff]">Sound</div>
                   <div className="text-base font-bold truncate mt-1">{soundLabel}</div>
                   <div className="text-white/55 text-xs mt-1">Tap to browse and preview songs before selecting</div>
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setMode('drafts')}
+              className="w-full rounded-[32px] bg-white/5 border border-white/10 p-5 text-left active:scale-[0.98] transition"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-3xl bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center">
+                  <i className="fas fa-save text-xl text-yellow-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-black uppercase tracking-[0.18em] text-yellow-500">Drafts</div>
+                  <div className="text-base font-bold truncate mt-1">Continue offline drafts</div>
+                  <div className="text-white/55 text-xs mt-1">Resume recordings saved offline</div>
                 </div>
               </div>
             </button>
@@ -1954,6 +2231,68 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
+      {mode === 'drafts' && (
+        <div className="absolute inset-0 overflow-y-auto pt-24 pb-12 px-4">
+          <div className="max-w-[420px] mx-auto">
+            <h2 className="text-xl font-black mb-6 flex items-center gap-2">
+              <i className="fas fa-save text-yellow-500"></i>
+              Offline Drafts
+            </h2>
+            
+            {drafts.length === 0 ? (
+              <div className="text-center py-12 text-white/50">
+                <i className="fas fa-inbox text-4xl mb-4 opacity-50"></i>
+                <p>No drafts saved yet</p>
+                <p className="text-sm mt-2">Record when offline to save here</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {drafts.map((draft) => (
+                  <div
+                    key={draft.id}
+                    className="rounded-[24px] bg-white/5 border border-white/10 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-xs text-white/50 mb-1">
+                          {new Date(draft.createdAt).toLocaleDateString()}
+                        </div>
+                        <div className="font-bold">{draft.caption || 'Untitled'}</div>
+                        {draft.soundName && (
+                          <div className="text-sm text-white/60 mt-1">
+                            <i className="fas fa-music mr-2 text-xs"></i>
+                            {draft.soundName}
+                          </div>
+                        )}
+                        {draft.videoSize && (
+                          <div className="text-xs text-white/40 mt-2">
+                            {(draft.videoSize / 1024 / 1024).toFixed(1)} MB
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => loadDraftAndPublish(draft.id)}
+                          className="px-4 py-2 rounded-2xl bg-[#1877F2] text-xs font-black uppercase tracking-[0.14em]"
+                        >
+                          Continue
+                        </button>
+                        <button
+                          onClick={() => deleteDraft(draft.id).then(() => getDrafts().then(setDrafts))}
+                          className="px-4 py-2 rounded-2xl bg-white/10 border border-white/10 text-xs font-black uppercase tracking-[0.14em]"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {mode === 'camera' && (
         <div className="absolute inset-0 bg-black">
           {cameraError ? (
@@ -1983,7 +2322,7 @@ const Recorder: React.FC<RecorderProps> = ({
                 className="absolute inset-0 w-full h-full object-cover opacity-0"
               />
 
-              {/* Canvas showing filtered video with contain strategy - what user sees and gets recorded */}
+              {/* Canvas showing filtered video with smart cover - what user sees and gets recorded */}
               <canvas
                 ref={canvasRef}
                 className="absolute inset-0 w-full h-full"
@@ -2025,7 +2364,7 @@ const Recorder: React.FC<RecorderProps> = ({
                 </div>
               </div>
 
-              {/* Right side controls - vertically centered - REMOVED filter strip, added Effects button */}
+              {/* Right side controls - vertically centered */}
               <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-3">
                 <IconPillButton
                   icon="fa-rotate"
@@ -2050,7 +2389,7 @@ const Recorder: React.FC<RecorderProps> = ({
                   active={lyricsEnabled}
                   onClick={() => setLyricsEnabled((prev) => !prev)}
                 />
-                {/* New Effects button - replaces the filter strip */}
+                {/* New Effects button */}
                 <IconPillButton
                   icon="fa-wand-magic-sparkles"
                   label="Effects"
@@ -2101,7 +2440,7 @@ const Recorder: React.FC<RecorderProps> = ({
                 <video
                   ref={previewVideoRef}
                   src={videoPreviewUrl}
-                  className="w-full h-full object-contain bg-black" /* Changed from object-cover to object-contain */
+                  className={`w-full h-full ${previewFillMode === 'cover' ? 'object-cover' : 'object-contain'} bg-black`}
                   style={{ filter: activeFilterString }}
                   playsInline
                   loop
@@ -2133,9 +2472,14 @@ const Recorder: React.FC<RecorderProps> = ({
                 )}
 
                 <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-3">
-                  <div className="px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] uppercase tracking-[0.2em] font-black">
-                    Preview
-                  </div>
+                  <button
+                    onClick={() =>
+                      setPreviewFillMode((prev) => (prev === 'cover' ? 'contain' : 'cover'))
+                    }
+                    className="px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] uppercase tracking-[0.2em] font-black"
+                  >
+                    {previewFillMode === 'cover' ? 'Fill' : 'Fit'}
+                  </button>
                   <button
                     onClick={() => {
                       const video = previewVideoRef.current;
@@ -2201,9 +2545,15 @@ const Recorder: React.FC<RecorderProps> = ({
                       disabled={isSubmitting}
                       className="rounded-2xl bg-[#1877F2] py-3 font-black uppercase tracking-[0.14em] active:scale-95 disabled:opacity-50"
                     >
-                      {isSubmitting ? 'Publishing...' : 'Publish'}
+                      {isOffline ? 'Save Draft' : (isSubmitting ? 'Publishing...' : 'Publish')}
                     </button>
                   </div>
+                  {isOffline && (
+                    <p className="text-yellow-500 text-xs mt-2 text-center">
+                      <i className="fas fa-wifi-slash mr-1"></i>
+                      You're offline. Video will be saved as draft.
+                    </p>
+                  )}
                 </SectionCard>
 
                 <SectionCard title="Professional lyrics design">
