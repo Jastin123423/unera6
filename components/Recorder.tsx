@@ -7,9 +7,9 @@ const mediaWarmPromises = new Map<string, Promise<string>>();
 const CACHE_MAX_SIZE = 20; // Increased for offline support
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-// IndexedDB for offline drafts
+// IndexedDB for offline drafts - store Blob directly, no ArrayBuffer conversion
 const DB_NAME = 'UneraRecorderDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Increment version for schema change
 const DRAFTS_STORE = 'drafts';
 
 let dbInstance: IDBDatabase | null = null;
@@ -31,11 +31,16 @@ const openDB = (): Promise<IDBDatabase> => {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(DRAFTS_STORE)) {
-        const store = db.createObjectStore(DRAFTS_STORE, { keyPath: 'id' });
-        store.createIndex('createdAt', 'createdAt', { unique: false });
-        store.createIndex('status', 'status', { unique: false });
+      
+      // Delete old store if exists (schema changed)
+      if (db.objectStoreNames.contains(DRAFTS_STORE)) {
+        db.deleteObjectStore(DRAFTS_STORE);
       }
+      
+      // Create new store with Blob support
+      const store = db.createObjectStore(DRAFTS_STORE, { keyPath: 'id' });
+      store.createIndex('createdAt', 'createdAt', { unique: false });
+      store.createIndex('status', 'status', { unique: false });
     };
   });
 };
@@ -60,91 +65,98 @@ interface DraftMeta {
   videoType?: string;
 }
 
+// Save draft with direct Blob storage (no ArrayBuffer conversion)
 const saveDraft = async (videoFile: File, meta: Partial<DraftMeta>): Promise<string> => {
   const db = await openDB();
-  const draftId = `draft-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
+  const draftId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([DRAFTS_STORE], 'readwrite');
     const store = transaction.objectStore(DRAFTS_STORE);
-    
-    const videoBlob = videoFile.slice();
-    const reader = new FileReader();
-    
-    reader.onload = async (e) => {
-      const videoData = e.target?.result;
-      
-      const draft = {
-        id: draftId,
-        videoData,
-        videoType: videoFile.type,
-        videoSize: videoFile.size,
-        ...meta,
-        createdAt: Date.now(),
-        status: 'draft'
-      };
-      
-      const request = store.put(draft);
-      request.onsuccess = () => resolve(draftId);
-      request.onerror = () => reject(request.error);
+
+    const draft = {
+      id: draftId,
+      videoBlob: videoFile,
+      videoType: videoFile.type,
+      videoSize: videoFile.size,
+      ...meta,
+      createdAt: Date.now(),
+      status: 'draft',
     };
-    
-    reader.readAsArrayBuffer(videoBlob);
+
+    const request = store.put(draft);
+    request.onsuccess = () => resolve(draftId);
+    request.onerror = () => reject(request.error);
   });
 };
 
 const loadDraft = async (draftId: string): Promise<{ file: File; meta: any } | null> => {
   const db = await openDB();
-  
+
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([DRAFTS_STORE], 'readonly');
     const store = transaction.objectStore(DRAFTS_STORE);
     const request = store.get(draftId);
-    
+
     request.onsuccess = () => {
       const draft = request.result;
       if (!draft) {
         resolve(null);
         return;
       }
-      
-      const { videoData, videoType, ...meta } = draft;
-      const file = new File([new Blob([videoData])], `draft-${draftId}.mp4`, { type: videoType || 'video/mp4' });
+
+      const { videoBlob, videoType, ...meta } = draft;
+      const file = new File(
+        [videoBlob],
+        `draft-${draftId}.${videoType?.includes('mp4') ? 'mp4' : 'webm'}`,
+        { type: videoType || 'video/webm' }
+      );
+
       resolve({ file, meta });
     };
-    
+
     request.onerror = () => reject(request.error);
   });
 };
 
 const getDrafts = async (): Promise<DraftMeta[]> => {
   const db = await openDB();
-  
+
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([DRAFTS_STORE], 'readonly');
     const store = transaction.objectStore(DRAFTS_STORE);
     const index = store.index('createdAt');
     const request = index.getAll();
-    
+
     request.onsuccess = () => {
-      const drafts = request.result.map(({ videoData, ...meta }) => meta);
+      const drafts = request.result.map(({ videoBlob, ...meta }) => meta);
       resolve(drafts);
     };
+
     request.onerror = () => reject(request.error);
   });
 };
 
 const deleteDraft = async (draftId: string): Promise<void> => {
   const db = await openDB();
-  
+
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([DRAFTS_STORE], 'readwrite');
     const store = transaction.objectStore(DRAFTS_STORE);
     const request = store.delete(draftId);
-    
+
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+};
+
+// Show local save notice
+let localSaveTimeout: NodeJS.Timeout;
+
+const showLocalSavedNotice = (setter: (msg: string) => void) => {
+  setter('Saved locally');
+  if (localSaveTimeout) clearTimeout(localSaveTimeout);
+  localSaveTimeout = setTimeout(() => setter(''), 1800);
 };
 
 async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
@@ -1139,6 +1151,7 @@ const Recorder: React.FC<RecorderProps> = ({
   const [submitProgress, setSubmitProgress] = useState(0);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [drafts, setDrafts] = useState<DraftMeta[]>([]);
+  const [localSaveNotice, setLocalSaveNotice] = useState('');
 
   const [caption, setCaption] = useState('');
   const [location, setLocation] = useState('');
@@ -1187,7 +1200,7 @@ const Recorder: React.FC<RecorderProps> = ({
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [soundPreviewEnabled, setSoundPreviewEnabled] = useState(true);
   const [playPreview, setPlayPreview] = useState(true);
-  const [previewFillMode, setPreviewFillMode] = useState<'contain' | 'cover'>('cover');
+  const [previewFillMode, setPreviewFillMode] = useState<'cover' | 'contain'>('cover');
 
   const [isSoundPickerOpen, setIsSoundPickerOpen] = useState(false);
   const [soundSearch, setSoundSearch] = useState('');
@@ -1203,6 +1216,9 @@ const Recorder: React.FC<RecorderProps> = ({
 
   // ==================== TRIMMED AUDIO STATE ====================
   const [trimmedAudioFile, setTrimmedAudioFile] = useState<File | null>(null);
+
+  // Flag to block network during recording/camera mode
+  const isRecordingOrCameraMode = mode === 'camera' || isRecording;
 
   // Monitor online/offline status
   useEffect(() => {
@@ -1225,8 +1241,10 @@ const Recorder: React.FC<RecorderProps> = ({
     }
   }, [mode]);
 
-  // Fetch popular sounds
+  // Fetch popular sounds - but not during recording/camera mode
   useEffect(() => {
+    if (isRecordingOrCameraMode) return;
+
     const fetchPopularSounds = async () => {
       setLoadingPopularSounds(true);
       try {
@@ -1249,15 +1267,17 @@ const Recorder: React.FC<RecorderProps> = ({
           }));
           setPopularSounds(sounds);
           
-          // Warm up top sounds for offline use
-          sounds.slice(0, 5).forEach((sound: any) => {
-            if (sound.url) {
-              fetchAsBlobUrl(sound.url, 'audio').catch(() => {});
-            }
-            if (sound.coverImage) {
-              fetch(sound.coverImage, { cache: 'force-cache' }).catch(() => {});
-            }
-          });
+          // Warm up top sounds for offline use - only when not recording
+          if (!isRecordingOrCameraMode) {
+            sounds.slice(0, 5).forEach((sound: any) => {
+              if (sound.url) {
+                fetchAsBlobUrl(sound.url, 'audio').catch(() => {});
+              }
+              if (sound.coverImage) {
+                fetch(sound.coverImage, { cache: 'force-cache' }).catch(() => {});
+              }
+            });
+          }
         }
       } catch (error) {
         console.error('Failed to fetch popular sounds:', error);
@@ -1267,10 +1287,12 @@ const Recorder: React.FC<RecorderProps> = ({
     };
 
     fetchPopularSounds();
-  }, []);
+  }, [isRecordingOrCameraMode]);
 
-  // Fetch songs from library
+  // Fetch songs from library - but not during recording/camera mode
   useEffect(() => {
+    if (isRecordingOrCameraMode) return;
+
     const fetchSongs = async () => {
       setLoadingSongs(true);
       try {
@@ -1300,7 +1322,7 @@ const Recorder: React.FC<RecorderProps> = ({
     };
 
     fetchSongs();
-  }, []);
+  }, [isRecordingOrCameraMode]);
 
   const [isTrimmerOpen, setIsTrimmerOpen] = useState(false);
   const [trimmingSound, setTrimmingSound] = useState<RecorderSoundOption | null>(null);
@@ -1436,7 +1458,7 @@ const Recorder: React.FC<RecorderProps> = ({
     setRecordingSec(0);
   }, []);
 
-  // Professional smart cover helper (TikTok style)
+  // Professional smart cover helper with improved crop handling
   const drawVideoSmartCover = useCallback((
     ctx: CanvasRenderingContext2D,
     video: HTMLVideoElement,
@@ -1452,29 +1474,25 @@ const Recorder: React.FC<RecorderProps> = ({
     const videoRatio = vw / vh;
     const canvasRatio = cw / ch;
 
-    // Fullscreen first with minimal crop
     let sx = 0;
     let sy = 0;
     let sw = vw;
     let sh = vh;
 
     if (videoRatio > canvasRatio) {
-      // video is wider than screen -> crop left/right
       sw = vh * canvasRatio;
       sx = (vw - sw) / 2;
     } else {
-      // video is taller than screen -> crop top/bottom
       sh = vw / canvasRatio;
       sy = (vh - sh) / 2;
     }
 
-    // Optional crop safety: reduce excessive crop by slightly letterboxing if mismatch is large
-    const cropRatioW = sw / vw;
-    const cropRatioH = sh / vh;
-    const keptRatio = Math.min(cropRatioW, cropRatioH);
+    const keptAreaRatio = (sw * sh) / (vw * vh);
 
-    // If we would lose too much frame, fallback closer to contain
-    if (keptRatio < 0.84) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    if (keptAreaRatio < 0.72) {
       const scale = Math.min(cw / vw, ch / vh);
       const dw = vw * scale;
       const dh = vh * scale;
@@ -1545,8 +1563,9 @@ const Recorder: React.FC<RecorderProps> = ({
       const rawStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode,
-          width: { ideal: 1080, min: 720 },
-          height: { ideal: 1920, min: 1280 },
+          width: { ideal: 720 },
+          height: { ideal: 1280 },
+          aspectRatio: { ideal: 9 / 16 },
         },
         audio: {
           echoCancellation: true,
@@ -1622,13 +1641,35 @@ const Recorder: React.FC<RecorderProps> = ({
         }
       };
 
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         const blob = new Blob(recordedChunksRef.current, { type: mimeType });
         const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
         const file = new File([blob], `reel-${Date.now()}.${ext}`, { type: blob.type || mimeType });
+
         setVideoFile(file);
         setNextPreviewUrl(URL.createObjectURL(file));
         setMode('preview');
+
+        // Auto-save draft locally for crash recovery
+        try {
+          await saveDraft(file, {
+            caption,
+            location,
+            visibility,
+            soundId: currentSelectedSound?.songId,
+            soundName: currentSelectedSound?.songName,
+            trimStart,
+            trimEnd,
+            lyricsText,
+            lyricsTheme,
+            lyricsEnabled,
+            filterId: selectedFilterId,
+            filterIntensity,
+          });
+          showLocalSavedNotice(setLocalSaveNotice);
+        } catch (e) {
+          console.warn('Auto-draft save failed:', e);
+        }
       };
 
       recorder.start(250);
@@ -1658,7 +1699,7 @@ const Recorder: React.FC<RecorderProps> = ({
       setCameraError(error?.message || 'Could not start recording.');
       setIsRecording(false);
     }
-  }, [currentSelectedSound, maxDurationSec, setNextPreviewUrl, soundPreviewEnabled, soundStart, stopRecording]);
+  }, [currentSelectedSound, maxDurationSec, setNextPreviewUrl, soundPreviewEnabled, soundStart, stopRecording, caption, location, visibility, trimStart, trimEnd, lyricsText, lyricsTheme, lyricsEnabled, selectedFilterId, filterIntensity]);
 
   const handlePickVideo = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1788,6 +1829,26 @@ const Recorder: React.FC<RecorderProps> = ({
       onBack();
     } catch (error: any) {
       console.error('Submit error:', error);
+      
+      // Save draft on upload failure
+      try {
+        await saveDraft(videoFile, {
+          caption,
+          location,
+          visibility,
+          soundId: currentSelectedSound?.songId,
+          soundName: currentSelectedSound?.songName,
+          trimStart,
+          trimEnd,
+          lyricsText,
+          lyricsTheme,
+          lyricsEnabled,
+          filterId: selectedFilterId,
+          filterIntensity,
+          status: 'failed',
+        });
+      } catch {}
+      
       setSubmitState('error');
       setSubmitError(error?.message || 'Failed to publish reel.');
       window.removeEventListener('beforeunload', beforeUnloadHandler);
@@ -1865,11 +1926,11 @@ const Recorder: React.FC<RecorderProps> = ({
     video.play().catch(() => {});
   }, [mode, videoPreviewUrl]);
 
+  // Separate useEffect for camera start to avoid unnecessary restarts
   useEffect(() => {
-    if (mode === 'camera') {
-      startCamera();
-    }
-  }, [mode, startCamera]);
+    if (mode !== 'camera') return;
+    startCamera();
+  }, [mode, facingMode, startCamera]);
 
   const lyricStyle = useMemo<React.CSSProperties>(() => ({
     transform: `translateX(-50%) scale(${lyricsScale})`,
@@ -1934,6 +1995,16 @@ const Recorder: React.FC<RecorderProps> = ({
           <div className="bg-yellow-500/90 text-black px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest shadow-lg">
             <i className="fas fa-wifi-slash mr-2"></i>
             Offline Mode - Saving as Draft
+          </div>
+        </div>
+      )}
+
+      {/* Local Save Notice */}
+      {localSaveNotice && (
+        <div className="absolute top-24 left-0 right-0 z-50 flex justify-center pointer-events-none animate-fade-in">
+          <div className="bg-green-500/90 text-black px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest shadow-lg">
+            <i className="fas fa-check-circle mr-2"></i>
+            {localSaveNotice}
           </div>
         </div>
       )}
@@ -2294,141 +2365,116 @@ const Recorder: React.FC<RecorderProps> = ({
       )}
 
       {mode === 'camera' && (
-        <div className="absolute inset-0 bg-black">
-          {cameraError ? (
-            <div className="h-full flex items-center justify-center px-6">
-              <div className="w-full max-w-[360px] rounded-[28px] bg-white/5 border border-white/10 p-7 text-center">
-                <div className="w-20 h-20 mx-auto rounded-full bg-red-500/10 flex items-center justify-center mb-5">
-                  <i className="fas fa-video-slash text-red-400 text-3xl" />
-                </div>
-                <h3 className="font-black text-xl mb-3">Camera unavailable</h3>
-                <p className="text-white/60 text-sm leading-relaxed mb-6">{cameraError}</p>
-                <button
-                  onClick={startCamera}
-                  className="w-full py-4 rounded-2xl bg-[#1877F2] font-black uppercase tracking-[0.16em] active:scale-95"
-                >
-                  Retry camera
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Hidden video element - source for canvas */}
-              <video
-                ref={videoElRef}
-                autoPlay
-                playsInline
-                muted
-                className="absolute inset-0 w-full h-full object-cover opacity-0"
-              />
+        <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
+          {/* Fixed 9:16 TikTok-style stage */}
+          <div className="relative h-full aspect-[9/16] max-w-full max-h-full bg-black">
+            <video
+              ref={videoElRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full opacity-0"
+            />
 
-              {/* Canvas showing filtered video with smart cover - what user sees and gets recorded */}
-              <canvas
-                ref={canvasRef}
-                className="absolute inset-0 w-full h-full"
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full"
+            />
+
+            {isBeautyEffect && (
+              <div
+                className="absolute inset-0 pointer-events-none z-15"
                 style={{
-                  display: 'block',
+                  backdropFilter: 'blur(1.2px)',
+                  background: 'rgba(255, 240, 240, 0.02)',
+                  mixBlendMode: 'soft-light',
                 }}
               />
+            )}
 
-              {/* Beauty overlay for skin softening - UI only, not recorded */}
-              {isBeautyEffect && (
-                <div 
-                  className="absolute inset-0 pointer-events-none z-15"
-                  style={{
-                    backdropFilter: 'blur(1.2px)',
-                    background: 'rgba(255, 240, 240, 0.02)',
-                    mixBlendMode: 'soft-light',
-                  }}
-                />
-              )}
-
-              {/* Lyrics overlay */}
-              {lyricsEnabled && (
-                <div className="absolute inset-0 pointer-events-none z-20">
-                  <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
-                    {lyricsText.split('\n').map((line, idx) => (
-                      <div key={idx}>{line || '\u00A0'}</div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Top status bar */}
-              <div className="absolute top-16 left-4 right-4 z-30 flex items-center justify-between">
-                <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
-                  {isPreparingCamera ? 'Preparing...' : isRecording ? `REC ${formatClock(recordingSec)}` : 'Ready'}
-                </div>
-                <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
-                  {maxDurationSec}s
+            {lyricsEnabled && (
+              <div className="absolute inset-0 pointer-events-none z-20">
+                <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
+                  {lyricsText.split('\n').map((line, idx) => (
+                    <div key={idx}>{line || '\u00A0'}</div>
+                  ))}
                 </div>
               </div>
+            )}
 
-              {/* Right side controls - vertically centered */}
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-3">
-                <IconPillButton
-                  icon="fa-rotate"
-                  label="Flip"
-                  onClick={() => setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))}
-                />
-                <IconPillButton
-                  icon="fa-music"
-                  label="Sound"
-                  active={soundPreviewEnabled}
-                  onClick={() => setSoundPreviewEnabled((prev) => !prev)}
-                />
-                <IconPillButton
-                  icon="fa-sliders"
-                  label="Audio"
-                  active={!!currentSelectedSound}
-                  onClick={() => setIsSoundPickerOpen(true)}
-                />
-                <IconPillButton
-                  icon="fa-closed-captioning"
-                  label="Lyrics"
-                  active={lyricsEnabled}
-                  onClick={() => setLyricsEnabled((prev) => !prev)}
-                />
-                {/* New Effects button */}
-                <IconPillButton
-                  icon="fa-wand-magic-sparkles"
-                  label="Effects"
-                  active={selectedFilterId !== 'none'}
-                  onClick={() => setIsEffectsOpen(true)}
-                />
+            {/* Top status bar */}
+            <div className="absolute top-4 left-4 right-4 z-30 flex items-center justify-between">
+              <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
+                {isPreparingCamera ? 'Preparing...' : isRecording ? `REC ${formatClock(recordingSec)}` : 'Ready'}
               </div>
-
-              {/* Bottom recording controls */}
-              <div className="absolute bottom-8 left-0 right-0 z-30 px-8 flex items-center justify-between">
-                <button
-                  onClick={() => setMode('choose')}
-                  className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
-                >
-                  <i className="fas fa-xmark text-white" />
-                </button>
-
-                <button
-                  onClick={isRecording ? stopRecording : startRecording}
-                  className="relative"
-                >
-                  <div className={`w-20 h-20 rounded-full border-4 ${isRecording ? 'border-red-500' : 'border-white'} flex items-center justify-center transition-all`}>
-                    {isRecording ? (
-                      <div className="w-10 h-10 rounded-xl bg-red-600" />
-                    ) : (
-                      <div className="w-16 h-16 rounded-full bg-red-600 shadow-[0_0_30px_rgba(220,38,38,0.6)]" />
-                    )}
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
-                >
-                  <i className="fas fa-image text-white" />
-                </button>
+              <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
+                {maxDurationSec}s
               </div>
-            </>
-          )}
+            </div>
+
+            {/* Right side controls */}
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-3">
+              <IconPillButton
+                icon="fa-rotate"
+                label="Flip"
+                onClick={() => setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))}
+              />
+              <IconPillButton
+                icon="fa-music"
+                label="Sound"
+                active={soundPreviewEnabled}
+                onClick={() => setSoundPreviewEnabled((prev) => !prev)}
+              />
+              <IconPillButton
+                icon="fa-sliders"
+                label="Audio"
+                active={!!currentSelectedSound}
+                onClick={() => setIsSoundPickerOpen(true)}
+              />
+              <IconPillButton
+                icon="fa-closed-captioning"
+                label="Lyrics"
+                active={lyricsEnabled}
+                onClick={() => setLyricsEnabled((prev) => !prev)}
+              />
+              <IconPillButton
+                icon="fa-wand-magic-sparkles"
+                label="Effects"
+                active={selectedFilterId !== 'none'}
+                onClick={() => setIsEffectsOpen(true)}
+              />
+            </div>
+
+            {/* Bottom recording controls */}
+            <div className="absolute bottom-8 left-0 right-0 z-30 px-8 flex items-center justify-between">
+              <button
+                onClick={() => setMode('choose')}
+                className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
+              >
+                <i className="fas fa-xmark text-white" />
+              </button>
+
+              <button
+                onClick={isRecording ? stopRecording : startRecording}
+                className="relative"
+              >
+                <div className={`w-20 h-20 rounded-full border-4 ${isRecording ? 'border-red-500' : 'border-white'} flex items-center justify-center transition-all`}>
+                  {isRecording ? (
+                    <div className="w-10 h-10 rounded-xl bg-red-600" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-red-600 shadow-[0_0_30px_rgba(220,38,38,0.6)]" />
+                  )}
+                </div>
+              </button>
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
+              >
+                <i className="fas fa-image text-white" />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2436,11 +2482,11 @@ const Recorder: React.FC<RecorderProps> = ({
         <div className="absolute inset-0 bg-black overflow-y-auto pt-20 pb-28">
           <div className="px-4 pb-6 max-w-[720px] mx-auto">
             <div className="grid gap-5 md:grid-cols-[minmax(0,420px)_minmax(0,1fr)] items-start">
-              <div className="relative rounded-[34px] overflow-hidden border border-white/10 bg-[#0c0c0c] shadow-2xl aspect-[9/16] max-h-[78vh] mx-auto w-full max-w-[420px]">
+              <div className="relative rounded-[34px] overflow-hidden border border-white/10 bg-[#0c0c0c] shadow-2xl w-full max-w-[420px] aspect-[9/16] mx-auto">
                 <video
                   ref={previewVideoRef}
                   src={videoPreviewUrl}
-                  className={`w-full h-full ${previewFillMode === 'cover' ? 'object-cover' : 'object-contain'} bg-black`}
+                  className={`absolute inset-0 w-full h-full ${previewFillMode === 'cover' ? 'object-cover' : 'object-contain'} bg-black`}
                   style={{ filter: activeFilterString }}
                   playsInline
                   loop
