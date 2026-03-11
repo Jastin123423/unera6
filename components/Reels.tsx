@@ -178,6 +178,7 @@ const ReelCommentsSheet: React.FC<{
   onDeleteComment 
 }) => {
   const COMMENT_EMOJIS = ['😀', '😂', '😍', '🔥', '👏', '❤️', '👍', '🎉', '😮', '😢', '🙌', '🥰'];
+  const REACTION_EMOJIS = ['❤️', '🙏', '👍', '💪', '👀', '😊', '😍', '🤣', '😭', '😂', '😟', '🤑', '😝', '😋', '🤧', '😪', '👏', '🤘', '✌️', '🤛', '🤝', '🖕', '🖐', '🙆‍♂️', '🤦', '🤷‍♂️', '🫂'];
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<any | null>(null);
@@ -187,7 +188,9 @@ const ReelCommentsSheet: React.FC<{
   const [editingComment, setEditingComment] = useState<any | null>(null);
   const [editingText, setEditingText] = useState('');
   const [showEmojiBar, setShowEmojiBar] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   const [commentLikes, setCommentLikes] = useState<Record<number, boolean>>({});
+  const [commentReactions, setCommentReactions] = useState<Record<number, string>>({});
   
   const sheetRef = useRef<HTMLDivElement>(null);
   const startYRef = useRef<number>(0);
@@ -203,6 +206,7 @@ const ReelCommentsSheet: React.FC<{
       setSelectedImage(null);
       setImagePreview(null);
       setShowEmojiBar(false);
+      setShowReactionPicker(null);
     }
   }, [isOpen]);
 
@@ -324,12 +328,39 @@ const ReelCommentsSheet: React.FC<{
     }));
   };
 
+  const addReaction = (commentId: number, emoji: string) => {
+    setCommentReactions(prev => ({
+      ...prev,
+      [commentId]: emoji,
+    }));
+    setShowReactionPicker(null);
+  };
+
   const insertEmoji = (emoji: string) => {
     setText(prev => prev + emoji);
   };
 
   const insertEditEmoji = (emoji: string) => {
     setEditingText(prev => prev + emoji);
+  };
+
+  // Helper functions for reply handling
+  const getReplies = (commentId: number | string) =>
+    comments
+      .filter(
+        (c: any) =>
+          Number(c.parentId ?? c.parent_comment_id ?? c.parent_id) === Number(commentId)
+      )
+      .sort((a: any, b: any) => {
+        const ta = new Date(a.created_at || a.createdAt || 0).getTime();
+        const tb = new Date(b.created_at || b.createdAt || 0).getTime();
+        return ta - tb;
+      });
+
+  const getReplyPreviewText = (count: number) => {
+    if (count <= 0) return '';
+    if (count === 1) return 'View previous 1 reply';
+    return `View previous ${count} replies`;
   };
 
   if (!isOpen) return null;
@@ -339,13 +370,6 @@ const ReelCommentsSheet: React.FC<{
     (c: any) => !c.parentId && !c.parent_comment_id && !c.parent_id
   );
 
-  // Get replies for a comment
-  const getReplies = (commentId: number | string) =>
-    comments.filter(
-      (c: any) =>
-        Number(c.parentId ?? c.parent_comment_id ?? c.parent_id) === Number(commentId)
-    );
-
   return (
     <div 
       className="fixed inset-0 z-[400] bg-black/50 font-sans backdrop-blur-sm transition-opacity"
@@ -354,7 +378,7 @@ const ReelCommentsSheet: React.FC<{
     >
       <div 
         ref={sheetRef}
-        className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto h-[70vh] bg-[#121212] rounded-t-[40px] flex flex-col border-t border-white/10 shadow-2xl transition-transform duration-200 ease-out"
+        className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto h-[80vh] bg-[#121212] rounded-t-[40px] flex flex-col border-t border-white/10 shadow-2xl transition-transform duration-200 ease-out"
         style={{ transform: `translateY(${translateY}px)` }}
         onClick={e => e.stopPropagation()}
         onTouchStart={handleTouchStart}
@@ -386,14 +410,14 @@ const ReelCommentsSheet: React.FC<{
           </button>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Reply context */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-8">
+          {/* Reply thread context */}
           {replyTo && (
-            <div className="mb-4 p-4 rounded-2xl bg-white/5 border border-white/10">
-              <p className="text-[11px] uppercase tracking-[2px] text-[#1877F2] font-black mb-1">
-                Replying in thread
+            <div className="mb-2 p-4 rounded-[22px] bg-white/5 border border-white/10">
+              <p className="text-[12px] uppercase tracking-[2px] text-[#1877F2] font-black mb-2">
+                Reply thread
               </p>
-              <p className="text-white/70 text-[14px] line-clamp-2">
+              <p className="text-white/70 text-[16px] line-clamp-2">
                 {replyTo.text || 'Image comment'}
               </p>
             </div>
@@ -401,78 +425,170 @@ const ReelCommentsSheet: React.FC<{
 
           {(replyTo ? [replyTo, ...getReplies(replyTo.id)] : rootComments).map((c: any) => {
             const author = users.find((u: any) => Number(u.id) === Number(c.userId ?? c.user_id));
+            const replies = getReplies(c.id);
+            const lastReply = replies.length ? replies[replies.length - 1] : null;
+            const hiddenRepliesCount = replies.length > 1 ? replies.length - 1 : replies.length;
             const isReply = c.parentId || c.parent_comment_id || c.parent_id;
             const isOwner = isOwnerComment(c);
-            
+
             return (
-              <div key={c.id} className={`flex gap-4 ${isReply ? 'ml-12' : ''}`}>
-                <img 
-                  src={author?.profile_image_url || author?.profileImage || 'https://via.placeholder.com/40'} 
-                  className="w-10 h-10 rounded-full object-cover border-2 border-white/5" 
-                  alt="" 
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-[#1877F2] font-black text-[11px] uppercase tracking-tighter">
-                      {author?.name || 'User'}
-                    </p>
-                    {isOwner && (
-                      <span className="text-[8px] bg-white/10 px-2 py-0.5 rounded-full text-white/60">
-                        You
+              <div key={c.id} className={`${isReply ? 'ml-10' : ''}`}>
+                <div className="flex gap-4">
+                  <img
+                    src={author?.profile_image_url || author?.profileImage || 'https://via.placeholder.com/40'}
+                    className="w-12 h-12 rounded-full object-cover border-2 border-white/5 shrink-0"
+                    alt=""
+                  />
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-white font-black text-[23px] leading-none tracking-[-0.02em]">
+                        {author?.name || 'User'}
+                      </p>
+                      {isOwner && (
+                        <span className="text-[9px] bg-white/10 px-2 py-0.5 rounded-full text-white/60">
+                          You
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Comment content with long-press handler */}
+                    <div
+                      onTouchStart={() => beginLongPress(c)}
+                      onTouchEnd={cancelLongPress}
+                      onTouchMove={cancelLongPress}
+                      onMouseDown={() => beginLongPress(c)}
+                      onMouseUp={cancelLongPress}
+                      onMouseLeave={cancelLongPress}
+                    >
+                      {!!c.text && (
+                        <p className="text-[#E4E6EB] text-[22px] leading-[1.28] font-medium whitespace-pre-wrap break-words">
+                          {c.text}
+                        </p>
+                      )}
+
+                      {/* Comment image */}
+                      {(c.image_url || c.imageUrl) && (
+                        <img
+                          src={c.image_url || c.imageUrl}
+                          alt=""
+                          className="mt-3 max-w-[240px] rounded-[20px] border border-white/10 object-cover"
+                        />
+                      )}
+                    </div>
+
+                    {/* Action buttons - timestamp, like, reply */}
+                    <div className="mt-3 flex items-center gap-8">
+                      <span className="text-[13px] font-semibold text-white/45">
+                        {(() => {
+                          const created = c.created_at || c.createdAt;
+                          if (!created) return '';
+                          const diff = Math.floor((Date.now() - new Date(created).getTime()) / 1000);
+                          if (diff < 60) return 'now';
+                          if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+                          if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+                          if (diff < 2592000) return `${Math.floor(diff / 86400)}d`;
+                          return `${Math.floor(diff / 2592000)}mo`;
+                        })()}
                       </span>
-                    )}
-                  </div>
-                  
-                  {/* Comment content with long-press handler */}
-                  <div
-                    onTouchStart={() => beginLongPress(c)}
-                    onTouchEnd={cancelLongPress}
-                    onTouchMove={cancelLongPress}
-                    onMouseDown={() => beginLongPress(c)}
-                    onMouseUp={cancelLongPress}
-                    onMouseLeave={cancelLongPress}
-                  >
-                    <p className="text-[#E4E6EB] text-[17px] leading-[1.45] font-medium whitespace-pre-wrap break-words">
-                      {c.text}
-                    </p>
-                    
-                    {/* Comment image */}
-                    {(c.image_url || c.imageUrl) && (
-                      <img
-                        src={c.image_url || c.imageUrl}
-                        alt=""
-                        className="mt-3 max-w-[220px] rounded-2xl border border-white/10 object-cover"
-                      />
-                    )}
-                  </div>
-                  
-                  {/* Action buttons - Like and Reply */}
-                  <div className="mt-2 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+
+                      {/* Reaction button with emoji picker */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowReactionPicker(showReactionPicker === c.id ? null : c.id)}
+                          className="text-[13px] font-bold text-white/45 hover:text-white/70 transition-colors"
+                        >
+                          {commentReactions[c.id] ? (
+                            <span className="text-xl">{commentReactions[c.id]}</span>
+                          ) : (
+                            'Like'
+                          )}
+                        </button>
+
+                        {showReactionPicker === c.id && (
+                          <div className="absolute bottom-full left-0 mb-2 bg-[#242526] rounded-2xl p-3 border border-white/10 shadow-2xl z-50">
+                            <div className="flex flex-wrap gap-2 max-w-[280px]">
+                              {REACTION_EMOJIS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  onClick={() => addReaction(c.id, emoji)}
+                                  className="text-2xl hover:scale-125 transition-transform"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <button
-                        onClick={() => toggleCommentLike(c.id)}
-                        className={`text-[12px] font-bold transition-colors ${
-                          commentLikes[c.id] ? 'text-[#1877F2]' : 'text-white/40 hover:text-white/70'
-                        }`}
+                        onClick={() => setReplyTo(c)}
+                        className="text-[13px] font-bold text-white/45 hover:text-white/70 transition-colors"
                       >
-                        {commentLikes[c.id] ? 'Remove Like' : 'Like'}
+                        Reply
                       </button>
                     </div>
 
-                    <button
-                      onClick={() => setReplyTo(c)}
-                      className="text-[12px] font-bold text-white/40 hover:text-white/70 transition-colors"
-                    >
-                      Reply
-                    </button>
+                    {/* Reply preview section */}
+                    {!replyTo && replies.length > 0 && (
+                      <div className="mt-5">
+                        {hiddenRepliesCount > 0 && (
+                          <button
+                            onClick={() => setReplyTo(c)}
+                            className="text-[#1877F2] font-black text-[16px] leading-none hover:opacity-80 transition-opacity"
+                          >
+                            {getReplyPreviewText(hiddenRepliesCount)}
+                          </button>
+                        )}
+
+                        {lastReply && (
+                          <div className="mt-4 ml-2">
+                            <div className="flex gap-3">
+                              <img
+                                src={
+                                  users.find((u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id))
+                                    ?.profile_image_url ||
+                                  users.find((u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id))
+                                    ?.profileImage ||
+                                  'https://via.placeholder.com/40'
+                                }
+                                className="w-10 h-10 rounded-full object-cover border border-white/10 shrink-0"
+                                alt=""
+                              />
+
+                              <div className="flex-1 min-w-0">
+                                <p className="text-white font-black text-[20px] leading-none mb-2">
+                                  {users.find((u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id))?.name || 'User'}
+                                </p>
+
+                                {!!lastReply.text && (
+                                  <p className="text-[#E4E6EB] text-[20px] leading-[1.28] font-medium whitespace-pre-wrap break-words">
+                                    {lastReply.text}
+                                  </p>
+                                )}
+
+                                {(lastReply.image_url || lastReply.imageUrl) && (
+                                  <img
+                                    src={lastReply.image_url || lastReply.imageUrl}
+                                    alt=""
+                                    className="mt-3 max-w-[220px] rounded-[18px] border border-white/10 object-cover"
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <i className="far fa-heart text-[#B0B3B8] text-sm mt-1"></i>
               </div>
             );
           })}
         </div>
         
+        {/* Comment input area */}
         <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
           {replyTo && (
             <div className="mb-3 flex items-center gap-2 bg-white/5 p-2 rounded-lg">
@@ -548,7 +664,7 @@ const ReelCommentsSheet: React.FC<{
             </button>
 
             <input
-              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 text-[15px] text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all"
+              className="flex-1 bg-white/5 border border-white/10 rounded-[24px] px-5 py-4 text-[18px] text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all"
               placeholder={replyTo ? "Write a reply..." : "Add a comment..."}
               value={text}
               onChange={e => setText(e.target.value)}
@@ -583,7 +699,7 @@ const ReelCommentsSheet: React.FC<{
           >
             <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
 
-            {/* Like/Remove Like button */}
+            {/* Like button (always shows "Like" not "Remove Like") */}
             <button
               onClick={() => {
                 toggleCommentLike(menuComment.id);
@@ -599,12 +715,8 @@ const ReelCommentsSheet: React.FC<{
                 <i className="fas fa-thumbs-up"></i>
               </div>
               <div className="text-left">
-                <p className="font-bold text-sm">
-                  {commentLikes[menuComment.id] ? 'Remove Like' : 'Like'}
-                </p>
-                <p className="text-white/50 text-xs">
-                  {commentLikes[menuComment.id] ? 'Undo your reaction' : 'React to this comment'}
-                </p>
+                <p className="font-bold text-sm">Like</p>
+                <p className="text-white/50 text-xs">React to this comment</p>
               </div>
             </button>
 
