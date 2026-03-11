@@ -1,4 +1,3 @@
-//Here Recorder.tsx 
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '../types';
@@ -647,6 +646,8 @@ export type RecorderSoundOption = {
   playCount?: number;
   creationCount?: number;
   soundKey?: string;
+  isLocalFile?: boolean; // Flag for locally uploaded music files
+  file?: File; // The actual file for local uploads
 };
 
 export interface RecorderSubmitPayload {
@@ -700,7 +701,8 @@ const AudioTrimmer: React.FC<{
   soundName?: string;
   onMountStopAll?: () => void;
   onStopVideo?: () => void;
-}> = ({ url, onClose, onConfirm, initialStart, initialEnd, soundId, soundName, onMountStopAll, onStopVideo }) => {
+  isLocalFile?: boolean;
+}> = ({ url, onClose, onConfirm, initialStart, initialEnd, soundId, soundName, onMountStopAll, onStopVideo, isLocalFile }) => {
   const { stopAllAudio } = useAudioFocus();
   const [start, setStart] = useState(initialStart);
   const [end, setEnd] = useState(initialEnd > 0 ? initialEnd : Math.min(60, initialStart + 15));
@@ -1195,10 +1197,15 @@ const Recorder: React.FC<RecorderProps> = ({
 
   const [availableSounds, setAvailableSounds] = useState<RecorderSoundOption[]>(sounds);
   const [popularSounds, setPopularSounds] = useState<RecorderSoundOption[]>([]);
+  const [localMusicFiles, setLocalMusicFiles] = useState<RecorderSoundOption[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(false);
   const [loadingPopularSounds, setLoadingPopularSounds] = useState(false);
 
   const [trimmedAudioFile, setTrimmedAudioFile] = useState<File | null>(null);
+
+  // Refs for file inputs
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const musicFileInputRef = useRef<HTMLInputElement>(null);
 
   const isRecordingOrCameraMode = mode === 'camera' || isRecording;
 
@@ -1317,7 +1324,6 @@ const Recorder: React.FC<RecorderProps> = ({
   const [isTrimmerOpen, setIsTrimmerOpen] = useState(false);
   const [trimmingSound, setTrimmingSound] = useState<RecorderSoundOption | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const videoElRef = useRef<HTMLVideoElement>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1343,12 +1349,13 @@ const Recorder: React.FC<RecorderProps> = ({
 
   const filteredSounds = useMemo(() => {
     const q = soundSearch.trim().toLowerCase();
-    if (!q) return [...popularSounds, ...availableSounds];
-    return [...popularSounds, ...availableSounds].filter((sound) =>
+    const allSounds = [...localMusicFiles, ...popularSounds, ...availableSounds];
+    if (!q) return allSounds;
+    return allSounds.filter((sound) =>
       sound.name.toLowerCase().includes(q) ||
       String(sound.creatorName || '').toLowerCase().includes(q)
     );
-  }, [soundSearch, availableSounds, popularSounds]);
+  }, [soundSearch, availableSounds, popularSounds, localMusicFiles]);
 
   const cleanupPreviewUrl = useCallback(() => {
     if (previewUrlRef.current) {
@@ -1385,7 +1392,13 @@ const Recorder: React.FC<RecorderProps> = ({
 
     audio.pause();
     
-    const playableUrl = await fetchAsBlobUrl(sound.url, 'audio').catch(() => sound.url);
+    // For local files, we can use the URL directly (it's already a blob URL)
+    // For remote files, fetch and cache
+    let playableUrl = sound.url;
+    if (!sound.isLocalFile) {
+      playableUrl = await fetchAsBlobUrl(sound.url, 'audio').catch(() => sound.url);
+    }
+    
     audio.src = playableUrl;
     audio.currentTime = start;
     audio.onended = () => setPreviewingSoundId(null);
@@ -1736,6 +1749,40 @@ const Recorder: React.FC<RecorderProps> = ({
     event.target.value = '';
   }, [setNextPreviewUrl]);
 
+  // Handle local music file upload
+  const handlePickMusic = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const musicFiles = files
+      .filter(file => file.type.startsWith('audio/'))
+      .map((file, index) => {
+        const url = URL.createObjectURL(file);
+        return {
+          id: `local-${Date.now()}-${index}`,
+          name: file.name.replace(/\.[^/.]+$/, ""), // Remove extension
+          url: url,
+          originalUrl: url,
+          duration: 0, // Will be updated when metadata loads
+          start: 0,
+          end: 0,
+          creatorName: 'My Music',
+          soundKey: `local:${file.name}`,
+          isLocalFile: true,
+          file: file
+        } as RecorderSoundOption;
+      });
+
+    setLocalMusicFiles(prev => [...musicFiles, ...prev]);
+    
+    // Auto-select the first uploaded file
+    if (musicFiles.length > 0) {
+      handleSoundSelect(musicFiles[0]);
+    }
+    
+    event.target.value = '';
+  }, []);
+
   const resetAll = useCallback(() => {
     cleanupCamera();
     stopSoundPreview();
@@ -1945,6 +1992,12 @@ const Recorder: React.FC<RecorderProps> = ({
       cleanupCamera();
       cleanupPreviewUrl();
       stopSoundPreview();
+      // Clean up local music file URLs
+      localMusicFiles.forEach(sound => {
+        if (sound.isLocalFile && sound.url.startsWith('blob:')) {
+          URL.revokeObjectURL(sound.url);
+        }
+      });
       if (soundAudioRef.current) {
         try {
           soundAudioRef.current.pause();
@@ -1952,7 +2005,7 @@ const Recorder: React.FC<RecorderProps> = ({
         soundAudioRef.current = null;
       }
     };
-  }, [cleanupCamera, cleanupPreviewUrl, stopSoundPreview]);
+  }, [cleanupCamera, cleanupPreviewUrl, stopSoundPreview, localMusicFiles]);
 
   useEffect(() => {
     if (mode !== 'preview' || !previewVideoRef.current || !videoPreviewUrl) return;
@@ -2198,14 +2251,13 @@ const Recorder: React.FC<RecorderProps> = ({
             <div className="w-24 h-24 mx-auto rounded-[32px] bg-white/5 border border-white/10 flex items-center justify-center shadow-2xl mb-6">
               <i className="fas fa-video text-4xl text-[#1877F2]" />
             </div>
-            <h1 className="text-3xl font-black tracking-tight mb-3">Create a TikTok-style Reel</h1>
-            <p className="text-white/60 text-sm leading-relaxed">
-              Record live, upload from your phone, preview songs before choosing, trim instantly, then publish.
-            </p>
+            <h1 className="text-3xl font-black tracking-tight mb-3">Create a Reel</h1>
+            {/* Removed the descriptive text as requested */}
           </div>
 
           <div className="w-full max-w-[420px] space-y-4">
-            <button
+            {/* Record Live button - commented out for future use */}
+            {/* <button
               onClick={() => setMode('camera')}
               className="w-full rounded-[32px] bg-[#1877F2] p-6 text-left shadow-[0_20px_60px_rgba(24,119,242,0.35)] active:scale-[0.98] transition"
             >
@@ -2218,7 +2270,7 @@ const Recorder: React.FC<RecorderProps> = ({
                   <div className="text-white/70 text-xs mt-1 uppercase tracking-[0.12em]">Fullscreen camera + lyrics overlay</div>
                 </div>
               </div>
-            </button>
+            </button> */}
 
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -2246,7 +2298,23 @@ const Recorder: React.FC<RecorderProps> = ({
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-black uppercase tracking-[0.18em] text-[#7fb6ff]">Sound</div>
                   <div className="text-base font-bold truncate mt-1">{soundLabel}</div>
-                  <div className="text-white/55 text-xs mt-1">Tap to browse and preview songs before selecting</div>
+                  <div className="text-white/55 text-xs mt-1">Tap to browse, upload from your phone, or preview songs</div>
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => musicFileInputRef.current?.click()}
+              className="w-full rounded-[32px] bg-white/5 border border-white/10 p-5 text-left active:scale-[0.98] transition"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-3xl bg-green-500/15 border border-green-500/30 flex items-center justify-center">
+                  <i className="fas fa-phone-alt text-xl text-green-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-black uppercase tracking-[0.18em] text-green-500">Upload Music</div>
+                  <div className="text-base font-bold truncate mt-1">From your device</div>
+                  <div className="text-white/55 text-xs mt-1">Use music files from your phone storage</div>
                 </div>
               </div>
             </button>
@@ -2273,6 +2341,15 @@ const Recorder: React.FC<RecorderProps> = ({
               accept="video/*"
               className="hidden"
               onChange={handlePickVideo}
+            />
+            
+            <input
+              ref={musicFileInputRef}
+              type="file"
+              accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg"
+              className="hidden"
+              onChange={handlePickMusic}
+              multiple
             />
           </div>
 
@@ -2318,8 +2395,7 @@ const Recorder: React.FC<RecorderProps> = ({
 
               <button
                 onClick={() => {
-                  const sound = availableSounds.find(s => s.id === currentSelectedSound.songId) || 
-                              popularSounds.find(s => s.id === currentSelectedSound.songId);
+                  const sound = [...localMusicFiles, ...availableSounds, ...popularSounds].find(s => s.id === currentSelectedSound.songId);
                   if (sound) {
                     setTrimmingSound(sound);
                     setIsTrimmerOpen(true);
@@ -2731,8 +2807,7 @@ const Recorder: React.FC<RecorderProps> = ({
                       />
                       <button
                         onClick={() => {
-                          const sound = availableSounds.find(s => s.id === currentSelectedSound.songId) || 
-                                      popularSounds.find(s => s.id === currentSelectedSound.songId);
+                          const sound = [...localMusicFiles, ...availableSounds, ...popularSounds].find(s => s.id === currentSelectedSound.songId);
                           if (sound) {
                             setTrimmingSound(sound);
                             setIsTrimmerOpen(true);
@@ -2887,60 +2962,84 @@ const Recorder: React.FC<RecorderProps> = ({
             </div>
 
             <div className="overflow-y-auto max-h-[calc(84vh-132px)] p-4 space-y-3">
+              {/* Local Music Section */}
+              {localMusicFiles.length > 0 && (
+                <div className="mb-4">
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-green-500 mb-2 px-2">
+                    <i className="fas fa-phone-alt mr-1"></i> From My Phone
+                  </div>
+                  {localMusicFiles.map((sound) => {
+                    const selected = currentSelectedSound?.soundKey === sound.soundKey;
+                    return (
+                      <SoundItem
+                        key={String(sound.id)}
+                        sound={sound}
+                        selected={selected}
+                        previewingSoundId={previewingSoundId}
+                        onPreview={playSoundPreview}
+                        onSelect={handleSoundSelect}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Popular Sounds Section */}
+              {popularSounds.length > 0 && (
+                <div className="mb-4">
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-[#7fb6ff] mb-2 px-2">
+                    <i className="fas fa-fire mr-1"></i> Popular
+                  </div>
+                  {popularSounds.map((sound) => {
+                    const selected = currentSelectedSound?.soundKey === sound.soundKey;
+                    return (
+                      <SoundItem
+                        key={String(sound.id)}
+                        sound={sound}
+                        selected={selected}
+                        previewingSoundId={previewingSoundId}
+                        onPreview={playSoundPreview}
+                        onSelect={handleSoundSelect}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Unera Music Section */}
+              {availableSounds.length > 0 && (
+                <div className="mb-4">
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-purple-400 mb-2 px-2">
+                    <i className="fas fa-music mr-1"></i> Unera Music
+                  </div>
+                  {availableSounds.map((sound) => {
+                    const selected = currentSelectedSound?.soundKey === sound.soundKey;
+                    return (
+                      <SoundItem
+                        key={String(sound.id)}
+                        sound={sound}
+                        selected={selected}
+                        previewingSoundId={previewingSoundId}
+                        onPreview={playSoundPreview}
+                        onSelect={handleSoundSelect}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Loading States */}
               {loadingPopularSounds || loadingSongs ? (
                 <div className="flex justify-center py-12">
                   <div className="w-8 h-8 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
                 </div>
-              ) : filteredSounds.length === 0 ? (
-                <div className="text-center py-12 text-white/50">No sounds found.</div>
-              ) : (
-                filteredSounds.map((sound) => {
-                  const selected = currentSelectedSound?.soundKey === (sound.soundKey || `song:${sound.id}`)
-                    || currentSelectedSound?.songId === sound.id
-                    || currentSelectedSound?.audioUrl === sound.url;
-
-                  return (
-                    <div key={String(sound.id)} className={`rounded-[24px] border p-4 flex items-center gap-4 ${selected ? 'bg-[#1877F2]/12 border-[#1877F2]/40' : 'bg-white/5 border-white/10'}`}>
-                      {sound.coverImage || sound.creatorImage ? (
-                        <img
-                          src={sound.coverImage || sound.creatorImage}
-                          alt=""
-                          className="w-14 h-14 rounded-2xl object-cover"
-                        />
-                      ) : (
-                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#1877F2] to-[#F3425F] flex items-center justify-center">
-                          <i className="fas fa-music text-white" />
-                        </div>
-                      )}
-
-                      <div className="flex-1 min-w-0">
-                        <div className="font-bold truncate">{sound.name}</div>
-                        <div className="text-white/50 text-xs truncate mt-1">{sound.creatorName || 'Original Sound'}</div>
-                        <div className="flex items-center gap-3 mt-2 text-[11px] text-white/50">
-                          <span>{formatClock(sound.end && sound.start !== undefined ? sound.end - sound.start : sound.duration || 0)}</span>
-                          {sound.playCount ? <span>{formatViewCount(sound.playCount)} plays</span> : null}
-                          {sound.creationCount ? <span>{formatViewCount(sound.creationCount)} uses</span> : null}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => playSoundPreview(sound)}
-                          className="w-11 h-11 rounded-full bg-white/8 border border-white/10 flex items-center justify-center active:scale-95"
-                        >
-                          <i className={`fas ${previewingSoundId === sound.id ? 'fa-pause' : 'fa-play'} text-sm`} />
-                        </button>
-                        <button
-                          onClick={() => handleSoundSelect(sound)}
-                          className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-[0.14em] ${selected ? 'bg-[#1877F2] text-white' : 'bg-white/8 border border-white/10 text-white'}`}
-                        >
-                          {selected ? 'Selected' : 'Use'}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+              ) : filteredSounds.length === 0 && localMusicFiles.length === 0 ? (
+                <div className="text-center py-12 text-white/50">
+                  <i className="fas fa-music text-4xl mb-4 opacity-50"></i>
+                  <p>No sounds found.</p>
+                  <p className="text-sm mt-2">Try uploading music from your phone</p>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -2958,8 +3057,81 @@ const Recorder: React.FC<RecorderProps> = ({
           onMountStopAll={() => {
             stopSoundPreview();
           }}
+          isLocalFile={trimmingSound.isLocalFile}
         />
       )}
+    </div>
+  );
+};
+
+// =========================
+// SOUND ITEM COMPONENT
+// =========================
+const SoundItem: React.FC<{
+  sound: RecorderSoundOption;
+  selected: boolean;
+  previewingSoundId: string | number | null;
+  onPreview: (sound: RecorderSoundOption) => void;
+  onSelect: (sound: RecorderSoundOption) => void;
+}> = ({ sound, selected, previewingSoundId, onPreview, onSelect }) => {
+  const formatClock = (secs: number) => {
+    const safe = Math.max(0, Math.floor(secs || 0));
+    const m = Math.floor(safe / 60);
+    const s = safe % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  const formatViewCount = (num?: number): string => {
+    const v = Number(num || 0);
+    if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+    if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
+    return String(v);
+  };
+
+  return (
+    <div className={`rounded-[24px] border p-4 flex items-center gap-4 ${selected ? 'bg-[#1877F2]/12 border-[#1877F2]/40' : 'bg-white/5 border-white/10'}`}>
+      {sound.coverImage || sound.creatorImage ? (
+        <img
+          src={sound.coverImage || sound.creatorImage}
+          alt=""
+          className="w-14 h-14 rounded-2xl object-cover"
+        />
+      ) : (
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#1877F2] to-[#F3425F] flex items-center justify-center">
+          <i className="fas fa-music text-white" />
+        </div>
+      )}
+
+      <div className="flex-1 min-w-0">
+        <div className="font-bold truncate">{sound.name}</div>
+        <div className="text-white/50 text-xs truncate mt-1">{sound.creatorName || 'Original Sound'}</div>
+        <div className="flex items-center gap-3 mt-2 text-[11px] text-white/50">
+          <span>{formatClock(sound.end && sound.start !== undefined ? sound.end - sound.start : sound.duration || 0)}</span>
+          {sound.playCount ? <span>{formatViewCount(sound.playCount)} plays</span> : null}
+          {sound.creationCount ? <span>{formatViewCount(sound.creationCount)} uses</span> : null}
+          {sound.isLocalFile && (
+            <span className="text-green-400">
+              <i className="fas fa-phone-alt mr-1 text-[8px]"></i>
+              Local
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onPreview(sound)}
+          className="w-11 h-11 rounded-full bg-white/8 border border-white/10 flex items-center justify-center active:scale-95"
+        >
+          <i className={`fas ${previewingSoundId === sound.id ? 'fa-pause' : 'fa-play'} text-sm`} />
+        </button>
+        <button
+          onClick={() => onSelect(sound)}
+          className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-[0.14em] ${selected ? 'bg-[#1877F2] text-white' : 'bg-white/8 border border-white/10 text-white'}`}
+        >
+          {selected ? 'Selected' : 'Use'}
+        </button>
+      </div>
     </div>
   );
 };
