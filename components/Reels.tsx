@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType, Comment, Song } from '../types';
 
@@ -155,17 +153,51 @@ const ReelCommentsSheet: React.FC<{
   comments: any[];
   users: User[];
   currentUser: User | null;
-  onAddComment: (text: string) => void;
-}> = ({ isOpen, onClose, comments, users, currentUser, onAddComment }) => {
+  onAddComment: (payload: {
+    text: string;
+    parentId?: number | null;
+    imageFile?: File | null;
+  }) => Promise<void> | void;
+  onEditComment: (
+    commentId: number,
+    payload: {
+      text?: string;
+      imageFile?: File | null;
+      image_url?: string;
+    }
+  ) => Promise<void> | void;
+  onDeleteComment: (commentId: number) => Promise<void> | void;
+}> = ({ 
+  isOpen, 
+  onClose, 
+  comments, 
+  users, 
+  currentUser, 
+  onAddComment,
+  onEditComment,
+  onDeleteComment 
+}) => {
   const [text, setText] = useState('');
+  const [replyTo, setReplyTo] = useState<any | null>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [menuComment, setMenuComment] = useState<any | null>(null);
+  const [editingComment, setEditingComment] = useState<any | null>(null);
+  const [editingText, setEditingText] = useState('');
+  
   const sheetRef = useRef<HTMLDivElement>(null);
   const startYRef = useRef<number>(0);
   const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const longPressTimerRef = useRef<any>(null);
 
   useEffect(() => {
     if (isOpen) {
       setTranslateY(0);
+      setReplyTo(null);
+      setSelectedImage(null);
+      setImagePreview(null);
     }
   }, [isOpen]);
 
@@ -193,7 +225,100 @@ const ReelCommentsSheet: React.FC<{
     }
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setSelectedImage(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleSubmitComment = async () => {
+    if (!text.trim() && !selectedImage) return;
+    
+    try {
+      await Promise.resolve(
+        onAddComment({
+          text: text.trim(),
+          parentId: replyTo?.id || null,
+          imageFile: selectedImage
+        })
+      );
+      
+      setText('');
+      setReplyTo(null);
+      setSelectedImage(null);
+      setImagePreview(null);
+    } catch (error) {
+      console.error('Failed to add comment:', error);
+    }
+  };
+
+  const isOwnerComment = (comment: any) => {
+    const commentUserId = Number(comment.userId ?? comment.user_id);
+    return commentUserId === Number(currentUser?.id);
+  };
+
+  const beginLongPress = (comment: any) => {
+    if (!isOwnerComment(comment)) return;
+    
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      setMenuComment(comment);
+    }, 450);
+  };
+
+  const cancelLongPress = () => {
+    clearTimeout(longPressTimerRef.current);
+  };
+
+  const openEditComment = (comment: any) => {
+    setMenuComment(null);
+    setEditingComment(comment);
+    setEditingText(comment.text || '');
+  };
+
+  const confirmDeleteComment = async (comment: any) => {
+    setMenuComment(null);
+    const ok = window.confirm('Delete this comment?');
+    if (!ok) return;
+
+    try {
+      await Promise.resolve(onDeleteComment(comment.id));
+    } catch (e: any) {
+      alert(e?.message || 'Failed to delete comment');
+    }
+  };
+
+  const saveEditedComment = async () => {
+    if (!editingComment) return;
+
+    try {
+      await Promise.resolve(
+        onEditComment(editingComment.id, {
+          text: editingText,
+        })
+      );
+      setEditingComment(null);
+      setEditingText('');
+    } catch (e: any) {
+      alert(e?.message || 'Failed to edit comment');
+    }
+  };
+
   if (!isOpen) return null;
+
+  // Filter root comments (no parent)
+  const rootComments = comments.filter(
+    (c: any) => !c.parentId && !c.parent_comment_id && !c.parent_id
+  );
+
+  // Get replies for a comment
+  const getReplies = (commentId: number | string) =>
+    comments.filter(
+      (c: any) =>
+        Number(c.parentId ?? c.parent_comment_id ?? c.parent_id) === Number(commentId)
+    );
 
   return (
     <div 
@@ -217,8 +342,16 @@ const ReelCommentsSheet: React.FC<{
         
         <div className="px-5 pb-5 border-b border-white/5 flex justify-between items-center bg-[#181818] rounded-t-[40px]">
           <span className="text-white font-black text-[13px] ml-4 uppercase tracking-[3px]">
-            {comments.length} Comments
+            {comments.length} {replyTo ? 'Replies' : 'Comments'}
           </span>
+          {replyTo && (
+            <button 
+              onClick={() => setReplyTo(null)}
+              className="text-[#1877F2] text-xs font-bold"
+            >
+              Back to all
+            </button>
+          )}
           <button 
             onClick={onClose} 
             className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white active:scale-90 transition-all"
@@ -228,22 +361,60 @@ const ReelCommentsSheet: React.FC<{
         </div>
         
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {comments.map((c: any) => {
-            const author = users.find((u: any) => u.id === c.userId || u.id === c.user_id);
+          {(replyTo ? [replyTo, ...getReplies(replyTo.id)] : rootComments).map((c: any) => {
+            const author = users.find((u: any) => Number(u.id) === Number(c.userId ?? c.user_id));
+            const isReply = c.parentId || c.parent_comment_id || c.parent_id;
+            const isOwner = isOwnerComment(c);
+            
             return (
-              <div key={c.id} className="flex gap-4">
+              <div key={c.id} className={`flex gap-4 ${isReply ? 'ml-12' : ''}`}>
                 <img 
-                  src={author?.profile_image_url || author?.profileImage} 
+                  src={author?.profile_image_url || author?.profileImage || 'https://via.placeholder.com/40'} 
                   className="w-10 h-10 rounded-full object-cover border-2 border-white/5" 
                   alt="" 
                 />
                 <div className="flex-1">
-                  <p className="text-[#1877F2] font-black text-[11px] uppercase tracking-tighter mb-0.5">
-                    {author?.name || 'User'}
-                  </p>
-                  <p className="text-[#E4E6EB] text-[15px] leading-snug font-medium">
-                    {c.text}
-                  </p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-[#1877F2] font-black text-[11px] uppercase tracking-tighter">
+                      {author?.name || 'User'}
+                    </p>
+                    {isOwner && (
+                      <span className="text-[8px] bg-white/10 px-2 py-0.5 rounded-full text-white/60">
+                        You
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Comment content with long-press handler */}
+                  <div
+                    onTouchStart={() => beginLongPress(c)}
+                    onTouchEnd={cancelLongPress}
+                    onTouchMove={cancelLongPress}
+                    onMouseDown={() => beginLongPress(c)}
+                    onMouseUp={cancelLongPress}
+                    onMouseLeave={cancelLongPress}
+                  >
+                    <p className="text-[#E4E6EB] text-[15px] leading-snug font-medium">
+                      {c.text}
+                    </p>
+                    
+                    {/* Comment image */}
+                    {(c.image_url || c.imageUrl) && (
+                      <img
+                        src={c.image_url || c.imageUrl}
+                        alt=""
+                        className="mt-3 max-w-[220px] rounded-2xl border border-white/10 object-cover"
+                      />
+                    )}
+                  </div>
+                  
+                  {/* Reply button */}
+                  <button 
+                    onClick={() => setReplyTo(c)}
+                    className="mt-2 text-xs text-white/40 font-bold hover:text-white/60"
+                  >
+                    Reply
+                  </button>
                 </div>
                 <i className="far fa-heart text-[#B0B3B8] text-sm mt-1"></i>
               </div>
@@ -252,36 +423,177 @@ const ReelCommentsSheet: React.FC<{
         </div>
         
         <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
+          {replyTo && (
+            <div className="mb-3 flex items-center gap-2 bg-white/5 p-2 rounded-lg">
+              <span className="text-xs text-white/60">Replying to</span>
+              <span className="text-xs text-[#1877F2] font-bold">
+                @{users.find(u => Number(u.id) === Number(replyTo.userId ?? replyTo.user_id))?.name || 'User'}
+              </span>
+              <button 
+                onClick={() => setReplyTo(null)}
+                className="ml-auto text-white/40 hover:text-white"
+              >
+                <i className="fas fa-times text-xs"></i>
+              </button>
+            </div>
+          )}
+          
+          {imagePreview && (
+            <div className="mb-3 relative inline-block">
+              <img src={imagePreview} className="h-20 rounded-lg border border-white/10" alt="" />
+              <button 
+                onClick={() => {
+                  setSelectedImage(null);
+                  setImagePreview(null);
+                }}
+                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center"
+              >
+                <i className="fas fa-times text-white text-xs"></i>
+              </button>
+            </div>
+          )}
+          
           <div className="flex gap-3">
             <input 
-              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all" 
-              placeholder="Add a comment..." 
+              type="file" 
+              ref={fileInputRef}
+              className="hidden" 
+              accept="image/*"
+              onChange={handleImageSelect}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white"
+            >
+              <i className="fas fa-image"></i>
+            </button>
+            
+            <input 
+              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 text-sm text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all" 
+              placeholder={replyTo ? "Write a reply..." : "Add a comment..."} 
               value={text} 
               onChange={e => setText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
+                if (e.key === 'Enter' && !e.shiftKey && (text.trim() || selectedImage)) {
                   e.preventDefault();
-                  onAddComment(text.trim());
-                  setText('');
+                  handleSubmitComment();
                 }
               }}
             />
             <button 
-              onClick={() => { 
-                const trimmedText = text.trim();
-                if (trimmedText) { 
-                  onAddComment(trimmedText); 
-                  setText(''); 
-                }
-              }} 
+              onClick={handleSubmitComment} 
               className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
-              disabled={!text.trim()}
+              disabled={!text.trim() && !selectedImage}
             >
               <i className="fas fa-paper-plane text-xs"></i>
             </button>
           </div>
         </div>
       </div>
+
+      {/* Comment action menu */}
+      {menuComment && (
+        <div
+          className="fixed inset-0 z-[500] bg-black/60 backdrop-blur-sm"
+          onClick={() => setMenuComment(null)}
+        >
+          <div
+            className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto bg-[#121212] rounded-t-[32px] border-t border-white/10 p-5 animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+
+            <button
+              onClick={() => {
+                setReplyTo(menuComment);
+                setMenuComment(null);
+              }}
+              className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+            >
+              <div className="w-11 h-11 rounded-full bg-[#1877F2]/15 flex items-center justify-center text-[#1877F2]">
+                <i className="fas fa-reply"></i>
+              </div>
+              <div className="text-left">
+                <p className="font-bold text-sm">Reply</p>
+                <p className="text-white/50 text-xs">Respond to this comment</p>
+              </div>
+            </button>
+
+            {isOwnerComment(menuComment) && (
+              <>
+                <button
+                  onClick={() => openEditComment(menuComment)}
+                  className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+                >
+                  <div className="w-11 h-11 rounded-full bg-[#45BD62]/15 flex items-center justify-center text-[#45BD62]">
+                    <i className="fas fa-pen"></i>
+                  </div>
+                  <div className="text-left">
+                    <p className="font-bold text-sm">Edit Comment</p>
+                    <p className="text-white/50 text-xs">Change your message</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => confirmDeleteComment(menuComment)}
+                  className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400"
+                >
+                  <div className="w-11 h-11 rounded-full bg-red-500/15 flex items-center justify-center">
+                    <i className="fas fa-trash-alt"></i>
+                  </div>
+                  <div className="text-left">
+                    <p className="font-bold text-sm">Delete Comment</p>
+                    <p className="text-red-300/60 text-xs">Remove it permanently</p>
+                  </div>
+                </button>
+              </>
+            )}
+
+            <button
+              onClick={() => setMenuComment(null)}
+              className="w-full mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-bold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit comment modal */}
+      {editingComment && (
+        <div className="fixed inset-0 z-[510] bg-black/70 backdrop-blur-sm flex items-end">
+          <div className="w-full max-w-[450px] mx-auto bg-[#121212] rounded-t-[32px] border-t border-white/10 p-5 animate-slide-up">
+            <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+
+            <h3 className="text-white text-lg font-black mb-4">Edit Comment</h3>
+
+            <textarea
+              value={editingText}
+              onChange={(e) => setEditingText(e.target.value)}
+              className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none"
+              placeholder="Update comment..."
+            />
+
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => {
+                  setEditingComment(null);
+                  setEditingText('');
+                }}
+                className="flex-1 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEditedComment}
+                className="flex-1 py-4 rounded-2xl bg-[#1877F2] text-white font-bold"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1309,7 +1621,7 @@ export const CreateReelModal: React.FC<{
                 className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl px-4 py-3 text-white outline-none text-sm"
               >
                 <option value="public">🌍 Public</option>
-                <option value="friends">👥 Friends Only</option>
+                <option value="followers">👥 Followers Only</option>
                 <option value="private">🔒 Private</option>
               </select>
               
@@ -2525,14 +2837,143 @@ const CameraStudio: React.FC<{
 };
 
 // ==================== SERVICE WORKER REGISTRATION ====================
-// Moved from module top-level to useEffect in parent component
-// This should be called in your app's root component
 export const registerServiceWorker = () => {
   if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js').catch(console.error);
     });
   }
+};
+
+// ==================== REEL OWNER MENU ====================
+const ReelOwnerMenu: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}> = ({ isOpen, onClose, onEdit, onDelete }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[920] bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto bg-[#121212] rounded-t-[34px] border-t border-white/10 p-5 animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+
+        <button
+          onClick={onEdit}
+          className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+        >
+          <div className="w-11 h-11 rounded-full bg-[#1877F2]/15 flex items-center justify-center text-[#1877F2]">
+            <i className="fas fa-pen"></i>
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-sm">Edit Reel</p>
+            <p className="text-white/50 text-xs">Change caption, location, or visibility</p>
+          </div>
+        </button>
+
+        <button
+          onClick={onDelete}
+          className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400"
+        >
+          <div className="w-11 h-11 rounded-full bg-red-500/15 flex items-center justify-center">
+            <i className="fas fa-trash-alt"></i>
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-sm">Delete Reel</p>
+            <p className="text-red-300/60 text-xs">This cannot be undone</p>
+          </div>
+        </button>
+
+        <button
+          onClick={onClose}
+          className="w-full mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-bold"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ==================== EDIT REEL MODAL ====================
+const EditReelModal: React.FC<{
+  reel: Reel | null;
+  caption: string;
+  location: string;
+  visibility: 'public' | 'followers' | 'private';
+  saving: boolean;
+  setCaption: (v: string) => void;
+  setLocation: (v: string) => void;
+  setVisibility: (v: 'public' | 'followers' | 'private') => void;
+  onClose: () => void;
+  onSave: () => void;
+}> = ({
+  reel,
+  caption,
+  location,
+  visibility,
+  saving,
+  setCaption,
+  setLocation,
+  setVisibility,
+  onClose,
+  onSave,
+}) => {
+  if (!reel) return null;
+
+  return (
+    <div className="fixed inset-0 z-[930] bg-black/70 backdrop-blur-sm flex items-end">
+      <div className="w-full max-w-[450px] mx-auto bg-[#121212] rounded-t-[34px] border-t border-white/10 p-6 animate-slide-up">
+        <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+
+        <h3 className="text-white font-black text-lg mb-5">Edit Reel</h3>
+
+        <textarea
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+          className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none"
+          placeholder="Update caption..."
+        />
+
+        <input
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          className="w-full mt-4 bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none"
+          placeholder="Location"
+        />
+
+        <select
+          value={visibility}
+          onChange={(e) => setVisibility(e.target.value as 'public' | 'followers' | 'private')}
+          className="w-full mt-4 bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none"
+        >
+          <option value="public">🌍 Public</option>
+          <option value="followers">👥 Followers</option>
+          <option value="private">🔒 Private</option>
+        </select>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className="flex-1 py-4 rounded-2xl bg-[#1877F2] text-white font-bold disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // ==================== ENHANCED REELS FEED - TIKTOK-STYLE FULLSCREEN ====================
@@ -2546,7 +2987,33 @@ interface ReelsFeedProps {
   onProfileClick: (id: number) => void;
   onCreateReelClick: () => void;
   onReact: (reelId: number, type?: ReactionType) => void;
-  onComment: (reelId: number, text: string) => void;
+  onComment: (
+    reelId: number,
+    payload: {
+      text: string;
+      parentId?: number | null;
+      imageFile?: File | null;
+    }
+  ) => Promise<void> | void;
+  onEditComment: (
+    commentId: number,
+    payload: {
+      text?: string;
+      imageFile?: File | null;
+      image_url?: string;
+    }
+  ) => Promise<void> | void;
+  onDeleteComment: (commentId: number) => Promise<void> | void;
+  onEditReel: (
+    reelId: number,
+    payload: {
+      caption?: string;
+      visibility?: string;
+      location?: string;
+      thumbnail_url?: string;
+    }
+  ) => Promise<void> | void;
+  onDeleteReel: (reelId: number) => Promise<void> | void;
   onShare: (reelId: number, type: 'feed' | 'copy') => void;
   onFollow: (targetUserId: number) => void;
   onUseSound: (sound: any) => void;
@@ -2567,6 +3034,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   onCreateReelClick, 
   onReact, 
   onComment, 
+  onEditComment,
+  onDeleteComment,
+  onEditReel,
+  onDeleteReel,
   onShare, 
   onFollow, 
   onUseSound, 
@@ -2584,6 +3055,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   ); 
   const [showComments, setShowComments] = useState(false);
   const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
+  const [showReelMenu, setShowReelMenu] = useState(false);
+  const [menuReelId, setMenuReelId] = useState<number | null>(null);
+  const [editingReel, setEditingReel] = useState<Reel | null>(null);
+  const [editingReelCaption, setEditingReelCaption] = useState('');
+  const [editingReelLocation, setEditingReelLocation] = useState('');
+  const [editingReelVisibility, setEditingReelVisibility] = useState<'public' | 'followers' | 'private'>('public');
+  const [savingReelEdit, setSavingReelEdit] = useState(false);
   
   // TikTok loading states
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
@@ -3035,6 +3513,55 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return formatViewCount(num);
   };
 
+  // Handle reel owner menu
+  const openEditReel = useCallback(() => {
+    const reel = reels.find(r => Number(r.id) === Number(menuReelId));
+    if (!reel) return;
+
+    setEditingReel(reel);
+    setEditingReelCaption(reel.caption || '');
+    setEditingReelLocation((reel as any).location || '');
+    setEditingReelVisibility(((reel as any).visibility || 'public') as 'public' | 'followers' | 'private');
+    setShowReelMenu(false);
+  }, [reels, menuReelId]);
+
+  const handleSaveReelEdit = useCallback(async () => {
+    if (!editingReel) return;
+
+    try {
+      setSavingReelEdit(true);
+
+      await Promise.resolve(
+        onEditReel(editingReel.id, {
+          caption: editingReelCaption,
+          location: editingReelLocation,
+          visibility: editingReelVisibility,
+        })
+      );
+
+      setEditingReel(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to update reel');
+    } finally {
+      setSavingReelEdit(false);
+    }
+  }, [editingReel, editingReelCaption, editingReelLocation, editingReelVisibility, onEditReel]);
+
+  const handleDeleteOwnedReel = useCallback(async () => {
+    if (!menuReelId) return;
+
+    const ok = window.confirm('Delete this reel?');
+    if (!ok) return;
+
+    try {
+      await Promise.resolve(onDeleteReel(menuReelId));
+      setShowReelMenu(false);
+      setMenuReelId(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to delete reel');
+    }
+  }, [menuReelId, onDeleteReel]);
+
   return (
     <div
       className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
@@ -3060,6 +3587,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         </div>
 
         <button
+          onClick={() => {
+            const reel = reels.find(r => Number(r.id) === Number(activeReelId));
+            if (!reel) return;
+
+            const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+            if (ownerId !== Number(currentUser?.id)) return;
+
+            setMenuReelId(reel.id);
+            setShowReelMenu(true);
+          }}
           className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center pointer-events-auto"
         >
           <i className="fas fa-ellipsis-h text-white text-sm" />
@@ -3280,7 +3817,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           comments={reels.find((r: any) => r.id === activeReelId)?.comments || []} 
           users={users} 
           currentUser={currentUser} 
-          onAddComment={(text: string) => onComment(activeReelId, text)} 
+          onAddComment={(payload) => onComment(activeReelId, payload)}
+          onEditComment={onEditComment}
+          onDeleteComment={onDeleteComment}
         />
       )}
       
@@ -3333,6 +3872,31 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           }}
         />
       )}
+
+      {/* Reel Owner Menu */}
+      <ReelOwnerMenu
+        isOpen={showReelMenu}
+        onClose={() => {
+          setShowReelMenu(false);
+          setMenuReelId(null);
+        }}
+        onEdit={openEditReel}
+        onDelete={handleDeleteOwnedReel}
+      />
+
+      {/* Edit Reel Modal */}
+      <EditReelModal
+        reel={editingReel}
+        caption={editingReelCaption}
+        location={editingReelLocation}
+        visibility={editingReelVisibility}
+        saving={savingReelEdit}
+        setCaption={setEditingReelCaption}
+        setLocation={setEditingReelLocation}
+        setVisibility={setEditingReelVisibility}
+        onClose={() => setEditingReel(null)}
+        onSave={handleSaveReelEdit}
+      />
     </div>
   );
 };
@@ -3421,7 +3985,7 @@ if (typeof document !== 'undefined' && !document.getElementById('reels-styles'))
   document.head.appendChild(styleSheet);
 }
 
-// ==================== EXPORTS (ONLY WHAT RECORDER NEEDS) ====================
+// ==================== EXPORTS ====================
 // Export utilities and hooks
 export {
   trimAudioUrlToWavBlob,
