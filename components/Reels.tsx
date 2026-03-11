@@ -88,6 +88,9 @@ interface Sound {
   originalUrl?: string;
 }
 
+// ==================== REACTION EMOJIS ====================
+const REACTION_EMOJIS = ['❤️', '🙏', '👍', '💪', '👀', '😊', '😍', '🤣', '😭', '😂', '😟', '🤑', '😝', '😋', '🤧', '😪', '👏', '🤘', '✌️', '🤛', '🤝', '🖕', '🖐', '🙆‍♂️', '🤦', '🤷‍♂️', '🫂'];
+
 // ==================== FORMAT VIEW COUNT HELPER ====================
 const formatViewCount = (num?: number): string => {
   const v = Number(num || 0);
@@ -178,8 +181,7 @@ const ReelCommentsSheet: React.FC<{
   onDeleteComment 
 }) => {
   const COMMENT_EMOJIS = ['😀', '😂', '😍', '🔥', '👏', '❤️', '👍', '🎉', '😮', '😢', '🙌', '🥰'];
-  const REACTION_EMOJIS = ['❤️', '🙏', '👍', '💪', '👀', '😊', '😍', '🤣', '😭', '😂', '😟', '🤑', '😝', '😋', '🤧', '😪', '👏', '🤘', '✌️', '🤛', '🤝', '🖕', '🖐', '🙆‍♂️', '🤦', '🤷‍♂️', '🫂'];
-
+  
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -189,7 +191,6 @@ const ReelCommentsSheet: React.FC<{
   const [editingText, setEditingText] = useState('');
   const [showEmojiBar, setShowEmojiBar] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
-  const [commentLikes, setCommentLikes] = useState<Record<number, boolean>>({});
   const [commentReactions, setCommentReactions] = useState<Record<number, string>>({});
   
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -198,6 +199,7 @@ const ReelCommentsSheet: React.FC<{
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const longPressTimerRef = useRef<any>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -207,6 +209,7 @@ const ReelCommentsSheet: React.FC<{
       setImagePreview(null);
       setShowEmojiBar(false);
       setShowReactionPicker(null);
+      // Don't auto-focus keyboard
     }
   }, [isOpen]);
 
@@ -295,13 +298,13 @@ const ReelCommentsSheet: React.FC<{
 
   const confirmDeleteComment = async (comment: any) => {
     setMenuComment(null);
-    const ok = window.confirm('Delete this comment?');
+    const ok = window.confirm('Delete this discussion?');
     if (!ok) return;
 
     try {
       await Promise.resolve(onDeleteComment(comment.id));
     } catch (e: any) {
-      alert(e?.message || 'Failed to delete comment');
+      alert(e?.message || 'Failed to delete discussion');
     }
   };
 
@@ -317,15 +320,8 @@ const ReelCommentsSheet: React.FC<{
       setEditingComment(null);
       setEditingText('');
     } catch (e: any) {
-      alert(e?.message || 'Failed to edit comment');
+      alert(e?.message || 'Failed to edit discussion');
     }
-  };
-
-  const toggleCommentLike = (commentId: number) => {
-    setCommentLikes(prev => ({
-      ...prev,
-      [commentId]: !prev[commentId],
-    }));
   };
 
   const addReaction = (commentId: number, emoji: string) => {
@@ -392,7 +388,7 @@ const ReelCommentsSheet: React.FC<{
         
         <div className="px-5 pb-5 border-b border-white/5 flex justify-between items-center bg-[#181818] rounded-t-[40px]">
           <span className="text-white font-black text-[13px] ml-4 uppercase tracking-[3px]">
-            {comments.length} {replyTo ? 'Replies' : 'Comments'}
+            {comments.length} {replyTo ? 'Replies' : 'Discussions'}
           </span>
           {replyTo && (
             <button 
@@ -418,7 +414,7 @@ const ReelCommentsSheet: React.FC<{
                 Reply thread
               </p>
               <p className="text-white/70 text-[16px] line-clamp-2">
-                {replyTo.text || 'Image comment'}
+                {replyTo.text || 'Image discussion'}
               </p>
             </div>
           )}
@@ -442,7 +438,7 @@ const ReelCommentsSheet: React.FC<{
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
-                      <p className="text-white font-black text-[23px] leading-none tracking-[-0.02em]">
+                      <p className="text-white font-black text-[22px] leading-none tracking-[-0.02em]">
                         {author?.name || 'User'}
                       </p>
                       {isOwner && (
@@ -477,7 +473,7 @@ const ReelCommentsSheet: React.FC<{
                       )}
                     </div>
 
-                    {/* Action buttons - timestamp, like, reply */}
+                    {/* Action buttons - timestamp, react, reply */}
                     <div className="mt-3 flex items-center gap-8">
                       <span className="text-[13px] font-semibold text-white/45">
                         {(() => {
@@ -492,7 +488,7 @@ const ReelCommentsSheet: React.FC<{
                         })()}
                       </span>
 
-                      {/* Reaction button with emoji picker */}
+                      {/* Reaction button with emoji picker - horizontal scroll */}
                       <div className="relative">
                         <button
                           onClick={() => setShowReactionPicker(showReactionPicker === c.id ? null : c.id)}
@@ -501,18 +497,18 @@ const ReelCommentsSheet: React.FC<{
                           {commentReactions[c.id] ? (
                             <span className="text-xl">{commentReactions[c.id]}</span>
                           ) : (
-                            'Like'
+                            'React'
                           )}
                         </button>
 
                         {showReactionPicker === c.id && (
                           <div className="absolute bottom-full left-0 mb-2 bg-[#242526] rounded-2xl p-3 border border-white/10 shadow-2xl z-50">
-                            <div className="flex flex-wrap gap-2 max-w-[280px]">
+                            <div className="flex overflow-x-auto gap-2 max-w-[300px] scrollbar-hide pb-1">
                               {REACTION_EMOJIS.map((emoji) => (
                                 <button
                                   key={emoji}
                                   onClick={() => addReaction(c.id, emoji)}
-                                  className="text-2xl hover:scale-125 transition-transform"
+                                  className="text-2xl hover:scale-125 transition-transform flex-shrink-0"
                                 >
                                   {emoji}
                                 </button>
@@ -558,12 +554,12 @@ const ReelCommentsSheet: React.FC<{
                               />
 
                               <div className="flex-1 min-w-0">
-                                <p className="text-white font-black text-[20px] leading-none mb-2">
+                                <p className="text-white font-black text-[22px] leading-none mb-2">
                                   {users.find((u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id))?.name || 'User'}
                                 </p>
 
                                 {!!lastReply.text && (
-                                  <p className="text-[#E4E6EB] text-[20px] leading-[1.28] font-medium whitespace-pre-wrap break-words">
+                                  <p className="text-[#E4E6EB] text-[22px] leading-[1.28] font-medium whitespace-pre-wrap break-words">
                                     {lastReply.text}
                                   </p>
                                 )}
@@ -664,8 +660,9 @@ const ReelCommentsSheet: React.FC<{
             </button>
 
             <input
-              className="flex-1 bg-white/5 border border-white/10 rounded-[24px] px-5 py-4 text-[18px] text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all"
-              placeholder={replyTo ? "Write a reply..." : "Add a comment..."}
+              ref={inputRef}
+              className="flex-1 bg-white/5 border border-white/10 rounded-[24px] px-5 py-4 text-[17px] text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all"
+              placeholder={replyTo ? "Write a reply..." : "Add to discussion..."}
               value={text}
               onChange={e => setText(e.target.value)}
               onKeyDown={(e) => {
@@ -674,6 +671,7 @@ const ReelCommentsSheet: React.FC<{
                   handleSubmitComment();
                 }
               }}
+              onClick={(e) => e.stopPropagation()} // Prevent closing when clicking input
             />
 
             <button
@@ -699,24 +697,20 @@ const ReelCommentsSheet: React.FC<{
           >
             <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
 
-            {/* Like button (always shows "Like" not "Remove Like") */}
+            {/* React button */}
             <button
               onClick={() => {
-                toggleCommentLike(menuComment.id);
+                setShowReactionPicker(menuComment.id);
                 setMenuComment(null);
               }}
               className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
             >
-              <div className={`w-11 h-11 rounded-full flex items-center justify-center ${
-                commentLikes[menuComment.id]
-                  ? 'bg-[#1877F2]/15 text-[#1877F2]'
-                  : 'bg-white/10 text-white/80'
-              }`}>
-                <i className="fas fa-thumbs-up"></i>
+              <div className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center text-white/80">
+                <i className="fas fa-smile"></i>
               </div>
               <div className="text-left">
-                <p className="font-bold text-sm">Like</p>
-                <p className="text-white/50 text-xs">React to this comment</p>
+                <p className="font-bold text-sm">React</p>
+                <p className="text-white/50 text-xs">Add emoji reaction</p>
               </div>
             </button>
 
@@ -732,7 +726,7 @@ const ReelCommentsSheet: React.FC<{
               </div>
               <div className="text-left">
                 <p className="font-bold text-sm">Reply</p>
-                <p className="text-white/50 text-xs">Respond to this comment</p>
+                <p className="text-white/50 text-xs">Respond to this discussion</p>
               </div>
             </button>
 
@@ -746,7 +740,7 @@ const ReelCommentsSheet: React.FC<{
                     <i className="fas fa-pen"></i>
                   </div>
                   <div className="text-left">
-                    <p className="font-bold text-sm">Edit Comment</p>
+                    <p className="font-bold text-sm">Edit</p>
                     <p className="text-white/50 text-xs">Change your message</p>
                   </div>
                 </button>
@@ -759,7 +753,7 @@ const ReelCommentsSheet: React.FC<{
                     <i className="fas fa-trash-alt"></i>
                   </div>
                   <div className="text-left">
-                    <p className="font-bold text-sm">Delete Comment</p>
+                    <p className="font-bold text-sm">Delete</p>
                     <p className="text-red-300/60 text-xs">Remove it permanently</p>
                   </div>
                 </button>
@@ -782,13 +776,13 @@ const ReelCommentsSheet: React.FC<{
           <div className="w-full max-w-[450px] mx-auto bg-[#121212] rounded-t-[32px] border-t border-white/10 p-5 animate-slide-up">
             <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
 
-            <h3 className="text-white text-lg font-black mb-4">Edit Comment</h3>
+            <h3 className="text-white text-lg font-black mb-4">Edit Discussion</h3>
 
             <textarea
               value={editingText}
               onChange={(e) => setEditingText(e.target.value)}
-              className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none"
-              placeholder="Update comment..."
+              className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none text-[17px]"
+              placeholder="Update discussion..."
             />
 
             {/* Emoji bar for edit modal */}
@@ -2135,7 +2129,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
             <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalViews)}</p>
           </div>
           <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Likes</p>
+            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Reactions</p>
             <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalLikes)}</p>
           </div>
           <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
@@ -2334,7 +2328,7 @@ const MusicPicker: React.FC<MusicPickerProps> = ({
           <i className="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-white/20"></i>
           <input 
             type="text"
-            className="w-full bg-white/5 border border-white/5 rounded-2xl p-4 pl-12 text-white outline-none focus:ring-2 focus:ring-[#1877F2]/50 font-medium transition-all"
+            className="w-full bg-white/5 border border-white/5 rounded-2xl p-4 pl-12 text-white outline-none focus:ring-2 focus:ring-[#1877F2]/50 font-medium transition-all text-[17px]"
             placeholder="Search UNERA Sounds..."
             value={musicSearch}
             onChange={(e) => setMusicSearch(e.target.value)}
@@ -3165,21 +3159,21 @@ const EditReelModal: React.FC<{
         <textarea
           value={caption}
           onChange={(e) => setCaption(e.target.value)}
-          className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none"
+          className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none text-[17px]"
           placeholder="Update caption..."
         />
 
         <input
           value={location}
           onChange={(e) => setLocation(e.target.value)}
-          className="w-full mt-4 bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none"
+          className="w-full mt-4 bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none text-[17px]"
           placeholder="Location"
         />
 
         <select
           value={visibility}
           onChange={(e) => setVisibility(e.target.value as 'public' | 'followers' | 'private')}
-          className="w-full mt-4 bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none"
+          className="w-full mt-4 bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none text-[17px]"
         >
           <option value="public">🌍 Public</option>
           <option value="followers">👥 Followers</option>
@@ -3292,6 +3286,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [editingReelLocation, setEditingReelLocation] = useState('');
   const [editingReelVisibility, setEditingReelVisibility] = useState<'public' | 'followers' | 'private'>('public');
   const [savingReelEdit, setSavingReelEdit] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   
   // TikTok loading states
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
@@ -3792,6 +3787,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [menuReelId, onDeleteReel]);
 
+  const handleReaction = (reelId: number, emoji: string) => {
+    onReact(reelId, emoji as any);
+    setShowReactionPicker(null);
+  };
+
   return (
     <div
       className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
@@ -3848,15 +3848,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               <p className="text-[#B0B3B8] text-sm mb-8 text-center">
                 Be the first to create a viral moment!
               </p>
-              {currentUser && (
-                <button 
-                  onClick={onCreateReelClick}
-                  className="bg-[#1877F2] text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2"
-                >
-                  <i className="fas fa-plus"></i>
-                  Create Your First Reel
-                </button>
-              )}
             </div>
           ) : (
             reels.map((reel: Reel, reelIndex) => {
@@ -3866,7 +3857,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               const isFollowing = checkIsFollowing(Number(author.id));
               const isLoadingFollow = !!followLoading[Number(author.id)];
               
-              const hasLiked = reel.reactions?.some(r => 
+              const hasReacted = reel.reactions?.some(r => 
                 Number(r.userId ?? r.user_id) === Number(currentUser?.id)
               );
 
@@ -3923,7 +3914,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       }}
                     />
 
-                    {/* BOTTOM ACTION BAR - Like, Comment, Share at the bottom */}
+                    {/* BOTTOM ACTION BAR - React, Discuss, Share at the bottom */}
                     <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4 pointer-events-none">
                       {/* Profile and caption section - pointer-events-auto for buttons */}
                       <div className="mb-4 pointer-events-auto">
@@ -3937,7 +3928,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                           <div>
                             <div className="flex items-center gap-2">
                               <span 
-                                className="text-white font-bold text-sm cursor-pointer hover:underline" 
+                                className="text-white font-bold text-[22px] cursor-pointer hover:underline" 
                                 onClick={() => onProfileClick(author.id)}
                               >
                                 {author.name}
@@ -3962,14 +3953,14 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
                         {/* Caption */}
                         {!!reel.caption && (
-                          <p className="text-white text-sm leading-snug line-clamp-2 mb-2">
+                          <p className="text-white text-[22px] leading-snug line-clamp-2 mb-2">
                             {reel.caption}
                           </p>
                         )}
 
                         {/* Sound info */}
                         <div 
-                          className="flex items-center gap-2 text-white/90 text-sm cursor-pointer w-fit"
+                          className="flex items-center gap-2 text-white/90 text-[22px] cursor-pointer w-fit"
                           onClick={() => handleSoundClick(reel)}
                         >
                           <i className="fas fa-music text-[#1877F2]" />
@@ -3981,16 +3972,34 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
                       {/* Action buttons - horizontal layout at bottom */}
                       <div className="flex items-center justify-around py-2 pointer-events-auto">
-                        {/* Like button */}
-                        <button 
-                          onClick={() => onReact(reel.id, "like")}
-                          className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
-                        >
-                          <i className={`fas fa-thumbs-up text-lg ${hasLiked ? "text-[#1877F2]" : "text-white"}`} />
-                          <span className="text-white text-sm font-bold">{formatCount(reel.reactions?.length || 0)}</span>
-                        </button>
+                        {/* React button with reaction picker */}
+                        <div className="relative">
+                          <button 
+                            onClick={() => setShowReactionPicker(showReactionPicker === reel.id ? null : reel.id)}
+                            className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
+                          >
+                            <i className={`fas fa-smile text-lg ${hasReacted ? "text-[#1877F2]" : "text-white"}`} />
+                            <span className="text-white text-sm font-bold">{formatCount(reel.reactions?.length || 0)}</span>
+                          </button>
 
-                        {/* Comment button */}
+                          {showReactionPicker === reel.id && (
+                            <div className="absolute bottom-full left-0 mb-2 bg-[#242526] rounded-2xl p-3 border border-white/10 shadow-2xl z-50">
+                              <div className="flex overflow-x-auto gap-2 max-w-[300px] scrollbar-hide pb-1">
+                                {REACTION_EMOJIS.map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    onClick={() => handleReaction(reel.id, emoji)}
+                                    className="text-2xl hover:scale-125 transition-transform flex-shrink-0"
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Discuss button */}
                         <button 
                           onClick={() => {
                             setActiveReelId(reel.id);
@@ -4053,40 +4062,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         />
       )}
       
-      {/* Create reel button - clearly visible and fully functional */}
-      {currentUser && (
-        <div className="absolute bottom-24 right-8 z-[10000]">
-          {/* Selected sound indicator - always visible when sound is selected */}
-          {selectedSound?.audioUrl && (
-            <div className="mb-4 bg-[#242526] rounded-lg p-3 shadow-xl border border-[#3A3B3C] animate-fade-in">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-6 h-6 bg-[#1877F2] rounded-full flex items-center justify-center">
-                  <i className="fas fa-music text-white text-xs"></i>
-                </div>
-                <p className="text-white text-xs font-medium truncate max-w-[150px]">
-                  {selectedSound.songName}
-                </p>
-              </div>
-              <button 
-                onClick={onCreateReelClick}
-                className="w-full bg-[#1877F2] text-white px-4 py-2 rounded-md text-xs font-semibold hover:bg-[#166FE5] transition-colors active:scale-95"
-              >
-                Create Reel
-              </button>
-            </div>
-          )}
-          
-          {/* Main create button */}
-          <button
-            onClick={onCreateReelClick}
-            className="w-14 h-14 bg-[#1877F2] rounded-full flex items-center justify-center text-white shadow-lg hover:scale-110 active:scale-95 transition-all border-4 border-[#242526] hover:shadow-[0_0_20px_rgba(24,119,242,0.5)]"
-            aria-label="Create new reel"
-          >
-            <i className="fas fa-plus text-2xl"></i>
-          </button>
-        </div>
-      )}
-
       {/* Sound Detail View Modal */}
       {selectedSoundData && (
         <SoundDetailView
@@ -4199,11 +4174,6 @@ const styles = `
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
-}
-
-/* Ensure create button is always on top */
-.z-\\[10000\\] {
-  z-index: 10000;
 }
 `;
 
