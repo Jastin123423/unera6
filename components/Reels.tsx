@@ -177,6 +177,8 @@ const ReelCommentsSheet: React.FC<{
   onEditComment,
   onDeleteComment 
 }) => {
+  const COMMENT_EMOJIS = ['😀', '😂', '😍', '🔥', '👏', '❤️', '👍', '🎉', '😮', '😢', '🙌', '🥰'];
+
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -184,6 +186,8 @@ const ReelCommentsSheet: React.FC<{
   const [menuComment, setMenuComment] = useState<any | null>(null);
   const [editingComment, setEditingComment] = useState<any | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [showEmojiBar, setShowEmojiBar] = useState(false);
+  const [commentLikes, setCommentLikes] = useState<Record<number, boolean>>({});
   
   const sheetRef = useRef<HTMLDivElement>(null);
   const startYRef = useRef<number>(0);
@@ -198,6 +202,7 @@ const ReelCommentsSheet: React.FC<{
       setReplyTo(null);
       setSelectedImage(null);
       setImagePreview(null);
+      setShowEmojiBar(false);
     }
   }, [isOpen]);
 
@@ -228,7 +233,11 @@ const ReelCommentsSheet: React.FC<{
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
+    if (imagePreview) {
+      URL.revokeObjectURL(imagePreview);
+    }
+
     setSelectedImage(file);
     setImagePreview(URL.createObjectURL(file));
   };
@@ -247,8 +256,10 @@ const ReelCommentsSheet: React.FC<{
       
       setText('');
       setReplyTo(null);
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
       setSelectedImage(null);
       setImagePreview(null);
+      setShowEmojiBar(false);
     } catch (error) {
       console.error('Failed to add comment:', error);
     }
@@ -306,6 +317,21 @@ const ReelCommentsSheet: React.FC<{
     }
   };
 
+  const toggleCommentLike = (commentId: number) => {
+    setCommentLikes(prev => ({
+      ...prev,
+      [commentId]: !prev[commentId],
+    }));
+  };
+
+  const insertEmoji = (emoji: string) => {
+    setText(prev => prev + emoji);
+  };
+
+  const insertEditEmoji = (emoji: string) => {
+    setEditingText(prev => prev + emoji);
+  };
+
   if (!isOpen) return null;
 
   // Filter root comments (no parent)
@@ -361,6 +387,18 @@ const ReelCommentsSheet: React.FC<{
         </div>
         
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Reply context */}
+          {replyTo && (
+            <div className="mb-4 p-4 rounded-2xl bg-white/5 border border-white/10">
+              <p className="text-[11px] uppercase tracking-[2px] text-[#1877F2] font-black mb-1">
+                Replying in thread
+              </p>
+              <p className="text-white/70 text-[14px] line-clamp-2">
+                {replyTo.text || 'Image comment'}
+              </p>
+            </div>
+          )}
+
           {(replyTo ? [replyTo, ...getReplies(replyTo.id)] : rootComments).map((c: any) => {
             const author = users.find((u: any) => Number(u.id) === Number(c.userId ?? c.user_id));
             const isReply = c.parentId || c.parent_comment_id || c.parent_id;
@@ -394,7 +432,7 @@ const ReelCommentsSheet: React.FC<{
                     onMouseUp={cancelLongPress}
                     onMouseLeave={cancelLongPress}
                   >
-                    <p className="text-[#E4E6EB] text-[15px] leading-snug font-medium">
+                    <p className="text-[#E4E6EB] text-[17px] leading-[1.45] font-medium whitespace-pre-wrap break-words">
                       {c.text}
                     </p>
                     
@@ -408,13 +446,26 @@ const ReelCommentsSheet: React.FC<{
                     )}
                   </div>
                   
-                  {/* Reply button */}
-                  <button 
-                    onClick={() => setReplyTo(c)}
-                    className="mt-2 text-xs text-white/40 font-bold hover:text-white/60"
-                  >
-                    Reply
-                  </button>
+                  {/* Action buttons - Like and Reply */}
+                  <div className="mt-2 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <button
+                        onClick={() => toggleCommentLike(c.id)}
+                        className={`text-[12px] font-bold transition-colors ${
+                          commentLikes[c.id] ? 'text-[#1877F2]' : 'text-white/40 hover:text-white/70'
+                        }`}
+                      >
+                        {commentLikes[c.id] ? 'Remove Like' : 'Like'}
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => setReplyTo(c)}
+                      className="text-[12px] font-bold text-white/40 hover:text-white/70 transition-colors"
+                    >
+                      Reply
+                    </button>
+                  </div>
                 </div>
                 <i className="far fa-heart text-[#B0B3B8] text-sm mt-1"></i>
               </div>
@@ -443,6 +494,7 @@ const ReelCommentsSheet: React.FC<{
               <img src={imagePreview} className="h-20 rounded-lg border border-white/10" alt="" />
               <button 
                 onClick={() => {
+                  if (imagePreview) URL.revokeObjectURL(imagePreview);
                   setSelectedImage(null);
                   setImagePreview(null);
                 }}
@@ -453,25 +505,52 @@ const ReelCommentsSheet: React.FC<{
             </div>
           )}
           
+          {/* Emoji bar */}
+          {showEmojiBar && (
+            <div className="mb-3 flex flex-wrap gap-2 bg-white/5 border border-white/10 rounded-2xl p-3">
+              {COMMENT_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => insertEmoji(emoji)}
+                  className="text-2xl leading-none active:scale-90 transition-transform hover:bg-white/10 p-1 rounded-lg"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+          
           <div className="flex gap-3">
-            <input 
-              type="file" 
+            <input
+              type="file"
               ref={fileInputRef}
-              className="hidden" 
+              className="hidden"
               accept="image/*"
               onChange={handleImageSelect}
             />
+
             <button
               onClick={() => fileInputRef.current?.click()}
               className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white"
             >
               <i className="fas fa-image"></i>
             </button>
-            
-            <input 
-              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 text-sm text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all" 
-              placeholder={replyTo ? "Write a reply..." : "Add a comment..."} 
-              value={text} 
+
+            <button
+              onClick={() => setShowEmojiBar(prev => !prev)}
+              className={`w-12 h-12 rounded-2xl border flex items-center justify-center transition-colors ${
+                showEmojiBar
+                  ? 'bg-[#1877F2]/15 border-[#1877F2]/40 text-[#1877F2]'
+                  : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
+              }`}
+            >
+              <i className="far fa-smile"></i>
+            </button>
+
+            <input
+              className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 text-[15px] text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all"
+              placeholder={replyTo ? "Write a reply..." : "Add a comment..."}
+              value={text}
               onChange={e => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && (text.trim() || selectedImage)) {
@@ -480,8 +559,9 @@ const ReelCommentsSheet: React.FC<{
                 }
               }}
             />
-            <button 
-              onClick={handleSubmitComment} 
+
+            <button
+              onClick={handleSubmitComment}
               className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
               disabled={!text.trim() && !selectedImage}
             >
@@ -503,12 +583,37 @@ const ReelCommentsSheet: React.FC<{
           >
             <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
 
+            {/* Like/Remove Like button */}
+            <button
+              onClick={() => {
+                toggleCommentLike(menuComment.id);
+                setMenuComment(null);
+              }}
+              className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+            >
+              <div className={`w-11 h-11 rounded-full flex items-center justify-center ${
+                commentLikes[menuComment.id]
+                  ? 'bg-[#1877F2]/15 text-[#1877F2]'
+                  : 'bg-white/10 text-white/80'
+              }`}>
+                <i className="fas fa-thumbs-up"></i>
+              </div>
+              <div className="text-left">
+                <p className="font-bold text-sm">
+                  {commentLikes[menuComment.id] ? 'Remove Like' : 'Like'}
+                </p>
+                <p className="text-white/50 text-xs">
+                  {commentLikes[menuComment.id] ? 'Undo your reaction' : 'React to this comment'}
+                </p>
+              </div>
+            </button>
+
             <button
               onClick={() => {
                 setReplyTo(menuComment);
                 setMenuComment(null);
               }}
-              className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+              className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
             >
               <div className="w-11 h-11 rounded-full bg-[#1877F2]/15 flex items-center justify-center text-[#1877F2]">
                 <i className="fas fa-reply"></i>
@@ -573,6 +678,19 @@ const ReelCommentsSheet: React.FC<{
               className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none"
               placeholder="Update comment..."
             />
+
+            {/* Emoji bar for edit modal */}
+            <div className="mt-3 flex flex-wrap gap-2 bg-white/5 border border-white/10 rounded-2xl p-3">
+              {COMMENT_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => insertEditEmoji(emoji)}
+                  className="text-2xl leading-none active:scale-90 transition-transform hover:bg-white/10 p-1 rounded-lg"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
 
             <div className="flex gap-3 mt-5">
               <button
