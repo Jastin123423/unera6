@@ -6,7 +6,7 @@ type Env = { DB: D1Database };
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id',
 };
 
 const json = (data: any, status = 200) =>
@@ -25,7 +25,8 @@ const toNum = (v: any, fallback = 0) => {
 };
 
 const toText = (v: any) => {
-  const s = String(v ?? '').trim();
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
   return s.length ? s : null;
 };
 
@@ -58,9 +59,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => ({} as any));
 
-    const user_id = toNum(body.user_id, 0);
-    const video_url = String(body.video_url ?? '').trim();
+    const headerUserId = toNum(request.headers.get('x-user-id'), 0);
+    const bodyUserId = toNum(body.user_id, 0);
+    const user_id = headerUserId || bodyUserId || 0;
 
+    const video_url = String(body.video_url ?? '').trim();
     const thumbnail_url = toText(body.thumbnail_url);
     const caption = toText(body.caption);
     const song_name = toText(body.song_name) ?? 'Original Sound';
@@ -86,6 +89,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'user_id and video_url are required' }, 400);
     }
 
+    const user = await env.DB
+      .prepare(`SELECT id FROM users WHERE id = ? LIMIT 1`)
+      .bind(user_id)
+      .first();
+
+    if (!user) {
+      return json({ success: false, error: 'User not found' }, 404);
+    }
+
     const result = await env.DB.prepare(
       `
       INSERT INTO reels (
@@ -100,12 +112,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         visibility,
         location,
         views,
-        shares,
         song_id,
+        sound_key,
         sound_id,
-        sound_key
+        shares
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)
       `
     )
       .bind(
@@ -120,8 +132,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         visibility,
         location,
         song_id,
-        sound_id,
-        sound_key
+        sound_key,
+        sound_id
       )
       .run();
 
@@ -235,7 +247,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         u.is_verified
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
-      ORDER BY r.created_at DESC
+      ORDER BY r.created_at DESC, r.id DESC
       LIMIT 200
       `
     ).all();
@@ -261,10 +273,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const commentsRes = await env.DB.prepare(
       `
-      SELECT id, reel_id, user_id, text, created_at
+      SELECT
+        id,
+        reel_id,
+        user_id,
+        parent_comment_id,
+        text,
+        image_url,
+        created_at
       FROM reel_comments
       WHERE reel_id IN (${placeholders})
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC, id DESC
       `
     )
       .bind(...reelIds)
@@ -289,6 +308,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     for (const r of reactions) {
       const rid = toNum((r as any).reel_id, 0);
       if (!rid) continue;
+
       if (!reactionsByReel.has(rid)) reactionsByReel.set(rid, []);
       reactionsByReel.get(rid)!.push({
         user_id: toNum((r as any).user_id, 0),
@@ -300,12 +320,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     for (const c of comments) {
       const rid = toNum((c as any).reel_id, 0);
       if (!rid) continue;
+
       if (!commentsByReel.has(rid)) commentsByReel.set(rid, []);
       commentsByReel.get(rid)!.push({
         id: toNum((c as any).id, 0),
         reel_id: rid,
         user_id: toNum((c as any).user_id, 0),
+        parent_comment_id:
+          (c as any).parent_comment_id == null
+            ? null
+            : toNum((c as any).parent_comment_id, 0),
         text: String((c as any).text || ''),
+        image_url: pickFirst((c as any).image_url),
         created_at: (c as any).created_at,
       });
     }
