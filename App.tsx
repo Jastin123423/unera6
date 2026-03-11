@@ -1,5 +1,6 @@
-// App.tsx - Complete file with updated Recorder integration
-// UPDATED: Separated Photo/Video buttons and increased suggestion card sizes
+// App.tsx - Complete file with updated Reels integration
+// UPDATED: Enhanced Reels with full comment support (reply, edit, delete, images)
+// and reel owner menu (edit, delete)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -770,7 +771,9 @@ const normalizeUser = (u: any): User => {
   } as any;
 };
 
-/** Normalize reel data with trimmed audio support */
+/**
+ * Normalize reel data with trimmed audio support and full comment structure
+ */
 const normalizeReel = (r: any): Reel => {
   const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
   const userId = safeNumber(r?.user_id ?? r?.userId ?? 0);
@@ -805,7 +808,19 @@ const normalizeReel = (r: any): Reel => {
     songId: r?.song_id ?? r?.songId ?? null,
     soundKey: soundKey,
     reactions: safeArray(r?.reactions),
-    comments: safeArray(r?.comments),
+    comments: safeArray(r?.comments).map((c: any) => ({
+      ...c,
+      id: safeNumber(c?.id ?? 0),
+      reel_id: safeNumber(c?.reel_id ?? c?.reelId ?? resolvedId),
+      user_id: safeNumber(c?.user_id ?? c?.userId ?? 0),
+      parent_comment_id:
+        c?.parent_comment_id == null && c?.parentId == null && c?.parent_id == null
+          ? null
+          : safeNumber(c?.parent_comment_id ?? c?.parentId ?? c?.parent_id ?? 0),
+      text: String(c?.text ?? ''),
+      image_url: c?.image_url ?? c?.imageUrl ?? '',
+      created_at: c?.created_at ?? c?.createdAt ?? new Date().toISOString(),
+    })),
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
     isTrimmedAudio: isTrimmedAudio || legacyIsTrimmed,
     author: author,
@@ -815,6 +830,7 @@ const normalizeReel = (r: any): Reel => {
     thumbnail_url: r?.thumbnail_url || r?.cover_url,
     reactions_count: safeNumber(r?.reactions_count ?? r?.reactions?.length ?? 0),
     views_count: safeNumber(r?.views_count ?? r?.views ?? 0),
+    comments_count: safeNumber(r?.comments_count ?? r?.comments?.length ?? 0),
   } as any;
 };
 
@@ -1345,7 +1361,7 @@ async function recordPlay(track: AudioTrack, userId: any) {
 }
 
 // ============================================================================
-// ✅ REEL FEED INTEGRATION - ONLY CHANGE IS HERE
+// ✅ REEL FEED INTEGRATION - ENHANCED WITH FULL COMMENT SUPPORT
 // ============================================================================
 
 /**
@@ -1618,8 +1634,6 @@ export default function App() {
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showCreateReelModal, setShowCreateReelModal] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
-
-  // ✅ UPDATED: Recorder state
   const [showRecorder, setShowRecorder] = useState(false);
 
   const [activeSharePost, setActiveSharePost] = useState<any>(null);
@@ -2839,23 +2853,239 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchReels]);
 
-  const commentOnReel = useCallback(async (reelId: number, text: string) => {
+  // ============================================================================
+  // ✅ ENHANCED: commentOnReel with full support for replies, images, and nested structure
+  // ============================================================================
+  const commentOnReel = useCallback(async (
+    reelId: number,
+    payload: {
+      text: string;
+      parentId?: number | null;
+      imageFile?: File | null;
+    }
+  ) => {
     if (!requireAuth('Commenting on reels')) return;
     if (!currentUser) return;
 
     try {
-      await apiFetch(`/api/reels/${reelId}/comments`, {
+      let image_url = '';
+
+      if (payload.imageFile) {
+        image_url = await ensureR2Url(
+          payload.imageFile,
+          'reel-comments',
+          `comment-${Date.now()}.jpg`
+        );
+      }
+
+      const data = await apiFetch(`/api/reel-comments`, {
         method: 'POST',
-        body: JSON.stringify({ text, user_id: currentUser.id }),
+        body: JSON.stringify({
+          reel_id: reelId,
+          user_id: currentUser.id,
+          text: payload.text || '',
+          parent_comment_id: payload.parentId ?? null,
+          image_url: image_url || '',
+        }),
       });
-      
-      fetchReels().catch(() => {});
-      
+
+      const createdComment = {
+        ...(data?.comment || {}),
+        id: safeNumber(data?.comment?.id ?? 0),
+        reel_id: safeNumber(data?.comment?.reel_id ?? reelId),
+        user_id: safeNumber(data?.comment?.user_id ?? currentUser.id),
+        parent_comment_id:
+          data?.comment?.parent_comment_id == null
+            ? null
+            : safeNumber(data?.comment?.parent_comment_id ?? 0),
+        text: String(data?.comment?.text ?? payload.text ?? ''),
+        image_url: data?.comment?.image_url ?? image_url ?? '',
+        created_at: data?.comment?.created_at ?? new Date().toISOString(),
+      };
+
+      setReels(prev =>
+        safeArray(prev).map(reel =>
+          reel.id === reelId
+            ? {
+                ...reel,
+                comments: [createdComment, ...safeArray(reel.comments)],
+                comments_count: safeNumber(reel.comments_count ?? reel.comments?.length ?? 0) + 1,
+              }
+            : reel
+        )
+      );
     } catch (error) {
       console.error('Failed to comment on reel:', error);
       setLoginError('Failed to post comment');
     }
-  }, [currentUser, requireAuth, fetchReels]);
+  }, [currentUser, requireAuth]);
+
+  // ============================================================================
+  // ✅ NEW: editCommentOnReel - Allows users to edit their own comments
+  // ============================================================================
+  const editCommentOnReel = useCallback(async (
+    commentId: number,
+    payload: {
+      text?: string;
+      imageFile?: File | null;
+      image_url?: string;
+    }
+  ) => {
+    if (!requireAuth('Editing comments')) return;
+    if (!currentUser) return;
+
+    try {
+      let image_url = payload.image_url || '';
+
+      if (payload.imageFile) {
+        image_url = await ensureR2Url(
+          payload.imageFile,
+          'reel-comments',
+          `comment-edit-${Date.now()}.jpg`
+        );
+      }
+
+      const data = await apiFetch(`/api/reel-comments`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          id: commentId,
+          user_id: currentUser.id,
+          text: payload.text ?? '',
+          image_url,
+        }),
+      });
+
+      const updated = data?.comment || {};
+
+      setReels(prev =>
+        safeArray(prev).map(reel => ({
+          ...reel,
+          comments: safeArray(reel.comments).map((comment: any) =>
+            Number(comment.id) === Number(commentId)
+              ? {
+                  ...comment,
+                  ...updated,
+                  text: String(updated?.text ?? payload.text ?? comment.text ?? ''),
+                  image_url: updated?.image_url ?? image_url ?? comment.image_url ?? '',
+                }
+              : comment
+          ),
+        }))
+      );
+    } catch (error) {
+      console.error('Failed to edit comment:', error);
+      setLoginError('Failed to edit comment');
+    }
+  }, [currentUser, requireAuth]);
+
+  // ============================================================================
+  // ✅ NEW: deleteCommentOnReel - Allows users to delete their own comments
+  // ============================================================================
+  const deleteCommentOnReel = useCallback(async (commentId: number) => {
+    if (!requireAuth('Deleting comments')) return;
+    if (!currentUser) return;
+
+    try {
+      await apiFetch(`/api/reel-comments?id=${commentId}&user_id=${currentUser.id}`, {
+        method: 'DELETE',
+      });
+
+      setReels(prev =>
+        safeArray(prev).map(reel => {
+          const before = safeArray(reel.comments);
+          const filtered = before.filter((comment: any) => {
+            const parentId = comment?.parent_comment_id ?? comment?.parentId ?? comment?.parent_id;
+            return Number(comment.id) !== Number(commentId) &&
+                   Number(parentId) !== Number(commentId);
+          });
+
+          const removedCount = before.length - filtered.length;
+
+          return removedCount > 0
+            ? {
+                ...reel,
+                comments: filtered,
+                comments_count: Math.max(
+                  0,
+                  safeNumber(reel.comments_count ?? before.length) - removedCount
+                ),
+              }
+            : reel;
+        })
+      );
+    } catch (error) {
+      console.error('Failed to delete comment:', error);
+      setLoginError('Failed to delete comment');
+    }
+  }, [currentUser, requireAuth]);
+
+  // ============================================================================
+  // ✅ NEW: editReel - Allows users to edit their own reels
+  // ============================================================================
+  const editReel = useCallback(async (
+    reelId: number,
+    payload: {
+      caption?: string;
+      visibility?: string;
+      location?: string;
+      thumbnail_url?: string;
+    }
+  ) => {
+    if (!requireAuth('Editing reels')) return;
+    if (!currentUser) return;
+
+    try {
+      const data = await apiFetch(`/api/reels/${reelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          user_id: currentUser.id,
+          caption: payload.caption ?? '',
+          visibility: payload.visibility ?? 'public',
+          location: payload.location ?? '',
+          thumbnail_url: payload.thumbnail_url ?? '',
+        }),
+      });
+
+      const updated = normalizeReel(data?.reel || {});
+
+      setReels(prev =>
+        safeArray(prev).map(reel =>
+          reel.id === reelId
+            ? {
+                ...reel,
+                ...updated,
+                author: reel.author,
+                author_name: reel.author_name,
+                avatar: reel.avatar,
+                verified: reel.verified,
+              }
+            : reel
+        )
+      );
+    } catch (error) {
+      console.error('Failed to edit reel:', error);
+      setLoginError('Failed to edit reel');
+    }
+  }, [currentUser, requireAuth]);
+
+  // ============================================================================
+  // ✅ NEW: deleteReel - Allows users to delete their own reels
+  // ============================================================================
+  const deleteReel = useCallback(async (reelId: number) => {
+    if (!requireAuth('Deleting reels')) return;
+    if (!currentUser) return;
+
+    try {
+      await apiFetch(`/api/reels/${reelId}?user_id=${currentUser.id}`, {
+        method: 'DELETE',
+      });
+
+      setReels(prev => safeArray(prev).filter(reel => Number(reel.id) !== Number(reelId)));
+    } catch (error) {
+      console.error('Failed to delete reel:', error);
+      setLoginError('Failed to delete reel');
+    }
+  }, [currentUser, requireAuth]);
 
   const shareReel = useCallback(async (reelId: number, type: 'feed' | 'copy') => {
     if (!requireAuth('Sharing reels')) return;
@@ -5357,6 +5587,10 @@ export default function App() {
               }}
               onReact={reactToReel}
               onComment={commentOnReel}
+              onEditComment={editCommentOnReel}
+              onDeleteComment={deleteCommentOnReel}
+              onEditReel={editReel}
+              onDeleteReel={deleteReel}
               onShare={shareReel}
               onFollow={followUser}
               onUseSound={useSoundFromReel}
