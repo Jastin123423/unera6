@@ -4,7 +4,7 @@ type Env = { DB: D1Database };
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id',
 };
 
@@ -31,157 +31,92 @@ export const onRequestOptions: PagesFunction = async () =>
 
 /**
  * POST /api/reel-comments
- * Body JSON:
+ * Body:
  * {
- *   reel_id: number,
- *   text?: string,
- *   user_id?: number,
- *   parent_comment_id?: number | null,
- *   image_url?: string
+ *   reel_id,
+ *   text?,
+ *   user_id?,
+ *   parent_comment_id?,
+ *   image_url?
  * }
- *
- * Note:
- * - emoji works automatically inside text
- * - image upload file itself should be uploaded first to /api/upload
- *   then send returned image_url here
  */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    const contentType = request.headers.get('content-type') || '';
-    let body: any = {};
-
-    if (contentType.includes('application/json')) {
-      body = await request.json().catch(() => ({}));
-    } else {
-      body = await request.json().catch(() => ({}));
-    }
-
+    const body = await request.json().catch(() => ({}));
     const reel_id = toNum(body.reel_id, 0);
     const headerUserId = toNum(request.headers.get('x-user-id'), 0);
     const bodyUserId = toNum(body.user_id, 0);
     const user_id = headerUserId || bodyUserId || 0;
-
     const text = cleanText(body.text);
     const image_url = cleanUrl(body.image_url);
-    const parent_comment_id = body.parent_comment_id == null
-      ? null
-      : toNum(body.parent_comment_id, 0);
+    const parent_comment_id = body.parent_comment_id == null ? null : toNum(body.parent_comment_id, 0);
 
-    if (!reel_id) {
-      return json({ success: false, error: 'reel_id is required' }, 400);
-    }
+    if (!reel_id) return json({ success: false, error: 'reel_id is required' }, 400);
+    if (!user_id) return json({ success: false, error: 'user_id is required' }, 400);
+    if (!text && !image_url) return json({ success: false, error: 'text or image_url is required' }, 400);
+    if (text.length > 2000) return json({ success: false, error: 'Comment is too long' }, 400);
 
-    if (!user_id) {
-      return json({ success: false, error: 'user_id is required' }, 400);
-    }
+    const reel = await env.DB.prepare(
+      `SELECT id FROM reels WHERE id = ? LIMIT 1`
+    ).bind(reel_id).first();
 
-    if (!text && !image_url) {
-      return json({ success: false, error: 'text or image_url is required' }, 400);
-    }
+    if (!reel) return json({ success: false, error: 'Reel not found' }, 404);
 
-    if (text.length > 2000) {
-      return json({ success: false, error: 'Comment is too long' }, 400);
-    }
+    const user = await env.DB.prepare(
+      `SELECT id FROM users WHERE id = ? LIMIT 1`
+    ).bind(user_id).first();
 
-    const reel = await env.DB
-      .prepare(`SELECT id FROM reels WHERE id = ? LIMIT 1`)
-      .bind(reel_id)
-      .first();
-
-    if (!reel) {
-      return json({ success: false, error: 'Reel not found' }, 404);
-    }
-
-    const user = await env.DB
-      .prepare(`SELECT id FROM users WHERE id = ? LIMIT 1`)
-      .bind(user_id)
-      .first();
-
-    if (!user) {
-      return json({ success: false, error: 'User not found' }, 404);
-    }
+    if (!user) return json({ success: false, error: 'User not found' }, 404);
 
     if (parent_comment_id) {
-      const parent = await env.DB
-        .prepare(
-          `SELECT id, reel_id
-           FROM reel_comments
-           WHERE id = ?
-           LIMIT 1`
-        )
-        .bind(parent_comment_id)
-        .first();
+      const parent = await env.DB.prepare(
+        `SELECT id, reel_id FROM reel_comments WHERE id = ? LIMIT 1`
+      ).bind(parent_comment_id).first();
 
-      if (!parent) {
-        return json({ success: false, error: 'Parent comment not found' }, 404);
-      }
-
+      if (!parent) return json({ success: false, error: 'Parent comment not found' }, 404);
       if (toNum((parent as any).reel_id, 0) !== reel_id) {
         return json({ success: false, error: 'Parent comment does not belong to this reel' }, 400);
       }
     }
 
-    const ins = await env.DB
-      .prepare(
-        `INSERT INTO reel_comments (
-          user_id,
-          reel_id,
-          parent_comment_id,
-          text,
-          image_url
-        )
-        VALUES (?, ?, ?, ?, ?)`
-      )
-      .bind(
+    const ins = await env.DB.prepare(
+      `
+      INSERT INTO reel_comments (
         user_id,
         reel_id,
         parent_comment_id,
         text,
-        image_url || null
+        image_url
       )
+      VALUES (?, ?, ?, ?, ?)
+      `
+    )
+      .bind(user_id, reel_id, parent_comment_id, text, image_url || null)
       .run();
 
     const comment_id = Number(ins.meta.last_row_id || 0);
 
-    const comment = await env.DB
-      .prepare(
-        `SELECT
-          rc.id,
-          rc.reel_id,
-          rc.user_id,
-          rc.parent_comment_id,
-          rc.text,
-          rc.image_url,
-          rc.created_at
-        FROM reel_comments rc
-        WHERE rc.id = ?
-        LIMIT 1`
-      )
-      .bind(comment_id)
-      .first();
-
-    const countRow = await env.DB
-      .prepare(
-        `SELECT COUNT(*) AS cnt
-         FROM reel_comments
-         WHERE reel_id = ?`
-      )
-      .bind(reel_id)
-      .first();
-
-    const comments_count = toNum((countRow as any)?.cnt, 0);
-
-    return json({
-      success: true,
-      comment: comment ?? {
-        id: comment_id,
+    const comment = await env.DB.prepare(
+      `
+      SELECT
+        id,
         reel_id,
         user_id,
         parent_comment_id,
         text,
-        image_url: image_url || null,
-      },
-      comments_count,
+        image_url,
+        created_at
+      FROM reel_comments
+      WHERE id = ?
+      LIMIT 1
+      `
+    )
+      .bind(comment_id)
+      .first();
+
+    return json({
+      success: true,
+      comment,
     });
   } catch (e: any) {
     return json({ success: false, error: e?.message || 'Server error' }, 500);
@@ -189,65 +124,122 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 };
 
 /**
- * GET /api/reel-comments?reel_id=123
+ * PATCH /api/reel-comments
+ * Body:
+ * {
+ *   id,
+ *   user_id?,
+ *   text?,
+ *   image_url?
+ * }
  */
-export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    const url = new URL(request.url);
-    const reel_id = toNum(url.searchParams.get('reel_id'), 0);
+    const body = await request.json().catch(() => ({}));
+    const id = toNum(body.id, 0);
+    const headerUserId = toNum(request.headers.get('x-user-id'), 0);
+    const bodyUserId = toNum(body.user_id, 0);
+    const user_id = headerUserId || bodyUserId || 0;
 
-    if (!reel_id) {
-      return json({ success: false, error: 'reel_id required' }, 400);
+    if (!id) return json({ success: false, error: 'comment id is required' }, 400);
+    if (!user_id) return json({ success: false, error: 'user_id is required' }, 400);
+
+    const existing = await env.DB.prepare(
+      `SELECT id, user_id FROM reel_comments WHERE id = ? LIMIT 1`
+    ).bind(id).first();
+
+    if (!existing) {
+      return json({ success: false, error: 'Comment not found' }, 404);
     }
 
-    const reel = await env.DB
-      .prepare(`SELECT id FROM reels WHERE id = ? LIMIT 1`)
-      .bind(reel_id)
-      .first();
-
-    if (!reel) {
-      return json({ success: false, error: 'Reel not found' }, 404);
+    if (toNum((existing as any).user_id, 0) !== user_id) {
+      return json({ success: false, error: 'Not allowed to edit this comment' }, 403);
     }
 
-    const res = await env.DB
-      .prepare(
-        `SELECT
-          rc.id,
-          rc.reel_id,
-          rc.user_id,
-          rc.parent_comment_id,
-          rc.text,
-          rc.image_url,
-          rc.created_at
-        FROM reel_comments rc
-        WHERE rc.reel_id = ?
-        ORDER BY
-          CASE WHEN rc.parent_comment_id IS NULL THEN 0 ELSE 1 END ASC,
-          COALESCE(rc.parent_comment_id, rc.id) DESC,
-          rc.created_at ASC,
-          rc.id ASC
-        LIMIT 500`
-      )
-      .bind(reel_id)
-      .all();
+    const updates: string[] = [];
+    const binds: any[] = [];
 
-    const comments = Array.isArray(res.results) ? res.results : [];
+    if (body.text !== undefined) {
+      const text = cleanText(body.text);
+      if (text.length > 2000) {
+        return json({ success: false, error: 'Comment is too long' }, 400);
+      }
+      updates.push(`text = ?`);
+      binds.push(text);
+    }
 
-    const countRow = await env.DB
-      .prepare(
-        `SELECT COUNT(*) AS cnt
-         FROM reel_comments
-         WHERE reel_id = ?`
-      )
-      .bind(reel_id)
-      .first();
+    if (body.image_url !== undefined) {
+      updates.push(`image_url = ?`);
+      binds.push(cleanUrl(body.image_url) || null);
+    }
 
-    const comments_count = toNum((countRow as any)?.cnt, comments.length);
+    if (!updates.length) {
+      return json({ success: false, error: 'Nothing to update' }, 400);
+    }
+
+    binds.push(id);
+
+    await env.DB.prepare(
+      `UPDATE reel_comments SET ${updates.join(', ')} WHERE id = ?`
+    ).bind(...binds).run();
+
+    const updated = await env.DB.prepare(
+      `
+      SELECT
+        id,
+        reel_id,
+        user_id,
+        parent_comment_id,
+        text,
+        image_url,
+        created_at
+      FROM reel_comments
+      WHERE id = ?
+      LIMIT 1
+      `
+    ).bind(id).first();
 
     return json({
       success: true,
-      comments,
-      comments_count,
+      comment: updated,
+    });
+  } catch (e: any) {
+    return json({ success: false, error: e?.message || 'Server error' }, 500);
+  }
+};
+
+/**
+ * DELETE /api/reel-comments?id=123
+ */
+export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
+  try {
+    const url = new URL(request.url);
+    const id = toNum(url.searchParams.get('id'), 0);
+    const headerUserId = toNum(request.headers.get('x-user-id'), 0);
+    const queryUserId = toNum(url.searchParams.get('user_id'), 0);
+    const user_id = headerUserId || queryUserId || 0;
+
+    if (!id) return json({ success: false, error: 'comment id is required' }, 400);
+    if (!user_id) return json({ success: false, error: 'user_id is required' }, 400);
+
+    const existing = await env.DB.prepare(
+      `SELECT id, user_id FROM reel_comments WHERE id = ? LIMIT 1`
+    ).bind(id).first();
+
+    if (!existing) {
+      return json({ success: false, error: 'Comment not found' }, 404);
+    }
+
+    if (toNum((existing as any).user_id, 0) !== user_id) {
+      return json({ success: false, error: 'Not allowed to delete this comment' }, 403);
+    }
+
+    await env.DB.prepare(`DELETE FROM reel_comments WHERE id = ?`).bind(id).run();
+
+    return json({
+      success: true,
+      deleted: true,
+      id,
     });
   } catch (e: any) {
     return json({ success: false, error: e?.message || 'Server error' }, 500);
