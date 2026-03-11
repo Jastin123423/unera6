@@ -1,6 +1,9 @@
-// UserProfile.tsx - Complete updated file with Videos & Stories tabs, Edit/Delete functionality
+
+
+// UserProfile.tsx - Complete updated file with fixes for state flicker issues
 import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
+import { ChatsList } from './ChatsList';
 import { MarketplaceContext } from '../App';
 
 // Import from Feed.tsx
@@ -27,27 +30,8 @@ import {
   getMarketplaceImages,
   getMarketplacePriceLine,
   normalizeEventFromFeed,
-  Post,
-  ReelFeedCard,
-  normalizeReelFromFeed,
-  formatReelCount
+  Post
 } from './Feed';
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-export interface Story {
-  id: number;
-  user_id: number;
-  media_url: string;
-  media_type: string;
-  caption?: string;
-  created_at?: string;
-  expires_at?: string;
-  views?: number;
-  user?: any;
-}
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -61,67 +45,6 @@ const safeStringHelper = (v: any, fallback = '') => (typeof v === 'string' ? v :
 const safePostIdHelper = (p: any) => safeNumberHelper(p?.id ?? p?.post_id ?? p?.postId, 0);
 const safeUserIdHelper = (u: any) => safeNumberHelper(u?.id ?? u?.user_id ?? u?.userId, 0);
 
-const normalizeStory = (story: any): Story => {
-  return {
-    id: safeNumberHelper(story?.id, 0),
-    user_id: safeNumberHelper(story?.user_id, 0),
-    media_url: safeStringHelper(story?.media_url || story?.image_url || story?.video_url),
-    media_type: safeStringHelper(story?.media_type || story?.type || 'image'),
-    caption: safeStringHelper(story?.caption || story?.text),
-    created_at: safeStringHelper(story?.created_at || story?.createdAt),
-    expires_at: safeStringHelper(story?.expires_at || story?.expiresAt),
-    views: safeNumberHelper(story?.views_count || story?.views, 0),
-    user: story?.user || {}
-  };
-};
-
-// ============================================================================
-// ICON COMPONENTS
-// ============================================================================
-const PlayIcon: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#fff" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="5 3 19 12 5 21 5 3" />
-  </svg>
-);
-
-const EyeIcon: React.FC<{ size?: number; color?: string }> = ({ size = 18, color = "#fff" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
-
-const FilmIcon: React.FC<{ size?: number; color?: string }> = ({ size = 48, color = "#3A3B3C" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
-    <line x1="7" y1="2" x2="7" y2="22" />
-    <line x1="17" y1="2" x2="17" y2="22" />
-    <line x1="2" y1="12" x2="22" y2="12" />
-    <line x1="2" y1="7" x2="7" y2="7" />
-    <line x1="2" y1="17" x2="7" y2="17" />
-    <line x1="17" y1="17" x2="22" y2="17" />
-    <line x1="17" y1="7" x2="22" y2="7" />
-  </svg>
-);
-
-const StoryIcon: React.FC<{ size?: number; color?: string }> = ({ size = 48, color = "#3A3B3C" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10" />
-    <polygon points="10 8 16 12 10 16 10 8" />
-  </svg>
-);
-
-const MoreHorizontalIcon: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#E4E6EB" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="1" />
-    <circle cx="19" cy="12" r="1" />
-    <circle cx="5" cy="12" r="1" />
-  </svg>
-);
-
-// ============================================================================
-// EDIT PROFILE MODAL
-// ============================================================================
 interface EditProfileModalProps {
   user: User;
   onClose: () => void;
@@ -157,7 +80,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ user, onClose, onSa
           <div>
             <label className="text-[#E4E6EB] font-bold text-sm block mb-1">Bio</label>
             <textarea
-              className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-3 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+              className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-3 text-[#E4E6EB] outline-none focus:border-[#1877F2] text-center"
               rows={3}
               value={bio}
               onChange={(e) => setBio(e.target.value)}
@@ -239,121 +162,69 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ user, onClose, onSa
   );
 };
 
-// ============================================================================
-// EDIT POST MODAL
-// ============================================================================
-interface EditPostModalProps {
-  post: PostType;
-  onSave: (postId: number, content: string) => void;
-  onClose: () => void;
-}
-
-const EditPostModal: React.FC<EditPostModalProps> = ({ post, onSave, onClose }) => {
-  const [content, setContent] = useState(post.content || '');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (content.trim()) {
-      onSave(post.id, content);
-      onClose();
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-[#242526] rounded-xl w-full max-w-lg">
-        <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
-          <h3 className="text-[#E4E6EB] text-xl font-bold">Edit Post</h3>
-          <button
-            onClick={onClose}
-            className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
-          >
-            <i className="fas fa-times text-[#B0B3B8] text-xl" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-4">
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            className="w-full bg-[#3A3B3C] text-[#E4E6EB] rounded-lg p-4 min-h-[200px] outline-none focus:ring-2 focus:ring-[#1877F2] resize-none"
-            placeholder="What's on your mind?"
-            autoFocus
-          />
-
-          <div className="flex gap-3 mt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-3 bg-[#3A3B3C] text-[#E4E6EB] rounded-lg font-semibold hover:bg-[#4E4F50] transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!content.trim()}
-              className="flex-1 py-3 bg-[#1877F2] text-white rounded-lg font-semibold hover:bg-[#166FE5] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Save Changes
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// MAIN USER PROFILE COMPONENT
-// ============================================================================
 interface UserProfileProps {
   user: User;
   currentUser: User | null;
   users: User[];
   posts: PostType[];
   reels?: Reel[];
-  stories?: any[];
   products?: Product[];
   groups?: Group[];
   brands?: Brand[];
   onProfileClick: (id: number) => void;
+
+  // FB-logic actions (caller blocks guests)
   onFollow: (id: number) => void;
   onReact: (postId: number, type: ReactionType) => void;
   onComment: (postId: number, text: string) => void;
   onShare: (postId: number, newShareCount: number) => void;
   onMessage: (id: number) => void;
+
   onCreatePost: (text: string, files: File[], meta?: any) => void;
   onUpdateProfileImage: (file: File) => void;
   onUpdateCoverImage: (file: File) => void;
   onUpdateUserDetails: (data: Partial<User>) => void;
   onDeletePost: (postId: number) => void;
   onEditPost: (postId: number, content: string) => void;
+
   getCommentAuthor?: (id: number) => User | undefined;
   onViewImage: (url: string) => void;
   onCreateEventClick?: () => void;
   onOpenComments: (postId: number) => void;
   onVideoClick: (post: PostType) => void;
   onPlayAudioTrack?: (track: AudioTrack) => void;
+
   onHashtagClick?: (tag: string) => void;
   onVerifyUser?: (id: number) => void;
   onRestrictUser?: (id: number, duration: "24h" | "5d" | "30d" | "manual") => void;
   onDeleteUser?: (id: number) => void;
   onMakeModerator?: (id: number, make: boolean) => void;
   onCreateStoryClick?: () => void;
+  
   fetchProfilePosts?: (profileUserId: number, viewerId: number | null) => Promise<PostType[]>;
+  
+  // Marketplace handlers
   onViewProduct?: (productId: number) => void;
   onViewProductFromPost?: (productId: number) => void;
   getProductData?: (productId: number) => any;
+  
+  // Audio player handler
   onOpenAudio?: (item: any) => void;
+
+  // RSVP handler for events
   onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+
+  // Chat control props
   onOpenChat?: (recipient: User) => void;
   isChatOpen?: boolean;
   activeChatRecipient?: User | null;
+
+  // ChatsList control props
   onOpenChatsList?: () => void;
   isChatsListOpen?: boolean;
+
+  // People suggestions
   peopleSuggestions?: any[];
-  onReelClick?: (reelId: number | string) => void;
-  onStoryClick?: (storyId: number | string) => void;
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -362,7 +233,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   users,
   posts,
   reels = [],
-  stories = [],
   products = [],
   groups = [],
   brands = [],
@@ -402,31 +272,30 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   onOpenChatsList,
   isChatsListOpen,
   peopleSuggestions = [],
-  onReelClick,
-  onStoryClick,
 }) => {
   // Get MarketplaceContext
   const marketplaceContext = useContext(MarketplaceContext);
   
-  const [activeTab, setActiveTab] = useState<'Posts' | 'Videos' | 'Stories' | 'About' | 'Followers' | 'Photos'>('Posts');
+  const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const [showEditPostModal, setShowEditPostModal] = useState(false);
-  const [editingPost, setEditingPost] = useState<PostType | null>(null);
-  const [openMenuPostId, setOpenMenuPostId] = useState<number | null>(null);
   const [loginError, setLoginError] = useState('');
   const [isLoadingPosts, setIsLoadingPosts] = useState(false);
+  
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false);
 
   // ========== FIX 1: STABLE FOLLOWERS CACHE ==========
+  // Prevents follower count from flickering (0 → 12 → 0 → 12)
   const [stableFollowers, setStableFollowers] = useState<number[]>(() =>
     safeArrayHelper<number>((user as any)?.followers || [])
   );
 
   // ========== FIX 2: TRACK PROPS SEEDING ==========
+  // Prevents posts from disappearing when parent passes empty array
   const seededFromPropsRef = useRef(false);
   
   // ========== FIX 3: TRACK INITIAL LOAD ==========
+  // Ensures we don't wipe posts on failed fetches
   const hasLoadedPostsRef = useRef(false);
 
   // ========== MODAL STATES ==========
@@ -447,6 +316,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const isSelf = isCurrentUser;
 
   // ========== FIX 1: STABLE FOLLOWERS EFFECT ==========
+  // Only update followers when we have real data, never overwrite with empty
   useEffect(() => {
     const next = safeArrayHelper<number>((user as any)?.followers || []);
 
@@ -454,8 +324,14 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       const prevHas = Array.isArray(prev) && prev.length > 0;
       const nextHas = Array.isArray(next) && next.length > 0;
 
+      // Accept update if:
+      // 1. Next has real data (always accept real data)
       if (nextHas) return next;
+      
+      // 2. First time loading and both are empty (initial state)
       if (!prevHas && !nextHas) return next;
+      
+      // 3. Otherwise keep previous stable value (prevent empty overwrites)
       return prev;
     });
   }, [user]);
@@ -482,33 +358,236 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [profilePosts, setProfilePosts] = useState<PostType[]>(() => safeArrayHelper(posts));
 
   // ========== FIX 2: GUARDED PROPS SYNC ==========
+  // Only seed from props when we actually got a non-empty list
+  // Never overwrite stable profilePosts with empty arrays
   useEffect(() => {
     const incoming = safeArrayHelper(posts);
 
+    // If props has real data, allow seeding (but only once unless it's better data)
     if (incoming.length > 0) {
       setProfilePosts(incoming);
       seededFromPropsRef.current = true;
       return;
     }
 
+    // If incoming is empty, ignore it (prevents "all posts disappear")
+    // unless we have never had any posts at all from any source
     if (!seededFromPropsRef.current && !hasLoadedPostsRef.current) {
       setProfilePosts(incoming);
     }
   }, [posts]);
 
-  // User reels - normalized from Feed
-  const userReels = useMemo(() => {
-    return safeArrayHelper<any>(reels)
-      .filter((reel: any) => Number(reel?.user_id) === Number(user?.id))
-      .map(reel => normalizeReelFromFeed(reel));
-  }, [reels, user?.id]);
+  // ========== API FETCH HELPER ==========
+  const apiFetch = async (url: string, options: RequestInit = {}) => {
+    const token = localStorage.getItem('unera_token');
+    const headers: HeadersInit = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    };
 
-  // User stories - normalized
-  const userStories = useMemo(() => {
-    return safeArrayHelper<any>(stories)
-      .filter((story: any) => Number(story?.user_id) === Number(user?.id))
-      .map(normalizeStory);
-  }, [stories, user?.id]);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const res = await fetch(url, { 
+        ...options, 
+        headers,
+        signal: controller.signal 
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = null;
+
+      try {
+        if (contentType.includes('application/json')) {
+          data = await res.json();
+        } else {
+          const text = await res.text();
+          try {
+            data = JSON.parse(text);
+          } catch {
+            data = { error: text };
+          }
+        }
+      } catch (e: any) {
+        data = { error: e?.message || 'Failed to parse response' };
+      }
+
+      if (!res.ok) {
+        const msg = data?.error || data?.message || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      return data;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  // ========== FETCH SINGLE POST FROM BACKEND ==========
+  const fetchPostById = useCallback(async (postId: number): Promise<any | null> => {
+    if (!postId) return null;
+    
+    try {
+      const viewerId = currentUser?.id ?? 0;
+      const url = `/api/posts/${postId}?viewerId=${viewerId}`;
+      console.log('📡 Fetching single post:', url);
+      
+      const data = await apiFetch(url);
+      return data;
+    } catch (error) {
+      console.error('❌ Failed to fetch post:', error);
+      return null;
+    }
+  }, [currentUser?.id]);
+
+  // ========== REFRESH A SINGLE POST IN THE PROFILE ==========
+  const refreshPost = useCallback(async (postId: number) => {
+    console.log('🔄 Refreshing post:', postId);
+    const updatedPost = await fetchPostById(postId);
+    
+    if (updatedPost) {
+      setProfilePosts(prev => 
+        prev.map(p => 
+          safePostIdHelper(p) === postId 
+            ? { 
+                ...p, 
+                ...updatedPost,
+                comments_count: updatedPost.comments_count || 0,
+                reactions_count: updatedPost.reactions_count || 0,
+                shares: updatedPost.shares || 0
+              } 
+            : p
+        )
+      );
+      console.log('✅ Post refreshed:', postId);
+    }
+  }, [fetchPostById]);
+
+  // ========== FETCH PROFILE POSTS FROM BACKEND ==========
+  const fetchProfilePostsFromBackend = async (profileUserId: number): Promise<PostType[]> => {
+    if (!profileUserId) return [];
+    
+    setIsLoadingPosts(true);
+    
+    try {
+      const viewerId = currentUser?.id ?? 0;
+      
+      const url = `/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`;
+      console.log('📡 Fetching profile posts from:', url);
+      
+      const data = await apiFetch(url);
+      console.log('📥 Profile posts response:', data);
+      
+      let postsArray = [];
+      if (Array.isArray(data)) {
+        postsArray = data;
+      } else if (data?.posts && Array.isArray(data.posts)) {
+        postsArray = data.posts;
+      } else if (data?.data && Array.isArray(data.data)) {
+        postsArray = data.data;
+      } else if (data?.results && Array.isArray(data.results)) {
+        postsArray = data.results;
+      }
+      
+      const normalized = postsArray.map((post: any) => ({
+        ...post,
+        id: safeNumberHelper(post?.id ?? post?.post_id),
+        user_id: safeNumberHelper(post?.user_id),
+        content: safeStringHelper(post?.content),
+        media_url: post?.media_url ?? null,
+        media_type: post?.media_type ?? null,
+        media_urls: Array.isArray(post?.media_urls) ? post.media_urls : [],
+        images: Array.isArray(post?.images) ? post.images : [],
+        reactions: safeArrayHelper(post?.reactions),
+        comments: safeArrayHelper(post?.comments),
+        shares: safeNumberHelper(post?.shares),
+        views: safeNumberHelper(post?.views),
+        my_reaction: post?.my_reaction ?? null,
+        reactions_count: safeNumberHelper(post?.reactions_count, 0),
+        comments_count: safeNumberHelper(post?.comments_count, 0),
+        created_at: post?.created_at ?? new Date().toISOString(),
+        type: post?.type || post?.post_type || 'post',
+        meta: post?.meta || {},
+        product_id: post?.product_id,
+        marketplace: post?.marketplace,
+        event_id: post?.event_id,
+        event: post?.event
+      }));
+
+      normalized.sort((a: any, b: any) => 
+        String(b.created_at).localeCompare(String(a.created_at))
+      );
+
+      return normalized;
+    } catch (error) {
+      console.error('❌ Failed to fetch profile posts:', error);
+      return [];
+    } finally {
+      setIsLoadingPosts(false);
+    }
+  };
+
+  // ========== LOAD PROFILE POSTS ==========
+  useEffect(() => {
+    let cancelled = false;
+    
+    const loadProfilePosts = async () => {
+      if (!user?.id) return;
+      
+      try {
+        let list: PostType[] = [];
+        
+        if (fetchProfilePosts) {
+          const viewerId = currentUser?.id ?? null;
+          list = await fetchProfilePosts(Number(user.id), viewerId);
+        } else {
+          list = await fetchProfilePostsFromBackend(Number(user.id));
+        }
+        
+        if (!cancelled) {
+          // ========== FIX 3: NEVER WIPE UI ON FAILED FETCH ==========
+          // Only apply fetched list if it's non-empty, otherwise keep old posts
+          if (list.length > 0) {
+            setProfilePosts(list);
+            hasLoadedPostsRef.current = true;
+            seededFromPropsRef.current = true; // Mark as seeded since we have real data
+          } else if (!hasLoadedPostsRef.current) {
+            // Only set empty if we've never loaded anything before
+            setProfilePosts(list);
+          }
+          // If list is empty and we already have posts, keep existing posts
+        }
+      } catch (error) {
+        console.error('Error loading profile posts:', error);
+        // Don't clear posts on error - keep existing ones
+      }
+    };
+    
+    loadProfilePosts();
+    
+    return () => { cancelled = true; };
+  }, [user?.id, currentUser?.id]); // Only depend on IDs, not full objects
+
+  // ========== MANUAL REFRESH FUNCTION ==========
+  const refreshProfilePosts = async () => {
+    if (!user?.id) return;
+    
+    const list = await fetchProfilePostsFromBackend(Number(user.id));
+    if (list.length > 0) {
+      setProfilePosts(list);
+      hasLoadedPostsRef.current = true;
+    }
+    // If list is empty, keep current posts
+  };
+
+  // User reels
+  const userReels = useMemo(
+    () => safeArrayHelper<Reel>(reels).filter((reel: any) => Number(reel?.user_id) === Number(user?.id)),
+    [reels, user?.id]
+  );
 
   // Stats calculations
   const totalViews = useMemo(
@@ -522,7 +601,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       const reactionsArray = safeArrayHelper(curr?.reactions);
       return acc + (reactionsCount > 0 ? reactionsCount : reactionsArray.length);
     }, 0);
-    const reelLikes = userReels.reduce((acc, curr: any) => acc + safeNumberHelper(curr?.likes, 0), 0);
+    const reelLikes = userReels.reduce((acc, curr: any) => acc + safeArrayHelper(curr?.reactions).length, 0);
     return postLikes + reelLikes;
   }, [profilePosts, userReels]);
 
@@ -538,7 +617,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       const commentsArray = safeArrayHelper(curr?.comments);
       return acc + (commentsCount > 0 ? commentsCount : commentsArray.length);
     }, 0);
-    const reelComments = userReels.reduce((acc, curr: any) => acc + safeNumberHelper((curr as any)?.comments, 0), 0);
+    const reelComments = userReels.reduce((acc, curr: any) => acc + safeArrayHelper((curr as any)?.comments).length, 0);
     return postComments + reelComments;
   }, [profilePosts, userReels]);
 
@@ -625,42 +704,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     onReact(pid, type);
   };
 
-  // ========== EDIT POST HANDLER ==========
-  const handleEditPost = (post: PostType) => {
-    setEditingPost(post);
-    setShowEditPostModal(true);
-    setOpenMenuPostId(null);
-  };
-
-  const handleSaveEdit = (postId: number, content: string) => {
-    onEditPost(postId, content);
-    setShowEditPostModal(false);
-    setEditingPost(null);
-    
-    // Update local state
-    setProfilePosts(prev =>
-      prev.map(p => 
-        safePostIdHelper(p) === postId 
-          ? { ...p, content } 
-          : p
-      )
-    );
-  };
-
-  // ========== DELETE POST HANDLER ==========
-  const handleDeletePost = (postId: number) => {
-    if (window.confirm('Are you sure you want to delete this post?')) {
-      onDeletePost(postId);
-      setProfilePosts(prev => prev.filter(p => safePostIdHelper(p) !== postId));
-    }
-    setOpenMenuPostId(null);
-  };
-
-  // ========== MENU TOGGLE HANDLER ==========
-  const handleMenuToggle = (postId: number | null) => {
-    setOpenMenuPostId(postId);
-  };
-
   // ========== SHARE HANDLER ==========
   const handleShareComplete = (destination: string, data?: any) => {
     if (selectedPostForShare && data?.success) {
@@ -679,11 +722,19 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     setSelectedPostForShare(null);
   };
 
-  // ========== OPEN COMMENTS SHEET ==========
+  // ========== OPEN COMMENTS SHEET WITH REFRESH FUNCTION ==========
   const handleOpenComments = (postId: number) => {
     const post = profilePosts.find(p => safePostIdHelper(p) === postId);
     if (post) {
-      setSelectedPostForComments(post);
+      console.log('📝 Opening comments for post:', postId);
+      
+      setSelectedPostForComments({
+        ...post,
+        onCommentAdded: () => {
+          console.log('🔄 Comment added, refreshing post:', postId);
+          refreshPost(postId);
+        }
+      });
       setShowCommentsSheet(true);
     } else {
       onOpenComments(postId);
@@ -719,150 +770,22 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     });
   }, [profilePosts]);
 
-  // ========== RENDER VIDEOS TAB ==========
-  const renderVideos = () => {
-    if (userReels.length === 0) {
-      return (
-        <div className="bg-[#242526] p-8 rounded-xl border border-[#3E4042] mx-4 md:mx-0 text-center">
-          <FilmIcon size={48} color="#3A3B3C" />
-          <p className="text-[#B0B3B8] text-lg mt-4">No videos yet</p>
-          {isCurrentUser && (
-            <button
-              onClick={() => window.location.href = '/reels/record'}
-              className="mt-4 px-6 py-2 bg-[#1877F2] text-white rounded-lg font-semibold hover:bg-[#166FE5] transition-colors"
-            >
-              Create your first reel
-            </button>
-          )}
-        </div>
-      );
+  // ========== DEBUG MARKETPLACE POSTS ==========
+  useEffect(() => {
+    const marketplacePosts = filteredProfilePosts.filter((p: any) => {
+      const meta = p?.meta || {};
+      return p?.type === "marketplace" ||
+             p?.post_type === "product" ||
+             p?.type === 'product' ||
+             !!p?.product_id ||
+             !!meta?.marketplace?.id ||
+             !!meta?.product?.id;
+    });
+    
+    if (marketplacePosts.length > 0) {
+      console.log('📱 Marketplace posts found in profile:', marketplacePosts.length);
     }
-
-    return (
-      <div className="bg-[#242526] p-2 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
-        <div className="grid grid-cols-3 gap-[2px]">
-          {userReels.map((reel) => (
-            <div
-              key={reel.id}
-              className="aspect-[9/16] bg-black relative cursor-pointer group"
-              onClick={() => onReelClick?.(reel.id)}
-            >
-              {reel.thumbnail ? (
-                <img
-                  src={reel.thumbnail}
-                  alt={reel.caption || 'Reel thumbnail'}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-              ) : (
-                <video
-                  src={reel.video}
-                  muted
-                  playsInline
-                  preload="metadata"
-                  className="w-full h-full object-cover"
-                />
-              )}
-
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-
-              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <div className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center border border-white/30">
-                  <PlayIcon size={18} />
-                </div>
-              </div>
-
-              <div className="absolute bottom-2 left-2 text-white text-xs font-bold flex items-center gap-1 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded">
-                <EyeIcon size={14} />
-                <span>{formatReelCount(reel.views)}</span>
-              </div>
-
-              {reel.songName && (
-                <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-white text-xs flex items-center gap-1">
-                  <i className="fas fa-music text-[10px]" />
-                  <span className="max-w-[80px] truncate">{reel.songName}</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  // ========== RENDER STORIES TAB ==========
-  const renderStories = () => {
-    if (userStories.length === 0) {
-      return (
-        <div className="bg-[#242526] p-8 rounded-xl border border-[#3E4042] mx-4 md:mx-0 text-center">
-          <StoryIcon size={48} color="#3A3B3C" />
-          <p className="text-[#B0B3B8] text-lg mt-4">No stories yet</p>
-          {isCurrentUser && (
-            <button
-              onClick={onCreateStoryClick || (() => window.location.href = '/stories/create')}
-              className="mt-4 px-6 py-2 bg-[#1877F2] text-white rounded-lg font-semibold hover:bg-[#166FE5] transition-colors"
-            >
-              Create your first story
-            </button>
-          )}
-        </div>
-      );
-    }
-
-    return (
-      <div className="bg-[#242526] p-2 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
-        <div className="grid grid-cols-3 gap-[2px]">
-          {userStories.map((story) => {
-            const isVideo = story.media_type.includes('video');
-
-            return (
-              <div
-                key={story.id}
-                className="aspect-[9/16] bg-black relative cursor-pointer group"
-                onClick={() => onStoryClick?.(story.id)}
-              >
-                {isVideo ? (
-                  <video
-                    src={story.media_url}
-                    muted
-                    playsInline
-                    preload="metadata"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <img
-                    src={story.media_url}
-                    alt={story.caption || 'Story'}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                )}
-
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-
-                {isVideo && (
-                  <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-white text-xs flex items-center gap-1">
-                    <PlayIcon size={10} />
-                    <span>Video</span>
-                  </div>
-                )}
-
-                {story.caption && (
-                  <div className="absolute bottom-2 left-2 right-2 text-white text-xs font-medium line-clamp-2 bg-black/50 backdrop-blur-sm px-2 py-1 rounded">
-                    {story.caption}
-                  </div>
-                )}
-
-                <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded text-white text-xs">
-                  {formatRelativeTime(story.created_at)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
+  }, [filteredProfilePosts]);
 
   // ========== RENDER ABOUT TAB ==========
   const renderAbout = () => (
@@ -1175,78 +1098,40 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               );
             }
 
-            // Regular post with ALL marketplace props and edit/delete menu
+            // Regular post with ALL marketplace props
             return (
-              <div key={post.id} className="relative">
-                {/* Three dots menu for own posts */}
-                {isCurrentUser && (
-                  <div className="absolute top-4 right-4 z-10">
-                    <div className="relative">
-                      <button
-                        onClick={() => handleMenuToggle(openMenuPostId === post.id ? null : post.id)}
-                        className="p-2 rounded-full hover:bg-[#3A3B3C] bg-black/20 backdrop-blur-sm transition-colors"
-                        aria-label="Post options"
-                      >
-                        <MoreHorizontalIcon size={20} />
-                      </button>
-
-                      {openMenuPostId === post.id && (
-                        <div className="absolute right-0 mt-2 w-40 bg-[#242526] border border-[#3E4042] rounded-lg shadow-lg z-50">
-                          <button
-                            onClick={() => {
-                              handleEditPost(post);
-                              handleMenuToggle(null);
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2 hover:bg-[#3A3B3C] text-left text-[#E4E6EB]"
-                          >
-                            <i className="fas fa-edit text-[#1877F2] w-5"></i>
-                            <span>Edit Post</span>
-                          </button>
-                          <button
-                            onClick={() => handleDeletePost(post.id)}
-                            className="w-full flex items-center gap-2 px-4 py-2 hover:bg-[#3A3B3C] text-left text-red-400"
-                          >
-                            <i className="fas fa-trash w-5"></i>
-                            <span>Delete Post</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <Post
-                  post={post}
-                  author={user}
-                  currentUser={currentUser}
-                  users={users}
-                  onProfileClick={onProfileClick}
-                  onReact={handleProfileReact}
-                  onShare={(id, newCount) => {
-                    onShare(id, newCount);
-                    setProfilePosts(prev =>
-                      prev.map(p => safePostIdHelper(p) === id ? { ...p, shares: newCount } : p)
-                    );
-                  }}
-                  onDelete={isCurrentUser ? onDeletePost : undefined}
-                  onEdit={handleEditPost}
-                  onViewImage={onViewImage}
-                  onOpenComments={handleOpenComments}
-                  onVideoClick={onVideoClick}
-                  onPlayAudioTrack={onPlayAudioTrack}
-                  onHashtagClick={onHashtagClick}
-                  onViewProductFromPost={onViewProductFromPost}
-                  onViewProduct={onViewProduct}
-                  getProductData={getProductData || marketplaceContext?.getProductData}
-                  onOpenAudio={onOpenAudio}
-                  onRSVP={onRSVP}
-                  groups={groups}
-                  brands={brands}
-                  isFollowing={isFollowing}
-                  onFollow={onFollow}
-                  onOpenReactions={handleOpenReactions}
-                />
-              </div>
+              <Post
+                key={post.id}
+                post={post}
+                author={user}
+                currentUser={currentUser}
+                users={users}
+                onProfileClick={onProfileClick}
+                onReact={handleProfileReact}
+                onShare={(id, newCount) => {
+                  onShare(id, newCount);
+                  setProfilePosts(prev =>
+                    prev.map(p => safePostIdHelper(p) === id ? { ...p, shares: newCount } : p)
+                  );
+                }}
+                onDelete={onDeletePost}
+                onEdit={onEditPost}
+                onViewImage={onViewImage}
+                onOpenComments={handleOpenComments} // 👈 Now uses refresh approach
+                onVideoClick={onVideoClick}
+                onPlayAudioTrack={onPlayAudioTrack}
+                onHashtagClick={onHashtagClick}
+                onViewProductFromPost={onViewProductFromPost}
+                onViewProduct={onViewProduct}
+                getProductData={getProductData || marketplaceContext?.getProductData}
+                onOpenAudio={onOpenAudio}
+                onRSVP={onRSVP}
+                groups={groups}
+                brands={brands}
+                isFollowing={isFollowing}
+                onFollow={onFollow}
+                onOpenReactions={handleOpenReactions}
+              />
             );
           })
         ) : !isLoadingPosts && filteredProfilePosts.length === 0 && (
@@ -1473,14 +1358,14 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               </div>
             </div>
 
-            {/* Tabs - Updated with Videos and Stories */}
+            {/* Tabs */}
             <div className="h-[1px] bg-[#3E4042] w-full mt-4"></div>
-            <div className="flex items-center gap-1 pt-1 overflow-x-auto whitespace-nowrap scrollbar-hide">
-              {(['Posts', 'Videos', 'Stories', 'About', 'Followers', 'Photos'] as const).map((tab) => (
+            <div className="flex items-center gap-1 pt-1 overflow-x-auto">
+              {(['Posts', 'About', 'Followers', 'Photos'] as const).map((tab) => (
                 <div
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-3 cursor-pointer text-[15px] font-semibold border-b-[3px] transition-colors active:scale-95 ${
+                  className={`px-4 py-3 cursor-pointer whitespace-nowrap text-[15px] font-semibold border-b-[3px] transition-colors active:scale-95 ${
                     activeTab === tab
                       ? 'text-[#1877F2] border-[#1877F2]'
                       : 'text-[#B0B3B8] border-transparent hover:bg-[#3A3B3C] rounded-t-md'
@@ -1623,8 +1508,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       )}
 
       {/* Render active tab */}
-      {activeTab === 'Videos' && renderVideos()}
-      {activeTab === 'Stories' && renderStories()}
       {activeTab === 'About' && renderAbout()}
       {activeTab === 'Followers' && renderFollowers()}
       {activeTab === 'Photos' && renderPhotos()}
@@ -1633,18 +1516,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       {/* Edit Profile Modal */}
       {showEditProfile && isCurrentUser && (
         <EditProfileModal user={user} onClose={() => setShowEditProfile(false)} onSave={onUpdateUserDetails} />
-      )}
-
-      {/* Edit Post Modal */}
-      {showEditPostModal && editingPost && (
-        <EditPostModal
-          post={editingPost}
-          onSave={handleSaveEdit}
-          onClose={() => {
-            setShowEditPostModal(false);
-            setEditingPost(null);
-          }}
-        />
       )}
 
       {/* ========== MODALS FROM FEEDS ========== */}
@@ -1660,6 +1531,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             setSelectedPostForComments(null);
           }}
           onComment={onComment}
+          onCommentAdded={selectedPostForComments?.onCommentAdded} // 👈 Pass the refresh function
           getCommentAuthor={getCommentAuthor}
           onProfileClick={onProfileClick}
           onHashtagClick={onHashtagClick}
@@ -1722,19 +1594,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           onShare={() => {}}
         />
       )}
-
-      {/* CSS for hiding scrollbar */}
-      <style>{`
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-      `}</style>
     </div>
   );
 };
-
-export default UserProfile;
