@@ -1,5 +1,5 @@
 // UserProfile.tsx - Complete production-ready version
-// Fixed: Removed react-router-dom dependency, fixed duplicate keys
+// Fixed: Added named export alongside default export
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { 
@@ -41,7 +41,7 @@ export interface Story {
   user?: any;
 }
 
-interface UserProfileProps {
+export interface UserProfileProps {
   user: User;
   currentUser: User | null;
   posts: PostType[];
@@ -919,7 +919,7 @@ const GalleryViewer: React.FC<GalleryViewerProps> = ({
 
 // ==================== MAIN USER PROFILE COMPONENT ====================
 
-const UserProfile: React.FC<UserProfileProps> = ({
+const UserProfileComponent: React.FC<UserProfileProps> = ({
   user,
   currentUser,
   posts = [],
@@ -1563,4 +1563,8 @@ const UserProfile: React.FC<UserProfileProps> = ({
   );
 };
 
-export default UserProfile;
+// ==================== EXPORTS ====================
+
+// Export both as default and named export for compatibility
+export const UserProfile = UserProfileComponent;
+export default UserProfileComponent;
