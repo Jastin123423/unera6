@@ -1,5 +1,5 @@
 // UserProfile.tsx - Complete production-ready version
-// Includes: Videos tab, Stories tab, Edit/Delete menu, proper typing
+// Fixed: Removed react-router-dom dependency, fixed duplicate keys
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { 
@@ -8,13 +8,38 @@ import {
   ReactionType, 
   AudioTrack, 
   Group, 
-  Brand,
-  Reel,
-  Story
+  Brand 
 } from '../types';
-import { useNavigate } from 'react-router-dom';
 
 // ==================== TYPES ====================
+
+export interface Reel {
+  id: number;
+  user_id: number;
+  video_url: string;
+  thumbnail_url?: string;
+  caption?: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  created_at?: string;
+  user?: any;
+  audio_url?: string;
+  song_name?: string;
+}
+
+export interface Story {
+  id: number;
+  user_id: number;
+  media_url: string;
+  media_type: string;
+  caption?: string;
+  created_at?: string;
+  expires_at?: string;
+  views?: number;
+  user?: any;
+}
 
 interface UserProfileProps {
   user: User;
@@ -50,6 +75,9 @@ interface UserProfileProps {
   onCreatePost?: (content: string, files?: File[], meta?: any) => Promise<void>;
   onCreateReel?: () => void;
   onCreateStory?: () => void;
+  onNavigateToReels?: () => void;
+  onNavigateToCreateStory?: () => void;
+  onNavigateToCreateEvent?: () => void;
 }
 
 interface MenuState {
@@ -69,7 +97,9 @@ const safeNumber = (value: any, fallback: number = 0): number => {
 };
 
 const safeString = (value: any, fallback: string = ''): string => {
-  return typeof value === 'string' ? value : String(value || fallback);
+  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return fallback;
+  return String(value);
 };
 
 const avatarFrom = (user: any): string => {
@@ -775,6 +805,118 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
   );
 };
 
+// ==================== GALLERY VIEWER COMPONENT ====================
+
+interface GalleryViewerProps {
+  isOpen: boolean;
+  urls: string[];
+  startIndex: number;
+  onClose: () => void;
+  postId: number;
+  currentUser: User | null;
+  reactionCount: number;
+  commentCount: number;
+  shareCount: number;
+  myReaction?: ReactionType;
+  onReact: (type: ReactionType) => void;
+  onOpenComments: () => void;
+  onShare: () => void;
+  onOpenReactions?: () => void;
+}
+
+const GalleryViewer: React.FC<GalleryViewerProps> = ({
+  isOpen,
+  urls,
+  startIndex,
+  onClose,
+  postId,
+  currentUser,
+  reactionCount,
+  commentCount,
+  shareCount,
+  myReaction,
+  onReact,
+  onOpenComments,
+  onShare,
+  onOpenReactions
+}) => {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [currentIndex, setCurrentIndex] = useState(startIndex);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    document.body.style.overflow = 'hidden';
+    setCurrentIndex(startIndex);
+
+    requestAnimationFrame(() => {
+      const el = scrollerRef.current;
+      if (!el) return;
+      const w = el.clientWidth || window.innerWidth;
+      el.scrollTo({ left: startIndex * w, behavior: 'instant' as any });
+    });
+
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, startIndex]);
+
+  const handleScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const scrollLeft = el.scrollLeft;
+    const width = el.clientWidth || window.innerWidth;
+    const newIndex = Math.round(scrollLeft / width);
+    if (newIndex !== currentIndex) {
+      setCurrentIndex(newIndex);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-black flex flex-col">
+      {/* Header */}
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3 bg-black/40">
+        <div className="text-white text-sm font-semibold">
+          {currentIndex + 1}/{urls.length}
+        </div>
+        <button
+          className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <i className="fas fa-times text-white text-lg" />
+        </button>
+      </div>
+
+      {/* Images */}
+      <div
+        ref={scrollerRef}
+        className="flex-1 w-full overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scroll-smooth"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+        onClick={(e) => e.stopPropagation()}
+        onScroll={handleScroll}
+      >
+        {urls.map((url, i) => (
+          <div
+            key={url + i}
+            className="min-w-full h-full snap-center flex items-center justify-center bg-black"
+          >
+            <img
+              src={url}
+              alt=""
+              className="max-w-full max-h-full object-contain"
+              draggable={false}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // ==================== MAIN USER PROFILE COMPONENT ====================
 
 const UserProfile: React.FC<UserProfileProps> = ({
@@ -810,9 +952,11 @@ const UserProfile: React.FC<UserProfileProps> = ({
   onStoryClick,
   onCreatePost,
   onCreateReel,
-  onCreateStory
+  onCreateStory,
+  onNavigateToReels,
+  onNavigateToCreateStory,
+  onNavigateToCreateEvent
 }) => {
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'Posts' | 'Videos' | 'Stories' | 'Photos' | 'About' | 'Followers'>('Posts');
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -930,7 +1074,7 @@ const UserProfile: React.FC<UserProfileProps> = ({
         'No videos yet',
         isOwnProfile && (
           <button
-            onClick={onCreateReel || (() => navigate('/reels/record'))}
+            onClick={onCreateReel || onNavigateToReels || (() => {})}
             className="px-6 py-2 bg-[#1877F2] text-white rounded-lg font-semibold hover:bg-[#166FE5] transition-colors"
           >
             Create your first reel
@@ -998,7 +1142,7 @@ const UserProfile: React.FC<UserProfileProps> = ({
         'No stories yet',
         isOwnProfile && (
           <button
-            onClick={onCreateStory || (() => navigate('/stories/create'))}
+            onClick={onCreateStory || onNavigateToCreateStory || (() => {})}
             className="px-6 py-2 bg-[#1877F2] text-white rounded-lg font-semibold hover:bg-[#166FE5] transition-colors"
           >
             Create your first story
@@ -1371,8 +1515,8 @@ const UserProfile: React.FC<UserProfileProps> = ({
           users={users}
           onClose={() => setShowCreatePost(false)}
           onCreatePost={handleCreatePost}
-          onCreateEventClick={() => navigate('/events/create')}
-          onOpenRecorder={() => navigate('/reels/record')}
+          onCreateEventClick={onNavigateToCreateEvent || (() => {})}
+          onOpenRecorder={onNavigateToReels || (() => {})}
         />
       )}
 
@@ -1415,118 +1559,6 @@ const UserProfile: React.FC<UserProfileProps> = ({
           scrollbar-width: none;
         }
       `}</style>
-    </div>
-  );
-};
-
-// ==================== GALLERY VIEWER COMPONENT ====================
-
-interface GalleryViewerProps {
-  isOpen: boolean;
-  urls: string[];
-  startIndex: number;
-  onClose: () => void;
-  postId: number;
-  currentUser: User | null;
-  reactionCount: number;
-  commentCount: number;
-  shareCount: number;
-  myReaction?: ReactionType;
-  onReact: (type: ReactionType) => void;
-  onOpenComments: () => void;
-  onShare: () => void;
-  onOpenReactions?: () => void;
-}
-
-const GalleryViewer: React.FC<GalleryViewerProps> = ({
-  isOpen,
-  urls,
-  startIndex,
-  onClose,
-  postId,
-  currentUser,
-  reactionCount,
-  commentCount,
-  shareCount,
-  myReaction,
-  onReact,
-  onOpenComments,
-  onShare,
-  onOpenReactions
-}) => {
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const [currentIndex, setCurrentIndex] = useState(startIndex);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    
-    document.body.style.overflow = 'hidden';
-    setCurrentIndex(startIndex);
-
-    requestAnimationFrame(() => {
-      const el = scrollerRef.current;
-      if (!el) return;
-      const w = el.clientWidth || window.innerWidth;
-      el.scrollTo({ left: startIndex * w, behavior: 'instant' as any });
-    });
-
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen, startIndex]);
-
-  const handleScroll = () => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const scrollLeft = el.scrollLeft;
-    const width = el.clientWidth || window.innerWidth;
-    const newIndex = Math.round(scrollLeft / width);
-    if (newIndex !== currentIndex) {
-      setCurrentIndex(newIndex);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[9999] bg-black flex flex-col">
-      {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3 bg-black/40">
-        <div className="text-white text-sm font-semibold">
-          {currentIndex + 1}/{urls.length}
-        </div>
-        <button
-          className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"
-          onClick={onClose}
-          aria-label="Close"
-        >
-          <i className="fas fa-times text-white text-lg" />
-        </button>
-      </div>
-
-      {/* Images */}
-      <div
-        ref={scrollerRef}
-        className="flex-1 w-full overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scroll-smooth"
-        style={{ WebkitOverflowScrolling: 'touch' }}
-        onClick={(e) => e.stopPropagation()}
-        onScroll={handleScroll}
-      >
-        {urls.map((url, i) => (
-          <div
-            key={url + i}
-            className="min-w-full h-full snap-center flex items-center justify-center bg-black"
-          >
-            <img
-              src={url}
-              alt=""
-              className="max-w-full max-h-full object-contain"
-              draggable={false}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        ))}
-      </div>
     </div>
   );
 };
