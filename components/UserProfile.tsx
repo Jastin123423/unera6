@@ -1,6 +1,4 @@
-
-
-// UserProfile.tsx - Complete updated file with fixes for state flicker issues
+// UserProfile.tsx - Complete updated file with fixes for state flicker issues and new features
 import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
@@ -30,7 +28,11 @@ import {
   getMarketplaceImages,
   getMarketplacePriceLine,
   normalizeEventFromFeed,
-  Post
+  Post,
+  ReelFeedCard,
+  normalizeReelFromFeed,
+  formatReelCount,
+  getReelAuthorName
 } from './Feed';
 
 // ============================================================================
@@ -44,6 +46,25 @@ const safeNumberHelper = (v: any, fallback = 0) => {
 const safeStringHelper = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
 const safePostIdHelper = (p: any) => safeNumberHelper(p?.id ?? p?.post_id ?? p?.postId, 0);
 const safeUserIdHelper = (u: any) => safeNumberHelper(u?.id ?? u?.user_id ?? u?.userId, 0);
+
+// Add CSS for hiding scrollbar
+const scrollbarHideStyles = `
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+`;
+
+// Inject styles if not already present
+if (typeof document !== 'undefined' && !document.getElementById('user-profile-styles')) {
+  const style = document.createElement('style');
+  style.id = 'user-profile-styles';
+  style.textContent = scrollbarHideStyles;
+  document.head.appendChild(style);
+}
 
 interface EditProfileModalProps {
   user: User;
@@ -168,6 +189,7 @@ interface UserProfileProps {
   users: User[];
   posts: PostType[];
   reels?: Reel[];
+  stories?: any[]; // Add stories prop
   products?: Product[];
   groups?: Group[];
   brands?: Brand[];
@@ -225,6 +247,9 @@ interface UserProfileProps {
 
   // People suggestions
   peopleSuggestions?: any[];
+
+  // Open Reel handler (for opening full Reel player)
+  onOpenReel?: (reelId: number | string) => void;
 }
 
 export const UserProfile: React.FC<UserProfileProps> = ({
@@ -233,6 +258,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   users,
   posts,
   reels = [],
+  stories = [],
   products = [],
   groups = [],
   brands = [],
@@ -272,11 +298,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   onOpenChatsList,
   isChatsListOpen,
   peopleSuggestions = [],
+  onOpenReel,
 }) => {
   // Get MarketplaceContext
   const marketplaceContext = useContext(MarketplaceContext);
   
-  const [activeTab, setActiveTab] = useState<'Posts' | 'About' | 'Followers' | 'Photos'>('Posts');
+  const [activeTab, setActiveTab] = useState<'Posts' | 'Videos' | 'Stories' | 'About' | 'Followers' | 'Photos'>('Posts');
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [loginError, setLoginError] = useState('');
@@ -311,6 +338,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
+
+  // Post menu state for edit/delete
+  const [postMenuOpen, setPostMenuOpen] = useState<number | null>(null);
 
   const isCurrentUser = Boolean(currentUser && Number(user?.id) === Number(currentUser?.id));
   const isSelf = isCurrentUser;
@@ -589,6 +619,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     [reels, user?.id]
   );
 
+  // User stories
+  const userStories = useMemo(
+    () => safeArrayHelper(stories).filter((story: any) => Number(story?.user_id) === Number(user?.id)),
+    [stories, user?.id]
+  );
+
   // Stats calculations
   const totalViews = useMemo(
     () => profilePosts.reduce((acc, curr: any) => acc + safeNumberHelper(curr?.views, 0), 0),
@@ -668,6 +704,32 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     } else {
       onMessage(user.id);
     }
+  };
+
+  // Handle post menu toggle
+  const togglePostMenu = (postId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPostMenuOpen(postMenuOpen === postId ? null : postId);
+  };
+
+  // Handle edit post
+  const handleEditPost = (postId: number) => {
+    const post = profilePosts.find(p => safePostIdHelper(p) === postId);
+    if (post && post.content) {
+      const newContent = prompt('Edit your post:', post.content);
+      if (newContent && newContent !== post.content) {
+        onEditPost(postId, newContent);
+      }
+    }
+    setPostMenuOpen(null);
+  };
+
+  // Handle delete post
+  const handleDeletePost = (postId: number) => {
+    if (confirm('Are you sure you want to delete this post?')) {
+      onDeletePost(postId);
+    }
+    setPostMenuOpen(null);
   };
 
   // ========== PROFILE-SPECIFIC REACT HANDLER WITH OPTIMISTIC UPDATE ==========
@@ -786,6 +848,173 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       console.log('📱 Marketplace posts found in profile:', marketplacePosts.length);
     }
   }, [filteredProfilePosts]);
+
+  // ========== RENDER VIDEOS TAB (Reels Grid) ==========
+  const renderVideos = () => {
+    const normalizedReels = userReels.map(reel => normalizeReelFromFeed(reel));
+
+    if (normalizedReels.length === 0) {
+      return (
+        <div className="bg-[#242526] p-8 text-center rounded-xl border border-[#3E4042] mx-4 md:mx-0">
+          <div className="text-[#B0B3B8] text-lg mb-2">No videos yet</div>
+          <p className="text-[#B0B3B8] text-sm">
+            {isCurrentUser ? "Create your first reel!" : "This user hasn't uploaded any videos yet."}
+          </p>
+          {isCurrentUser && (
+            <button
+              onClick={() => {
+                if (onCreateStoryClick) {
+                  onCreateStoryClick();
+                }
+              }}
+              className="mt-4 bg-[#1877F2] text-white px-6 py-2 rounded-lg font-semibold hover:bg-[#166FE5] transition-colors"
+            >
+              Create Reel
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-[#242526] p-2 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
+        <div className="grid grid-cols-3 gap-[2px]">
+          {normalizedReels.map((reel) => (
+            <div
+              key={reel.id}
+              className="aspect-[9/16] bg-black relative cursor-pointer group"
+              onClick={() => {
+                if (onOpenReel) {
+                  onOpenReel(reel.id);
+                } else if (onVideoClick) {
+                  onVideoClick(reel as any);
+                }
+              }}
+            >
+              {/* Thumbnail */}
+              {reel.thumbnail ? (
+                <img
+                  src={reel.thumbnail}
+                  alt={reel.caption || "Reel preview"}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <video
+                  src={reel.video}
+                  className="w-full h-full object-cover"
+                  muted
+                  preload="metadata"
+                />
+              )}
+
+              {/* Gradient overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+
+              {/* Play icon overlay on hover */}
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center border-2 border-white">
+                  <i className="fas fa-play text-white text-xl ml-1"></i>
+                </div>
+              </div>
+
+              {/* Views count */}
+              <div className="absolute bottom-2 left-2 text-white text-xs flex items-center gap-1 drop-shadow-lg">
+                <i className="fas fa-eye"></i>
+                {formatReelCount(reel.views)}
+              </div>
+
+              {/* Video indicator */}
+              <div className="absolute top-2 right-2 text-white text-xs bg-black/50 px-2 py-1 rounded-full">
+                <i className="fas fa-video mr-1"></i>
+                Reel
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ========== RENDER STORIES TAB ==========
+  const renderStories = () => {
+    if (userStories.length === 0) {
+      return (
+        <div className="bg-[#242526] p-8 text-center rounded-xl border border-[#3E4042] mx-4 md:mx-0">
+          <div className="text-[#B0B3B8] text-lg mb-2">No stories yet</div>
+          <p className="text-[#B0B3B8] text-sm">
+            {isCurrentUser ? "Share your first story!" : "This user hasn't shared any stories yet."}
+          </p>
+          {isCurrentUser && (
+            <button
+              onClick={onCreateStoryClick}
+              className="mt-4 bg-[#1877F2] text-white px-6 py-2 rounded-lg font-semibold hover:bg-[#166FE5] transition-colors"
+            >
+              Create Story
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-[#242526] p-2 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
+        <div className="grid grid-cols-3 gap-[2px]">
+          {userStories.map((story: any) => {
+            const isVideo = String(story.media_type || story.type || '').includes("video") || 
+                            story.is_video === true ||
+                            (story.media_url && story.media_url.match(/\.(mp4|webm|mov|m4v|avi|mkv)$/i));
+
+            return (
+              <div
+                key={story.id}
+                className="aspect-[9/16] bg-black relative cursor-pointer group"
+                onClick={() => {
+                  if (isVideo && onVideoClick) {
+                    onVideoClick(story);
+                  } else if (story.media_url) {
+                    onViewImage(story.media_url);
+                  }
+                }}
+              >
+                {isVideo ? (
+                  <video
+                    src={story.media_url || story.video_url}
+                    className="w-full h-full object-cover"
+                    muted
+                    preload="metadata"
+                  />
+                ) : (
+                  <img
+                    src={story.media_url || story.image_url}
+                    className="w-full h-full object-cover"
+                    alt="Story"
+                  />
+                )}
+
+                {/* Gradient overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+
+                {/* Play icon for videos */}
+                {isVideo && (
+                  <div className="absolute top-2 right-2 text-white text-xs bg-black/50 px-2 py-1 rounded-full">
+                    <i className="fas fa-play mr-1"></i>
+                    Video
+                  </div>
+                )}
+
+                {/* Time indicator */}
+                {story.created_at && (
+                  <div className="absolute bottom-2 left-2 text-white text-xs drop-shadow-lg">
+                    {formatRelativeTime(story.created_at)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   // ========== RENDER ABOUT TAB ==========
   const renderAbout = () => (
@@ -1041,6 +1270,25 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               onProfileClick={onProfileClick}
               onClick={() => setShowCreatePostModal(true)}
               onCreateEventClick={onCreateEventClick || (() => {})}
+              onPhotoClick={() => {
+                // This would open photo upload
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.multiple = true;
+                input.onchange = (e) => {
+                  const files = Array.from((e.target as HTMLInputElement).files || []);
+                  if (files.length > 0) {
+                    onCreatePost('', files, { type: 'image' });
+                  }
+                };
+                input.click();
+              }}
+              onVideoClick={() => {
+                // This would open Recorder.tsx
+                console.log('Open video recorder');
+                // You would call a prop like onOpenRecorder here
+              }}
             />
             {showCreatePostModal && (
               <CreatePostModal
@@ -1098,40 +1346,77 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               );
             }
 
-            // Regular post with ALL marketplace props
+            // Regular post with edit/delete menu
+            const isAuthor = currentUser && Number(post.user_id) === Number(currentUser.id);
+            
             return (
-              <Post
-                key={post.id}
-                post={post}
-                author={user}
-                currentUser={currentUser}
-                users={users}
-                onProfileClick={onProfileClick}
-                onReact={handleProfileReact}
-                onShare={(id, newCount) => {
-                  onShare(id, newCount);
-                  setProfilePosts(prev =>
-                    prev.map(p => safePostIdHelper(p) === id ? { ...p, shares: newCount } : p)
-                  );
-                }}
-                onDelete={onDeletePost}
-                onEdit={onEditPost}
-                onViewImage={onViewImage}
-                onOpenComments={handleOpenComments} // 👈 Now uses refresh approach
-                onVideoClick={onVideoClick}
-                onPlayAudioTrack={onPlayAudioTrack}
-                onHashtagClick={onHashtagClick}
-                onViewProductFromPost={onViewProductFromPost}
-                onViewProduct={onViewProduct}
-                getProductData={getProductData || marketplaceContext?.getProductData}
-                onOpenAudio={onOpenAudio}
-                onRSVP={onRSVP}
-                groups={groups}
-                brands={brands}
-                isFollowing={isFollowing}
-                onFollow={onFollow}
-                onOpenReactions={handleOpenReactions}
-              />
+              <div key={post.id} className="relative">
+                {/* Three-dot menu for post author */}
+                {isAuthor && (
+                  <div className="absolute top-4 right-4 z-10">
+                    <button
+                      onClick={(e) => togglePostMenu(post.id, e)}
+                      className="w-8 h-8 rounded-full bg-black/20 hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+                    >
+                      <i className="fas fa-ellipsis-h text-[#E4E6EB]"></i>
+                    </button>
+
+                    {postMenuOpen === post.id && (
+                      <div className="absolute right-0 mt-2 w-48 bg-[#242526] border border-[#3E4042] rounded-lg shadow-lg z-50">
+                        <button
+                          onClick={() => handleEditPost(post.id)}
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3A3B3C] transition-colors text-left"
+                        >
+                          <i className="fas fa-edit text-[#1877F2] w-5"></i>
+                          <span className="text-[#E4E6EB] font-medium">Edit Post</span>
+                        </button>
+                        
+                        <div className="h-[1px] bg-[#3E4042] my-1"></div>
+                        
+                        <button
+                          onClick={() => handleDeletePost(post.id)}
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3A3B3C] transition-colors text-left"
+                        >
+                          <i className="fas fa-trash text-red-500 w-5"></i>
+                          <span className="text-red-400 font-medium">Delete Post</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <Post
+                  post={post}
+                  author={user}
+                  currentUser={currentUser}
+                  users={users}
+                  onProfileClick={onProfileClick}
+                  onReact={handleProfileReact}
+                  onShare={(id, newCount) => {
+                    onShare(id, newCount);
+                    setProfilePosts(prev =>
+                      prev.map(p => safePostIdHelper(p) === id ? { ...p, shares: newCount } : p)
+                    );
+                  }}
+                  onDelete={onDeletePost}
+                  onEdit={onEditPost}
+                  onViewImage={onViewImage}
+                  onOpenComments={handleOpenComments}
+                  onVideoClick={onVideoClick}
+                  onPlayAudioTrack={onPlayAudioTrack}
+                  onHashtagClick={onHashtagClick}
+                  onViewProductFromPost={onViewProductFromPost}
+                  onViewProduct={onViewProduct}
+                  getProductData={getProductData || marketplaceContext?.getProductData}
+                  onOpenAudio={onOpenAudio}
+                  onRSVP={onRSVP}
+                  groups={groups}
+                  brands={brands}
+                  isFollowing={isFollowing}
+                  onFollow={onFollow}
+                  onOpenReactions={handleOpenReactions}
+                />
+              </div>
             );
           })
         ) : !isLoadingPosts && filteredProfilePosts.length === 0 && (
@@ -1358,10 +1643,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               </div>
             </div>
 
-            {/* Tabs */}
+            {/* Tabs - Scrollable on mobile */}
             <div className="h-[1px] bg-[#3E4042] w-full mt-4"></div>
-            <div className="flex items-center gap-1 pt-1 overflow-x-auto">
-              {(['Posts', 'About', 'Followers', 'Photos'] as const).map((tab) => (
+            <div className="flex items-center gap-1 pt-1 overflow-x-auto whitespace-nowrap scrollbar-hide">
+              {(['Posts', 'Videos', 'Stories', 'Photos', 'About', 'Followers'] as const).map((tab) => (
                 <div
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -1508,10 +1793,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       )}
 
       {/* Render active tab */}
+      {activeTab === 'Posts' && renderPosts()}
+      {activeTab === 'Videos' && renderVideos()}
+      {activeTab === 'Stories' && renderStories()}
       {activeTab === 'About' && renderAbout()}
       {activeTab === 'Followers' && renderFollowers()}
       {activeTab === 'Photos' && renderPhotos()}
-      {activeTab === 'Posts' && renderPosts()}
 
       {/* Edit Profile Modal */}
       {showEditProfile && isCurrentUser && (
@@ -1531,7 +1818,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             setSelectedPostForComments(null);
           }}
           onComment={onComment}
-          onCommentAdded={selectedPostForComments?.onCommentAdded} // 👈 Pass the refresh function
+          onCommentAdded={selectedPostForComments?.onCommentAdded} // Pass the refresh function
           getCommentAuthor={getCommentAuthor}
           onProfileClick={onProfileClick}
           onHashtagClick={onHashtagClick}
