@@ -1,4 +1,3 @@
-// functions/api/posts/[id]/comment.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 type Env = { DB: D1Database };
 
@@ -21,7 +20,6 @@ const toIntOrNull = (v: any) => {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
   if (!s) return null;
-  // block temp ids like "tmp-123"
   if (s.startsWith("tmp-")) return null;
   const n = Number(s);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -39,13 +37,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     const text = String(body.text ?? "").trim();
     const userId = Number(body.user_id);
 
-    // ✅ NEW: parent id support (reply)
     const parentCommentId = toIntOrNull(body.parent_comment_id);
 
     if (!text) return json({ error: "text is required" }, 400);
     if (!Number.isFinite(userId) || userId <= 0) return json({ error: "user_id is required" }, 400);
 
-    // ✅ Optional safety: if a parent is provided, ensure it belongs to same post
+    /* --------------------------------------------------
+       Ensure parent comment belongs to this post
+    ---------------------------------------------------*/
     if (parentCommentId) {
       const parent = await env.DB.prepare(
         `SELECT id, post_id FROM post_comments WHERE id = ? LIMIT 1`
@@ -57,7 +56,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       }
     }
 
-    // ✅ insert WITH parent_comment_id
+    /* --------------------------------------------------
+       Insert comment
+    ---------------------------------------------------*/
     const insert = await env.DB.prepare(
       `INSERT INTO post_comments (post_id, user_id, text, parent_comment_id)
        VALUES (?, ?, ?, ?)`
@@ -66,11 +67,59 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       .run();
 
     const insertedId = Number(insert.meta?.last_row_id);
+
     if (!Number.isFinite(insertedId) || insertedId <= 0) {
       return json({ error: "Failed to create comment" }, 500);
     }
 
-    // ✅ return full comment including parent_comment_id
+    /* --------------------------------------------------
+       NOTIFICATION LOGIC
+    ---------------------------------------------------*/
+
+    // Get post owner
+    const post = await env.DB.prepare(
+      `SELECT user_id FROM posts WHERE id = ?`
+    )
+      .bind(postId)
+      .first();
+
+    let recipientId = post?.user_id;
+
+    // If reply → notify comment owner
+    if (parentCommentId) {
+      const parent = await env.DB.prepare(
+        `SELECT user_id FROM post_comments WHERE id = ?`
+      )
+        .bind(parentCommentId)
+        .first();
+
+      if (parent) recipientId = parent.user_id;
+    }
+
+    // Prevent self notification
+    if (recipientId && recipientId !== userId) {
+      await env.DB.prepare(`
+        INSERT INTO notifications
+        (recipient_id, actor_id, type, entity_type, entity_id, parent_id, group_key)
+        VALUES (?, ?, ?, 'post', ?, ?, ?)
+      `)
+        .bind(
+          recipientId,
+          userId,
+          parentCommentId ? "reply" : "discuss",
+          postId,
+          parentCommentId,
+          parentCommentId
+            ? `reply_comment_${parentCommentId}`
+            : `discuss_post_${postId}`
+        )
+        .run();
+    }
+
+    /* --------------------------------------------------
+       Return inserted comment
+    ---------------------------------------------------*/
+
     const comment = await env.DB.prepare(
       `SELECT pc.id, pc.post_id, pc.user_id, pc.text, pc.created_at, pc.parent_comment_id,
               u.username as author_name, u.profile_image_url as author_image
@@ -82,6 +131,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       .first();
 
     return json({ success: true, comment: comment ?? null }, 201);
+
   } catch (err: any) {
     return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
   }
