@@ -1,6 +1,7 @@
-// App.tsx - Complete file with updated Reels integration
-// UPDATED: Enhanced Reels with full comment support (reply, edit, delete, images)
-// and reel owner menu (edit, delete)
+// App.tsx - Complete file with Notification System Integration
+// UPDATED: Added centralized notification system with createNotification, fetchNotifications, 
+// markNotificationsRead, unreadCount, and auto-refresh polling
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -30,7 +31,6 @@ import {
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
-import { registerPostActions } from "./postActionRegistry";
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
@@ -1392,6 +1392,12 @@ export default function App() {
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
 
+  // ============================================================================
+  // 🔔 NOTIFICATION SYSTEM - NEW STATE
+  // ============================================================================
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
   const [songs, setSongs] = useState<Song[]>([]);
   
   const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
@@ -1627,7 +1633,8 @@ export default function App() {
   }, []);
   
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  // REMOVED duplicate notifications state - now using the one defined above
+  
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
@@ -1969,6 +1976,110 @@ export default function App() {
       console.error('Failed to fetch songs:', e);
     }
   }, []);
+
+  // ============================================================================
+  // 🔔 NOTIFICATION SYSTEM - Fetch Notifications
+  // ============================================================================
+  const fetchNotifications = useCallback(async () => {
+    if (!currentUser) return;
+
+    try {
+      const res = await fetch("/api/notifications", {
+        headers: {
+          "x-user-id": String(currentUser.id),
+        },
+      });
+
+      const data = await res.json();
+      const notificationsList = safeArray(data || []);
+
+      setNotifications(notificationsList);
+
+      const unread = notificationsList.filter((n: any) => !n.is_read).length;
+      setUnreadCount(unread);
+
+    } catch (err) {
+      console.error("Failed to fetch notifications", err);
+    }
+  }, [currentUser]);
+
+  // ============================================================================
+  // 🔔 NOTIFICATION SYSTEM - Create Notification
+  // ============================================================================
+  const createNotification = useCallback(
+    async (
+      recipientId: number,
+      type: string,
+      entityType: string,
+      entityId: string,
+      message?: string
+    ) => {
+      if (!currentUser) return;
+
+      try {
+        await fetch("/api/notifications", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-user-id": String(currentUser.id),
+          },
+          body: JSON.stringify({
+            recipient_id: recipientId,
+            actor_id: currentUser.id,
+            type,
+            entity_type: entityType,
+            entity_id: entityId,
+            message,
+          }),
+        });
+
+        // Optionally refresh notifications after creating one
+        fetchNotifications();
+
+      } catch (err) {
+        console.error("Failed to create notification", err);
+      }
+    },
+    [currentUser, fetchNotifications]
+  );
+
+  // ============================================================================
+  // 🔔 NOTIFICATION SYSTEM - Mark Notifications Read
+  // ============================================================================
+  const markNotificationsRead = useCallback(async () => {
+    if (!currentUser) return;
+
+    try {
+      await fetch("/api/notifications/read", {
+        method: "POST",
+        headers: {
+          "x-user-id": String(currentUser.id),
+        },
+      });
+
+      setNotifications((prev) =>
+        prev.map(n => ({ ...n, is_read: 1 }))
+      );
+
+      setUnreadCount(0);
+
+    } catch (err) {
+      console.error("Failed to mark notifications read", err);
+    }
+  }, [currentUser]);
+
+  // ============================================================================
+  // 🔔 NOTIFICATION SYSTEM - Auto Refresh Polling
+  // ============================================================================
+  useEffect(() => {
+    if (!currentUser) return;
+
+    fetchNotifications();
+
+    const interval = setInterval(fetchNotifications, 20000);
+
+    return () => clearInterval(interval);
+  }, [currentUser, fetchNotifications]);
 
   const fetchStories = useCallback(async () => {
     if (storiesInFlightRef.current) return;
@@ -4569,11 +4680,14 @@ export default function App() {
       setView('home');
       await fetchPostsForHome(normalized);
       await fetchReels();
+      
+      // 🔔 Preload notifications after login
+      fetchNotifications();
 
     } catch (error: any) {
       setLoginError(error?.message || 'Registration failed');
     }
-  }, [fetchPostsForHome, fetchReels]);
+  }, [fetchPostsForHome, fetchReels, fetchNotifications]);
 
   const handleLogin = async (email: string, password: string) => {
     try {
@@ -4617,6 +4731,9 @@ export default function App() {
 
       await fetchPostsForHome(finalUser);
       await fetchReels();
+      
+      // 🔔 Preload notifications after login
+      fetchNotifications();
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -4787,6 +4904,8 @@ export default function App() {
     setGroupsYouMayJoin([]);
     setGymjHiddenIds([]);
     setSelectedReelId(null);
+    setNotifications([]);
+    setUnreadCount(0);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -5319,7 +5438,8 @@ export default function App() {
         users={users}
         onLogout={handleLogout}
         onLoginClick={() => setView('login')}
-        onMarkNotificationsRead={() => {}}
+        onMarkNotificationsRead={markNotificationsRead}
+        unreadCount={unreadCount}
         activeTab={activeTab}
         onNavigate={(v: any) => handleNavigate(v)}
       />
@@ -5473,6 +5593,7 @@ export default function App() {
                             followLoading={followLoading[postAuthorId] || false}
                             onViewProductFromPost={openProductFromPost}
                             onRSVPEvent={onRSVPEvent}
+                            createNotification={createNotification}
                           />
 
                           {/* ✅ People You May Know Grid - FIRST APPEARANCE */}
@@ -5599,6 +5720,7 @@ export default function App() {
               followLoading={followLoading}
               initialReelId={selectedReelId}
               onBack={() => setView('home')}
+              createNotification={createNotification}
             />
           )}
 
@@ -5666,6 +5788,7 @@ export default function App() {
                 onPlayVideo={(postId: number, url: string) => {
                   console.log('Play video:', postId, url);
                 }}
+                createNotification={createNotification}
               />
             </ErrorBoundary>
           )}
@@ -5694,6 +5817,7 @@ export default function App() {
               onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
+              createNotification={createNotification}
             />
           )}
 
