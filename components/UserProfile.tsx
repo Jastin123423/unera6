@@ -1,4 +1,4 @@
-// UserProfile.tsx - Complete updated file with fixes for state flicker issues and new features
+// UserProfile.tsx - Complete updated file with all requested features
 import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
@@ -189,7 +189,7 @@ interface UserProfileProps {
   users: User[];
   posts: PostType[];
   reels?: Reel[];
-  stories?: any[]; // Add stories prop
+  stories?: any[];
   products?: Product[];
   groups?: Group[];
   brands?: Brand[];
@@ -248,7 +248,7 @@ interface UserProfileProps {
   // People suggestions
   peopleSuggestions?: any[];
 
-  // Open Reel handler (for opening full Reel player)
+  // Open Reel handler
   onOpenReel?: (reelId: number | string) => void;
 }
 
@@ -312,17 +312,14 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false);
 
   // ========== FIX 1: STABLE FOLLOWERS CACHE ==========
-  // Prevents follower count from flickering (0 → 12 → 0 → 12)
   const [stableFollowers, setStableFollowers] = useState<number[]>(() =>
     safeArrayHelper<number>((user as any)?.followers || [])
   );
 
   // ========== FIX 2: TRACK PROPS SEEDING ==========
-  // Prevents posts from disappearing when parent passes empty array
   const seededFromPropsRef = useRef(false);
   
   // ========== FIX 3: TRACK INITIAL LOAD ==========
-  // Ensures we don't wipe posts on failed fetches
   const hasLoadedPostsRef = useRef(false);
 
   // ========== MODAL STATES ==========
@@ -341,12 +338,21 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
   // Post menu state for edit/delete
   const [postMenuOpen, setPostMenuOpen] = useState<number | null>(null);
+  
+  // Edit post state
+  const [editingPost, setEditingPost] = useState<PostType | null>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const closeMenu = () => setPostMenuOpen(null);
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, []);
 
   const isCurrentUser = Boolean(currentUser && Number(user?.id) === Number(currentUser?.id));
   const isSelf = isCurrentUser;
 
   // ========== FIX 1: STABLE FOLLOWERS EFFECT ==========
-  // Only update followers when we have real data, never overwrite with empty
   useEffect(() => {
     const next = safeArrayHelper<number>((user as any)?.followers || []);
 
@@ -354,14 +360,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       const prevHas = Array.isArray(prev) && prev.length > 0;
       const nextHas = Array.isArray(next) && next.length > 0;
 
-      // Accept update if:
-      // 1. Next has real data (always accept real data)
       if (nextHas) return next;
-      
-      // 2. First time loading and both are empty (initial state)
       if (!prevHas && !nextHas) return next;
-      
-      // 3. Otherwise keep previous stable value (prevent empty overwrites)
       return prev;
     });
   }, [user]);
@@ -388,20 +388,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [profilePosts, setProfilePosts] = useState<PostType[]>(() => safeArrayHelper(posts));
 
   // ========== FIX 2: GUARDED PROPS SYNC ==========
-  // Only seed from props when we actually got a non-empty list
-  // Never overwrite stable profilePosts with empty arrays
   useEffect(() => {
     const incoming = safeArrayHelper(posts);
 
-    // If props has real data, allow seeding (but only once unless it's better data)
     if (incoming.length > 0) {
       setProfilePosts(incoming);
       seededFromPropsRef.current = true;
       return;
     }
 
-    // If incoming is empty, ignore it (prevents "all posts disappear")
-    // unless we have never had any posts at all from any source
     if (!seededFromPropsRef.current && !hasLoadedPostsRef.current) {
       setProfilePosts(incoming);
     }
@@ -496,6 +491,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   }, [fetchPostById]);
 
+  // ========== REFRESH ALL PROFILE POSTS ==========
+  const refreshProfilePosts = async () => {
+    if (!user?.id) return;
+    
+    const list = await fetchProfilePostsFromBackend(Number(user.id));
+    if (list.length > 0) {
+      setProfilePosts(list);
+      hasLoadedPostsRef.current = true;
+    }
+  };
+
   // ========== FETCH PROFILE POSTS FROM BACKEND ==========
   const fetchProfilePostsFromBackend = async (profileUserId: number): Promise<PostType[]> => {
     if (!profileUserId) return [];
@@ -578,40 +584,23 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         }
         
         if (!cancelled) {
-          // ========== FIX 3: NEVER WIPE UI ON FAILED FETCH ==========
-          // Only apply fetched list if it's non-empty, otherwise keep old posts
           if (list.length > 0) {
             setProfilePosts(list);
             hasLoadedPostsRef.current = true;
-            seededFromPropsRef.current = true; // Mark as seeded since we have real data
+            seededFromPropsRef.current = true;
           } else if (!hasLoadedPostsRef.current) {
-            // Only set empty if we've never loaded anything before
             setProfilePosts(list);
           }
-          // If list is empty and we already have posts, keep existing posts
         }
       } catch (error) {
         console.error('Error loading profile posts:', error);
-        // Don't clear posts on error - keep existing ones
       }
     };
     
     loadProfilePosts();
     
     return () => { cancelled = true; };
-  }, [user?.id, currentUser?.id]); // Only depend on IDs, not full objects
-
-  // ========== MANUAL REFRESH FUNCTION ==========
-  const refreshProfilePosts = async () => {
-    if (!user?.id) return;
-    
-    const list = await fetchProfilePostsFromBackend(Number(user.id));
-    if (list.length > 0) {
-      setProfilePosts(list);
-      hasLoadedPostsRef.current = true;
-    }
-    // If list is empty, keep current posts
-  };
+  }, [user?.id, currentUser?.id]);
 
   // User reels
   const userReels = useMemo(
@@ -712,24 +701,52 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     setPostMenuOpen(postMenuOpen === postId ? null : postId);
   };
 
-  // Handle edit post
+  // ========== FIXED: EDIT POST WITH MODAL ==========
   const handleEditPost = (postId: number) => {
     const post = profilePosts.find(p => safePostIdHelper(p) === postId);
-    if (post && post.content) {
-      const newContent = prompt('Edit your post:', post.content);
-      if (newContent && newContent !== post.content) {
-        onEditPost(postId, newContent);
-      }
-    }
+    if (!post) return;
+
+    setEditingPost(post);
+    setShowCreatePostModal(true);
     setPostMenuOpen(null);
   };
 
-  // Handle delete post
-  const handleDeletePost = (postId: number) => {
-    if (confirm('Are you sure you want to delete this post?')) {
-      onDeletePost(postId);
+  // ========== FIXED: DELETE POST WITH OPTIMISTIC UPDATE ==========
+  const handleDeletePost = async (postId: number) => {
+    if (!confirm('Are you sure you want to delete this post?')) return;
+
+    // Optimistic UI removal
+    setProfilePosts(prev => prev.filter(p => safePostIdHelper(p) !== postId));
+
+    try {
+      await onDeletePost(postId);
+    } catch (err) {
+      console.error("Delete failed:", err);
+      refreshProfilePosts(); // restore correct list on error
     }
+
     setPostMenuOpen(null);
+  };
+
+  // ========== HANDLE CREATE/EDIT POST SUBMIT ==========
+  const handleCreateOrEditPost = (text: string, files: File[], meta?: any) => {
+    if (editingPost) {
+      // Optimistic update for edit
+      setProfilePosts(prev =>
+        prev.map(p =>
+          safePostIdHelper(p) === editingPost.id
+            ? { ...p, content: text }
+            : p
+        )
+      );
+
+      onEditPost(editingPost.id, text);
+      setEditingPost(null);
+    } else {
+      onCreatePost(text, files, meta);
+    }
+
+    setShowCreatePostModal(false);
   };
 
   // ========== PROFILE-SPECIFIC REACT HANDLER WITH OPTIMISTIC UPDATE ==========
@@ -831,23 +848,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       return !hasGroup;
     });
   }, [profilePosts]);
-
-  // ========== DEBUG MARKETPLACE POSTS ==========
-  useEffect(() => {
-    const marketplacePosts = filteredProfilePosts.filter((p: any) => {
-      const meta = p?.meta || {};
-      return p?.type === "marketplace" ||
-             p?.post_type === "product" ||
-             p?.type === 'product' ||
-             !!p?.product_id ||
-             !!meta?.marketplace?.id ||
-             !!meta?.product?.id;
-    });
-    
-    if (marketplacePosts.length > 0) {
-      console.log('📱 Marketplace posts found in profile:', marketplacePosts.length);
-    }
-  }, [filteredProfilePosts]);
 
   // ========== RENDER VIDEOS TAB (Reels Grid) ==========
   const renderVideos = () => {
@@ -1271,7 +1271,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               onClick={() => setShowCreatePostModal(true)}
               onCreateEventClick={onCreateEventClick || (() => {})}
               onPhotoClick={() => {
-                // This would open photo upload
                 const input = document.createElement('input');
                 input.type = 'file';
                 input.accept = 'image/*';
@@ -1285,17 +1284,19 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 input.click();
               }}
               onVideoClick={() => {
-                // This would open Recorder.tsx
                 console.log('Open video recorder');
-                // You would call a prop like onOpenRecorder here
               }}
             />
             {showCreatePostModal && (
               <CreatePostModal
                 currentUser={currentUser}
-                onClose={() => setShowCreatePostModal(false)}
-                onCreatePost={onCreatePost}
                 users={users}
+                editPost={editingPost}
+                onClose={() => {
+                  setShowCreatePostModal(false);
+                  setEditingPost(null);
+                }}
+                onCreatePost={handleCreateOrEditPost}
                 onCreateEventClick={onCreateEventClick}
               />
             )}
@@ -1818,7 +1819,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             setSelectedPostForComments(null);
           }}
           onComment={onComment}
-          onCommentAdded={selectedPostForComments?.onCommentAdded} // Pass the refresh function
+          onCommentAdded={selectedPostForComments?.onCommentAdded}
           getCommentAuthor={getCommentAuthor}
           onProfileClick={onProfileClick}
           onHashtagClick={onHashtagClick}
