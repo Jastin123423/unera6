@@ -1,4 +1,4 @@
-// Feed.tsx (Updated with notification calls)
+// Feed.tsx (Updated with non-blocking notifications)
 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
@@ -4951,17 +4951,20 @@ export const Post: React.FC<{
                 // Get post owner ID for notification
                 const postOwnerId = Number(post.user_id || post.author?.id || 0);
                 
-                // Call the original onReact
+                // Call the original onReact (this updates UI)
                 onReact(postId, type);
                 
-                // ✅ Create notification for post owner (if not self)
+                // ✅ NON-BLOCKING: Fire notification in background (no await)
                 if (postOwnerId && postOwnerId !== currentUser?.id) {
-                  createNotification(
-                    postOwnerId,
-                    "like",
-                    "post",
-                    String(postId)
-                  );
+                  // Use setTimeout to ensure it never blocks the UI
+                  setTimeout(() => {
+                    createNotification(
+                      postOwnerId,
+                      "like",
+                      "post",
+                      String(postId)
+                    );
+                  }, 0);
                 }
               }}
               isGuest={!currentUser}
@@ -5011,16 +5014,18 @@ export const Post: React.FC<{
         onShareComplete={(destination, data) => {
           handleShareComplete(destination, data);
           
-          // ✅ Create notification for share
+          // ✅ NON-BLOCKING: Fire share notification in background
           const postOwnerId = Number(post.user_id || post.author?.id || 0);
           
           if (data?.success && postOwnerId && postOwnerId !== currentUser?.id) {
-            createNotification(
-              postOwnerId,
-              "share",
-              "post",
-              String(postId)
-            );
+            setTimeout(() => {
+              createNotification(
+                postOwnerId,
+                "share",
+                "post",
+                String(postId)
+              );
+            }, 0);
           }
         }}
       />
@@ -5854,14 +5859,16 @@ export const CommentsSheet: React.FC<{
         body: JSON.stringify({ user_id: safeUserId(currentUser) }),
       });
       
-      // ✅ Create notification for comment like
+      // ✅ NON-BLOCKING: Fire comment like notification in background
       if (comment.user_id && comment.user_id !== currentUser.id) {
-        createNotification(
-          comment.user_id,
-          "like",
-          "comment",
-          String(comment.id)
-        );
+        setTimeout(() => {
+          createNotification(
+            comment.user_id,
+            "like",
+            "comment",
+            String(comment.id)
+          );
+        }, 0);
       }
     } catch (error) {
       console.error('Failed to like comment:', error);
@@ -6031,30 +6038,34 @@ export const CommentsSheet: React.FC<{
 
       fetchCommentsSilently();
 
-      // ✅ Create notifications for comment/reply
+      // ✅ NON-BLOCKING: Fire comment/reply notifications in background
       const postOwnerId = Number(post.user_id || post.author?.id || 0);
       
       if (replyTo) {
         // This is a reply to a comment
         if (replyTo.user_id && replyTo.user_id !== currentUser.id) {
-          createNotification(
-            replyTo.user_id,
-            "reply",
-            "comment",
-            String(replyTo.id),
-            finalText
-          );
+          setTimeout(() => {
+            createNotification(
+              replyTo.user_id,
+              "reply",
+              "comment",
+              String(replyTo.id),
+              finalText
+            );
+          }, 0);
         }
       } else {
         // This is a top-level comment on the post
         if (postOwnerId && postOwnerId !== currentUser.id) {
-          createNotification(
-            postOwnerId,
-            "comment",
-            "post",
-            String(postId),
-            finalText
-          );
+          setTimeout(() => {
+            createNotification(
+              postOwnerId,
+              "comment",
+              "post",
+              String(postId),
+              finalText
+            );
+          }, 0);
         }
       }
     } catch (err: any) {
