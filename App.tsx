@@ -38,8 +38,6 @@ import { ChatWindow } from './components/Chat';
 import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
 import Recorder from './components/Recorder';
-import { NotificationsDropdown } from './components/Notifications/NotificationsDropdown';
-import { NotificationToast } from './components/Notifications/NotificationToast';
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
