@@ -1,4 +1,4 @@
-//Feed.tsx (Updated with fixes for Reel card, separated Photo/Video, and larger suggestion cards)
+//Feed.tsx (Updated with Post Menu and Action Registry)
 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
@@ -16,6 +16,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
+import { performPostAction, isActionSupported, PostType as RegistryPostType } from "../postActionRegistry";
 
 // ==================== ICON COMPONENTS (for better rendering) ====================
 const Film: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#1877F2" }) => (
@@ -824,6 +825,166 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size =
     </g>
   </svg>
 );
+
+/**
+ * =========================
+ * ✅ POST MENU COMPONENT WITH EDIT/DELETE FOR OWNER, REPORT FOR OTHERS
+ * =========================
+ */
+export const PostMenu: React.FC<{
+  post: any;
+  postType: RegistryPostType;
+  currentUser: User | null;
+  onClose: () => void;
+  onEdit?: (postId: number, content: string) => void;
+  onDelete?: (postId: number) => void;
+  onReport?: (postId: number, reason?: string) => void;
+  onHide?: (postId: number) => void;
+}> = ({ post, postType, currentUser, onClose, onEdit, onDelete, onReport, onHide }) => {
+  const menuRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [onClose]);
+  
+  const postId = safePostId(post);
+  const authorId = Number(post?.user_id ?? post?.author_id ?? post?.userId ?? 0);
+  const isOwner = currentUser && safeUserId(currentUser) === authorId;
+  
+  const handleEdit = async () => {
+    const newContent = prompt('Edit your post:', post?.content || post?.caption || '');
+    if (newContent === null || newContent.trim() === '') return;
+    
+    try {
+      await performPostAction(postType, 'edit', {
+        id: postId,
+        content: newContent.trim(),
+        ...(postType === 'group_post' && { groupId: post?.group_id })
+      });
+      
+      if (onEdit) {
+        onEdit(postId, newContent.trim());
+      }
+      onClose();
+    } catch (error) {
+      console.error('Edit failed:', error);
+      alert('Failed to edit post. Please try again.');
+    }
+  };
+  
+  const handleDelete = async () => {
+    if (!confirm('Are you sure you want to delete this post?')) return;
+    
+    try {
+      await performPostAction(postType, 'delete', {
+        id: postId,
+        ...(postType === 'group_post' && { groupId: post?.group_id })
+      });
+      
+      if (onDelete) {
+        onDelete(postId);
+      }
+      onClose();
+    } catch (error) {
+      console.error('Delete failed:', error);
+      alert('Failed to delete post. Please try again.');
+    }
+  };
+  
+  const handleReport = () => {
+    const reason = prompt('Please describe why you are reporting this post:');
+    if (reason === null) return;
+    
+    if (onReport) {
+      onReport(postId, reason);
+    } else {
+      alert('Report submitted. Thank you for helping keep UNERA safe!');
+    }
+    onClose();
+  };
+  
+  const handleHide = () => {
+    if (onHide) {
+      onHide(postId);
+    } else {
+      alert('Post hidden from your feed.');
+    }
+    onClose();
+  };
+  
+  return (
+    <div 
+      ref={menuRef}
+      className="absolute right-0 top-8 z-50 bg-[#242526] rounded-lg shadow-2xl border border-[#3E4042] w-56 py-1"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {isOwner ? (
+        // Owner options - Edit and Delete
+        <>
+          {isActionSupported(postType, 'edit') && (
+            <button
+              onClick={handleEdit}
+              className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
+            >
+              <i className="fas fa-edit text-[#1877F2] w-5"></i>
+              <span className="text-[15px] font-medium">Edit Post</span>
+            </button>
+          )}
+          
+          {isActionSupported(postType, 'delete') && (
+            <button
+              onClick={handleDelete}
+              className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
+            >
+              <i className="fas fa-trash text-[#F02849] w-5"></i>
+              <span className="text-[15px] font-medium">Delete Post</span>
+            </button>
+          )}
+        </>
+      ) : (
+        // Non-owner options - Report, Hide, etc.
+        <>
+          <button
+            onClick={handleReport}
+            className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
+          >
+            <i className="fas fa-flag text-[#F7B928] w-5"></i>
+            <span className="text-[15px] font-medium">Report Post</span>
+          </button>
+          
+          <button
+            onClick={handleHide}
+            className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
+          >
+            <i className="fas fa-eye-slash text-[#B0B3B8] w-5"></i>
+            <span className="text-[15px] font-medium">Hide Post</span>
+          </button>
+          
+          <div className="border-t border-[#3E4042] my-1"></div>
+          
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(`${window.location.origin}/post/${postId}`);
+              alert('Link copied to clipboard!');
+              onClose();
+            }}
+            className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
+          >
+            <i className="fas fa-link text-[#1877F2] w-5"></i>
+            <span className="text-[15px] font-medium">Copy Link</span>
+          </button>
+        </>
+      )}
+    </div>
+  );
+};
 
 /**
  * =========================
@@ -4329,6 +4490,7 @@ export const Post: React.FC<{
   onReact: (id: number, type: ReactionType) => void;
   onShare: (id: number, newShareCount: number) => void;
   onDelete?: (id: number) => void;
+  onEdit?: (id: number, content: string) => void;
   onViewImage: (url: string) => void;
   onOpenComments: (id: number) => void; // This now expects just the postId
   onVideoClick: (p: PostType) => void;
@@ -4346,7 +4508,8 @@ export const Post: React.FC<{
   followLoading?: boolean;
   onEventClick?: (eventId: number) => void;
   onOpenReactions?: (postId: number) => void;
-  onEdit?: (postId: number, content: string) => void;
+  onReport?: (postId: number, reason?: string) => void;
+  onHide?: (postId: number) => void;
 }> = ({
   post,
   author,
@@ -4356,6 +4519,7 @@ export const Post: React.FC<{
   onReact,
   onShare,
   onDelete,
+  onEdit,
   onViewImage,
   onOpenComments,
   onVideoClick,
@@ -4373,12 +4537,16 @@ export const Post: React.FC<{
   followLoading = false,
   onEventClick,
   onOpenReactions,
-  onEdit,
+  onReport,
+  onHide,
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
   const p: any = post as any;
   const a: any = author as any;
+
+  // Menu state
+  const [showMenu, setShowMenu] = useState(false);
 
   // ========== MARKETPLACE DETECTION ==========
   const meta: any = p?.meta || {};
@@ -4404,6 +4572,19 @@ export const Post: React.FC<{
     meta?.kind === 'event' ||
     !!p?.event_id ||
     !!meta?.event;
+
+  // Determine post type for registry
+  const getPostType = (): RegistryPostType => {
+    if (isEventPost) return 'event';
+    if (isMarketplace) return 'product';
+    if (p?.type === 'reel' || p?.post_type === 'reel') return 'reel';
+    if (p?.group_id || p?.group) return 'group_post';
+    return 'post';
+  };
+
+  const postType = getPostType();
+  const postId = safePostId(p);
+  const groupId = Number(p?.group_id || p?.groupId || 0);
 
   // If it's an event post, render the EventPost component
   if (isEventPost) {
@@ -4452,7 +4633,6 @@ export const Post: React.FC<{
 
   // Group detection
   const isGroupPost = !!(p?.group_id || p?.group);
-  const groupId = Number(p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0);
   const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
   const group = p?.group || groups?.find(g => g.id === groupId);
 
@@ -4507,7 +4687,6 @@ export const Post: React.FC<{
   const [showShareSheet, setShowShareSheet] = useState(false);
 
   const createdAtLabel = formatRelativeTime(p.created_at);
-  const postId = safePostId(p);
 
   const mediaInfo = getMediaTypeInfo(p);
 
@@ -4653,11 +4832,43 @@ export const Post: React.FC<{
     }
   };
 
+  // Handle delete from menu
+  const handleDeleteFromMenu = (postId: number) => {
+    if (onDelete) {
+      onDelete(postId);
+    }
+    setShowMenu(false);
+  };
+
+  // Handle edit from menu
+  const handleEditFromMenu = (postId: number, content: string) => {
+    if (onEdit) {
+      onEdit(postId, content);
+    }
+    setShowMenu(false);
+  };
+
+  // Handle report from menu
+  const handleReportFromMenu = (postId: number, reason?: string) => {
+    if (onReport) {
+      onReport(postId, reason);
+    }
+    setShowMenu(false);
+  };
+
+  // Handle hide from menu
+  const handleHideFromMenu = (postId: number) => {
+    if (onHide) {
+      onHide(postId);
+    }
+    setShowMenu(false);
+  };
+
   // ========== REGULAR POST RENDERING ==========
   return (
     <>
       {/* Unified post wrapper */}
-      <div className="w-full">
+      <div className="w-full relative">
         <div className="bg-[#242526] w-full overflow-hidden">
           {/* ===== POST HEADER - Use GroupPostHeader for group posts ===== */}
           {isGroupPost ? (
@@ -4667,7 +4878,7 @@ export const Post: React.FC<{
               author={a}
               onOpenGroup={(id) => onOpenGroup?.(id)}
               onOpenProfile={(id) => onProfileClick(id)}
-              onOpenMenu={() => console.log('Open menu')}
+              onOpenMenu={() => setShowMenu(true)}
             />
           ) : (
             <div className="p-3 md:p-4 flex items-center justify-between">
@@ -4731,20 +4942,31 @@ export const Post: React.FC<{
                 </button>
               )}
 
-              {onDelete &&
-                currentUser &&
-                safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
-                  <button
-                    className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(postId);
-                    }}
-                    title="Delete"
-                  >
-                    <i className="fas fa-trash text-[#B0B3B8]"></i>
-                  </button>
-                )}
+              {/* Three dots menu button */}
+              <button
+                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center relative"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMenu(!showMenu);
+                }}
+                aria-label="Post options"
+              >
+                <MoreHorizontal size={20} color="#b0b3b8" />
+              </button>
+
+              {/* Post Menu */}
+              {showMenu && (
+                <PostMenu
+                  post={p}
+                  postType={postType}
+                  currentUser={currentUser}
+                  onClose={() => setShowMenu(false)}
+                  onEdit={handleEditFromMenu}
+                  onDelete={handleDeleteFromMenu}
+                  onReport={handleReportFromMenu}
+                  onHide={handleHideFromMenu}
+                />
+              )}
             </div>
           )}
 
