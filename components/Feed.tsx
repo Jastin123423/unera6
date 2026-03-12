@@ -1,5 +1,4 @@
-
-//Feed.tsx (Updated with Post Menu and Action Registry)
+//Feed.tsx (Updated with PostMenu component and Reel edit/delete)
 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
@@ -17,7 +16,8 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
-import { performPostAction, isActionSupported, PostType as RegistryPostType } from "../postActionRegistry";
+import { performPostAction } from "../postActionRegistry";
+import { PostMenu } from './PostMenu';
 
 // ==================== ICON COMPONENTS (for better rendering) ====================
 const Film: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#1877F2" }) => (
@@ -829,166 +829,6 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size =
 
 /**
  * =========================
- * ✅ POST MENU COMPONENT WITH EDIT/DELETE FOR OWNER, REPORT FOR OTHERS
- * =========================
- */
-export const PostMenu: React.FC<{
-  post: any;
-  postType: RegistryPostType;
-  currentUser: User | null;
-  onClose: () => void;
-  onEdit?: (postId: number, content: string) => void;
-  onDelete?: (postId: number) => void;
-  onReport?: (postId: number, reason?: string) => void;
-  onHide?: (postId: number) => void;
-}> = ({ post, postType, currentUser, onClose, onEdit, onDelete, onReport, onHide }) => {
-  const menuRef = useRef<HTMLDivElement>(null);
-  
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose]);
-  
-  const postId = safePostId(post);
-  const authorId = Number(post?.user_id ?? post?.author_id ?? post?.userId ?? 0);
-  const isOwner = currentUser && safeUserId(currentUser) === authorId;
-  
-  const handleEdit = async () => {
-    const newContent = prompt('Edit your post:', post?.content || post?.caption || '');
-    if (newContent === null || newContent.trim() === '') return;
-    
-    try {
-      await performPostAction(postType, 'edit', {
-        id: postId,
-        content: newContent.trim(),
-        ...(postType === 'group_post' && { groupId: post?.group_id })
-      });
-      
-      if (onEdit) {
-        onEdit(postId, newContent.trim());
-      }
-      onClose();
-    } catch (error) {
-      console.error('Edit failed:', error);
-      alert('Failed to edit post. Please try again.');
-    }
-  };
-  
-  const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this post?')) return;
-    
-    try {
-      await performPostAction(postType, 'delete', {
-        id: postId,
-        ...(postType === 'group_post' && { groupId: post?.group_id })
-      });
-      
-      if (onDelete) {
-        onDelete(postId);
-      }
-      onClose();
-    } catch (error) {
-      console.error('Delete failed:', error);
-      alert('Failed to delete post. Please try again.');
-    }
-  };
-  
-  const handleReport = () => {
-    const reason = prompt('Please describe why you are reporting this post:');
-    if (reason === null) return;
-    
-    if (onReport) {
-      onReport(postId, reason);
-    } else {
-      alert('Report submitted. Thank you for helping keep UNERA safe!');
-    }
-    onClose();
-  };
-  
-  const handleHide = () => {
-    if (onHide) {
-      onHide(postId);
-    } else {
-      alert('Post hidden from your feed.');
-    }
-    onClose();
-  };
-  
-  return (
-    <div 
-      ref={menuRef}
-      className="absolute right-0 top-8 z-50 bg-[#242526] rounded-lg shadow-2xl border border-[#3E4042] w-56 py-1"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {isOwner ? (
-        // Owner options - Edit and Delete
-        <>
-          {isActionSupported(postType, 'edit') && (
-            <button
-              onClick={handleEdit}
-              className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
-            >
-              <i className="fas fa-edit text-[#1877F2] w-5"></i>
-              <span className="text-[15px] font-medium">Edit Post</span>
-            </button>
-          )}
-          
-          {isActionSupported(postType, 'delete') && (
-            <button
-              onClick={handleDelete}
-              className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
-            >
-              <i className="fas fa-trash text-[#F02849] w-5"></i>
-              <span className="text-[15px] font-medium">Delete Post</span>
-            </button>
-          )}
-        </>
-      ) : (
-        // Non-owner options - Report, Hide, etc.
-        <>
-          <button
-            onClick={handleReport}
-            className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
-          >
-            <i className="fas fa-flag text-[#F7B928] w-5"></i>
-            <span className="text-[15px] font-medium">Report Post</span>
-          </button>
-          
-          <button
-            onClick={handleHide}
-            className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
-          >
-            <i className="fas fa-eye-slash text-[#B0B3B8] w-5"></i>
-            <span className="text-[15px] font-medium">Hide Post</span>
-          </button>
-          
-          <div className="border-t border-[#3E4042] my-1"></div>
-          
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(`${window.location.origin}/post/${postId}`);
-              alert('Link copied to clipboard!');
-              onClose();
-            }}
-            className="w-full px-4 py-3 text-left hover:bg-[#3A3B3C] flex items-center gap-3 text-[#E4E6EB]"
-          >
-            <i className="fas fa-link text-[#1877F2] w-5"></i>
-            <span className="text-[15px] font-medium">Copy Link</span>
-          </button>
-        </>
-      )}
-    </div>
-  );
-};
-
-/**
- * =========================
  * ✅ GROUP POST HEADER - FACEBOOK STYLE WITH GROUP + USER OVERLAY
  * =========================
  */
@@ -1077,16 +917,7 @@ const GroupPostHeader: React.FC<{
         </div>
       </div>
 
-      {/* Right menu */}
-      <button
-        className="w-9 h-9 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (onOpenMenu) onOpenMenu();
-        }}
-      >
-        <i className="fas fa-ellipsis-h text-[#B0B3B8]" />
-      </button>
+      {/* Right menu - Will be handled by PostMenu component */}
     </div>
   );
 };
@@ -1109,7 +940,7 @@ const ExpandableRichText: React.FC<{
   users,
   onProfileClick,
   onHashtagClick,
-  maxWords = 14, // Changed from 25 to 14 words
+  maxWords = 14,
   fontSizePx = 21,
   forceExpanded = false,
 }) => {
@@ -1377,12 +1208,9 @@ export const ReactionButton: React.FC<{
       >
         {activeReaction ? (
           <>
-            {/* keep emoji when reacted */}
             <span className="text-[20px] transition-transform duration-300">
               {activeReaction.icon}
             </span>
-
-            {/* ✅ ALWAYS show label "React" (not Like/Love/etc), but keep active color */}
             <span
               className="text-[17px] font-medium transition-colors duration-300"
               style={{ color: activeReaction.color }}
@@ -1392,7 +1220,6 @@ export const ReactionButton: React.FC<{
           </>
         ) : (
           <>
-            {/* ✅ Spark-style icon + label React */}
             <span className="flex items-center justify-center -mt-[1px]">
               <SparkReactIcon size={26} />
             </span>
@@ -1463,7 +1290,6 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
   for (const u of arrUrls) {
     const url = String(u || '').trim();
     if (!url) continue;
-    // If u has width/height properties, preserve them
     out.push({ 
       url, 
       kind: 'image',
@@ -1960,7 +1786,7 @@ export const ReactionsSheet: React.FC<{
         )}
       </div>
 
-      {/* Optional: Discussions button at bottom - CHANGED TEXT ONLY */}
+      {/* Optional: Discussions button at bottom */}
       {onOpenComments && (
         <div className="p-4 border-t border-[#3E4042] bg-[#242526]">
           <button
@@ -1970,7 +1796,7 @@ export const ReactionsSheet: React.FC<{
             }}
             className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-bold rounded-lg transition-colors"
           >
-            View Discussions  {/* ✅ CHANGED from "View Comments" to "View Discussions" */}
+            View Discussions
           </button>
         </div>
       )}
@@ -2138,7 +1964,7 @@ export const GalleryViewer: React.FC<{
               className="hover:underline cursor-pointer" 
               onClick={onOpenComments}
             >
-              {formatCount(commentCount)} Discussions  {/* ✅ CHANGED from "Comments" to "Discussions" */}
+              {formatCount(commentCount)} Discussions
             </span>
             {shareCount > 0 && (
               <span className="hover:underline cursor-pointer" onClick={onShare}>
@@ -2706,7 +2532,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
   onLoginClick,
   onProfileClick,
   title = "People You May Know",
-  maxDisplay = 8 // ✅ INCREASED from 6 to 8
+  maxDisplay = 8
 }) => {
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -2715,7 +2541,6 @@ export const PeopleYouMayKnowGrid: React.FC<{
 
   const displayUsers = users.slice(0, maxDisplay);
 
-  // Check scroll position for arrows
   const checkScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -2742,7 +2567,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
     const el = scrollRef.current;
     if (!el) return;
     
-    const scrollAmount = 350; // ✅ INCREASED scroll amount for larger cards
+    const scrollAmount = 350;
     el.scrollBy({
       left: direction === 'left' ? -scrollAmount : scrollAmount,
       behavior: 'smooth'
@@ -2769,15 +2594,15 @@ export const PeopleYouMayKnowGrid: React.FC<{
       <div className="w-full">
         <div className="bg-[#242526] w-full p-4">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3> {/* ✅ INCREASED font size */}
+            <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
           </div>
-          <div className="flex gap-4 overflow-x-hidden py-2"> {/* ✅ INCREASED gap */}
-            {[1, 2, 3, 4].map((i) => ( // ✅ SHOW 4 skeletons
-              <div key={i} className="flex-shrink-0 w-[180px] animate-pulse"> {/* ✅ INCREASED width */}
-                <div className="w-24 h-24 mx-auto mb-3 bg-[#3A3B3C] rounded-full"></div> {/* ✅ LARGER avatar */}
-                <div className="h-5 bg-[#3A3B3C] rounded w-32 mx-auto mb-2"></div> {/* ✅ LARGER text */}
-                <div className="h-4 bg-[#3A3B3C] rounded w-20 mx-auto mb-4"></div> {/* ✅ LARGER text */}
-                <div className="h-10 bg-[#3A3B3C] rounded-lg w-full"></div> {/* ✅ LARGER button */}
+          <div className="flex gap-4 overflow-x-hidden py-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex-shrink-0 w-[180px] animate-pulse">
+                <div className="w-24 h-24 mx-auto mb-3 bg-[#3A3B3C] rounded-full"></div>
+                <div className="h-5 bg-[#3A3B3C] rounded w-32 mx-auto mb-2"></div>
+                <div className="h-4 bg-[#3A3B3C] rounded w-20 mx-auto mb-4"></div>
+                <div className="h-10 bg-[#3A3B3C] rounded-lg w-full"></div>
               </div>
             ))}
           </div>
@@ -2792,14 +2617,13 @@ export const PeopleYouMayKnowGrid: React.FC<{
   return (
     <div className="w-full">
       <div className="bg-[#242526] w-full p-4">
-        {/* Header */}
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3> {/* ✅ INCREASED font size */}
+          <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
           <div className="flex items-center gap-2">
             {canScrollLeft && (
               <button
                 onClick={() => scroll('left')}
-                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors" // ✅ LARGER button
+                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 aria-label="Scroll left"
               >
                 <i className="fas fa-chevron-left text-[#E4E6EB] text-base"></i>
@@ -2808,7 +2632,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
             {canScrollRight && (
               <button
                 onClick={() => scroll('right')}
-                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors" // ✅ LARGER button
+                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 aria-label="Scroll right"
               >
                 <i className="fas fa-chevron-right text-[#E4E6EB] text-base"></i>
@@ -2817,23 +2641,21 @@ export const PeopleYouMayKnowGrid: React.FC<{
           </div>
         </div>
 
-        {/* Horizontal scrollable grid */}
         <div
           ref={scrollRef}
-          className="flex gap-4 overflow-x-auto scrollbar-hide pb-1" // ✅ INCREASED gap
+          className="flex gap-4 overflow-x-auto scrollbar-hide pb-1"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {displayUsers.map((user) => (
             <div
               key={user.id}
-              className="flex-shrink-0 w-[180px] bg-[#3A3B3C] rounded-xl p-4 hover:bg-[#4E4F50] transition-colors group" // ✅ LARGER width, more padding
+              className="flex-shrink-0 w-[180px] bg-[#3A3B3C] rounded-xl p-4 hover:bg-[#4E4F50] transition-colors group"
             >
-              {/* Profile Image - Make clickable */}
               <div 
-                className="relative w-24 h-24 mx-auto mb-3 cursor-pointer" // ✅ LARGER avatar
+                className="relative w-24 h-24 mx-auto mb-3 cursor-pointer"
                 onClick={() => handleProfileClick(user.id)}
               >
-                <div className="w-full h-full rounded-full overflow-hidden border-3 border-[#1877F2] group-hover:border-[#166FE5] transition-colors"> {/* ✅ THICKER border */}
+                <div className="w-full h-full rounded-full overflow-hidden border-3 border-[#1877F2] group-hover:border-[#166FE5] transition-colors">
                   <img
                     src={user.profile_image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1877F2&color=fff&bold=true&size=128`}
                     alt={user.name}
@@ -2846,38 +2668,35 @@ export const PeopleYouMayKnowGrid: React.FC<{
                   />
                 </div>
                 {user.is_verified && (
-                  <i className="fas fa-check-circle absolute bottom-1 right-1 text-[#1877F2] text-base bg-[#242526] rounded-full p-0.5 border border-[#3A3B3C]"></i> // ✅ LARGER icon
+                  <i className="fas fa-check-circle absolute bottom-1 right-1 text-[#1877F2] text-base bg-[#242526] rounded-full p-0.5 border border-[#3A3B3C]"></i>
                 )}
               </div>
 
-              {/* Name - Make clickable as a button */}
               <div className="text-center mb-2">
                 <button
                   type="button"
                   onClick={() => handleProfileClick(user.id)}
-                  className="text-[#E4E6EB] font-semibold text-[15px] truncate block w-full hover:underline" // ✅ LARGER text
+                  className="text-[#E4E6EB] font-semibold text-[15px] truncate block w-full hover:underline"
                 >
                   {user.name}
                 </button>
                 {user.role && (
-                  <div className="text-[#B0B3B8] text-xs mt-1">{user.role}</div> // ✅ ADDED role display
+                  <div className="text-[#B0B3B8] text-xs mt-1">{user.role}</div>
                 )}
               </div>
 
-              {/* Mutual count */}
               {user.mutual_count > 0 && (
                 <div className="text-center mb-3">
-                  <span className="text-[#B0B3B8] text-[12px]"> {/* ✅ LARGER text */}
+                  <span className="text-[#B0B3B8] text-[12px]">
                     {user.mutual_count} mutual friend{user.mutual_count !== 1 ? 's' : ''}
                   </span>
                 </div>
               )}
 
-              {/* Follow Button */}
               {!currentUser ? (
                 <button
                   onClick={onLoginClick}
-                  className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1" // ✅ LARGER button
+                  className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
                 >
                   <i className="fas fa-sign-in-alt text-[11px]"></i>
                   <span>Sign in</span>
@@ -2890,7 +2709,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
                     user.is_following
                       ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                       : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                  } disabled:opacity-70 disabled:cursor-not-allowed`} // ✅ LARGER button
+                  } disabled:opacity-70 disabled:cursor-not-allowed`}
                 >
                   {followLoading[user.id] ? (
                     <i className="fas fa-spinner fa-spin text-[11px]"></i>
@@ -2907,7 +2726,6 @@ export const PeopleYouMayKnowGrid: React.FC<{
         </div>
       </div>
       
-      {/* Facebook-style separator */}
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
@@ -3103,28 +2921,24 @@ export const ReelFeedCard: React.FC<{
           </span>
         </div>
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenMenu?.(reel);
+        {/* Use PostMenu component for reels */}
+        <PostMenu
+          item={{
+            id: reel.id,
+            user_id: reel.user_id,
+            type: 'reel',
+            content: reel.caption,
+            caption: reel.caption,
+            author: reel.author
           }}
-          style={{
-            border: "none",
-            background: "transparent",
-            color: "#b0b3b8",
-            cursor: "pointer",
-            width: 36,
-            height: 36,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center"
+          currentUser={{ id: Number(localStorage.getItem('user_id')) }}
+          onShare={(item) => {
+            console.log('Share reel:', item);
           }}
-        >
-          <MoreHorizontal size={24} />
-        </button>
+        />
       </div>
 
-      {/* Preview - FIX #2: Full width with calc(100% - 28px) */}
+      {/* Preview */}
       <div
         onClick={openReel}
         style={{
@@ -3165,7 +2979,6 @@ export const ReelFeedCard: React.FC<{
           />
         )}
 
-        {/* Gradient overlay */}
         <div
           style={{
             position: "absolute",
@@ -3175,7 +2988,6 @@ export const ReelFeedCard: React.FC<{
           }}
         />
 
-        {/* Play button */}
         <div
           style={{
             position: "absolute",
@@ -3202,7 +3014,6 @@ export const ReelFeedCard: React.FC<{
           </div>
         </div>
 
-        {/* Bottom overlay info - FIX #1: Shows real author name, not "User" */}
         <div
           style={{
             position: "absolute",
@@ -3216,7 +3027,6 @@ export const ReelFeedCard: React.FC<{
           }}
         >
           <div style={{ minWidth: 0 }}>
-            {/* Author name - FIX #1: Now gets real name from reel.author */}
             <div
               style={{
                 color: "#fff",
@@ -3229,7 +3039,6 @@ export const ReelFeedCard: React.FC<{
               {reel.author}
             </div>
 
-            {/* Views count - FIX #3: Shows actual view count */}
             <div
               style={{
                 display: "flex",
@@ -3246,7 +3055,6 @@ export const ReelFeedCard: React.FC<{
             </div>
           </div>
 
-          {/* Avatar */}
           <div
             style={{
               width: 42,
@@ -3287,7 +3095,6 @@ export const ReelFeedCard: React.FC<{
           </div>
         </div>
 
-        {/* Sound indicator (if audio is present) */}
         {reel.songName && (
           <div style={{
             position: "absolute",
@@ -3354,7 +3161,7 @@ export const GroupsYouMayJoinCard: React.FC<{
   onOpenGroup,
   onProfileClick,
   title = "Groups You May Join",
-  maxDisplay = 8 // ✅ INCREASED from 6 to 8
+  maxDisplay = 8
 }) => {
   const [joinLoading, setJoinLoading] = useState<{ [key: number]: boolean }>({});
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -3363,7 +3170,6 @@ export const GroupsYouMayJoinCard: React.FC<{
 
   const displayGroups = groups.slice(0, maxDisplay);
 
-  // Check scroll position for arrows
   const checkScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -3390,7 +3196,7 @@ export const GroupsYouMayJoinCard: React.FC<{
     const el = scrollRef.current;
     if (!el) return;
     
-    const scrollAmount = 400; // ✅ INCREASED scroll amount for larger cards
+    const scrollAmount = 400;
     el.scrollBy({
       left: direction === 'left' ? -scrollAmount : scrollAmount,
       behavior: 'smooth'
@@ -3423,16 +3229,16 @@ export const GroupsYouMayJoinCard: React.FC<{
       <div className="w-full">
         <div className="bg-[#242526] w-full p-4">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3> {/* ✅ INCREASED font size */}
+            <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
           </div>
-          <div className="flex gap-4 overflow-x-hidden py-2"> {/* ✅ INCREASED gap */}
+          <div className="flex gap-4 overflow-x-hidden py-2">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex-shrink-0 w-[240px] animate-pulse"> {/* ✅ LARGER width */}
-                <div className="h-32 bg-[#3A3B3C] rounded-t-lg"></div> {/* ✅ TALLER cover */}
-                <div className="p-4 bg-[#3A3B3C]"> {/* ✅ MORE padding */}
-                  <div className="h-5 bg-[#4E4F50] rounded w-32 mb-3"></div> {/* ✅ LARGER text */}
-                  <div className="h-4 bg-[#4E4F50] rounded w-20 mb-4"></div> {/* ✅ LARGER text */}
-                  <div className="h-10 bg-[#4E4F50] rounded-lg w-full"></div> {/* ✅ LARGER button */}
+              <div key={i} className="flex-shrink-0 w-[240px] animate-pulse">
+                <div className="h-32 bg-[#3A3B3C] rounded-t-lg"></div>
+                <div className="p-4 bg-[#3A3B3C]">
+                  <div className="h-5 bg-[#4E4F50] rounded w-32 mb-3"></div>
+                  <div className="h-4 bg-[#4E4F50] rounded w-20 mb-4"></div>
+                  <div className="h-10 bg-[#4E4F50] rounded-lg w-full"></div>
                 </div>
               </div>
             ))}
@@ -3448,14 +3254,13 @@ export const GroupsYouMayJoinCard: React.FC<{
   return (
     <div className="w-full">
       <div className="bg-[#242526] w-full p-4">
-        {/* Header */}
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3> {/* ✅ INCREASED font size */}
+          <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
           <div className="flex items-center gap-2">
             {canScrollLeft && (
               <button
                 onClick={() => scroll('left')}
-                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors" // ✅ LARGER button
+                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 aria-label="Scroll left"
               >
                 <i className="fas fa-chevron-left text-[#E4E6EB] text-base"></i>
@@ -3464,7 +3269,7 @@ export const GroupsYouMayJoinCard: React.FC<{
             {canScrollRight && (
               <button
                 onClick={() => scroll('right')}
-                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors" // ✅ LARGER button
+                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 aria-label="Scroll right"
               >
                 <i className="fas fa-chevron-right text-[#E4E6EB] text-base"></i>
@@ -3473,20 +3278,18 @@ export const GroupsYouMayJoinCard: React.FC<{
           </div>
         </div>
 
-        {/* Horizontal scrollable grid */}
         <div
           ref={scrollRef}
-          className="flex gap-4 overflow-x-auto scrollbar-hide pb-1" // ✅ INCREASED gap
+          className="flex gap-4 overflow-x-auto scrollbar-hide pb-1"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {displayGroups.map((group) => (
             <div
               key={group.id}
-              className="flex-shrink-0 w-[240px] bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors group" // ✅ LARGER width, rounded corners
+              className="flex-shrink-0 w-[240px] bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors group"
             >
-              {/* Cover Image - Make clickable */}
               <div 
-                className="h-32 bg-[#4E4F50] cursor-pointer relative" // ✅ TALLER cover
+                className="h-32 bg-[#4E4F50] cursor-pointer relative"
                 onClick={() => handleGroupClick(group.id)}
               >
                 {group.cover_image ? (
@@ -3501,23 +3304,19 @@ export const GroupsYouMayJoinCard: React.FC<{
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#1877F2] to-[#166FE5]">
-                    <i className="fas fa-users text-white text-3xl opacity-50"></i> {/* ✅ LARGER icon */}
+                    <i className="fas fa-users text-white text-3xl opacity-50"></i>
                   </div>
                 )}
                 
-                {/* Group type badge */}
                 <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-full text-white text-[11px] font-semibold">
                   {group.type === 'public' ? '🌍 Public' : '🔒 Private'}
                 </div>
               </div>
 
-              {/* Content */}
-              <div className="p-4"> {/* ✅ MORE padding */}
-                {/* Group Name and Profile Image */}
-                <div className="flex items-center gap-3 mb-3"> {/* ✅ LARGER gap */}
-                  {/* Profile Image - Make clickable */}
+              <div className="p-4">
+                <div className="flex items-center gap-3 mb-3">
                   <div 
-                    className="w-12 h-12 rounded-full overflow-hidden bg-[#4E4F50] flex-shrink-0 cursor-pointer border-3 border-[#1877F2] group-hover:border-[#166FE5] transition-colors" // ✅ LARGER avatar, thicker border
+                    className="w-12 h-12 rounded-full overflow-hidden bg-[#4E4F50] flex-shrink-0 cursor-pointer border-3 border-[#1877F2] group-hover:border-[#166FE5] transition-colors"
                     onClick={() => handleGroupClick(group.id)}
                   >
                     {group.profile_image ? (
@@ -3529,28 +3328,26 @@ export const GroupsYouMayJoinCard: React.FC<{
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-[#3A3B3C]">
-                        <i className="fas fa-users text-[#B0B3B8] text-base"></i> {/* ✅ LARGER icon */}
+                        <i className="fas fa-users text-[#B0B3B8] text-base"></i>
                       </div>
                     )}
                   </div>
                   
-                  {/* Group Name - Make clickable */}
                   <div className="flex-1 min-w-0">
                     <button
                       type="button"
                       onClick={() => handleGroupClick(group.id)}
-                      className="text-[#E4E6EB] font-semibold text-[15px] truncate w-full text-left hover:underline" // ✅ LARGER text
+                      className="text-[#E4E6EB] font-semibold text-[15px] truncate w-full text-left hover:underline"
                     >
                       {group.name}
                     </button>
-                    <div className="text-[#B0B3B8] text-[12px] truncate"> {/* ✅ LARGER text */}
+                    <div className="text-[#B0B3B8] text-[12px] truncate">
                       {group.category}
                     </div>
                   </div>
                 </div>
 
-                {/* Member stats */}
-                <div className="text-[#B0B3B8] text-[12px] mb-3"> {/* ✅ LARGER text, more margin */}
+                <div className="text-[#B0B3B8] text-[12px] mb-3">
                   <i className="fas fa-users mr-1"></i>
                   {group.members_count.toLocaleString()} members
                   {group.mutual_count > 0 && (
@@ -3558,9 +3355,8 @@ export const GroupsYouMayJoinCard: React.FC<{
                   )}
                 </div>
 
-                {/* Admin name - Make clickable if onProfileClick exists */}
                 {onProfileClick && (
-                  <div className="text-[#B0B3B8] text-[12px] mb-3"> {/* ✅ LARGER text */}
+                  <div className="text-[#B0B3B8] text-[12px] mb-3">
                     Admin: {' '}
                     <button
                       type="button"
@@ -3572,18 +3368,16 @@ export const GroupsYouMayJoinCard: React.FC<{
                   </div>
                 )}
 
-                {/* Description preview */}
                 {group.description && (
                   <div className="text-[#B0B3B8] text-[12px] mb-3 line-clamp-2">
                     {group.description}
                   </div>
                 )}
 
-                {/* Join Button */}
                 {!currentUser ? (
                   <button
                     onClick={onLoginClick}
-                    className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1" // ✅ LARGER button
+                    className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
                   >
                     <i className="fas fa-sign-in-alt text-[11px]"></i>
                     <span>Sign in</span>
@@ -3596,7 +3390,7 @@ export const GroupsYouMayJoinCard: React.FC<{
                       group.is_member
                         ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                         : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                    } disabled:opacity-70 disabled:cursor-not-allowed`} // ✅ LARGER button
+                    } disabled:opacity-70 disabled:cursor-not-allowed`}
                   >
                     {joinLoading[group.id] ? (
                       <i className="fas fa-spinner fa-spin text-[11px]"></i>
@@ -3614,7 +3408,6 @@ export const GroupsYouMayJoinCard: React.FC<{
         </div>
       </div>
       
-      {/* Facebook-style separator */}
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
@@ -3784,9 +3577,6 @@ export const EventPost: React.FC<{
     return dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
   };
 
-  /**
-   * ✅ FIXED: RSVP handler that matches AllEvents.tsx exactly
-   */
   const handleRSVPClick = async (target: 'going' | 'interested') => {
     if (!currentUser) {
       alert('Please login to RSVP');
@@ -3819,7 +3609,6 @@ export const EventPost: React.FC<{
       } else nextInt = prevInt + 1;
     }
 
-    // Optimistic UI update
     setRsvpStatus(nextStatus);
     setAttendeesCount(nextAtt);
     setInterestedCount(nextInt);
@@ -3838,7 +3627,6 @@ export const EventPost: React.FC<{
         });
       }
 
-      // Overwrite with backend truth if available
       if (res?.success) {
         if (res.attending_count !== undefined) {
           setAttendeesCount(Number(res.attending_count));
@@ -3851,7 +3639,6 @@ export const EventPost: React.FC<{
         }
       }
     } catch (error) {
-      // Rollback on failure
       setRsvpStatus(prevStatus);
       setAttendeesCount(prevAtt);
       setInterestedCount(prevInt);
@@ -3911,7 +3698,6 @@ export const EventPost: React.FC<{
           className="bg-[#242526] w-full overflow-hidden cursor-pointer"
           onClick={handleCardClick}
         >
-          {/* Header */}
           <div className="p-3 md:p-4 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
             <div
               className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
@@ -3961,10 +3747,8 @@ export const EventPost: React.FC<{
             )}
           </div>
 
-          {/* EVENT BODY - FIXED: Image now shows on top */}
           <div className="pb-4" onClick={(e) => e.stopPropagation()}>
             <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
-              {/* Cover Image */}
               {event.cover_url ? (
                 <div className="h-48 bg-[#18191A] overflow-hidden relative">
                   <img
@@ -3983,7 +3767,6 @@ export const EventPost: React.FC<{
                       }
                     }}
                   />
-                  {/* Date Badge */}
                   {dateObj && (
                     <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
                       <div className="text-[#B0B3B8] text-[11px] font-black">
@@ -4011,7 +3794,6 @@ export const EventPost: React.FC<{
                 </div>
               )}
 
-              {/* Details */}
               <div className="p-4">
                 <div className="text-[#E4E6EB] font-black text-[20px] line-clamp-2">
                   {event.title}
@@ -4044,7 +3826,6 @@ export const EventPost: React.FC<{
                   </div>
                 </div>
 
-                {/* RSVP Buttons - Matches AllEvents.tsx exactly */}
                 <div className="mt-4 flex gap-2">
                   <button
                     disabled={loading || isPast}
@@ -4092,9 +3873,7 @@ export const EventPost: React.FC<{
             </div>
           </div>
 
-          {/* Action row - ORIGINAL EVENT ACTION ROW (NO REACTION SUMMARY) */}
           <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-            {/* Like/React Button */}
             <div className="flex-1">
               <ReactionButton
                 currentUserReactions={undefined}
@@ -4104,7 +3883,6 @@ export const EventPost: React.FC<{
               />
             </div>
             
-            {/* Comment Button - UPDATED TO DISCUSS */}
             <button
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
               onClick={handleOpenComments}
@@ -4115,7 +3893,6 @@ export const EventPost: React.FC<{
               </span>
             </button>
             
-            {/* Share Button */}
             <button
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
               onClick={handleShare}
@@ -4129,7 +3906,6 @@ export const EventPost: React.FC<{
         <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
       </div>
 
-      {/* Share Bottom Sheet */}
       {event && (
         <ShareBottomSheet
           isOpen={showShareSheet}
@@ -4209,9 +3985,6 @@ export const EventFeedCard: React.FC<{
   const nowLocal = new Date();
   const isPast = !!dateObj && dateObj < nowLocal;
 
-  /**
-   * ✅ FIXED: RSVP function now matches AllEvents.tsx logic
-   */
   const rsvp = async (target: "going" | "interested") => {
     if (!currentUser) {
       alert("Please login to RSVP");
@@ -4225,7 +3998,6 @@ export const EventFeedCard: React.FC<{
     const prevStatus = (item.my_rsvp_status || '') as '' | 'going' | 'interested';
     const nextStatus: '' | 'going' | 'interested' = prevStatus === target ? '' : target;
 
-    // Save previous counts for rollback
     const prevAtt = Number(item.attending_count ?? 0);
     const prevInt = Number(item.interested_count ?? 0);
 
@@ -4246,7 +4018,6 @@ export const EventFeedCard: React.FC<{
       } else nextInt = prevInt + 1;
     }
 
-    // Optimistic UI update
     onUpdateItem({ 
       my_rsvp_status: nextStatus as any,
       attending_count: nextAtt,
@@ -4267,7 +4038,6 @@ export const EventFeedCard: React.FC<{
         });
       }
 
-      // ✅ IMPORTANT: overwrite from backend truth if available
       if (res?.success) {
         const patch: Partial<FeedEventItem> = {};
         if (res.my_status !== undefined) {
@@ -4282,7 +4052,6 @@ export const EventFeedCard: React.FC<{
         onUpdateItem(patch);
       }
     } catch (e: any) {
-      // rollback counts/status
       onUpdateItem({
         my_rsvp_status: prevStatus as any,
         attending_count: prevAtt,
@@ -4298,7 +4067,6 @@ export const EventFeedCard: React.FC<{
   const attending = Number(item.attending_count ?? 0);
   const interested = Number(item.interested_count ?? 0);
 
-  // Handle card click to open preview modal
   const handleCardClick = () => {
     if (onEventClick) {
       const eventId = item.event_id || item.id;
@@ -4312,7 +4080,6 @@ export const EventFeedCard: React.FC<{
       onClick={handleCardClick}
     >
       <div className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042]">
-        {/* Header */}
         <div className="flex items-center gap-3 p-3" onClick={(e) => e.stopPropagation()}>
           <img
             src={item.profile_image_url || "https://via.placeholder.com/40"}
@@ -4331,7 +4098,6 @@ export const EventFeedCard: React.FC<{
           </div>
         </div>
 
-        {/* Cover image */}
         {item.media_url ? (
           <div className="w-full h-56 bg-black overflow-hidden relative">
             <img 
@@ -4349,7 +4115,6 @@ export const EventFeedCard: React.FC<{
                 }
               }}
             />
-            {/* Date Badge */}
             {dateObj && (
               <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
                 <div className="text-[#B0B3B8] text-[11px] font-black">
@@ -4377,7 +4142,6 @@ export const EventFeedCard: React.FC<{
           </div>
         )}
 
-        {/* Content */}
         <div className="p-4" onClick={(e) => e.stopPropagation()}>
           <div className="text-[#E4E6EB] font-black text-xl leading-tight">
             {item.content}
@@ -4410,14 +4174,12 @@ export const EventFeedCard: React.FC<{
             </div>
           </div>
 
-          {/* Error message if any */}
           {error && (
             <div className="mt-2 text-sm text-red-500 bg-red-500/10 p-2 rounded-lg">
               {error}
             </div>
           )}
 
-          {/* RSVP Buttons - Matches AllEvents.tsx */}
           <div className="mt-4 flex gap-2">
             <button
               disabled={loading || isPast}
@@ -4464,17 +4226,10 @@ export const EventFeedCard: React.FC<{
         </div>
       </div>
       
-      {/* Facebook-style separator */}
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
 };
-
-/**
- * =========================
- * ✅ ACTIVE COMMENTS STATE WITH LOCKED SNAPSHOT
- * =========================
- */
 
 /**
  * =========================
@@ -4493,7 +4248,7 @@ export const Post: React.FC<{
   onDelete?: (id: number) => void;
   onEdit?: (id: number, content: string) => void;
   onViewImage: (url: string) => void;
-  onOpenComments: (id: number) => void; // This now expects just the postId
+  onOpenComments: (id: number) => void;
   onVideoClick: (p: PostType) => void;
   onPlayAudioTrack?: (t: AudioTrack) => void;
   onHashtagClick?: (tag: string) => void;
@@ -4546,9 +4301,6 @@ export const Post: React.FC<{
   const p: any = post as any;
   const a: any = author as any;
 
-  // Menu state
-  const [showMenu, setShowMenu] = useState(false);
-
   // ========== MARKETPLACE DETECTION ==========
   const meta: any = p?.meta || {};
   
@@ -4573,19 +4325,6 @@ export const Post: React.FC<{
     meta?.kind === 'event' ||
     !!p?.event_id ||
     !!meta?.event;
-
-  // Determine post type for registry
-  const getPostType = (): RegistryPostType => {
-    if (isEventPost) return 'event';
-    if (isMarketplace) return 'product';
-    if (p?.type === 'reel' || p?.post_type === 'reel') return 'reel';
-    if (p?.group_id || p?.group) return 'group_post';
-    return 'post';
-  };
-
-  const postType = getPostType();
-  const postId = safePostId(p);
-  const groupId = Number(p?.group_id || p?.groupId || 0);
 
   // If it's an event post, render the EventPost component
   if (isEventPost) {
@@ -4625,6 +4364,7 @@ export const Post: React.FC<{
 
   // Reactions sheet state
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [showShareSheet, setShowShareSheet] = useState(false);
 
   // Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
@@ -4634,50 +4374,32 @@ export const Post: React.FC<{
 
   // Group detection
   const isGroupPost = !!(p?.group_id || p?.group);
+  const groupId = Number(p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0);
   const groupName = p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
   const group = p?.group || groups?.find(g => g.id === groupId);
 
   // ========== REACTION DATA WITH FALLBACKS ==========
   const myReaction = p.myReaction ?? p.my_reaction ?? null;
-
-  // Count from various possible fields
   const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
-
-  // IMPORTANT: never make it null; fallback to preview list if available
   const reactionsArr: any[] = Array.isArray(p.reactions)
     ? p.reactions
     : Array.isArray(p.reactions_preview)
       ? p.reactions_preview
       : [];
 
-  // Optional name provided by backend
-  const reactorNameFromApi = String(
-    p.reactor_name ?? p.reactorName ?? ""
-  ).trim();
+  const reactorNameFromApi = String(p.reactor_name ?? p.reactorName ?? "").trim();
 
-  // Final values used in the component
   const finalMyReaction: ReactionType | undefined =
     myReaction ||
     (currentUser && reactionsArr.length
       ? (reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type as ReactionType)
       : undefined);
 
-  const finalReactionCount =
-    likesCount > 0 ? likesCount : reactionsArr.length;
+  const finalReactionCount = likesCount > 0 ? likesCount : reactionsArr.length;
   
-  // ========== COMMENT COUNT STATE ==========
   const [commentCount, setCommentCount] = useState(() => {
-    // Try to get from post.comments_count first (API)
-    if (typeof p.comments_count === 'number') {
-      console.log('📊 Post initial comment count from API:', p.id, p.comments_count);
-      return p.comments_count;
-    }
-    // Fallback to comments array length
-    if (Array.isArray(p.comments)) {
-      console.log('📊 Post initial comment count from array:', p.id, p.comments.length);
-      return p.comments.length;
-    }
-    console.log('📊 Post initial comment count default 0:', p.id);
+    if (typeof p.comments_count === 'number') return p.comments_count;
+    if (Array.isArray(p.comments)) return p.comments.length;
     return 0;
   });
 
@@ -4685,26 +4407,20 @@ export const Post: React.FC<{
     return safeNumber(p.shares ?? p.shares_count, 0);
   });
 
-  const [showShareSheet, setShowShareSheet] = useState(false);
-
   const createdAtLabel = formatRelativeTime(p.created_at);
+  const postId = safePostId(p);
 
   const mediaInfo = getMediaTypeInfo(p);
-
-  const mediaList = useMemo(() => {
-    return getPostMediaList(p);
-  }, [p]);
+  const mediaList = useMemo(() => getPostMediaList(p), [p]);
+  const imageMedia = mediaList.filter(m => m.kind === 'image');
+  const videoMedia = mediaList.filter(m => m.kind === 'video');
 
   const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return `${(count / 1000000).toFixed(1)}M`;
-    } else if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
     return count.toString();
   };
 
-  // Facebook-style reaction emojis
   const emojiList = useMemo(() => {
     if (reactionsArr.length > 0) {
       const em = topReactionEmojis(reactionsArr, 2);
@@ -4713,21 +4429,15 @@ export const Post: React.FC<{
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
 
-  // STABLE REACTOR NAME WITH BACKEND FALLBACK
   const reactorName = useMemo(() => {
     if (!finalReactionCount) return "";
-
-    // If we have an array (best), resolve name from it
     if (reactionsArr.length) {
       const name = pickStableReactorName(postId, reactionsArr, users);
       return String(name || "").trim();
     }
-
-    // If no array (common case), use backend-provided name
     return reactorNameFromApi;
   }, [postId, finalReactionCount, reactionsArr, users, reactorNameFromApi]);
 
-  // PROFESSIONAL REACTION TEXT
   const reactionText = useMemo(() => {
     if (!finalReactionCount || !reactorName) return '';
     return formatReactionText(finalReactionCount, reactorName);
@@ -4741,7 +4451,6 @@ export const Post: React.FC<{
         : 0;
     
     if (newCommentCount !== commentCount) {
-      console.log('📊 Syncing comment count from props:', p.id, newCommentCount);
       setCommentCount(newCommentCount);
     }
 
@@ -4750,45 +4459,6 @@ export const Post: React.FC<{
       setShareCount(newShareCount);
     }
   }, [p.comments_count, p.comments, p.shares, p.shares_count]);
-
-  // ========== FETCH UPDATED POST DATA ==========
-  const fetchUpdatedPost = useCallback(async () => {
-    try {
-      const viewerId = currentUser?.id ?? 0;
-      const url = `/api/posts/${postId}?viewerId=${viewerId}`;
-      console.log('📡 Fetching updated post:', url);
-      
-      const token = localStorage.getItem('unera_token');
-      const headers: HeadersInit = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      };
-
-      const res = await fetch(url, { headers });
-      const data = await res.json();
-      
-      if (data) {
-        console.log('📥 Received updated post data:', data);
-        
-        // Update comment count
-        if (typeof data.comments_count === 'number') {
-          console.log('📊 Updating comment count from', commentCount, 'to', data.comments_count);
-          setCommentCount(data.comments_count);
-        }
-        
-        // Update share count if available
-        if (typeof data.shares === 'number') {
-          setShareCount(data.shares);
-        }
-        
-        // Update reaction count if needed
-        // You could also update other post data here
-      }
-    } catch (error) {
-      console.error('❌ Failed to fetch updated post:', error);
-    }
-  }, [postId, currentUser?.id, commentCount]);
 
   const handleShareComplete = (destination: string, data?: any) => {
     const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
@@ -4814,64 +4484,47 @@ export const Post: React.FC<{
     setGalleryOpen(true);
   };
 
-  // Split media by type for rendering
-  const imageMedia = mediaList.filter(m => m.kind === 'image');
-  const videoMedia = mediaList.filter(m => m.kind === 'video');
-
-  // ========== OPEN COMMENTS WITH PROPER EVENT HANDLING ==========
   const handleOpenComments = (e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
-      e.stopPropagation(); // ✅ CRITICAL: never trigger PostCard onClick
+      e.stopPropagation();
     }
     
     if (currentUser) {
-      // Just pass the postId to the parent - the parent will handle the locked snapshot
       onOpenComments(postId);
     } else {
       alert('Please login to comment');
     }
   };
 
-  // Handle delete from menu
   const handleDeleteFromMenu = (postId: number) => {
     if (onDelete) {
       onDelete(postId);
     }
-    setShowMenu(false);
   };
 
-  // Handle edit from menu
   const handleEditFromMenu = (postId: number, content: string) => {
     if (onEdit) {
       onEdit(postId, content);
     }
-    setShowMenu(false);
   };
 
-  // Handle report from menu
   const handleReportFromMenu = (postId: number, reason?: string) => {
     if (onReport) {
       onReport(postId, reason);
     }
-    setShowMenu(false);
   };
 
-  // Handle hide from menu
   const handleHideFromMenu = (postId: number) => {
     if (onHide) {
       onHide(postId);
     }
-    setShowMenu(false);
   };
 
-  // ========== REGULAR POST RENDERING ==========
   return (
     <>
-      {/* Unified post wrapper */}
       <div className="w-full relative">
         <div className="bg-[#242526] w-full overflow-hidden">
-          {/* ===== POST HEADER - Use GroupPostHeader for group posts ===== */}
           {isGroupPost ? (
             <GroupPostHeader
               post={p}
@@ -4879,7 +4532,6 @@ export const Post: React.FC<{
               author={a}
               onOpenGroup={(id) => onOpenGroup?.(id)}
               onOpenProfile={(id) => onProfileClick(id)}
-              onOpenMenu={() => setShowMenu(true)}
             />
           ) : (
             <div className="p-3 md:p-4 flex items-center justify-between">
@@ -4943,35 +4595,24 @@ export const Post: React.FC<{
                 </button>
               )}
 
-              {/* Three dots menu button */}
-              <button
-                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center relative"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowMenu(!showMenu);
+              {/* Use the standalone PostMenu component */}
+              <PostMenu
+                item={{
+                  id: postId,
+                  user_id: safeUserId(a),
+                  type: isMarketplace ? 'product' : (isGroupPost ? 'group_post' : 'post'),
+                  content: p.content,
+                  caption: p.caption,
+                  group_id: groupId
                 }}
-                aria-label="Post options"
-              >
-                <MoreHorizontal size={20} color="#b0b3b8" />
-              </button>
-
-              {/* Post Menu */}
-              {showMenu && (
-                <PostMenu
-                  post={p}
-                  postType={postType}
-                  currentUser={currentUser}
-                  onClose={() => setShowMenu(false)}
-                  onEdit={handleEditFromMenu}
-                  onDelete={handleDeleteFromMenu}
-                  onReport={handleReportFromMenu}
-                  onHide={handleHideFromMenu}
-                />
-              )}
+                currentUser={currentUser}
+                onShare={(item) => {
+                  setShowShareSheet(true);
+                }}
+              />
             </div>
           )}
 
-          {/* ===== MARKETPLACE TOP LINE ===== */}
           {isMarketplace && (
             <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
               <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
@@ -4986,7 +4627,6 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== POST CONTENT - Now uses ExpandableRichText with 14 word limit ===== */}
           {p.content && !isMarketplace && (
             <div className="px-3 md:px-4 pb-2">
               <ExpandableRichText
@@ -4994,13 +4634,12 @@ export const Post: React.FC<{
                 users={users}
                 onProfileClick={onProfileClick}
                 onHashtagClick={onHashtagClick}
-                maxWords={14} // Changed from 25 to 14 words
+                maxWords={14}
                 fontSizePx={21}
               />
             </div>
           )}
 
-          {/* ===== MUSIC/PODCAST CARD ===== */}
           {(isMusic || isPodcast) && (
             <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
               <div className="flex items-center gap-3 p-3">
@@ -5032,7 +4671,6 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== LINK PREVIEW ===== */}
           {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
             <div
               className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
@@ -5064,7 +4702,6 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== BACKGROUND POST ===== */}
           {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
             <div
               className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
@@ -5074,7 +4711,6 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== MEDIA RENDERING ===== */}
           {isMarketplace ? (
             mpImages.length > 0 ? (
               <div className="w-full">
@@ -5090,7 +4726,6 @@ export const Post: React.FC<{
             ) : null
           ) : (
             <>
-              {/* Images Grid */}
               {!p.background && imageMedia.length > 0 && (
                 <MediaGrid
                   media={imageMedia.map((m) => ({ url: m.url }))}
@@ -5101,7 +4736,6 @@ export const Post: React.FC<{
                 />
               )}
 
-              {/* Video */}
               {!p.background && videoMedia.length > 0 && (
                 <div
                   className="cursor-pointer relative h-[500px] bg-black"
@@ -5124,7 +4758,6 @@ export const Post: React.FC<{
                 </div>
               )}
               
-              {/* Audio */}
               {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
                 <div className="my-3">
                   {(() => {
@@ -5233,7 +4866,6 @@ export const Post: React.FC<{
             </>
           )}
 
-          {/* ===== MARKETPLACE PRICE AND BUTTON FOOTER ===== */}
           {isMarketplace && price && (
             <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
               <div className="flex items-center gap-1">
@@ -5253,7 +4885,6 @@ export const Post: React.FC<{
             </div>
           )}
 
-          {/* ===== PROFESSIONAL REACTION SUMMARY WITH FORMATTED TEXT ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {finalReactionCount > 0 && (
@@ -5268,7 +4899,6 @@ export const Post: React.FC<{
                     }
                   }}
                 >
-                  {/* Reaction emojis - shows top 2 emojis stacked */}
                   <div className="flex -space-x-2">
                     {emojiList.slice(0, 2).map((e, i) => (
                       <span
@@ -5281,7 +4911,6 @@ export const Post: React.FC<{
                     ))}
                   </div>
                   
-                  {/* PROFESSIONAL REACTION TEXT - e.g., "5 · Jastin Beda and 4 others" */}
                   {reactionText && (
                     <span className="text-[15px] text-[#E4E6EB] font-medium">
                       {reactionText}
@@ -5291,13 +4920,12 @@ export const Post: React.FC<{
               )}
             </div>
 
-            {/* Comments and Shares counts - CHANGED TEXT ONLY */}
             <div className="flex gap-4">
               <span
                 className="hover:underline cursor-pointer"
                 onClick={() => handleOpenComments()}
               >
-                {formatCount(commentCount)} Discussions  {/* ✅ CHANGED from "Comments" to "Discussions" */}
+                {formatCount(commentCount)} Discussions
               </span>
               {shareCount > 0 && (
                 <span className="hover:underline">
@@ -5307,7 +4935,6 @@ export const Post: React.FC<{
             </div>
           </div>
 
-          {/* ===== ACTION BUTTONS ===== */}
           <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
             <ReactionButton
               currentUserReactions={finalMyReaction}
@@ -5320,7 +4947,7 @@ export const Post: React.FC<{
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
               onClick={(e) => {
                 e.preventDefault();
-                e.stopPropagation(); // ✅ CRITICAL: never trigger PostCard onClick
+                e.stopPropagation();
                 handleOpenComments(e);
               }}
             >
@@ -5345,7 +4972,6 @@ export const Post: React.FC<{
           </div>
         </div>
 
-        {/* Facebook-like separator band */}
         <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
       </div>
 
@@ -5361,7 +4987,6 @@ export const Post: React.FC<{
         onShareComplete={handleShareComplete}
       />
 
-      {/* Reactions Sheet */}
       <ReactionsSheet
         isOpen={showReactionsSheet}
         onClose={() => setShowReactionsSheet(false)}
@@ -5370,7 +4995,6 @@ export const Post: React.FC<{
         onOpenComments={onOpenComments}
       />
 
-      {/* Gallery Viewer for multi-image swiping - WITH ACTIONS AND REACTIONS SHEET SUPPORT */}
       <GalleryViewer
         isOpen={galleryOpen}
         urls={galleryUrls}
@@ -5397,12 +5021,6 @@ export const Post: React.FC<{
   );
 };
 
-// Helper function for safeArrayHelper
-const safeArrayHelper = <T,>(arr: any): T[] => {
-  if (Array.isArray(arr)) return arr;
-  return [];
-};
-
 /**
  * =========================
  * ✅ CREATE POST CARD - WITH SEPARATE PHOTO/VIDEO BUTTONS
@@ -5412,9 +5030,9 @@ const safeArrayHelper = <T,>(arr: any): T[] => {
 export const CreatePost: React.FC<{
   currentUser: User;
   onProfileClick: (id: number) => void;
-  onClick: () => void; // For text post click
-  onPhotoClick: () => void; // For photo upload
-  onVideoClick: () => void; // For opening Recorder.tsx
+  onClick: () => void;
+  onPhotoClick: () => void;
+  onVideoClick: () => void;
   onCreateEventClick: () => void;
 }> = ({ currentUser, onProfileClick, onClick, onPhotoClick, onVideoClick, onCreateEventClick }) => (
   <div className="w-full">
@@ -5445,7 +5063,6 @@ export const CreatePost: React.FC<{
           <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
         </div>
 
-        {/* SEPARATED PHOTO BUTTON */}
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onPhotoClick}
@@ -5454,7 +5071,6 @@ export const CreatePost: React.FC<{
           <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo</span>
         </div>
 
-        {/* SEPARATED VIDEO BUTTON - OPENS RECORDER */}
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onVideoClick}
@@ -5479,7 +5095,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * ✅ UPDATED: CREATE POST MODAL WITH ENHANCED LINK PREVIEW
+ * ✅ CREATE POST MODAL
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -5500,32 +5116,26 @@ export const CreatePostModal: React.FC<{
     }
   ) => void;
   onCreateEventClick?: () => void;
-  onOpenRecorder?: () => void; // New prop to open Recorder.tsx
+  onOpenRecorder?: () => void;
 }> = ({ currentUser, users, onClose, onCreatePost, onCreateEventClick, onOpenRecorder }) => {
   const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
-  
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [type, setType] = useState<'text' | 'image' | 'video'>('text');
-
   const [visibility] = useState<'Public' | 'Friends'>('Public');
   const [activeBackground, setActiveBackground] = useState('');
   const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
-
   const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
   const [feeling, setFeeling] = useState('');
   const [location, setLocation] = useState('');
-
   const [locQuery, setLocQuery] = useState('');
   const [locResults, setLocResults] = useState<any[]>([]);
   const [locLoading, setLocLoading] = useState(false);
   const searchTimeout = useRef<any>(null);
   const previewTimeout = useRef<any>(null);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (previewTimeout.current) {
@@ -5617,7 +5227,6 @@ export const CreatePostModal: React.FC<{
 
   const submit = () => {
     if (!canPost) return;
-
     onCreatePost(text, files, {
       type: files.length ? type : 'text',
       visibility,
@@ -5627,7 +5236,6 @@ export const CreatePostModal: React.FC<{
       background: activeBackground || undefined,
       linkPreview: linkPreview || null,
     });
-
     onClose();
   };
 
@@ -5970,7 +5578,6 @@ export const CreatePostModal: React.FC<{
         </div>
 
         <div className="border-t border-[#3E4042]">
-          {/* PHOTO option */}
           <OptionsItem 
             icon="fas fa-image" 
             color="#45BD62" 
@@ -5978,21 +5585,19 @@ export const CreatePostModal: React.FC<{
             onClick={() => fileInputRef.current?.click()} 
           />
           
-          {/* VIDEO option - opens Recorder */}
           <OptionsItem 
             icon="fas fa-camera" 
             color="#F3425F" 
             label="Video" 
             onClick={() => {
-              onClose(); // Close the create post modal
-              if (onOpenRecorder) onOpenRecorder(); // Open Recorder.tsx
+              onClose();
+              if (onOpenRecorder) onOpenRecorder();
             }} 
           />
           
           <OptionsItem icon="fas fa-user-tag" color="#1877F2" label="Tag people" onClick={() => setView('tag')} />
           <OptionsItem icon="far fa-smile" color="#F7B928" label="Feeling/activity" onClick={() => setView('feeling')} />
           <OptionsItem icon="fas fa-map-marker-alt" color="#F02849" label="Check in" onClick={() => setView('location')} />
-          {/* Create Event option in modal footer */}
           <div
             className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors border-t border-[#3E4042]/50 mt-2"
             onClick={() => {
@@ -6024,7 +5629,6 @@ export const CreatePostModal: React.FC<{
         multiple
         onChange={handleFileChange} 
       />
-      <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
     </div>
   );
 };
@@ -6079,20 +5683,17 @@ export const CommentsSheet: React.FC<{
   const p: any = post as any;
   const postId = safePostId(p);
   
-  // ========== REFS ==========
   const discussionsTopRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
-  // ========== STATE ==========
   const [text, setText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
 
-  // ========== AUTO-SCROLL TO DISCUSSIONS ON MOUNT ==========
   useEffect(() => {
     const t = setTimeout(() => {
       discussionsTopRef.current?.scrollIntoView({
@@ -6104,7 +5705,6 @@ export const CommentsSheet: React.FC<{
     return () => clearTimeout(t);
   }, [postId]);
 
-  // ========== MARKETPLACE DETECTION ==========
   const meta: any = p?.meta || {};
   
   const isMarketplace =
@@ -6123,7 +5723,6 @@ export const CommentsSheet: React.FC<{
   const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
   const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
 
-  // Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
   const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
   const song = meta?.song;
@@ -6176,11 +5775,8 @@ export const CommentsSheet: React.FC<{
   };
 
   const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return `${(count / 1000000).toFixed(1)}M`;
-    } else if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
     return count.toString();
   };
 
@@ -6292,11 +5888,6 @@ export const CommentsSheet: React.FC<{
 
   const idKey = (v: any) => String(v ?? '').trim();
 
-  /**
-   * =========================
-   * ✅ Build comment threads (root + replies)
-   * =========================
-   */
   const buildThreads = (list: any[]) => {
     const roots = list.filter(c => !c.parent_comment_id);
     
@@ -6310,7 +5901,6 @@ export const CommentsSheet: React.FC<{
       repliesByParent.get(pid)!.push(c);
     });
     
-    // Sort replies oldest first
     repliesByParent.forEach(arr => {
       arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     });
@@ -6378,7 +5968,6 @@ export const CommentsSheet: React.FC<{
         }),
       });
 
-      // 👇 CRITICAL: Call onCommentAdded to refresh the post in the feed
       if (onCommentAdded) {
         console.log('🔄 Calling onCommentAdded to refresh post:', postId);
         onCommentAdded();
@@ -6415,11 +6004,6 @@ export const CommentsSheet: React.FC<{
     id: p.user_id || p.author_id
   };
 
-  /**
-   * =========================
-   * ✅ Render one comment (used for both root and replies)
-   * =========================
-   */
   const renderOneComment = (comment: any, isReply: boolean = false) => {
     const a = resolveAuthor(comment);
     const isCurrentUserComment = a.uid === safeUserId(currentUser);
@@ -6522,7 +6106,7 @@ export const CommentsSheet: React.FC<{
 
         <div className="flex items-center gap-4">
           <div className="text-[#B0B3B8] text-[14px]">
-            {formatCount(comments.length)} discussions  {/* ✅ CHANGED from "comments" to "discussions" */}
+            {formatCount(comments.length)} discussions
           </div>
           <button
             type="button"
@@ -6576,7 +6160,6 @@ export const CommentsSheet: React.FC<{
             </div>
           </div>
 
-          {/* ===== TEXT PREVIEW ===== */}
           {!p.background && textPreview && (
             <div className="mb-4">
               <ExpandableRichText
@@ -6590,7 +6173,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ===== BACKGROUND POST TEXT ===== */}
           {p.background && textPreview && (
             <div
               className="mb-4 -mx-4 h-[320px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
@@ -6600,7 +6182,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ===== MARKETPLACE MEDIA IN COMMENTS SHEET ===== */}
           {isMarketplace && mpImages.length > 0 && (
             <div className="mb-4 -mx-4">
               <div className="w-full bg-black">
@@ -6634,7 +6215,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ===== MUSIC/PODCAST IN COMMENTS SHEET ===== */}
           {(isMusic || isPodcast) && (
             <div className="mb-4 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
               <div className="flex items-center gap-3 p-3">
@@ -6666,7 +6246,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ===== LINK PREVIEW IN COMMENTS SHEET ===== */}
           {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
             <div
               className="mb-4 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
@@ -6698,7 +6277,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ===== IMAGES IN COMMENTS SHEET ===== */}
           {!isMarketplace && imageMedia.length > 0 && (
             <div className="mb-4 -mx-4">
               {imageMedia.length > 1 ? (
@@ -6721,7 +6299,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ===== VIDEO IN COMMENTS SHEET ===== */}
           {!isMarketplace && videoMedia.length > 0 && (
             <div className="mb-4 -mx-4 w-full bg-black">
               <video
@@ -6733,7 +6310,6 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
-          {/* ===== AUDIO IN COMMENTS SHEET ===== */}
           {!isMarketplace && mediaInfo.mediaUrl && mediaInfo.isAudio && (
             <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-xl">
               <div className="text-[#E4E6EB] font-bold mb-3">Audio Track</div>
@@ -6748,14 +6324,13 @@ export const CommentsSheet: React.FC<{
               {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
             </div>
             <div className="flex items-center gap-4">
-              <span>{formatCount(comments.length)} discussions</span>  {/* ✅ CHANGED from "comments" to "discussions" */}
+              <span>{formatCount(comments.length)} discussions</span>
               {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
             </div>
           </div>
         </div>
 
         <div className="p-4">
-          {/* ✅ Jump target: opening from Discuss lands here, not the post description */}
           <div ref={discussionsTopRef} />
 
           {replyTo && (
@@ -6793,8 +6368,8 @@ export const CommentsSheet: React.FC<{
 
           {comments.length === 0 ? (
             <div className="text-center py-10">
-              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>  {/* ✅ CHANGED from "No comments yet" */}
-              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>  {/* ✅ CHANGED message */}
+              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>
+              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -6807,10 +6382,8 @@ export const CommentsSheet: React.FC<{
 
                 return (
                   <div key={rootId} className="space-y-2">
-                    {/* Root comment */}
                     {renderOneComment(root, false)}
 
-                    {/* "View previous X replies" button */}
                     {!isExpanded && hiddenCount > 0 && (
                       <button
                         type="button"
@@ -6821,16 +6394,13 @@ export const CommentsSheet: React.FC<{
                       </button>
                     )}
 
-                    {/* Replies */}
                     {visibleReplies.map(reply => (
                       <div key={String(reply.id)} className="ml-12 relative">
-                        {/* Vertical line connecting replies */}
                         <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
                         {renderOneComment(reply, true)}
                       </div>
                     ))}
 
-                    {/* "Hide replies" button */}
                     {isExpanded && replies.length > MAX_PREVIEW && (
                       <button
                         type="button"
@@ -6865,7 +6435,6 @@ export const CommentsSheet: React.FC<{
               placeholder={replyTo ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...` : "Write a comment..."}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              // ✅ autoFocus removed - keyboard won't pop automatically
             />
           </div>
           <button 
