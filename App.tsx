@@ -1,7 +1,6 @@
-// App.tsx - Complete file with Notification System Integration
-// UPDATED: Added centralized notification system with createNotification, fetchNotifications, 
-// markNotificationsRead, unreadCount, and auto-refresh polling
-
+// App.tsx - Complete file with updated Reels integration
+// UPDATED: Enhanced Reels with full comment support (reply, edit, delete, images)
+// and reel owner menu (edit, delete)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -31,6 +30,7 @@ import {
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
+import { registerPostActions } from "./postActionRegistry";
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
@@ -40,7 +40,6 @@ import { ChatWindow } from './components/Chat';
 import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
 import Recorder from './components/Recorder';
-import { NotificationsPage } from './components/NotificationsPage'; // ✅ ADD THIS IMPORT
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -1218,7 +1217,6 @@ type ReelSound = {
   originalUrl?: string;
 };
 
-// ✅ UPDATED: Added 'notifications' to View type
 type View =
   | 'home'
   | 'reels'
@@ -1238,8 +1236,7 @@ type View =
   | 'profile'
   | 'login'
   | 'register'
-  | 'recorder'
-  | 'notifications';
+  | 'recorder';
 
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -1394,12 +1391,6 @@ export default function App() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
-
-  // ============================================================================
-  // 🔔 NOTIFICATION SYSTEM - NEW STATE
-  // ============================================================================
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
 
   const [songs, setSongs] = useState<Song[]>([]);
   
@@ -1636,8 +1627,7 @@ export default function App() {
   }, []);
   
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
-  // REMOVED duplicate notifications state - now using the one defined above
-  
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
@@ -1979,110 +1969,6 @@ export default function App() {
       console.error('Failed to fetch songs:', e);
     }
   }, []);
-
-  // ============================================================================
-  // 🔔 NOTIFICATION SYSTEM - Fetch Notifications
-  // ============================================================================
-  const fetchNotifications = useCallback(async () => {
-    if (!currentUser) return;
-
-    try {
-      const res = await fetch("/api/notifications", {
-        headers: {
-          "x-user-id": String(currentUser.id),
-        },
-      });
-
-      const data = await res.json();
-      const notificationsList = safeArray(data || []);
-
-      setNotifications(notificationsList);
-
-      const unread = notificationsList.filter((n: any) => !n.is_read).length;
-      setUnreadCount(unread);
-
-    } catch (err) {
-      console.error("Failed to fetch notifications", err);
-    }
-  }, [currentUser]);
-
-  // ============================================================================
-  // 🔔 NOTIFICATION SYSTEM - Create Notification
-  // ============================================================================
-  const createNotification = useCallback(
-    async (
-      recipientId: number,
-      type: string,
-      entityType: string,
-      entityId: string,
-      message?: string
-    ) => {
-      if (!currentUser) return;
-
-      try {
-        await fetch("/api/notifications", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-user-id": String(currentUser.id),
-          },
-          body: JSON.stringify({
-            recipient_id: recipientId,
-            actor_id: currentUser.id,
-            type,
-            entity_type: entityType,
-            entity_id: entityId,
-            message,
-          }),
-        });
-
-        // Optionally refresh notifications after creating one
-        fetchNotifications();
-
-      } catch (err) {
-        console.error("Failed to create notification", err);
-      }
-    },
-    [currentUser, fetchNotifications]
-  );
-
-  // ============================================================================
-  // 🔔 NOTIFICATION SYSTEM - Mark Notifications Read
-  // ============================================================================
-  const markNotificationsRead = useCallback(async () => {
-    if (!currentUser) return;
-
-    try {
-      await fetch("/api/notifications/read", {
-        method: "POST",
-        headers: {
-          "x-user-id": String(currentUser.id),
-        },
-      });
-
-      setNotifications((prev) =>
-        prev.map(n => ({ ...n, is_read: 1 }))
-      );
-
-      setUnreadCount(0);
-
-    } catch (err) {
-      console.error("Failed to mark notifications read", err);
-    }
-  }, [currentUser]);
-
-  // ============================================================================
-  // 🔔 NOTIFICATION SYSTEM - Auto Refresh Polling
-  // ============================================================================
-  useEffect(() => {
-    if (!currentUser) return;
-
-    fetchNotifications();
-
-    const interval = setInterval(fetchNotifications, 20000);
-
-    return () => clearInterval(interval);
-  }, [currentUser, fetchNotifications]);
 
   const fetchStories = useCallback(async () => {
     if (storiesInFlightRef.current) return;
@@ -4683,14 +4569,11 @@ export default function App() {
       setView('home');
       await fetchPostsForHome(normalized);
       await fetchReels();
-      
-      // 🔔 Preload notifications after login
-      fetchNotifications();
 
     } catch (error: any) {
       setLoginError(error?.message || 'Registration failed');
     }
-  }, [fetchPostsForHome, fetchReels, fetchNotifications]);
+  }, [fetchPostsForHome, fetchReels]);
 
   const handleLogin = async (email: string, password: string) => {
     try {
@@ -4734,9 +4617,6 @@ export default function App() {
 
       await fetchPostsForHome(finalUser);
       await fetchReels();
-      
-      // 🔔 Preload notifications after login
-      fetchNotifications();
     } catch (error: any) {
       setLoginError(error?.message || 'Login failed');
     }
@@ -4907,8 +4787,6 @@ export default function App() {
     setGroupsYouMayJoin([]);
     setGymjHiddenIds([]);
     setSelectedReelId(null);
-    setNotifications([]);
-    setUnreadCount(0);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -5441,10 +5319,9 @@ export default function App() {
         users={users}
         onLogout={handleLogout}
         onLoginClick={() => setView('login')}
-        onMarkNotificationsRead={markNotificationsRead}
+        onMarkNotificationsRead={() => {}}
         activeTab={activeTab}
         onNavigate={(v: any) => handleNavigate(v)}
-        setNotifications={setNotifications}
       />
 
       <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
@@ -5456,7 +5333,6 @@ export default function App() {
               onReelsClick={() => handleNavigate('reels')}
               onMarketplaceClick={() => handleNavigate('marketplace')}
               onGroupsClick={() => handleNavigate('groups')}
-              onEventsClick={() => handleNavigate('events')}
             />
           </div>
         )}
@@ -5597,7 +5473,6 @@ export default function App() {
                             followLoading={followLoading[postAuthorId] || false}
                             onViewProductFromPost={openProductFromPost}
                             onRSVPEvent={onRSVPEvent}
-                            createNotification={createNotification}
                           />
 
                           {/* ✅ People You May Know Grid - FIRST APPEARANCE */}
@@ -5724,7 +5599,6 @@ export default function App() {
               followLoading={followLoading}
               initialReelId={selectedReelId}
               onBack={() => setView('home')}
-              createNotification={createNotification}
             />
           )}
 
@@ -5792,7 +5666,6 @@ export default function App() {
                 onPlayVideo={(postId: number, url: string) => {
                   console.log('Play video:', postId, url);
                 }}
-                createNotification={createNotification}
               />
             </ErrorBoundary>
           )}
@@ -5821,7 +5694,6 @@ export default function App() {
               onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              createNotification={createNotification}
             />
           )}
 
@@ -5963,19 +5835,6 @@ export default function App() {
             />
           )}
 
-          {/* ✅ ADD NOTIFICATIONS PAGE HERE */}
-          {view === 'notifications' && (
-            <NotificationsPage
-              notifications={notifications}
-              users={users}
-              onBack={() => setView('home')}
-              onProfileClick={(id) => {
-                setView('profile');
-                openProfile(id);
-              }}
-            />
-          )}
-
           {view === 'login' && (
             <Login
               onLogin={handleLogin}
@@ -5993,47 +5852,6 @@ export default function App() {
               error={loginError}
             />
           )}
-
-          {view === 'recorder' && currentUser && (
-            <Recorder
-              currentUser={currentUser}
-              selectedSound={selectedReelSound}
-              sounds={songs.map((song: any) => ({
-                id: song.id,
-                name: song.title || song.name || 'Song',
-                url: song.audio_fetch_url || song.audio_url || song.url || '',
-                originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
-                duration: song.duration || 30,
-                start: 0,
-                end: song.duration || 30,
-                coverImage: song.cover_url || song.cover || '',
-                creatorName: song.artist || '',
-                creatorImage: song.artist_image || song.cover_url || '',
-                playCount: song.playCount || song.plays || 0,
-                creationCount: song.creationCount || song.uses || 0,
-                soundKey: `song:${song.id}`,
-              }))}
-              onSelectSound={setSelectedReelSound}
-              onBack={() => setView('home')}
-              onSubmit={async (reelData) => {
-                await createReel({
-                  ...reelData,
-                  audioUrl:
-                    reelData.audioUrl ||
-                    (selectedReelSound?.songId &&
-                      songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
-                    selectedReelSound?.audioUrl ||
-                    '',
-                  originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
-                  songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-                  audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
-                  audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-                });
-
-                setView('home');
-              }}
-            />
-          )}
         </div>
 
         {currentUser && (
@@ -6041,6 +5859,9 @@ export default function App() {
             <RightSidebar
               contacts={users.filter((u) => u.id !== currentUser.id)}
               onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
             />
           </div>
         )}
@@ -6095,7 +5916,49 @@ export default function App() {
           }}
           onOpenRecorder={() => {
             setShowCreatePostModal(false);
-            setView('recorder');
+            setShowRecorder(true);
+          }}
+        />
+      )}
+
+      {/* ✅ UPDATED: Recorder Modal with new props */}
+      {showRecorder && currentUser && (
+        <Recorder
+          currentUser={currentUser}
+          selectedSound={selectedReelSound}
+          sounds={songs.map((song: any) => ({
+            id: song.id,
+            name: song.title || song.name || 'Song',
+            url: song.audio_fetch_url || song.audio_url || song.url || '',
+            originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+            duration: song.duration || 30,
+            start: 0,
+            end: song.duration || 30,
+            coverImage: song.cover_url || song.cover || '',
+            creatorName: song.artist || '',
+            creatorImage: song.artist_image || song.cover_url || '',
+            playCount: song.playCount || song.plays || 0,
+            creationCount: song.creationCount || song.uses || 0,
+            soundKey: `song:${song.id}`,
+          }))}
+          onSelectSound={setSelectedReelSound}
+          onBack={() => setShowRecorder(false)}
+          onSubmit={async (reelData) => {
+            await createReel({
+              ...reelData,
+              audioUrl:
+                reelData.audioUrl ||
+                (selectedReelSound?.songId &&
+                  songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+                selectedReelSound?.audioUrl ||
+                '',
+              originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+              songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+              audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+              audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+            });
+
+            setShowRecorder(false);
           }}
         />
       )}
