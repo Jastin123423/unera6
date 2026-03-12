@@ -1,5 +1,6 @@
-// App.tsx - Complete file with professional Notification System
-// UPDATED: Centralized notification system for all features
+// App.tsx - Complete file with updated Reels integration
+// UPDATED: Enhanced Reels with full comment support (reply, edit, delete, images)
+// and reel owner menu (edit, delete)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -29,6 +30,7 @@ import {
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
+import { registerPostActions } from "./postActionRegistry";
 import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
@@ -82,17 +84,6 @@ type GroupSuggestion = {
   mutual_count: number;
   is_member: boolean;
   score: number;
-};
-
-/** ---------- Type for Notification creation params ---------- */
-type CreateNotificationParams = {
-  recipientId: number;
-  type: 'like' | 'comment' | 'follow' | 'share' | 'mention' | 'tag' | 'friend_request' | 'friend_accept' | 'group_invite' | 'event_invite' | 'birthday' | 'achievement';
-  entityType: 'post' | 'reel' | 'story' | 'comment' | 'user' | 'group' | 'event' | 'product' | 'page';
-  entityId: string | number;
-  message?: string;
-  preview?: string;
-  image?: string;
 };
 
 /** ---------- Safety helpers ---------- */
@@ -1486,32 +1477,6 @@ export default function App() {
   const [seenStoryIds, setSeenStoryIds] = useState<Set<number>>(() => new Set(readStorySeen()));
   const [storyMuted, setStoryMuted] = useState(true);
 
-  // ============================================================================
-  // 🚀 NOTIFICATION STATE - NEW
-  // ============================================================================
-  
-  /** All notifications for current user */
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  
-  /** Unread count for badge display */
-  const [unreadCount, setUnreadCount] = useState(0);
-  
-  /** Loading state for notifications */
-  const [notificationsLoading, setNotificationsLoading] = useState(false);
-  
-  /** Show notifications dropdown */
-  const [showNotifications, setShowNotifications] = useState(false);
-  
-  /** Toast notification queue */
-  const [toastQueue, setToastQueue] = useState<Notification[]>([]);
-  
-  /** WebSocket connection for real-time notifications */
-  const [wsConnected, setWsConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
-  
-  /** Polling interval ref */
-  const notificationIntervalRef = useRef<NodeJS.Timeout>();
-
   const markStorySeen = useCallback((storyId: number) => {
     const id = Number(storyId);
     if (!id) return;
@@ -1662,6 +1627,7 @@ export default function App() {
   }, []);
   
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
@@ -2860,706 +2826,11 @@ export default function App() {
     }
   }, [currentUser, requireAuth, fetchReels, selectedReelSound, generateSoundKey]);
 
-  // ============================================================================
-  // 🚀 NOTIFICATION - FETCH FUNCTION
-  // ============================================================================
-
-  /**
-   * Fetch notifications from server
-   * Implements pagination and caching
-   */
-  const fetchNotifications = useCallback(async (page = 1, limit = 50) => {
-    if (!currentUser?.id) return;
-
-    setNotificationsLoading(true);
-
-    try {
-      const response = await fetch(`/api/notifications?userId=${currentUser.id}&page=${page}&limit=${limit}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(),
-        },
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch notifications');
-
-      const data = await response.json();
-      const fetchedNotifications = safeArray<Notification>(data.notifications || data);
-
-      // Merge with existing, avoiding duplicates
-      setNotifications(prev => {
-        const map = new Map(prev.map(n => [n.id, n]));
-        fetchedNotifications.forEach(n => map.set(n.id, n));
-        return Array.from(map.values()).sort((a, b) => 
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-      });
-
-      // Update unread count
-      const unread = fetchedNotifications.filter(n => !n.is_read).length;
-      setUnreadCount(prev => Math.max(prev, unread));
-
-      // Cache in localStorage for offline
-      try {
-        localStorage.setItem(`unera_notifications_${currentUser.id}`, JSON.stringify({
-          timestamp: Date.now(),
-          notifications: fetchedNotifications.slice(0, 30)
-        }));
-      } catch (e) {
-        console.debug('Failed to cache notifications:', e);
-      }
-
-    } catch (error) {
-      console.error('Failed to fetch notifications:', error);
-
-      // Fallback to cache
-      try {
-        const cached = localStorage.getItem(`unera_notifications_${currentUser.id}`);
-        if (cached) {
-          const { notifications: cachedNots } = JSON.parse(cached);
-          setNotifications(prev => {
-            const map = new Map(prev.map(n => [n.id, n]));
-            cachedNots.forEach((n: Notification) => map.set(n.id, n));
-            return Array.from(map.values());
-          });
-        }
-      } catch (e) {
-        console.debug('Failed to load cached notifications:', e);
-      }
-
-    } finally {
-      setNotificationsLoading(false);
-    }
-  }, [currentUser]);
-
-  // ============================================================================
-  // 🚀 NOTIFICATION - CREATE FUNCTION (GLOBAL ENTRY POINT)
-  // ============================================================================
-
-  /**
-   * Create a notification - called by EVERY feature
-   * This is the single source of truth for notification creation
-   */
-  const createNotification = useCallback(async (params: CreateNotificationParams) => {
-    if (!currentUser?.id) return null;
-    
-    // Don't notify yourself
-    if (params.recipientId === currentUser.id) return null;
-
-    try {
-      const response = await fetch('/api/notifications', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(),
-        },
-        body: JSON.stringify({
-          recipient_id: params.recipientId,
-          actor_id: currentUser.id,
-          type: params.type,
-          entity_type: params.entityType,
-          entity_id: String(params.entityId),
-          message: params.message,
-          preview: params.preview,
-          image: params.image,
-          actor_name: currentUser.name,
-          actor_avatar: currentUser.profile_image_url,
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to create notification');
-
-      const notification = await response.json();
-
-      // Add to state optimistically
-      setNotifications(prev => [notification, ...prev]);
-      
-      // Increment unread count
-      setUnreadCount(prev => prev + 1);
-
-      // Add to toast queue for real-time feedback
-      setToastQueue(prev => [...prev, notification]);
-
-      return notification;
-
-    } catch (error) {
-      console.error('Failed to create notification:', error);
-      return null;
-    }
-  }, [currentUser]);
-
-  // ============================================================================
-  // 🚀 NOTIFICATION - MARK AS READ
-  // ============================================================================
-
-  /**
-   * Mark a single notification as read
-   */
-  const markNotificationRead = useCallback(async (notificationId: number) => {
-    if (!currentUser?.id) return;
-
-    try {
-      await fetch(`/api/notifications/${notificationId}/read`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(),
-        },
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      setNotifications(prev => 
-        prev.map(n => 
-          n.id === notificationId ? { ...n, is_read: 1 } : n
-        )
-      );
-
-      setUnreadCount(prev => Math.max(0, prev - 1));
-
-    } catch (error) {
-      console.error('Failed to mark notification as read:', error);
-    }
-  }, [currentUser]);
-
-  /**
-   * Mark ALL notifications as read
-   */
-  const markAllNotificationsRead = useCallback(async () => {
-    if (!currentUser?.id) return;
-
-    try {
-      await fetch('/api/notifications/read-all', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(),
-        },
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
-      setUnreadCount(0);
-
-    } catch (error) {
-      console.error('Failed to mark all notifications as read:', error);
-    }
-  }, [currentUser]);
-
-  // ============================================================================
-  // 🚀 NOTIFICATION - DELETE
-  // ============================================================================
-
-  /**
-   * Delete a notification
-   */
-  const deleteNotification = useCallback(async (notificationId: number) => {
-    if (!currentUser?.id) return;
-
-    try {
-      await fetch(`/api/notifications/${notificationId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(),
-        },
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      setNotifications(prev => {
-        const filtered = prev.filter(n => n.id !== notificationId);
-        const wasUnread = prev.find(n => n.id === notificationId)?.is_read === 0;
-        if (wasUnread) {
-          setUnreadCount(prevUnread => Math.max(0, prevUnread - 1));
-        }
-        return filtered;
-      });
-
-    } catch (error) {
-      console.error('Failed to delete notification:', error);
-    }
-  }, [currentUser]);
-
-  // ============================================================================
-  // 🚀 NOTIFICATION - CLEAR ALL
-  // ============================================================================
-
-  /**
-   * Clear all notifications
-   */
-  const clearAllNotifications = useCallback(async () => {
-    if (!currentUser?.id) return;
-
-    try {
-      await fetch('/api/notifications/clear-all', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(),
-        },
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      setNotifications([]);
-      setUnreadCount(0);
-
-    } catch (error) {
-      console.error('Failed to clear notifications:', error);
-    }
-  }, [currentUser]);
-
-  // ============================================================================
-  // 🚀 NOTIFICATION - WEBSOCKET CONNECTION (REAL-TIME)
-  // ============================================================================
-
-  /**
-   * Connect to WebSocket for real-time notifications
-   */
-  const connectWebSocket = useCallback(() => {
-    if (!currentUser?.id || wsRef.current?.readyState === WebSocket.OPEN) return;
-
-    try {
-      const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/notifications?user_id=${currentUser.id}`);
-      
-      ws.onopen = () => {
-        console.log('WebSocket connected for notifications');
-        setWsConnected(true);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const notification = JSON.parse(event.data) as Notification;
-          
-          // Add to notifications
-          setNotifications(prev => [notification, ...prev]);
-          
-          // Increment unread count
-          setUnreadCount(prev => prev + 1);
-          
-          // Show toast
-          setToastQueue(prev => [...prev, notification]);
-          
-        } catch (e) {
-          console.error('Failed to parse WebSocket message:', e);
-        }
-      };
-
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        setWsConnected(false);
-        
-        // Attempt to reconnect after 5 seconds
-        setTimeout(connectWebSocket, 5000);
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setWsConnected(false);
-      };
-
-      wsRef.current = ws;
-
-    } catch (error) {
-      console.error('Failed to connect WebSocket:', error);
-      setWsConnected(false);
-    }
-  }, [currentUser]);
-
-  // ============================================================================
-  // 🚀 NOTIFICATION - INITIALIZATION & POLLING
-  // ============================================================================
-
-  /**
-   * Initialize notifications on login
-   */
-  useEffect(() => {
-    if (!currentUser?.id) {
-      // Clear notifications on logout
-      setNotifications([]);
-      setUnreadCount(0);
-      setShowNotifications(false);
-      
-      // Close WebSocket
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      
-      // Clear polling
-      if (notificationIntervalRef.current) {
-        clearInterval(notificationIntervalRef.current);
-      }
-      
-      return;
-    }
-
-    // Fetch initial notifications
-    fetchNotifications();
-
-    // Connect WebSocket for real-time
-    connectWebSocket();
-
-    // Polling fallback (every 30 seconds)
-    notificationIntervalRef.current = setInterval(() => {
-      fetchNotifications(1, 10); // Just fetch recent 10 for updates
-    }, 30000);
-
-    // Cleanup
-    return () => {
-      if (notificationIntervalRef.current) {
-        clearInterval(notificationIntervalRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    };
-  }, [currentUser, fetchNotifications, connectWebSocket]);
-
-  // ============================================================================
-  // 🚀 NOTIFICATION - TOAST HANDLER
-  // ============================================================================
-
-  /**
-   * Remove toast from queue after showing
-   */
-  const removeToast = useCallback((notificationId: number) => {
-    setToastQueue(prev => prev.filter(n => n.id !== notificationId));
-  }, []);
-
-  // ============================================================================
-  // 🚀 NOTIFICATION - CLICK HANDLER
-  // ============================================================================
-
-  /**
-   * Handle notification click - navigate to relevant content
-   */
-  const handleNotificationClick = useCallback(async (notification: Notification) => {
-    if (!notification.is_read) {
-      await markNotificationRead(notification.id);
-    }
-
-    // Navigate based on entity type
-    switch (notification.entity_type) {
-      case 'post':
-        setActiveCommentsPostId(Number(notification.entity_id));
-        setView('home');
-        break;
-        
-      case 'reel':
-        setSelectedReelId(Number(notification.entity_id));
-        setView('reels');
-        break;
-        
-      case 'group':
-        setView('groups');
-        // You might want to scroll to specific group
-        break;
-        
-      case 'group_post':
-        setActiveCommentsPostId(Number(notification.entity_id));
-        setView('groups');
-        break;
-        
-      case 'event':
-        setActiveEventId(Number(notification.entity_id));
-        setView('events');
-        break;
-        
-      case 'user':
-        openProfile(Number(notification.entity_id));
-        break;
-        
-      case 'product':
-        const product = products.find(p => p.id === Number(notification.entity_id));
-        if (product) {
-          setView('marketplace');
-          setActiveProduct(product);
-        }
-        break;
-        
-      default:
-        // Default to home
-        setView('home');
-    }
-
-    setShowNotifications(false);
-  }, [markNotificationRead, products]);
-
-  // ============================================================================
-  // 🚀 CONVENIENCE WRAPPERS FOR DIFFERENT NOTIFICATION TYPES
-  // These make it easier to call from other components
-  // ============================================================================
-
-  /**
-   * Send like notification
-   */
-  const sendLikeNotification = useCallback((recipientId: number, entityType: 'post' | 'reel' | 'comment', entityId: string | number, preview?: string) => {
-    return createNotification({
-      recipientId,
-      type: 'like',
-      entityType,
-      entityId,
-      message: 'liked your',
-      preview,
-    });
-  }, [createNotification]);
-
-  /**
-   * Send comment notification
-   */
-  const sendCommentNotification = useCallback((recipientId: number, entityType: 'post' | 'reel', entityId: string | number, preview?: string) => {
-    return createNotification({
-      recipientId,
-      type: 'comment',
-      entityType,
-      entityId,
-      message: 'commented on your',
-      preview,
-    });
-  }, [createNotification]);
-
-  /**
-   * Send follow notification
-   */
-  const sendFollowNotification = useCallback((recipientId: number) => {
-    return createNotification({
-      recipientId,
-      type: 'follow',
-      entityType: 'user',
-      entityId: currentUser?.id || 0,
-      message: 'started following you',
-    });
-  }, [createNotification, currentUser]);
-
-  /**
-   * Send share notification
-   */
-  const sendShareNotification = useCallback((recipientId: number, entityType: 'post' | 'reel', entityId: string | number) => {
-    return createNotification({
-      recipientId,
-      type: 'share',
-      entityType,
-      entityId,
-      message: 'shared your',
-    });
-  }, [createNotification]);
-
-  /**
-   * Send mention notification
-   */
-  const sendMentionNotification = useCallback((recipientId: number, entityType: 'post' | 'comment', entityId: string | number, preview?: string) => {
-    return createNotification({
-      recipientId,
-      type: 'mention',
-      entityType,
-      entityId,
-      message: 'mentioned you in a',
-      preview,
-    });
-  }, [createNotification]);
-
-  /**
-   * Send tag notification
-   */
-  const sendTagNotification = useCallback((recipientId: number, entityType: 'post' | 'comment', entityId: string | number, preview?: string) => {
-    return createNotification({
-      recipientId,
-      type: 'tag',
-      entityType,
-      entityId,
-      message: 'tagged you in a',
-      preview,
-    });
-  }, [createNotification]);
-
-  /**
-   * Send group invite notification
-   */
-  const sendGroupInviteNotification = useCallback((recipientId: number, groupId: number, groupName: string) => {
-    return createNotification({
-      recipientId,
-      type: 'group_invite',
-      entityType: 'group',
-      entityId: groupId,
-      message: 'invited you to join',
-      preview: groupName,
-    });
-  }, [createNotification]);
-
-  /**
-   * Send event invite notification
-   */
-  const sendEventInviteNotification = useCallback((recipientId: number, eventId: number, eventName: string) => {
-    return createNotification({
-      recipientId,
-      type: 'event_invite',
-      entityType: 'event',
-      entityId: eventId,
-      message: 'invited you to',
-      preview: eventName,
-    });
-  }, [createNotification]);
-
-  /**
-   * Send friend request notification
-   */
-  const sendFriendRequestNotification = useCallback((recipientId: number) => {
-    return createNotification({
-      recipientId,
-      type: 'friend_request',
-      entityType: 'user',
-      entityId: currentUser?.id || 0,
-      message: 'sent you a friend request',
-    });
-  }, [createNotification, currentUser]);
-
-  /**
-   * Send friend request accepted notification
-   */
-  const sendFriendAcceptNotification = useCallback((recipientId: number) => {
-    return createNotification({
-      recipientId,
-      type: 'friend_accept',
-      entityType: 'user',
-      entityId: currentUser?.id || 0,
-      message: 'accepted your friend request',
-    });
-  }, [createNotification, currentUser]);
-
-  /**
-   * Send birthday notification
-   */
-  const sendBirthdayNotification = useCallback((recipientId: number) => {
-    return createNotification({
-      recipientId,
-      type: 'birthday',
-      entityType: 'user',
-      entityId: currentUser?.id || 0,
-      message: 'has a birthday today',
-    });
-  }, [createNotification, currentUser]);
-
-  /**
-   * Send achievement notification
-   */
-  const sendAchievementNotification = useCallback((recipientId: number, achievement: string) => {
-    return createNotification({
-      recipientId,
-      type: 'achievement',
-      entityType: 'user',
-      entityId: currentUser?.id || 0,
-      message: 'earned an achievement:',
-      preview: achievement,
-    });
-  }, [createNotification, currentUser]);
-
-  // ============================================================================
-  // 🚀 EXISTING FUNCTIONS - UPDATED TO TRIGGER NOTIFICATIONS
-  // ============================================================================
-
-  /**
-   * Enhanced followUser - now sends notification
-   */
-  const followUser = useCallback(async (targetUserId: number) => {
-    if (!requireAuth('Following')) return;
-    if (!currentUser) return;
-
-    const meId = Number(currentUser.id);
-    const targetId = Number(targetUserId);
-
-    if (!targetId || targetId === meId) return;
-
-    const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
-    const isFollowingNow = myFollowing.has(targetId);
-
-    setFollowLoading(prev => ({ ...prev, [targetId]: true }));
-
-    const originalUsers = [...users];
-    const originalCurrentUser = { ...currentUser };
-
-    setUsers((prev) => {
-      const arr = safeArray(prev).map(normalizeUser);
-
-      return arr.map((u) => {
-        const uid = Number(u.id);
-
-        if (uid === meId) {
-          const following = new Set<number>(safeArray<number>((u as any).following));
-          if (isFollowingNow) following.delete(targetId);
-          else following.add(targetId);
-          return normalizeUser({ ...u, following: Array.from(following) });
-        }
-
-        if (uid === targetId) {
-          const followers = new Set<number>(safeArray<number>((u as any).followers));
-          if (isFollowingNow) followers.delete(meId);
-          else followers.add(meId);
-          return normalizeUser({ ...u, followers: Array.from(followers) });
-        }
-
-        return u;
-      });
-    });
-
-    setCurrentUser((prev) => {
-      if (!prev) return prev;
-      const following = new Set<number>(safeArray<number>((prev as any).following));
-      if (isFollowingNow) following.delete(targetId);
-      else following.add(targetId);
-      const next = normalizeUser({ ...prev, following: Array.from(following) });
-      localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
-      return next;
-    });
-
-    try {
-      if (isFollowingNow) {
-        await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
-          method: 'DELETE',
-        });
-      } else {
-        await apiFetch('/api/user-follows', {
-          method: 'POST',
-          body: JSON.stringify({ follower_id: meId, following_id: targetId }),
-        });
-        
-        // 🚀 SEND FOLLOW NOTIFICATION
-        if (!isFollowingNow) {
-          sendFollowNotification(targetId);
-        }
-      }
-
-      fetchUserFollowDataForUI(targetId).catch(() => {});
-      fetchUserFollowDataForUI(meId).catch(() => {});
-
-      scheduleSilentRefresh();
-    } catch (e: any) {
-      console.error('Follow toggle failed:', e);
-
-      setUsers(originalUsers);
-      setCurrentUser(originalCurrentUser);
-      localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
-      
-      fetchUserFollowDataForUI(targetId).catch(() => {});
-      fetchUserFollowDataForUI(meId).catch(() => {});
-      
-      setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
-    } finally {
-      setFollowLoading(prev => ({ ...prev, [targetId]: false }));
-    }
-  }, [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI, sendFollowNotification]);
-
-  /**
-   * Enhanced reactToReel - now sends notification
-   */
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
     if (!currentUser) return;
 
     const reactionType = type || 'love';
-    
-    // Find reel owner before optimistic update
-    const reel = reels.find(r => r.id === reelId);
-    const reelOwnerId = reel?.userId || reel?.user_id;
     
     setReels(prev => 
       safeArray(prev).map(reel => 
@@ -3570,27 +2841,10 @@ export default function App() {
     );
 
     try {
-      const response = await apiFetch(`/api/reels/${reelId}/react`, {
+      await apiFetch(`/api/reels/${reelId}/react`, {
         method: 'POST',
         body: JSON.stringify({ type: reactionType, user_id: currentUser.id }),
       });
-      
-      // 🚀 SEND LIKE NOTIFICATION (only if not already liked)
-      if (reelOwnerId && reelOwnerId !== currentUser.id && response?.liked) {
-        const userReaction = reel?.reactions?.find(r => 
-          Number(r.userId ?? r.user_id) === currentUser.id
-        );
-        
-        // Only send notification if this is a new like (not already liked)
-        if (!userReaction) {
-          sendLikeNotification(
-            reelOwnerId,
-            'reel',
-            reelId,
-            reel?.caption?.substring(0, 100) || 'reel'
-          );
-        }
-      }
       
       fetchReels().catch(() => {});
       
@@ -3598,11 +2852,11 @@ export default function App() {
       console.error('Failed to react to reel:', error);
       fetchReels().catch(() => {});
     }
-  }, [currentUser, requireAuth, fetchReels, sendLikeNotification]);
+  }, [currentUser, requireAuth, fetchReels]);
 
-  /**
-   * Enhanced commentOnReel - now sends notification
-   */
+  // ============================================================================
+  // ✅ ENHANCED: commentOnReel with full support for replies, images, and nested structure
+  // ============================================================================
   const commentOnReel = useCallback(async (
     reelId: number,
     payload: {
@@ -3624,9 +2878,6 @@ export default function App() {
           `comment-${Date.now()}.jpg`
         );
       }
-
-      const reel = reels.find(r => r.id === reelId);
-      const reelOwnerId = reel?.userId || reel?.user_id;
 
       const data = await apiFetch(`/api/reel-comments`, {
         method: 'POST',
@@ -3664,26 +2915,15 @@ export default function App() {
             : reel
         )
       );
-
-      // 🚀 SEND COMMENT NOTIFICATION (only if commenting on someone else's reel)
-      if (reelOwnerId && reelOwnerId !== currentUser.id && !payload.parentId) {
-        sendCommentNotification(
-          reelOwnerId,
-          'reel',
-          reelId,
-          payload.text.substring(0, 100) || 'commented on your reel'
-        );
-      }
-
     } catch (error) {
       console.error('Failed to comment on reel:', error);
       setLoginError('Failed to post comment');
     }
-  }, [currentUser, requireAuth, sendCommentNotification]);
+  }, [currentUser, requireAuth]);
 
-  /**
-   * Enhanced editCommentOnReel - unchanged
-   */
+  // ============================================================================
+  // ✅ NEW: editCommentOnReel - Allows users to edit their own comments
+  // ============================================================================
   const editCommentOnReel = useCallback(async (
     commentId: number,
     payload: {
@@ -3739,9 +2979,9 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /**
-   * Enhanced deleteCommentOnReel - unchanged
-   */
+  // ============================================================================
+  // ✅ NEW: deleteCommentOnReel - Allows users to delete their own comments
+  // ============================================================================
   const deleteCommentOnReel = useCallback(async (commentId: number) => {
     if (!requireAuth('Deleting comments')) return;
     if (!currentUser) return;
@@ -3780,9 +3020,9 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /**
-   * Enhanced editReel - unchanged
-   */
+  // ============================================================================
+  // ✅ NEW: editReel - Allows users to edit their own reels
+  // ============================================================================
   const editReel = useCallback(async (
     reelId: number,
     payload: {
@@ -3829,9 +3069,9 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /**
-   * Enhanced deleteReel - unchanged
-   */
+  // ============================================================================
+  // ✅ NEW: deleteReel - Allows users to delete their own reels
+  // ============================================================================
   const deleteReel = useCallback(async (reelId: number) => {
     if (!requireAuth('Deleting reels')) return;
     if (!currentUser) return;
@@ -3848,15 +3088,9 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /**
-   * Enhanced shareReel - now sends notification
-   */
   const shareReel = useCallback(async (reelId: number, type: 'feed' | 'copy') => {
     if (!requireAuth('Sharing reels')) return;
     if (!currentUser) return;
-
-    const reel = reels.find(r => r.id === reelId);
-    const reelOwnerId = reel?.userId || reel?.user_id;
 
     try {
       await apiFetch(`/api/reels/${reelId}/share`, {
@@ -3872,11 +3106,6 @@ export default function App() {
         )
       );
       
-      // 🚀 SEND SHARE NOTIFICATION
-      if (reelOwnerId && reelOwnerId !== currentUser.id) {
-        sendShareNotification(reelOwnerId, 'reel', reelId);
-      }
-      
       if (type === 'copy') {
         const reelLink = `${window.location.origin}/reels/${reelId}`;
         navigator.clipboard.writeText(reelLink).then(() => {
@@ -3888,7 +3117,7 @@ export default function App() {
       console.error('Failed to share reel:', error);
       setLoginError('Failed to share');
     }
-  }, [currentUser, requireAuth, sendShareNotification]);
+  }, [currentUser, requireAuth]);
 
   const useSoundFromReel = useCallback((soundFromReel: any) => {
     const audioUrlRaw = soundFromReel?.audio_url ?? soundFromReel?.audioUrl ?? '';
@@ -4497,16 +3726,11 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  /**
-   * Enhanced joinGroup - now sends notification to group admin
-   */
   const joinGroup = useCallback(async (groupId: number) => {
     if (!requireAuth("Joining groups")) return;
     if (!currentUser) return;
 
     const meId = Number(currentUser.id);
-    const group = groups.find(g => g.id === groupId);
-    const groupAdminId = group?.admin_id;
 
     setGroups(prev =>
       prev.map(g => {
@@ -4534,18 +3758,6 @@ export default function App() {
 
       await refreshGroupMembers(groupId);
       
-      // 🚀 NOTIFY GROUP ADMIN (optional - can be configured per group settings)
-      if (groupAdminId && groupAdminId !== meId) {
-        createNotification({
-          recipientId: groupAdminId,
-          type: 'group_invite',
-          entityType: 'group',
-          entityId: groupId,
-          message: 'joined your group',
-          preview: group?.name,
-        });
-      }
-      
       return result;
     } catch (error) {
       console.error('Failed to join group:', error);
@@ -4567,7 +3779,7 @@ export default function App() {
       setLoginError('Failed to join group');
       throw error;
     }
-  }, [currentUser, requireAuth, refreshGroupMembers, createNotification]);
+  }, [currentUser, requireAuth, refreshGroupMembers]);
 
   // ============================================================================
   // ✅ Join from Groups You May Join
@@ -5411,16 +4623,301 @@ export default function App() {
   };
 
   // ============================================================================
-  // ✅ Enhanced onReactPost - now sends notification
+  // ✅ followUser
   // ============================================================================
+  const followUser = useCallback(
+    async (targetUserId: number) => {
+      if (!requireAuth('Following')) return;
+      if (!currentUser) return;
+
+      const meId = Number(currentUser.id);
+      const targetId = Number(targetUserId);
+
+      if (!targetId || targetId === meId) return;
+
+      const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
+      const isFollowingNow = myFollowing.has(targetId);
+
+      setFollowLoading(prev => ({ ...prev, [targetId]: true }));
+
+      const originalUsers = [...users];
+      const originalCurrentUser = { ...currentUser };
+
+      setUsers((prev) => {
+        const arr = safeArray(prev).map(normalizeUser);
+
+        return arr.map((u) => {
+          const uid = Number(u.id);
+
+          if (uid === meId) {
+            const following = new Set<number>(safeArray<number>((u as any).following));
+            if (isFollowingNow) following.delete(targetId);
+            else following.add(targetId);
+            return normalizeUser({ ...u, following: Array.from(following) });
+          }
+
+          if (uid === targetId) {
+            const followers = new Set<number>(safeArray<number>((u as any).followers));
+            if (isFollowingNow) followers.delete(meId);
+            else followers.add(meId);
+            return normalizeUser({ ...u, followers: Array.from(followers) });
+          }
+
+          return u;
+        });
+      });
+
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        const following = new Set<number>(safeArray<number>((prev as any).following));
+        if (isFollowingNow) following.delete(targetId);
+        else following.add(targetId);
+        const next = normalizeUser({ ...prev, following: Array.from(following) });
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
+        return next;
+      });
+
+      try {
+        if (isFollowingNow) {
+          await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
+            method: 'DELETE',
+          });
+        } else {
+          await apiFetch('/api/user-follows', {
+            method: 'POST',
+            body: JSON.stringify({ follower_id: meId, following_id: targetId }),
+          });
+        }
+
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
+
+        scheduleSilentRefresh();
+      } catch (e: any) {
+        console.error('Follow toggle failed:', e);
+
+        setUsers(originalUsers);
+        setCurrentUser(originalCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
+        
+        fetchUserFollowDataForUI(targetId).catch(() => {});
+        fetchUserFollowDataForUI(meId).catch(() => {});
+        
+        setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
+      } finally {
+        setFollowLoading(prev => ({ ...prev, [targetId]: false }));
+      }
+    },
+    [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
+  );
+
+  // ============================================================================
+  // ✅ followFromPymk
+  // ============================================================================
+  const followFromPymk = useCallback(async (targetUserId: number) => {
+    const id = Number(targetUserId);
+    if (!id) return;
+
+    setPeopleYouMayKnow(prev =>
+      prev.map(u =>
+        Number(u.id) === id ? { ...u, is_following: !u.is_following } : u
+      )
+    );
+
+    try {
+      await followUser(id);
+    } catch (error) {
+      console.error('Failed to follow from People You May Know:', error);
+      setPeopleYouMayKnow(prev =>
+        prev.map(u =>
+          Number(u.id) === id ? { ...u, is_following: !u.is_following } : u
+        )
+      );
+      fetchPeopleYouMayKnow().catch(() => {});
+    }
+  }, [followUser, fetchPeopleYouMayKnow]);
+
+  const checkIsFollowing = useCallback((targetUserId: number): boolean => {
+    if (!currentUser || !targetUserId) return false;
+    
+    const myFollowing = safeArray<number>((currentUser as any).following);
+    return myFollowing.includes(Number(targetUserId));
+  }, [currentUser]);
+
+  const handleLogout = () => {
+    localStorage.removeItem(LS_USER_KEY);
+    localStorage.removeItem(STORY_SEEN_KEY);
+    localStorage.removeItem(STORIES_CACHE_KEY);
+    localStorage.removeItem(PYMK_HIDDEN_KEY);
+    localStorage.removeItem(GROUPS_YOU_MAY_JOIN_HIDDEN_KEY);
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith(STORY_VIEWERS_CACHE_KEY)) {
+        localStorage.removeItem(key);
+      }
+    });
+
+    try {
+      sessionStorage.removeItem(FEED_SESSION_KEY);
+    } catch {}
+
+    setCurrentUser(null);
+    setSelectedUserId(null);
+    setProfilePosts([]);
+    setReels([]);
+    setStories([]);
+    setActiveStoryId(null);
+    setSeenStoryIds(new Set());
+    setStoryMuted(true);
+    setActiveHashtag(null);
+    setLikedTracks([]);
+    setMyTotalPlays(0);
+    setPlayHistory([]);
+    setTrackPlays({});
+    setCurrentAudioTrack(null);
+    setIsAudioPlaying(false);
+    setSelectedReelSound(null);
+    setSongs([]);
+    setEvents([]);
+    setActiveChatUser(null);
+    setIsChatOpen(false);
+    setIsChatsListOpen(false);
+    setIncomingCall(null);
+    setPeopleYouMayKnow([]);
+    setPymkHiddenIds([]);
+    setGroupsYouMayJoin([]);
+    setGymjHiddenIds([]);
+    setSelectedReelId(null);
+    setView('home');
+    fetchPostsForHome(null).catch(() => {});
+    fetchReels().catch(() => {});
+  };
+
+  const handleNavigate = (target: View) => {
+    if (['settings', 'memories'].includes(target) && !currentUser) {
+      setLoginError(`Please login to view ${target}.`);
+      return setView('login');
+    }
+
+    if (target === 'profile') {
+      if (!currentUser) {
+        setLoginError('Please login to view your profile.');
+        return setView('login');
+      }
+      openProfile(currentUser.id);
+      return;
+    }
+
+    setView(target);
+    setSelectedReelId(null); // Clear selected reel when navigating away from reels
+
+    if (['home', 'reels', 'marketplace', 'groups'].includes(target)) {
+      setActiveTab(target as any);
+    }
+    window.scrollTo(0, 0);
+  };
+
+  const createPost = useCallback(
+    async (
+      text: string,
+      files: File[] | File | null,
+      meta?: {
+        type?: 'text' | 'image' | 'video';
+        visibility?: string;
+        location?: string;
+        feeling?: string;
+        taggedUsers?: number[];
+        background?: string;
+        linkPreview?: any;
+      }
+    ) => {
+      if (!requireAuth('Creating posts')) return;
+
+      const trimmed = (text || '').trim();
+      if (!trimmed && !files && !meta?.background) return;
+
+      const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
+
+      let media_urls: string[] = [];
+      let media_types: string[] = [];
+
+      if (list.length) {
+        try {
+          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
+          media_urls = ups.map((u) => u.url).filter(Boolean);
+          media_types = ups.map((u) => u.type).filter(Boolean);
+        } catch (error: any) {
+          setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
+          return;
+        }
+      }
+
+      const media_url = media_urls[0] ?? null;
+      const media_type = media_types[0] ?? null;
+
+      const payload: any = {
+        user_id: currentUser!.id,
+        content: trimmed,
+
+        media_url,
+        media_type,
+
+        media_urls: media_urls.length ? media_urls : undefined,
+        media_types: media_types.length ? media_types : undefined,
+
+        visibility: meta?.visibility ?? 'public',
+        location: meta?.location,
+        feeling: meta?.feeling,
+        tagged_users: meta?.taggedUsers,
+        background: meta?.background,
+        link_preview: meta?.linkPreview,
+        type: (() => {
+          const t = media_type || media_types[0] || null;
+          if (!t) return meta?.type || 'text';
+          if (t.startsWith('image/')) return 'image';
+          if (t.startsWith('video/')) return 'video';
+          if (t.startsWith('audio/')) return 'audio';
+          return meta?.type || 'text';
+        })(),
+      };
+
+      const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
+
+      const newPostRaw =
+        data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
+
+      (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
+      (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
+
+      const normalized = normalizePost(newPostRaw);
+
+      setPosts((prev) => {
+        const next = [normalized, ...safeArray(prev)];
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      setProfilePosts((prev) => {
+        if (!currentUser) return prev;
+        const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
+        if (!isMyProfile) return prev;
+
+        const next = [normalized, ...safeArray(prev)];
+        return next;
+      });
+
+      pushSeenIds([Number((normalized as any).id)]);
+
+      setShowCreatePostModal(false);
+      scheduleSilentRefresh();
+    },
+    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
+  );
+
   const onReactPost = useCallback(
     async (postId: number, type: ReactionType) => {
       if (!requireAuth('Reacting')) return;
       const meId = Number(currentUser!.id);
-
-      // Find post owner before optimistic update
-      const post = posts.find(p => p.id === postId);
-      const postOwnerId = post?.user_id;
 
       setPosts(prev => {
         const next = safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId));
@@ -5446,20 +4943,6 @@ export default function App() {
         if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
           const serverMy = data.my_reaction ?? null;
           const serverCount = safeNumber(data.reactions_count, 0);
-          
-          // Determine if this was a new like (not removing)
-          const wasLiked = post?.my_reaction === type;
-          const isNowLiked = serverMy === type;
-
-          // 🚀 SEND LIKE NOTIFICATION (only if this is a new like, not an unlike)
-          if (postOwnerId && postOwnerId !== meId && !wasLiked && isNowLiked) {
-            sendLikeNotification(
-              postOwnerId,
-              'post',
-              postId,
-              post?.content?.substring(0, 100) || 'post'
-            );
-          }
 
           const applyServerTruth = (p: any) => {
             if (Number(p?.id) !== Number(postId)) return p;
@@ -5487,7 +4970,7 @@ export default function App() {
         scheduleSilentRefresh();
       }
     },
-    [currentUser, requireAuth, scheduleSilentRefresh, sendLikeNotification]
+    [currentUser, requireAuth, scheduleSilentRefresh]
   );
 
   const handleOpenShareSheet = useCallback(
@@ -5836,44 +5319,10 @@ export default function App() {
         users={users}
         onLogout={handleLogout}
         onLoginClick={() => setView('login')}
-        onMarkNotificationsRead={markAllNotificationsRead}
+        onMarkNotificationsRead={() => {}}
         activeTab={activeTab}
         onNavigate={(v: any) => handleNavigate(v)}
-        // 🚀 NEW NOTIFICATION PROPS
-        unreadCount={unreadCount}
-        onNotificationClick={handleNotificationClick}
-        onShowNotifications={() => setShowNotifications(!showNotifications)}
-        showNotifications={showNotifications}
-        notificationsLoading={notificationsLoading}
       />
-
-      {/* 🚀 NOTIFICATIONS DROPDOWN */}
-      {showNotifications && currentUser && (
-        <NotificationsDropdown
-          notifications={notifications}
-          currentUser={currentUser}
-          onClose={() => setShowNotifications(false)}
-          onNotificationClick={handleNotificationClick}
-          onMarkRead={markNotificationRead}
-          onMarkAllRead={markAllNotificationsRead}
-          onDelete={deleteNotification}
-          onClearAll={clearAllNotifications}
-          isLoading={notificationsLoading}
-        />
-      )}
-
-      {/* 🚀 TOAST NOTIFICATIONS */}
-      {toastQueue.map((notification, index) => (
-        <NotificationToast
-          key={`toast-${notification.id}-${index}`}
-          notification={notification}
-          onClose={() => removeToast(notification.id)}
-          onClick={() => {
-            handleNotificationClick(notification);
-            removeToast(notification.id);
-          }}
-        />
-      ))}
 
       <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
         {currentUser && (
@@ -5889,11 +5338,25 @@ export default function App() {
         )}
 
         <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
-          {/* VIEW RENDERING - PASS NOTIFICATION FUNCTIONS TO ALL COMPONENTS */}
-          
           {view === 'home' && (
             <div className="w-full pt-4 md:px-8 pb-10">
-              {/* StoryReel and CreatePost components remain same */}
+              {activeHashtag && (
+                <div className="mb-3 px-4">
+                  <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
+                    <span className="text-[#1877F2] font-semibold">{activeHashtag}</span>
+                    <button 
+                      onClick={clearHashtag} 
+                      className="text-[#B0B3B8] hover:text-white ml-1"
+                    >
+                      <i className="fas fa-times" />
+                    </button>
+                  </div>
+                  <p className="text-[#B0B3B8] text-xs mt-1">
+                    Showing posts with {activeHashtag}
+                  </p>
+                </div>
+              )}
+
               <StoryReel
                 stories={orderedStories}
                 onProfileClick={(id) => openProfile(id)}
@@ -5955,7 +5418,8 @@ export default function App() {
                               setView('reels');
                             }}
                             onOpenMenu={(reel) => {
-                              // Handle menu options
+                              // Handle menu options (save, hide, report, etc.)
+                              console.log('Open reel menu:', reel);
                             }}
                             onProfileClick={(userId) => {
                               openProfile(Number(userId));
@@ -6135,10 +5599,6 @@ export default function App() {
               followLoading={followLoading}
               initialReelId={selectedReelId}
               onBack={() => setView('home')}
-              // 🚀 NOTIFICATION FUNCTIONS PASSED
-              sendLikeNotification={sendLikeNotification}
-              sendCommentNotification={sendCommentNotification}
-              sendShareNotification={sendShareNotification}
             />
           )}
 
@@ -6149,10 +5609,6 @@ export default function App() {
               onNavigateHome={() => handleNavigate('home')}
               onCreateProduct={createProduct}
               onViewProduct={setActiveProduct}
-              // 🚀 NOTIFICATION FUNCTIONS PASSED
-              sendLikeNotification={sendLikeNotification}
-              sendCommentNotification={sendCommentNotification}
-              createNotification={createNotification}
             />
           )}
 
@@ -6210,9 +5666,6 @@ export default function App() {
                 onPlayVideo={(postId: number, url: string) => {
                   console.log('Play video:', postId, url);
                 }}
-                // 🚀 NOTIFICATION FUNCTIONS PASSED
-                sendGroupInviteNotification={sendGroupInviteNotification}
-                createNotification={createNotification}
               />
             </ErrorBoundary>
           )}
@@ -6241,8 +5694,6 @@ export default function App() {
               onPlayAudioTrack={onPlayTrack}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              // 🚀 NOTIFICATION FUNCTIONS PASSED
-              createNotification={createNotification}
             />
           )}
 
@@ -6261,8 +5712,6 @@ export default function App() {
               isPlaying={isAudioPlaying}
               myTotalPlays={currentUser?.id ? myTotalPlays : 0}
               playsLoading={playsLoading}
-              // 🚀 NOTIFICATION FUNCTIONS PASSED
-              createNotification={createNotification}
             />
           )}
 
@@ -6292,9 +5741,6 @@ export default function App() {
                   if (!requireAuth('Creating events')) return;
                   setShowCreateEventModal(true);
                 }}
-                // 🚀 NOTIFICATION FUNCTIONS PASSED
-                sendEventInviteNotification={sendEventInviteNotification}
-                createNotification={createNotification}
               />
             </ErrorBoundary>
           )}
@@ -6386,11 +5832,6 @@ export default function App() {
               activeChatRecipient={activeChatUser}
               onOpenChatsList={handleOpenChatsList}
               isChatsListOpen={isChatsListOpen}
-              // 🚀 NOTIFICATION FUNCTIONS PASSED
-              sendFriendRequestNotification={sendFriendRequestNotification}
-              sendFriendAcceptNotification={sendFriendAcceptNotification}
-              sendBirthdayNotification={sendBirthdayNotification}
-              createNotification={createNotification}
             />
           )}
 
@@ -6438,8 +5879,6 @@ export default function App() {
               handleOpenChat(recipient);
             }
           }}
-          // 🚀 NOTIFICATION FUNCTIONS PASSED
-          createNotification={createNotification}
         />
       )}
 
@@ -6540,8 +5979,6 @@ export default function App() {
           onHashtagClick={handleHashtagClick}
           onFollow={followUser}
           checkIsFollowing={checkIsFollowing}
-          // 🚀 NOTIFICATION FUNCTIONS PASSED
-          createNotification={createNotification}
         />
       )}
 
@@ -6561,8 +5998,6 @@ export default function App() {
           onShareComplete={handleShareComplete}
           onFollow={followUser}
           checkIsFollowing={checkIsFollowing}
-          // 🚀 NOTIFICATION FUNCTIONS PASSED
-          createNotification={createNotification}
         />
       )}
 
