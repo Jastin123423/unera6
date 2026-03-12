@@ -17,7 +17,7 @@ import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from "../postActionRegistry";
-import { PostMenu } from './PostMenu';
+import { PostMenu } from './Post/PostMenu';
 
 // ==================== ICON COMPONENTS (for better rendering) ====================
 const Film: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#1877F2" }) => (
