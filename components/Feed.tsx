@@ -1,4 +1,4 @@
-// Feed.tsx (Updated with non-blocking notifications)
+// Feed.tsx (Updated with optimized notification handling)
 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
@@ -15,7 +15,6 @@ import {
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
-import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from "../postActionRegistry";
 import { PostMenu } from './Post/PostMenu';
 
@@ -1979,7 +1978,7 @@ export const GalleryViewer: React.FC<{
           <ReactionButton
             currentUserReactions={myReaction}
             reactionCount={reactionCount}
-            onReact={(type) => onReact(type)}
+            onReact={(type) => onReact(postId, type)}
             isGuest={!currentUser}
           />
           <button
@@ -4266,13 +4265,6 @@ export const Post: React.FC<{
   onOpenReactions?: (postId: number) => void;
   onReport?: (postId: number, reason?: string) => void;
   onHide?: (postId: number) => void;
-  createNotification: ( // Add this
-    recipientId: number,
-    type: string,
-    entityType: string,
-    entityId: string,
-    message?: string
-  ) => void;
 }> = ({
   post,
   author,
@@ -4302,7 +4294,6 @@ export const Post: React.FC<{
   onOpenReactions,
   onReport,
   onHide,
-  createNotification, // Add this
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -4947,26 +4938,7 @@ export const Post: React.FC<{
             <ReactionButton
               currentUserReactions={finalMyReaction}
               reactionCount={finalReactionCount}
-              onReact={(type) => {
-                // Get post owner ID for notification
-                const postOwnerId = Number(post.user_id || post.author?.id || 0);
-                
-                // Call the original onReact (this updates UI)
-                onReact(postId, type);
-                
-                // ✅ NON-BLOCKING: Fire notification in background (no await)
-                if (postOwnerId && postOwnerId !== currentUser?.id) {
-                  // Use setTimeout to ensure it never blocks the UI
-                  setTimeout(() => {
-                    createNotification(
-                      postOwnerId,
-                      "like",
-                      "post",
-                      String(postId)
-                    );
-                  }, 0);
-                }
-              }}
+              onReact={(type) => onReact(postId, type)}
               isGuest={!currentUser}
             />
             <button
@@ -5011,23 +4983,7 @@ export const Post: React.FC<{
         groups={groups}
         brands={brands}
         chats={chats}
-        onShareComplete={(destination, data) => {
-          handleShareComplete(destination, data);
-          
-          // ✅ NON-BLOCKING: Fire share notification in background
-          const postOwnerId = Number(post.user_id || post.author?.id || 0);
-          
-          if (data?.success && postOwnerId && postOwnerId !== currentUser?.id) {
-            setTimeout(() => {
-              createNotification(
-                postOwnerId,
-                "share",
-                "post",
-                String(postId)
-              );
-            }, 0);
-          }
-        }}
+        onShareComplete={handleShareComplete}
       />
 
       <ReactionsSheet
@@ -5705,13 +5661,6 @@ export const CommentsSheet: React.FC<{
   checkIsFollowing?: (id: number) => boolean;
   onViewProductFromPost?: (productId: number) => void;
   onOpenAudio?: (item: any) => void;
-  createNotification: ( // Add this
-    recipientId: number,
-    type: string,
-    entityType: string,
-    entityId: string,
-    message?: string
-  ) => void;
 }> = ({ 
   post, 
   currentUser, 
@@ -5726,8 +5675,7 @@ export const CommentsSheet: React.FC<{
   onFollow,
   checkIsFollowing,
   onViewProductFromPost,
-  onOpenAudio,
-  createNotification // Add this
+  onOpenAudio
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -5858,18 +5806,6 @@ export const CommentsSheet: React.FC<{
         method: 'POST',
         body: JSON.stringify({ user_id: safeUserId(currentUser) }),
       });
-      
-      // ✅ NON-BLOCKING: Fire comment like notification in background
-      if (comment.user_id && comment.user_id !== currentUser.id) {
-        setTimeout(() => {
-          createNotification(
-            comment.user_id,
-            "like",
-            "comment",
-            String(comment.id)
-          );
-        }, 0);
-      }
     } catch (error) {
       console.error('Failed to like comment:', error);
       setComments(prev => prev.map(c => 
@@ -6037,37 +5973,6 @@ export const CommentsSheet: React.FC<{
       }
 
       fetchCommentsSilently();
-
-      // ✅ NON-BLOCKING: Fire comment/reply notifications in background
-      const postOwnerId = Number(post.user_id || post.author?.id || 0);
-      
-      if (replyTo) {
-        // This is a reply to a comment
-        if (replyTo.user_id && replyTo.user_id !== currentUser.id) {
-          setTimeout(() => {
-            createNotification(
-              replyTo.user_id,
-              "reply",
-              "comment",
-              String(replyTo.id),
-              finalText
-            );
-          }, 0);
-        }
-      } else {
-        // This is a top-level comment on the post
-        if (postOwnerId && postOwnerId !== currentUser.id) {
-          setTimeout(() => {
-            createNotification(
-              postOwnerId,
-              "comment",
-              "post",
-              String(postId),
-              finalText
-            );
-          }, 0);
-        }
-      }
     } catch (err: any) {
       console.error('Failed to post comment:', err);
     }
@@ -6610,35 +6515,6 @@ export const SuggestedProductsWidget: React.FC<{
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
-};
-
-/**
- * =========================
- * ✅ FEED PROPS INTERFACE - Updated with createNotification
- * =========================
- */
-interface FeedProps {
-  currentUser: User | null;
-  createNotification: (
-    recipientId: number,
-    type: string,
-    entityType: string,
-    entityId: string,
-    message?: string
-  ) => void;
-}
-
-/**
- * =========================
- * ✅ MAIN FEED COMPONENT - Updated to receive createNotification
- * =========================
- */
-export const Feed: React.FC<FeedProps> = ({
-  currentUser,
-  createNotification
-}) => {
-  // Feed component implementation remains the same, but passes createNotification to child components
-  // ... existing Feed implementation ...
 };
 
 // Export all components
