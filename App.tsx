@@ -40,6 +40,7 @@ import { ChatWindow } from './components/Chat';
 import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
 import Recorder from './components/Recorder';
+import { NotificationsPage } from './components/NotificationsPage'; // ✅ ADD THIS IMPORT
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -1217,6 +1218,7 @@ type ReelSound = {
   originalUrl?: string;
 };
 
+// ✅ UPDATED: Added 'notifications' to View type
 type View =
   | 'home'
   | 'reels'
@@ -1236,7 +1238,8 @@ type View =
   | 'profile'
   | 'login'
   | 'register'
-  | 'recorder';
+  | 'recorder'
+  | 'notifications';
 
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -5439,9 +5442,9 @@ export default function App() {
         onLogout={handleLogout}
         onLoginClick={() => setView('login')}
         onMarkNotificationsRead={markNotificationsRead}
-        unreadCount={unreadCount}
         activeTab={activeTab}
         onNavigate={(v: any) => handleNavigate(v)}
+        setNotifications={setNotifications}
       />
 
       <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
@@ -5453,6 +5456,7 @@ export default function App() {
               onReelsClick={() => handleNavigate('reels')}
               onMarketplaceClick={() => handleNavigate('marketplace')}
               onGroupsClick={() => handleNavigate('groups')}
+              onEventsClick={() => handleNavigate('events')}
             />
           </div>
         )}
@@ -5959,6 +5963,19 @@ export default function App() {
             />
           )}
 
+          {/* ✅ ADD NOTIFICATIONS PAGE HERE */}
+          {view === 'notifications' && (
+            <NotificationsPage
+              notifications={notifications}
+              users={users}
+              onBack={() => setView('home')}
+              onProfileClick={(id) => {
+                setView('profile');
+                openProfile(id);
+              }}
+            />
+          )}
+
           {view === 'login' && (
             <Login
               onLogin={handleLogin}
@@ -5976,6 +5993,47 @@ export default function App() {
               error={loginError}
             />
           )}
+
+          {view === 'recorder' && currentUser && (
+            <Recorder
+              currentUser={currentUser}
+              selectedSound={selectedReelSound}
+              sounds={songs.map((song: any) => ({
+                id: song.id,
+                name: song.title || song.name || 'Song',
+                url: song.audio_fetch_url || song.audio_url || song.url || '',
+                originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+                duration: song.duration || 30,
+                start: 0,
+                end: song.duration || 30,
+                coverImage: song.cover_url || song.cover || '',
+                creatorName: song.artist || '',
+                creatorImage: song.artist_image || song.cover_url || '',
+                playCount: song.playCount || song.plays || 0,
+                creationCount: song.creationCount || song.uses || 0,
+                soundKey: `song:${song.id}`,
+              }))}
+              onSelectSound={setSelectedReelSound}
+              onBack={() => setView('home')}
+              onSubmit={async (reelData) => {
+                await createReel({
+                  ...reelData,
+                  audioUrl:
+                    reelData.audioUrl ||
+                    (selectedReelSound?.songId &&
+                      songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+                    selectedReelSound?.audioUrl ||
+                    '',
+                  originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+                  songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+                  audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+                  audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+                });
+
+                setView('home');
+              }}
+            />
+          )}
         </div>
 
         {currentUser && (
@@ -5983,9 +6041,6 @@ export default function App() {
             <RightSidebar
               contacts={users.filter((u) => u.id !== currentUser.id)}
               onProfileClick={(id) => openProfile(id)}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
             />
           </div>
         )}
@@ -6040,49 +6095,7 @@ export default function App() {
           }}
           onOpenRecorder={() => {
             setShowCreatePostModal(false);
-            setShowRecorder(true);
-          }}
-        />
-      )}
-
-      {/* ✅ UPDATED: Recorder Modal with new props */}
-      {showRecorder && currentUser && (
-        <Recorder
-          currentUser={currentUser}
-          selectedSound={selectedReelSound}
-          sounds={songs.map((song: any) => ({
-            id: song.id,
-            name: song.title || song.name || 'Song',
-            url: song.audio_fetch_url || song.audio_url || song.url || '',
-            originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
-            duration: song.duration || 30,
-            start: 0,
-            end: song.duration || 30,
-            coverImage: song.cover_url || song.cover || '',
-            creatorName: song.artist || '',
-            creatorImage: song.artist_image || song.cover_url || '',
-            playCount: song.playCount || song.plays || 0,
-            creationCount: song.creationCount || song.uses || 0,
-            soundKey: `song:${song.id}`,
-          }))}
-          onSelectSound={setSelectedReelSound}
-          onBack={() => setShowRecorder(false)}
-          onSubmit={async (reelData) => {
-            await createReel({
-              ...reelData,
-              audioUrl:
-                reelData.audioUrl ||
-                (selectedReelSound?.songId &&
-                  songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
-                selectedReelSound?.audioUrl ||
-                '',
-              originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
-              songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-              audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
-              audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-            });
-
-            setShowRecorder(false);
+            setView('recorder');
           }}
         />
       )}
