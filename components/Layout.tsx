@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Notification } from '../types';
 import { NotificationDropdown } from './Notifications';
+import { NotificationsPage } from './NotificationsPage';
 
 /* ============================================================
    ✅ GLOBAL ONLINE PRESENCE (runs while UNERA is open)
@@ -36,7 +37,6 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
   onNavigate,
   onLogout,
 }) => {
-  // ✅ Brands REMOVED completely
   const menuItems = [
     { id: 'marketplace', title: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', desc: 'Buy and sell in your community.' },
     { id: 'events', title: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', desc: 'Discover events near you.' },
@@ -47,6 +47,7 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
     { id: 'reels', title: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F', desc: 'Watch and create short videos.' },
     { id: 'birthdays', title: 'Birthdays', icon: 'fas fa-birthday-cake', color: '#F7B928', desc: 'See upcoming birthdays.' },
     { id: 'memories', title: 'Memories', icon: 'fas fa-history', color: '#1877F2', desc: 'Browse your old photos, videos and posts.' },
+    { id: 'notifications', title: 'Notifications', icon: 'fas fa-bell', color: '#E41E3F', desc: 'See your notifications.' },
   ];
 
   const bottomItems = [
@@ -161,6 +162,7 @@ interface HeaderProps {
   onMarkNotificationsRead: () => void;
   activeTab: string;
   onNavigate: (view: string) => void;
+  setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -177,6 +179,7 @@ export const Header: React.FC<HeaderProps> = ({
   onMarkNotificationsRead,
   activeTab,
   onNavigate,
+  setNotifications,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -187,8 +190,35 @@ export const Header: React.FC<HeaderProps> = ({
   const profileRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
 
+  // ✅ Calculate unread count for badge
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+
   // ✅ Global presence heartbeat
   const presenceTimer = useRef<number | null>(null);
+
+  // ✅ Auto-fetch notifications every 20 seconds
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const fetchNotifications = async () => {
+      try {
+        const res = await fetch("/api/notifications", {
+          headers: {
+            "x-user-id": String(currentUser.id)
+          }
+        });
+        const data = await res.json();
+        setNotifications(data);
+      } catch (error) {
+        console.error("Failed to fetch notifications:", error);
+      }
+    };
+
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 20000);
+
+    return () => clearInterval(interval);
+  }, [currentUser, setNotifications]);
 
   useEffect(() => {
     const userId = Number(localStorage.getItem("unera_user_id") || 0);
@@ -222,7 +252,7 @@ export const Header: React.FC<HeaderProps> = ({
       }
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [currentUser]); // Re-run if currentUser changes
+  }, [currentUser]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -260,7 +290,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      {/* ✅ Global spin keyframes (not tire-like wobble) */}
+      {/* ✅ Global spin keyframes */}
       <style>{`
         @keyframes uneraGlobalSpin {
           from { transform: rotate(0deg); }
@@ -277,7 +307,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="sticky top-0 z-50 bg-[#242526] shadow-sm h-14 flex items-center justify-between px-4 w-full border-b border-[#3E4042]">
         <div className="flex items-center gap-2">
           <div className="flex items-center cursor-pointer gap-2 mr-2" onClick={onHomeClick}>
-            {/* ✅ Rotating globe icon (global style 4.5s) */}
+            {/* ✅ Rotating globe icon */}
             <i className="fas fa-globe-americas text-[#1877F2] text-[28px] sm:text-[32px] unera-global-spin"></i>
 
             <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
@@ -392,15 +422,23 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           ) : (
             <>
-              <div
-                className="flex items-center justify-center w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] cursor-pointer relative"
-                onClick={() => {
-                  setShowNotifications(!showNotifications);
-                  if (!showNotifications) onMarkNotificationsRead();
-                }}
-                ref={notifRef}
-              >
-                <i className="fas fa-bell text-[#E4E6EB] text-lg"></i>
+              {/* ✅ Updated Bell with Facebook-style badge */}
+              <div className="relative" ref={notifRef}>
+                <div
+                  className="flex items-center justify-center w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] cursor-pointer relative"
+                  onClick={() => onNavigate('notifications')}
+                >
+                  <i className="fas fa-bell text-[#E4E6EB] text-lg"></i>
+                  
+                  {/* 🔴 Red badge with unread count - Facebook style */}
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-[#E41E3F] text-white text-[11px] font-bold px-1.5 py-[1px] rounded-full min-w-[18px] text-center">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </div>
+
+                {/* Dropdown for quick preview (optional) */}
                 {showNotifications && (
                   <NotificationDropdown
                     notifications={notifications}
