@@ -1,7 +1,4 @@
-Provide all delete and edit functions for groups posts, Reels posts, Normal posts, events posts and All delete and edit  functions available in this App.tsx. do it in one message 
 
-
-Here App.tsx 
 
 // App.tsx - Complete file with updated Reels integration
 // UPDATED: Enhanced Reels with full comment support (reply, edit, delete, images)
