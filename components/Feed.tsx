@@ -6528,6 +6528,7 @@ export {
   normalizeEventFromFeed,
   topReactionEmojis,
   safeArray,
+  MarketplaceContext,
   safeNumber,
   safeString,
   safePostId,
