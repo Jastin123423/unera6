@@ -1,10 +1,5 @@
-Here App.tsx
 
 
-
-// App.tsx - Complete file with updated Reels integration
-// UPDATED: Enhanced Reels with full comment support (reply, edit, delete, images)
-// and reel owner menu (edit, delete)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
