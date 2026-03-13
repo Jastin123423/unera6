@@ -1,7 +1,3 @@
-
-// App.tsx - Complete file with updated Reels integration
-// UPDATED: Enhanced Reels with full comment support (reply, edit, delete, images)
-// and reel owner menu (edit, delete)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -40,6 +36,7 @@ import { ChatWindow } from './components/Chat';
 import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
 import Recorder from './components/Recorder';
+import { NotificationsPage } from './components/NotificationsPage';
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -1217,6 +1214,7 @@ type ReelSound = {
   originalUrl?: string;
 };
 
+// 1️⃣ UPDATE TYPE DEFINITION
 type View =
   | 'home'
   | 'reels'
@@ -1236,7 +1234,8 @@ type View =
   | 'profile'
   | 'login'
   | 'register'
-  | 'recorder';
+  | 'recorder'
+  | 'notifications';  // 👈 ADD THIS
 
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -1383,6 +1382,8 @@ export default function App() {
   /** ---------- State ---------- */
   const [users, setUsers] = useState<User[]>([]);
   const [posts, setPosts] = useState<PostType[]>([]);
+  // 2️⃣ ADD STATE FOR PUSHED POSTS
+  const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
   const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
@@ -1412,7 +1413,6 @@ export default function App() {
 
   // ===== NOTIFICATION & AD STATES =====
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [showNotifications, setShowNotifications] = useState(false);
   const [ads, setAds] = useState<any[]>([]);
   const [showAdAnalytics, setShowAdAnalytics] = useState(false);
   const [adAnalyticsId, setAdAnalyticsId] = useState<number | null>(null);
@@ -2519,6 +2519,52 @@ export default function App() {
     if (!currentAudioTrack) return false;
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
+
+  // 3️⃣ ADD PUSH MORE FUNCTION
+  const pushMore = async (postId: number) => {
+    if (!requireAuth('Boosting posts')) return;
+    if (!currentUser) return;
+
+    try {
+      const res = await fetch('/api/ads/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': String(currentUser.id),
+        },
+        body: JSON.stringify({
+          post_id: postId,
+          budget: 5,      // You can make this configurable
+          days: 3,        // You can make this configurable
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setPushedPosts(prev => ({
+          ...prev,
+          [postId]: true,
+        }));
+        
+        // Optional: Show success message
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+        toast.innerText = 'Post boosted successfully!';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+      }
+    } catch (err) {
+      console.error('Push more failed', err);
+      
+      // Optional: Show error message
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.innerText = 'Failed to boost post';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+    }
+  };
 
   /** ---------- ✅ FIXED: Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
   const createMarketplacePost = useCallback(
@@ -5395,8 +5441,9 @@ export default function App() {
         activeTab={activeTab}
         onNavigate={(v: any) => handleNavigate(v)}
         unreadNotifications={unreadNotifications}
+        // 4️⃣ UPDATE HEADER ONNOTIFICATIONCLICK
         onNotificationClick={() => {
-          setShowNotifications(true);
+          setView('notifications');  // Use view instead of showNotifications
           markNotificationsRead();
         }}
       />
@@ -5550,6 +5597,20 @@ export default function App() {
                             followLoading={followLoading[postAuthorId] || false}
                             onViewProductFromPost={openProductFromPost}
                             onRSVPEvent={onRSVPEvent}
+                            // 7️⃣ ADD PUSH BUTTON HERE
+                            pushButton={
+                              <button
+                                onClick={() => pushMore(item.id)}
+                                disabled={pushedPosts[item.id]}
+                                className={`px-3 py-1 rounded-md text-sm font-semibold ml-2 ${
+                                  pushedPosts[item.id]
+                                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                                    : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+                                }`}
+                              >
+                                {pushedPosts[item.id] ? 'Pushed' : 'Push More'}
+                              </button>
+                            }
                           />
 
                           {/* ✅ People You May Know Grid - FIRST APPEARANCE */}
@@ -5929,6 +5990,55 @@ export default function App() {
               error={loginError}
             />
           )}
+
+          {view === 'recorder' && (
+            <Recorder
+              currentUser={currentUser}
+              selectedSound={selectedReelSound}
+              sounds={songs.map((song: any) => ({
+                id: song.id,
+                name: song.title || song.name || 'Song',
+                url: song.audio_fetch_url || song.audio_url || song.url || '',
+                originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+                duration: song.duration || 30,
+                start: 0,
+                end: song.duration || 30,
+                coverImage: song.cover_url || song.cover || '',
+                creatorName: song.artist || '',
+                creatorImage: song.artist_image || song.cover_url || '',
+                playCount: song.playCount || song.plays || 0,
+                creationCount: song.creationCount || song.uses || 0,
+                soundKey: `song:${song.id}`,
+              }))}
+              onSelectSound={setSelectedReelSound}
+              onBack={() => setView('home')}
+              onSubmit={async (reelData) => {
+                await createReel({
+                  ...reelData,
+                  audioUrl:
+                    reelData.audioUrl ||
+                    (selectedReelSound?.songId &&
+                      songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+                    selectedReelSound?.audioUrl ||
+                    '',
+                  originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+                  songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+                  audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+                  audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+                });
+              }}
+            />
+          )}
+
+          {/* 5️⃣ ADD NOTIFICATIONS VIEW HERE */}
+          {view === 'notifications' && (
+            <NotificationsPage
+              notifications={notifications}
+              users={users}
+              onBack={() => setView('home')}
+              onProfileClick={(id)=>openProfile(id)}
+            />
+          )}
         </div>
 
         {currentUser && (
@@ -6218,15 +6328,8 @@ export default function App() {
         />
       )}
 
-      {/* Notifications Page */}
-      {showNotifications && (
-        <NotificationsPage
-          notifications={notifications}
-          users={users}
-          onBack={() => setShowNotifications(false)}
-          onProfileClick={(id)=>openProfile(id)}
-        />
-      )}
+      {/* 6️⃣ REMOVE OLD SHOWNOTIFICATIONS MODAL */}
+      {/* Notifications Page Modal - REMOVED */}
 
       {/* Ad Analytics Modal */}
       {showAdAnalytics && adAnalyticsId && (
