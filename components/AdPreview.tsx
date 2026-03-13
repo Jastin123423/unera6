@@ -1,5 +1,14 @@
 import React from 'react';
-import { MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Globe } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+  faEllipsisH,
+  faHeart,
+  faComment,
+  faPaperPlane,
+  faBookmark,
+  faGlobe,
+  faCheckCircle
+} from '@fortawesome/free-solid-svg-icons';
 import { AdType, CTAButton } from '../types';
 
 interface AdPreviewProps {
@@ -29,20 +38,18 @@ export default function AdPreview({ data, isFullView }: AdPreviewProps) {
             <div className="flex items-center gap-1">
               <p className="text-sm font-bold leading-tight hover:underline cursor-pointer">Sponsored • {data.name || 'Your Brand'}</p>
               <div className="w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
-                <svg viewBox="0 0 24 24" className="w-2 h-2 text-white fill-current">
-                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-                </svg>
+                <FontAwesomeIcon icon={faCheckCircle} className="w-2 h-2 text-white" />
               </div>
             </div>
             <div className="flex items-center gap-1 text-[10px] text-zinc-500">
               <span>Sponsored</span>
               <span>•</span>
-              <Globe className="w-2.5 h-2.5" />
+              <FontAwesomeIcon icon={faGlobe} className="w-2.5 h-2.5" />
             </div>
           </div>
         </div>
         <button className="p-1 hover:bg-zinc-100 rounded-full transition-colors">
-          <MoreHorizontal className="w-5 h-5 text-zinc-400" />
+          <FontAwesomeIcon icon={faEllipsisH} className="w-5 h-5 text-zinc-400" />
         </button>
       </div>
 
@@ -97,11 +104,19 @@ export default function AdPreview({ data, isFullView }: AdPreviewProps) {
       <div className="px-3 pb-3">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-4">
-            <button className="hover:scale-110 transition-transform"><Heart className="w-5 h-5 text-zinc-600" /></button>
-            <button className="hover:scale-110 transition-transform"><MessageCircle className="w-5 h-5 text-zinc-600" /></button>
-            <button className="hover:scale-110 transition-transform"><Send className="w-5 h-5 text-zinc-600" /></button>
+            <button className="hover:scale-110 transition-transform">
+              <FontAwesomeIcon icon={faHeart} className="w-5 h-5 text-zinc-600" />
+            </button>
+            <button className="hover:scale-110 transition-transform">
+              <FontAwesomeIcon icon={faComment} className="w-5 h-5 text-zinc-600" />
+            </button>
+            <button className="hover:scale-110 transition-transform">
+              <FontAwesomeIcon icon={faPaperPlane} className="w-5 h-5 text-zinc-600" />
+            </button>
           </div>
-          <button className="hover:scale-110 transition-transform"><Bookmark className="w-5 h-5 text-zinc-600" /></button>
+          <button className="hover:scale-110 transition-transform">
+            <FontAwesomeIcon icon={faBookmark} className="w-5 h-5 text-zinc-600" />
+          </button>
         </div>
         <div className="flex items-center gap-1 text-xs text-zinc-500">
           <span className="font-bold text-zinc-700">1.2k likes</span>
