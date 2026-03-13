@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
-import { Upload, Image as ImageIcon, Video, MapPin, Calendar, Link as LinkIcon, Type, MousePointerClick, CheckCircle2, X } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+  faUpload,
+  faImage,
+  faVideo,
+  faMapMarkerAlt,
+  faCalendar,
+  faLink,
+  faFont,
+  faMousePointer,
+  faCheckCircle,
+  faTimes,
+  faDollarSign,
+  faSpinner
+} from '@fortawesome/free-solid-svg-icons';
 import { AdType, CTAButton, Post } from '../types';
 import AdPreview from './AdPreview';
 
@@ -74,7 +88,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
                 step === s ? 'bg-blue-600 text-white' : step > s ? 'bg-emerald-500 text-white' : 'bg-zinc-800 text-zinc-500'
               }`}
             >
-              {step > s ? <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5" /> : s}
+              {step > s ? <FontAwesomeIcon icon={faCheckCircle} className="w-4 h-4 md:w-5 md:h-5" /> : s}
             </div>
           ))}
         </div>
@@ -88,7 +102,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
             {userPosts.length === 0 ? (
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
                 <div className="w-16 h-16 mx-auto mb-4 bg-zinc-800 rounded-full flex items-center justify-center">
-                  <ImageIcon className="w-8 h-8 text-zinc-600" />
+                  <FontAwesomeIcon icon={faImage} className="w-8 h-8 text-zinc-600" />
                 </div>
                 <p className="text-zinc-400">No posts yet</p>
                 <p className="text-zinc-600 text-sm mt-1">Create a post first to boost it</p>
@@ -129,7 +143,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
               <div className="space-y-6">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                    <Type className="w-4 h-4" /> Campaign Name
+                    <FontAwesomeIcon icon={faFont} className="w-4 h-4" /> Campaign Name
                   </label>
                   <input 
                     type="text"
@@ -143,7 +157,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                    <LinkIcon className="w-4 h-4" /> Destination Link
+                    <FontAwesomeIcon icon={faLink} className="w-4 h-4" /> Destination Link
                   </label>
                   <input 
                     type="url"
@@ -157,7 +171,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                    <MousePointerClick className="w-4 h-4" /> Call to Action
+                    <FontAwesomeIcon icon={faMousePointer} className="w-4 h-4" /> Call to Action
                   </label>
                   <select 
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all appearance-none text-sm md:text-base"
@@ -170,7 +184,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                    <MapPin className="w-4 h-4" /> Target Location
+                    <FontAwesomeIcon icon={faMapMarkerAlt} className="w-4 h-4" /> Target Location
                   </label>
                   <input 
                     type="text"
@@ -185,7 +199,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                      <DollarSign className="w-4 h-4" /> Budget ($)
+                      <FontAwesomeIcon icon={faDollarSign} className="w-4 h-4" /> Budget ($)
                     </label>
                     <div className="flex items-center gap-4">
                       <input 
@@ -204,7 +218,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
 
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                      <Calendar className="w-4 h-4" /> Duration (Days)
+                      <FontAwesomeIcon icon={faCalendar} className="w-4 h-4" /> Duration (Days)
                     </label>
                     <div className="flex items-center gap-4">
                       <input 
@@ -298,7 +312,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
               >
                 {isSubmitting ? (
                   <>
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <FontAwesomeIcon icon={faSpinner} className="w-5 h-5 animate-spin" />
                     <span>Launching...</span>
                   </>
                 ) : (
@@ -312,7 +326,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
         {step === 4 && (
           <div className="flex flex-col items-center justify-center text-center space-y-6 py-12 md:py-20 animate-in zoom-in-95 duration-500">
             <div className="w-20 h-20 md:w-24 md:h-24 bg-emerald-500 rounded-full flex items-center justify-center shadow-xl shadow-emerald-900/40">
-              <CheckCircle2 className="w-10 h-10 md:w-12 md:h-12 text-white" />
+              <FontAwesomeIcon icon={faCheckCircle} className="w-10 h-10 md:w-12 md:h-12 text-white" />
             </div>
             <div>
               <h3 className="text-2xl md:text-3xl font-bold text-white">Campaign Launched!</h3>
