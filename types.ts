@@ -89,6 +89,228 @@ export interface Brand {
   isVerified?: boolean;
   logo_url?: string;            // ✅ Backend uses this for profile image
 }
+// ============================================================================
+// ✅ ADVERTISING SYSTEM FUNCTIONS
+// ============================================================================
+
+// Fetch user's ad campaigns
+const fetchMyAds = useCallback(async () => {
+  if (!currentUser) return;
+  
+  setAdsLoading(true);
+  try {
+    const response = await fetch('/api/ads/my', {
+      headers: {
+        'x-user-id': String(currentUser.id)
+      }
+    });
+    const data = await response.json();
+    
+    // Transform backend ads to AdCampaign format
+    const campaigns = (data.ads || []).map((ad: any) => ({
+      id: ad.id,
+      advertiser_id: ad.advertiser_id,
+      post_id: ad.post_id,
+      name: `Campaign #${ad.id}`,
+      type: 'image' as const,
+      mediaUrl: '',
+      description: '',
+      link: '',
+      cta: 'Learn More' as const,
+      location: 'Global',
+      days: Math.ceil((new Date(ad.end_date).getTime() - new Date(ad.start_date).getTime()) / (1000 * 60 * 60 * 24)),
+      createdAt: new Date(ad.created_at).getTime(),
+      status: ad.status,
+      analytics: {
+        impressions: 0,
+        clicks: 0,
+        views: 0,
+        spend: ad.budget || 0
+      },
+      start_date: ad.start_date,
+      end_date: ad.end_date,
+      budget: ad.budget
+    }));
+    
+    setAdCampaigns(campaigns);
+  } catch (error) {
+    console.error('Failed to fetch ads:', error);
+  } finally {
+    setAdsLoading(false);
+  }
+}, [currentUser]);
+
+// Create new ad campaign
+const createAdCampaign = useCallback(async (
+  postId: number,
+  budget: number,
+  days: number
+) => {
+  if (!requireAuth('Creating ads')) return false;
+  if (!currentUser) return false;
+
+  try {
+    const response = await fetch('/api/ads/push', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': String(currentUser.id)
+      },
+      body: JSON.stringify({
+        post_id: postId,
+        budget,
+        days
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      // Refresh ads list
+      await fetchMyAds();
+      
+      // Show success message
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.innerText = 'Campaign created successfully!';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+      
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Failed to create campaign:', error);
+    
+    // Show error message
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Failed to create campaign';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+    
+    return false;
+  }
+}, [currentUser, requireAuth, fetchMyAds]);
+
+// Record ad impression
+const recordAdImpression = useCallback(async (adId: number) => {
+  if (!currentUser) return;
+  
+  try {
+    await fetch('/api/ads/impression', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': String(currentUser.id)
+      },
+      body: JSON.stringify({ ad_id: adId })
+    });
+  } catch (error) {
+    console.error('Failed to record impression:', error);
+  }
+}, [currentUser]);
+
+// Record ad click
+const recordAdClick = useCallback(async (adId: number) => {
+  if (!currentUser) return;
+  
+  try {
+    await fetch('/api/ads/click', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': String(currentUser.id)
+      },
+      body: JSON.stringify({ ad_id: adId })
+    });
+  } catch (error) {
+    console.error('Failed to record click:', error);
+  }
+}, [currentUser]);
+
+// Pause campaign
+const pauseCampaign = useCallback(async (adId: number) => {
+  if (!requireAuth('Pausing campaigns')) return false;
+  if (!currentUser) return false;
+
+  try {
+    const response = await fetch(`/api/ads/${adId}/pause`, {
+      method: 'POST',
+      headers: {
+        'x-user-id': String(currentUser.id)
+      }
+    });
+
+    const data = await response.json();
+    
+    if (data.success) {
+      await fetchMyAds();
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Failed to pause campaign:', error);
+    return false;
+  }
+}, [currentUser, requireAuth, fetchMyAds]);
+
+// Resume campaign
+const resumeCampaign = useCallback(async (adId: number) => {
+  if (!requireAuth('Resuming campaigns')) return false;
+  if (!currentUser) return false;
+
+  try {
+    const response = await fetch(`/api/ads/${adId}/resume`, {
+      method: 'POST',
+      headers: {
+        'x-user-id': String(currentUser.id)
+      }
+    });
+
+    const data = await response.json();
+    
+    if (data.success) {
+      await fetchMyAds();
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Failed to resume campaign:', error);
+    return false;
+  }
+}, [currentUser, requireAuth, fetchMyAds]);
+
+// Delete campaign
+const deleteCampaign = useCallback(async (adId: number) => {
+  if (!requireAuth('Deleting campaigns')) return false;
+  if (!currentUser) return false;
+
+  try {
+    const response = await fetch(`/api/ads/${adId}`, {
+      method: 'DELETE',
+      headers: {
+        'x-user-id': String(currentUser.id)
+      }
+    });
+
+    const data = await response.json();
+    
+    if (data.success) {
+      await fetchMyAds();
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Failed to delete campaign:', error);
+    return false;
+  }
+}, [currentUser, requireAuth, fetchMyAds]);
+
 
 // =========================
 // REACTIONS
