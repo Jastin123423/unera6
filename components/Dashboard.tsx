@@ -1,5 +1,15 @@
 import React from 'react';
-import { TrendingUp, Eye, MousePointer2, DollarSign, Play, Calendar, ArrowUp, ArrowDown } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+  faChartLine,
+  faEye,
+  faMousePointer,
+  faDollarSign,
+  faPlay,
+  faCalendar,
+  faArrowUp,
+  faArrowDown
+} from '@fortawesome/free-solid-svg-icons';
 import { AdCampaign } from '../types';
 
 interface DashboardProps {
@@ -27,7 +37,7 @@ export default function Dashboard({ campaigns }: DashboardProps) {
     { day: 'Sun', impressions: 1600, clicks: 61 },
   ];
 
-  const StatCard = ({ title, value, icon: Icon, trend, trendValue, color }: any) => (
+  const StatCard = ({ title, value, icon, trend, trendValue, color }: any) => (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 hover:border-zinc-700 transition-all group">
       <div className="flex items-start justify-between">
         <div>
@@ -36,9 +46,9 @@ export default function Dashboard({ campaigns }: DashboardProps) {
           {trend && (
             <div className="flex items-center gap-1 mt-2">
               {trend === 'up' ? (
-                <ArrowUp className="w-4 h-4 text-emerald-500" />
+                <FontAwesomeIcon icon={faArrowUp} className="w-4 h-4 text-emerald-500" />
               ) : (
-                <ArrowDown className="w-4 h-4 text-red-500" />
+                <FontAwesomeIcon icon={faArrowDown} className="w-4 h-4 text-red-500" />
               )}
               <span className={trend === 'up' ? 'text-emerald-500' : 'text-red-500'}>
                 {trendValue}
@@ -48,7 +58,7 @@ export default function Dashboard({ campaigns }: DashboardProps) {
           )}
         </div>
         <div className={`w-12 h-12 rounded-xl bg-${color}-500/10 flex items-center justify-center group-hover:scale-110 transition-transform`}>
-          <Icon className={`w-6 h-6 text-${color}-500`} />
+          <FontAwesomeIcon icon={icon} className={`w-6 h-6 text-${color}-500`} />
         </div>
       </div>
     </div>
@@ -67,7 +77,7 @@ export default function Dashboard({ campaigns }: DashboardProps) {
         <StatCard
           title="Total Impressions"
           value={totalImpressions.toLocaleString()}
-          icon={Eye}
+          icon={faEye}
           trend="up"
           trendValue="12.5%"
           color="blue"
@@ -75,7 +85,7 @@ export default function Dashboard({ campaigns }: DashboardProps) {
         <StatCard
           title="Total Clicks"
           value={totalClicks.toLocaleString()}
-          icon={MousePointer2}
+          icon={faMousePointer}
           trend="up"
           trendValue="8.2%"
           color="emerald"
@@ -83,7 +93,7 @@ export default function Dashboard({ campaigns }: DashboardProps) {
         <StatCard
           title="Total Views"
           value={totalViews.toLocaleString()}
-          icon={Play}
+          icon={faPlay}
           trend="down"
           trendValue="3.1%"
           color="amber"
@@ -91,7 +101,7 @@ export default function Dashboard({ campaigns }: DashboardProps) {
         <StatCard
           title="Total Spend"
           value={`$${totalSpend.toLocaleString()}`}
-          icon={DollarSign}
+          icon={faDollarSign}
           trend="up"
           trendValue="15.3%"
           color="rose"
@@ -107,7 +117,7 @@ export default function Dashboard({ campaigns }: DashboardProps) {
               <p className="text-4xl font-bold text-white mt-1">{ctr}%</p>
             </div>
             <div className="w-14 h-14 rounded-full bg-blue-500/10 flex items-center justify-center">
-              <TrendingUp className="w-7 h-7 text-blue-500" />
+              <FontAwesomeIcon icon={faChartLine} className="w-7 h-7 text-blue-500" />
             </div>
           </div>
           <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
@@ -127,7 +137,7 @@ export default function Dashboard({ campaigns }: DashboardProps) {
               <p className="text-xs text-zinc-500 mt-1">out of {campaigns.length} total</p>
             </div>
             <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center">
-              <Calendar className="w-6 h-6 text-emerald-500" />
+              <FontAwesomeIcon icon={faCalendar} className="w-6 h-6 text-emerald-500" />
             </div>
           </div>
         </div>
@@ -185,7 +195,7 @@ export default function Dashboard({ campaigns }: DashboardProps) {
         {campaigns.length === 0 ? (
           <div className="text-center py-12">
             <div className="w-16 h-16 mx-auto mb-4 bg-zinc-800 rounded-full flex items-center justify-center">
-              <TrendingUp className="w-8 h-8 text-zinc-600" />
+              <FontAwesomeIcon icon={faChartLine} className="w-8 h-8 text-zinc-600" />
             </div>
             <p className="text-zinc-500">No campaigns yet</p>
             <p className="text-zinc-600 text-sm mt-1">Create your first ad to see performance data</p>
