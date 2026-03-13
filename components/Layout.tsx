@@ -48,6 +48,8 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
     { id: 'birthdays', title: 'Birthdays', icon: 'fas fa-birthday-cake', color: '#F7B928', desc: 'See upcoming birthdays.' },
     { id: 'memories', title: 'Memories', icon: 'fas fa-history', color: '#1877F2', desc: 'Browse your old photos, videos and posts.' },
     { id: 'notifications', title: 'Notifications', icon: 'fas fa-bell', color: '#E41E3F', desc: 'See your notifications.' },
+    // 👇 ADD ADS DASHBOARD HERE
+    { id: 'ads', title: 'Ad Dashboard', icon: 'fas fa-chart-line', color: '#10B981', desc: 'Manage your ad campaigns and boost posts.' },
   ];
 
   const bottomItems = [
@@ -154,6 +156,8 @@ interface HeaderProps {
   onReelsClick: () => void;
   onMarketplaceClick: () => void;
   onGroupsClick: () => void;
+  // 👇 ADD ADS CLICK PROP
+  onAdsClick: () => void;
   currentUser: User | null;
   notifications: Notification[];
   users: User[];
@@ -171,6 +175,7 @@ export const Header: React.FC<HeaderProps> = ({
   onReelsClick,
   onMarketplaceClick,
   onGroupsClick,
+  onAdsClick, // 👈 ADD THIS
   currentUser,
   notifications,
   users,
@@ -360,6 +365,18 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <i className="fas fa-users text-[24px]"></i>
           </div>
+
+          {/* 👇 ADD ADS ICON IN HEADER (optional) */}
+          <div
+            onClick={onAdsClick}
+            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
+              activeTab === 'ads'
+                ? 'border-[#10B981] text-[#10B981]'
+                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
+            }`}
+          >
+            <i className="fas fa-chart-line text-[24px]"></i>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 justify-end">
@@ -505,6 +522,8 @@ interface SidebarProps {
   onMarketplaceClick: () => void;
   onGroupsClick: () => void;
   onEventsClick: () => void;
+  // 👇 ADD ADS CLICK PROP
+  onAdsClick: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -514,6 +533,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onMarketplaceClick,
   onGroupsClick,
   onEventsClick,
+  onAdsClick, // 👈 ADD THIS
 }) => {
   const items = [
     { id: 'friends', label: 'Friends', icon: 'fas fa-user-friends', color: '#1877F2' },
@@ -523,6 +543,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'marketplace', label: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', onClick: onMarketplaceClick },
     { id: 'reels', label: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F', onClick: onReelsClick },
     { id: 'events', label: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', onClick: onEventsClick },
+    // 👇 ADD ADS DASHBOARD TO SIDEBAR
+    { id: 'ads', label: 'Ad Dashboard', icon: 'fas fa-chart-line', color: '#10B981', onClick: onAdsClick },
   ];
 
   return (
