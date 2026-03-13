@@ -1,3 +1,7 @@
+Here App.tsx
+
+
+
 // App.tsx - Complete file with updated Reels integration
 // UPDATED: Enhanced Reels with full comment support (reply, edit, delete, images)
 // and reel owner menu (edit, delete)
@@ -19,6 +23,7 @@ import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Stor
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
+import { AllEvents } from "./components/AllEvents";
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
   BirthdaysPage,
@@ -1408,13 +1413,6 @@ export default function App() {
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // ===== NOTIFICATION & AD STATES =====
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [ads, setAds] = useState<any[]>([]);
-  const [showAdAnalytics, setShowAdAnalytics] = useState(false);
-  const [adAnalyticsId, setAdAnalyticsId] = useState<number | null>(null);
-
   // ============================================================================
   // ✅ People You May Know - State declarations
   // ============================================================================
@@ -1461,9 +1459,6 @@ export default function App() {
   const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
 
   const [loginError, setLoginError] = useState('');
-
-  // Add this after your other useMemo calculations
-  const unreadNotifications = notifications.filter(n => !n.is_read).length;
 
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -1635,6 +1630,7 @@ export default function App() {
   }, []);
   
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
@@ -1731,69 +1727,6 @@ export default function App() {
       }
     };
   }, [currentUser]);
-
-  // ✅ ADDED: Fetch notifications
-  const fetchNotifications = useCallback(async () => {
-    if (!currentUser) return;
-
-    try {
-      const res = await fetch("/api/notifications", {
-        headers: {
-          "x-user-id": String(currentUser.id)
-        }
-      });
-
-      const data = await res.json();
-      setNotifications(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error("Failed loading notifications", err);
-    }
-  }, [currentUser]);
-
-  // ✅ ADDED: Mark notifications as read
-  const markNotificationsRead = async () => {
-    if (!currentUser) return;
-
-    await fetch("/api/notifications/read", {
-      method: "POST",
-      headers: {
-        "x-user-id": String(currentUser.id)
-      }
-    });
-  };
-
-  // ✅ ADDED: Auto refresh notifications
-  useEffect(() => {
-    if (!currentUser) return;
-
-    fetchNotifications();
-
-    const interval = setInterval(fetchNotifications, 20000);
-
-    return () => clearInterval(interval);
-  }, [currentUser, fetchNotifications]);
-
-  // ✅ ADDED: Fetch ads
-  const fetchAds = useCallback(async () => {
-    try {
-      const res = await fetch("/api/ads/feed");
-      const data = await res.json();
-      setAds(data.ads || []);
-    } catch (err) {
-      console.error("Ads fetch error", err);
-    }
-  }, []);
-
-  // ✅ ADDED: Fetch ads on mount
-  useEffect(() => {
-    fetchAds();
-  }, [fetchAds]);
-
-  // ✅ ADDED: Open ad analytics
-  const openAdAnalytics = (adId: number) => {
-    setAdAnalyticsId(adId);
-    setShowAdAnalytics(true);
-  };
 
   const openChatWith = useCallback((userId: number) => {
     const recipient = users.find(u => Number(u.id) === Number(userId));
@@ -5392,11 +5325,6 @@ export default function App() {
         onMarkNotificationsRead={() => {}}
         activeTab={activeTab}
         onNavigate={(v: any) => handleNavigate(v)}
-        unreadNotifications={unreadNotifications}
-        onNotificationClick={() => {
-          setShowNotifications(true);
-          markNotificationsRead();
-        }}
       />
 
       <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
@@ -6214,35 +6142,6 @@ export default function App() {
             console.log('Create new chat');
           }}
         />
-      )}
-
-      {/* Notifications Page */}
-      {showNotifications && (
-        <NotificationsPage
-          notifications={notifications}
-          users={users}
-          onBack={() => setShowNotifications(false)}
-          onProfileClick={(id)=>openProfile(id)}
-        />
-      )}
-
-      {/* Ad Analytics Modal */}
-      {showAdAnalytics && adAnalyticsId && (
-        <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
-          <div className="bg-[#242526] rounded-xl max-w-2xl w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-white">Ad Analytics</h2>
-              <button
-                onClick={() => setShowAdAnalytics(false)}
-                className="text-[#B0B3B8] hover:text-white"
-              >
-                <i className="fas fa-times" />
-              </button>
-            </div>
-            <p className="text-[#B0B3B8]">Analytics for ad #{adAnalyticsId}</p>
-            {/* Add your analytics content here */}
-          </div>
-        </div>
       )}
     </div>
   );
