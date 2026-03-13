@@ -37,6 +37,11 @@ import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
 import Recorder from './components/Recorder';
 import { NotificationsPage } from './components/NotificationsPage';
+// 1️⃣ ADD AD DASHBOARD IMPORTS
+import Dashboard from './components/Dashboard';
+import AdCreator from './components/AdCreator';
+import AdsManager from './components/AdsManager';
+import { TrendingUp } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -51,6 +56,7 @@ import {
   Group,
   Brand,
   Song,
+  AdCampaign, // Add this type if not already defined
 } from './types';
 
 /** ---------- Type for People You May Know suggestions ---------- */
@@ -1214,8 +1220,8 @@ type ReelSound = {
   originalUrl?: string;
 };
 
-// 1️⃣ UPDATE TYPE DEFINITION
-type View =
+// 2️⃣ ADD 'ads' TO VIEW TYPE
+export type View =
   | 'home'
   | 'reels'
   | 'marketplace'
@@ -1235,7 +1241,8 @@ type View =
   | 'login'
   | 'register'
   | 'recorder'
-  | 'notifications';  // 👈 ADD THIS
+  | 'notifications'
+  | 'ads';  // 👈 ADD THIS
 
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -1382,7 +1389,6 @@ export default function App() {
   /** ---------- State ---------- */
   const [users, setUsers] = useState<User[]>([]);
   const [posts, setPosts] = useState<PostType[]>([]);
-  // 2️⃣ ADD STATE FOR PUSHED POSTS
   const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
   const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
@@ -1416,6 +1422,11 @@ export default function App() {
   const [ads, setAds] = useState<any[]>([]);
   const [showAdAnalytics, setShowAdAnalytics] = useState(false);
   const [adAnalyticsId, setAdAnalyticsId] = useState<number | null>(null);
+
+  // 3️⃣ ADD AD DASHBOARD STATE
+  const [adCampaigns, setAdCampaigns] = useState<any[]>([]);
+  const [adsLoading, setAdsLoading] = useState(false);
+  const [activeAdTab, setActiveAdTab] = useState<'dashboard' | 'create' | 'ads' | 'analytics'>('dashboard');
 
   // ============================================================================
   // ✅ People You May Know - State declarations
@@ -2553,6 +2564,9 @@ export default function App() {
         toast.innerText = 'Post boosted successfully!';
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), 2000);
+        
+        // Refresh ads list after pushing
+        fetchMyAds();
       }
     } catch (err) {
       console.error('Push more failed', err);
@@ -2565,6 +2579,193 @@ export default function App() {
       setTimeout(() => toast.remove(), 2000);
     }
   };
+
+  // 4️⃣ ADD AD API FUNCTIONS
+  // ============================================================================
+  // ✅ ADVERTISING SYSTEM FUNCTIONS
+  // ============================================================================
+
+  // Fetch user's ad campaigns
+  const fetchMyAds = useCallback(async () => {
+    if (!currentUser) return;
+    
+    setAdsLoading(true);
+    try {
+      const response = await fetch('/api/ads/my', {
+        headers: {
+          'x-user-id': String(currentUser.id)
+        }
+      });
+      const data = await response.json();
+      
+      // Transform backend ads to AdCampaign format
+      const campaigns = (data.ads || []).map((ad: any) => ({
+        id: ad.id,
+        advertiser_id: ad.advertiser_id,
+        post_id: ad.post_id,
+        name: `Campaign #${ad.id}`,
+        type: 'image' as const,
+        mediaUrl: '',
+        description: '',
+        link: '',
+        cta: 'Learn More' as const,
+        location: 'Global',
+        days: Math.ceil((new Date(ad.end_date).getTime() - new Date(ad.start_date).getTime()) / (1000 * 60 * 60 * 24)),
+        createdAt: new Date(ad.created_at).getTime(),
+        status: ad.status,
+        analytics: {
+          impressions: 0,
+          clicks: 0,
+          views: 0,
+          spend: ad.budget || 0
+        },
+        start_date: ad.start_date,
+        end_date: ad.end_date,
+        budget: ad.budget
+      }));
+      
+      setAdCampaigns(campaigns);
+    } catch (error) {
+      console.error('Failed to fetch ads:', error);
+    } finally {
+      setAdsLoading(false);
+    }
+  }, [currentUser]);
+
+  // Create new ad campaign
+  const createAdCampaign = useCallback(async (
+    postId: number,
+    budget: number,
+    days: number
+  ) => {
+    if (!requireAuth('Creating ads')) return false;
+    if (!currentUser) return false;
+
+    try {
+      const response = await fetch('/api/ads/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': String(currentUser.id)
+        },
+        body: JSON.stringify({
+          post_id: postId,
+          budget,
+          days
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Refresh ads list
+        await fetchMyAds();
+        
+        // Show success message
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+        toast.innerText = 'Campaign created successfully!';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Failed to create campaign:', error);
+      
+      // Show error message
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.innerText = 'Failed to create campaign';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+      
+      return false;
+    }
+  }, [currentUser, requireAuth, fetchMyAds]);
+
+  // Pause campaign
+  const pauseCampaign = useCallback(async (adId: number) => {
+    if (!requireAuth('Pausing campaigns')) return false;
+    if (!currentUser) return false;
+
+    try {
+      const response = await fetch(`/api/ads/${adId}/pause`, {
+        method: 'POST',
+        headers: {
+          'x-user-id': String(currentUser.id)
+        }
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await fetchMyAds();
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Failed to pause campaign:', error);
+      return false;
+    }
+  }, [currentUser, requireAuth, fetchMyAds]);
+
+  // Resume campaign
+  const resumeCampaign = useCallback(async (adId: number) => {
+    if (!requireAuth('Resuming campaigns')) return false;
+    if (!currentUser) return false;
+
+    try {
+      const response = await fetch(`/api/ads/${adId}/resume`, {
+        method: 'POST',
+        headers: {
+          'x-user-id': String(currentUser.id)
+        }
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await fetchMyAds();
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Failed to resume campaign:', error);
+      return false;
+    }
+  }, [currentUser, requireAuth, fetchMyAds]);
+
+  // Delete campaign
+  const deleteCampaign = useCallback(async (adId: number) => {
+    if (!requireAuth('Deleting campaigns')) return false;
+    if (!currentUser) return false;
+
+    try {
+      const response = await fetch(`/api/ads/${adId}`, {
+        method: 'DELETE',
+        headers: {
+          'x-user-id': String(currentUser.id)
+        }
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await fetchMyAds();
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Failed to delete campaign:', error);
+      return false;
+    }
+  }, [currentUser, requireAuth, fetchMyAds]);
 
   /** ---------- ✅ FIXED: Helper to create marketplace posts with Feed.tsx-compatible payload ---------- */
   const createMarketplacePost = useCallback(
@@ -4326,6 +4527,15 @@ export default function App() {
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
+  // 5️⃣ ADD USE EFFECT TO LOAD ADS
+  useEffect(() => {
+    if (currentUser) {
+      fetchMyAds();
+    } else {
+      setAdCampaigns([]);
+    }
+  }, [currentUser, fetchMyAds]);
+
   useEffect(() => {
     let mounted = true;
     
@@ -5432,6 +5642,16 @@ export default function App() {
         onReelsClick={() => handleNavigate('reels')}
         onMarketplaceClick={() => handleNavigate('marketplace')}
         onGroupsClick={() => handleNavigate('groups')}
+        // 7️⃣ ADD ADS CLICK HANDLER
+        onAdsClick={() => {
+          if (!currentUser) {
+            setLoginError('Please login to access ads dashboard.');
+            setView('login');
+            return;
+          }
+          setView('ads');
+          setActiveAdTab('dashboard');
+        }}
         currentUser={currentUser}
         notifications={notifications}
         users={users}
@@ -5441,9 +5661,8 @@ export default function App() {
         activeTab={activeTab}
         onNavigate={(v: any) => handleNavigate(v)}
         unreadNotifications={unreadNotifications}
-        // 4️⃣ UPDATE HEADER ONNOTIFICATIONCLICK
         onNotificationClick={() => {
-          setView('notifications');  // Use view instead of showNotifications
+          setView('notifications');
           markNotificationsRead();
         }}
       />
@@ -5555,6 +5774,11 @@ export default function App() {
                       // Render regular posts
                       const postAuthorId = Number((item as any).user_id);
                       const isFollowing = checkIsFollowing(postAuthorId);
+                      
+                      // 👇 Check if current user is the post owner OR admin
+                      const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
+                      const isAdminUser = currentUser && currentUser.role === 'admin';
+                      const showPushButton = isPostOwner || isAdminUser;
 
                       // Track if we've shown the first PYMK instance
                       const showFirstPymk = currentUser &&
@@ -5597,8 +5821,8 @@ export default function App() {
                             followLoading={followLoading[postAuthorId] || false}
                             onViewProductFromPost={openProductFromPost}
                             onRSVPEvent={onRSVPEvent}
-                            // 7️⃣ ADD PUSH BUTTON HERE
-                            pushButton={
+                            // 👇 ONLY SHOW PUSH BUTTON IF USER IS POST OWNER OR ADMIN
+                            pushButton={showPushButton ? (
                               <button
                                 onClick={() => pushMore(item.id)}
                                 disabled={pushedPosts[item.id]}
@@ -5610,7 +5834,7 @@ export default function App() {
                               >
                                 {pushedPosts[item.id] ? 'Pushed' : 'Push More'}
                               </button>
-                            }
+                            ) : undefined}
                           />
 
                           {/* ✅ People You May Know Grid - FIRST APPEARANCE */}
@@ -6030,7 +6254,6 @@ export default function App() {
             />
           )}
 
-          {/* 5️⃣ ADD NOTIFICATIONS VIEW HERE */}
           {view === 'notifications' && (
             <NotificationsPage
               notifications={notifications}
@@ -6038,6 +6261,81 @@ export default function App() {
               onBack={() => setView('home')}
               onProfileClick={(id)=>openProfile(id)}
             />
+          )}
+
+          {/* 8️⃣ ADD ADS VIEW HERE */}
+          {view === 'ads' && currentUser && (
+            <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
+              {/* Tab navigation for ads */}
+              <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2">
+                <button
+                  onClick={() => setActiveAdTab('dashboard')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                    activeAdTab === 'dashboard'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  }`}
+                >
+                  Dashboard
+                </button>
+                <button
+                  onClick={() => setActiveAdTab('create')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                    activeAdTab === 'create'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  }`}
+                >
+                  Create Campaign
+                </button>
+                <button
+                  onClick={() => setActiveAdTab('ads')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                    activeAdTab === 'ads'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  }`}
+                >
+                  My Campaigns
+                </button>
+                <button
+                  onClick={() => setActiveAdTab('analytics')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                    activeAdTab === 'analytics'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  }`}
+                >
+                  Analytics
+                </button>
+              </div>
+
+              {activeAdTab === 'dashboard' && <Dashboard campaigns={adCampaigns} loading={adsLoading} />}
+              
+              {activeAdTab === 'create' && (
+                <AdCreator 
+                  onSuccess={() => {
+                    setActiveAdTab('ads');
+                    fetchMyAds();
+                  }}
+                  userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser.id))}
+                  onCreateCampaign={createAdCampaign}
+                />
+              )}
+              
+              {activeAdTab === 'ads' && (
+                <AdsManager 
+                  campaigns={adCampaigns} 
+                  onUpdate={fetchMyAds}
+                  onPause={pauseCampaign}
+                  onResume={resumeCampaign}
+                  onDelete={deleteCampaign}
+                  loading={adsLoading}
+                />
+              )}
+              
+              {activeAdTab === 'analytics' && <Dashboard campaigns={adCampaigns} loading={adsLoading} />}
+            </div>
           )}
         </div>
 
@@ -6188,11 +6486,6 @@ export default function App() {
         />
       )}
 
-      {/* ❌ REMOVED: Old CreateReelModal - Now using Recorder directly */}
-      {/* {showCreateReelModal && currentUser && (
-        <CreateReelModal ... />
-      )} */}
-
       {activeStoryId && activeStory && (
         <StoryViewerModal
           story={activeStory}
@@ -6327,9 +6620,6 @@ export default function App() {
           }}
         />
       )}
-
-      {/* 6️⃣ REMOVE OLD SHOWNOTIFICATIONS MODAL */}
-      {/* Notifications Page Modal - REMOVED */}
 
       {/* Ad Analytics Modal */}
       {showAdAnalytics && adAnalyticsId && (
