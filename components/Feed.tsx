@@ -1,7 +1,4 @@
-
-
-//Feed.tsx (Updated with PostMenu component and Reel edit/delete)
-
+// Feed.tsx 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
   User,
@@ -18,57 +15,6 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
-import { performPostAction } from "../postActionRegistry";
-import { PostMenu } from './Post/PostMenu';
-
-// ==================== ICON COMPONENTS (for better rendering) ====================
-const Film: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#1877F2" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
-    <line x1="7" y1="2" x2="7" y2="22"></line>
-    <line x1="17" y1="2" x2="17" y2="22"></line>
-    <line x1="2" y1="12" x2="22" y2="12"></line>
-    <line x1="2" y1="7" x2="7" y2="7"></line>
-    <line x1="2" y1="17" x2="7" y2="17"></line>
-    <line x1="17" y1="17" x2="22" y2="17"></line>
-    <line x1="17" y1="7" x2="22" y2="7"></line>
-  </svg>
-);
-
-const MoreHorizontal: React.FC<{ size?: number; color?: string }> = ({ size = 24, color = "#b0b3b8" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="1"></circle>
-    <circle cx="19" cy="12" r="1"></circle>
-    <circle cx="5" cy="12" r="1"></circle>
-  </svg>
-);
-
-const Play: React.FC<{ size?: number; color?: string; fill?: string; style?: React.CSSProperties }> = ({ size = 32, color = "#fff", fill = "#fff", style }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
-    <polygon points="5 3 19 12 5 21 5 3"></polygon>
-  </svg>
-);
-
-const Eye: React.FC<{ size?: number; color?: string }> = ({ size = 18, color = "#fff" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-    <circle cx="12" cy="12" r="3"></circle>
-  </svg>
-);
-
-/**
- * =========================
- * ✅ FORMAT VIEW COUNT - Fixes issue #3 (views not displaying properly)
- * =========================
- */
-const formatViewCount = (n?: number): string => {
-  const v = Number(n || 0);
-
-  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-  return String(v);
-};
 
 /**
  * =========================
@@ -282,7 +228,6 @@ const unwrapFeedItem = (item: any): any => {
   if (item.type === 'marketplace' && item.marketplace) return item.marketplace;
   if (item.type === 'music' && item.music) return item.music;
   if (item.type === 'podcast' && item.podcast) return item.podcast;
-  if (item.type === 'reel' && item.reel) return item.reel;
   
   // If item has a data wrapper
   if (item.data) return item.data;
@@ -919,7 +864,16 @@ const GroupPostHeader: React.FC<{
         </div>
       </div>
 
-      {/* Right menu - Will be handled by PostMenu component */}
+      {/* Right menu */}
+      <button
+        className="w-9 h-9 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onOpenMenu) onOpenMenu();
+        }}
+      >
+        <i className="fas fa-ellipsis-h text-[#B0B3B8]" />
+      </button>
     </div>
   );
 };
@@ -942,7 +896,7 @@ const ExpandableRichText: React.FC<{
   users,
   onProfileClick,
   onHashtagClick,
-  maxWords = 14,
+  maxWords = 14, // Changed from 25 to 14 words
   fontSizePx = 21,
   forceExpanded = false,
 }) => {
@@ -1210,9 +1164,12 @@ export const ReactionButton: React.FC<{
       >
         {activeReaction ? (
           <>
+            {/* keep emoji when reacted */}
             <span className="text-[20px] transition-transform duration-300">
               {activeReaction.icon}
             </span>
+
+            {/* ✅ ALWAYS show label "React" (not Like/Love/etc), but keep active color */}
             <span
               className="text-[17px] font-medium transition-colors duration-300"
               style={{ color: activeReaction.color }}
@@ -1222,6 +1179,7 @@ export const ReactionButton: React.FC<{
           </>
         ) : (
           <>
+            {/* ✅ Spark-style icon + label React */}
             <span className="flex items-center justify-center -mt-[1px]">
               <SparkReactIcon size={26} />
             </span>
@@ -1292,6 +1250,7 @@ const getPostMediaList = (post: any): NormalizedMedia[] => {
   for (const u of arrUrls) {
     const url = String(u || '').trim();
     if (!url) continue;
+    // If u has width/height properties, preserve them
     out.push({ 
       url, 
       kind: 'image',
@@ -1788,7 +1747,7 @@ export const ReactionsSheet: React.FC<{
         )}
       </div>
 
-      {/* Optional: Discussions button at bottom */}
+      {/* Optional: Discussions button at bottom - CHANGED TEXT ONLY */}
       {onOpenComments && (
         <div className="p-4 border-t border-[#3E4042] bg-[#242526]">
           <button
@@ -1798,7 +1757,7 @@ export const ReactionsSheet: React.FC<{
             }}
             className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-bold rounded-lg transition-colors"
           >
-            View Discussions
+            View Discussions  {/* ✅ CHANGED from "View Comments" to "View Discussions" */}
           </button>
         </div>
       )}
@@ -1966,7 +1925,7 @@ export const GalleryViewer: React.FC<{
               className="hover:underline cursor-pointer" 
               onClick={onOpenComments}
             >
-              {formatCount(commentCount)} Discussions
+              {formatCount(commentCount)} Discussions  {/* ✅ CHANGED from "Comments" to "Discussions" */}
             </span>
             {shareCount > 0 && (
               <span className="hover:underline cursor-pointer" onClick={onShare}>
@@ -1981,7 +1940,7 @@ export const GalleryViewer: React.FC<{
           <ReactionButton
             currentUserReactions={myReaction}
             reactionCount={reactionCount}
-            onReact={(type) => onReact(postId, type)}
+            onReact={onReact}
             isGuest={!currentUser}
           />
           <button
@@ -2502,7 +2461,7 @@ export const ShareBottomSheet: React.FC<{
 /**
  * =========================
  * ✅ PEOPLE YOU MAY KNOW - FACEBOOK STYLE FEED CARD
- * ✅ INCREASED SIZE - LARGER CARDS
+ * ✅ UPDATED WITH onProfileClick PROP AND CLICKABLE AVATAR/NAME
  * =========================
  */
 interface PeopleSuggestion {
@@ -2523,7 +2482,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
   currentUser: User | null;
   isLoading?: boolean;
   onLoginClick?: () => void;
-  onProfileClick?: (userId: number) => void;
+  onProfileClick?: (userId: number) => void; // Add this new prop
   title?: string;
   maxDisplay?: number;
 }> = ({
@@ -2532,9 +2491,9 @@ export const PeopleYouMayKnowGrid: React.FC<{
   currentUser,
   isLoading = false,
   onLoginClick,
-  onProfileClick,
+  onProfileClick, // Destructure the new prop
   title = "People You May Know",
-  maxDisplay = 8
+  maxDisplay = 6
 }) => {
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -2543,6 +2502,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
 
   const displayUsers = users.slice(0, maxDisplay);
 
+  // Check scroll position for arrows
   const checkScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -2569,7 +2529,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
     const el = scrollRef.current;
     if (!el) return;
     
-    const scrollAmount = 350;
+    const scrollAmount = 300;
     el.scrollBy({
       left: direction === 'left' ? -scrollAmount : scrollAmount,
       behavior: 'smooth'
@@ -2596,15 +2556,15 @@ export const PeopleYouMayKnowGrid: React.FC<{
       <div className="w-full">
         <div className="bg-[#242526] w-full p-4">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
+            <h3 className="text-[#E4E6EB] font-bold text-[17px]">{title}</h3>
           </div>
-          <div className="flex gap-4 overflow-x-hidden py-2">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex-shrink-0 w-[180px] animate-pulse">
-                <div className="w-24 h-24 mx-auto mb-3 bg-[#3A3B3C] rounded-full"></div>
-                <div className="h-5 bg-[#3A3B3C] rounded w-32 mx-auto mb-2"></div>
-                <div className="h-4 bg-[#3A3B3C] rounded w-20 mx-auto mb-4"></div>
-                <div className="h-10 bg-[#3A3B3C] rounded-lg w-full"></div>
+          <div className="flex gap-3 overflow-x-hidden py-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex-shrink-0 w-[140px] animate-pulse">
+                <div className="w-20 h-20 mx-auto mb-2 bg-[#3A3B3C] rounded-full"></div>
+                <div className="h-4 bg-[#3A3B3C] rounded w-24 mx-auto mb-1"></div>
+                <div className="h-3 bg-[#3A3B3C] rounded w-16 mx-auto mb-3"></div>
+                <div className="h-8 bg-[#3A3B3C] rounded-lg w-full"></div>
               </div>
             ))}
           </div>
@@ -2619,105 +2579,108 @@ export const PeopleYouMayKnowGrid: React.FC<{
   return (
     <div className="w-full">
       <div className="bg-[#242526] w-full p-4">
+        {/* Header */}
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
-          <div className="flex items-center gap-2">
+          <h3 className="text-[#E4E6EB] font-bold text-[17px]">{title}</h3>
+          <div className="flex items-center gap-1">
             {canScrollLeft && (
               <button
                 onClick={() => scroll('left')}
-                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 aria-label="Scroll left"
               >
-                <i className="fas fa-chevron-left text-[#E4E6EB] text-base"></i>
+                <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
               </button>
             )}
             {canScrollRight && (
               <button
                 onClick={() => scroll('right')}
-                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 aria-label="Scroll right"
               >
-                <i className="fas fa-chevron-right text-[#E4E6EB] text-base"></i>
+                <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
               </button>
             )}
           </div>
         </div>
 
+        {/* Horizontal scrollable grid */}
         <div
           ref={scrollRef}
-          className="flex gap-4 overflow-x-auto scrollbar-hide pb-1"
+          className="flex gap-3 overflow-x-auto scrollbar-hide pb-1"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {displayUsers.map((user) => (
             <div
               key={user.id}
-              className="flex-shrink-0 w-[180px] bg-[#3A3B3C] rounded-xl p-4 hover:bg-[#4E4F50] transition-colors group"
+              className="flex-shrink-0 w-[140px] bg-[#3A3B3C] rounded-lg p-3 hover:bg-[#4E4F50] transition-colors group"
             >
+              {/* Profile Image - Make clickable */}
               <div 
-                className="relative w-24 h-24 mx-auto mb-3 cursor-pointer"
+                className="relative w-20 h-20 mx-auto mb-2 cursor-pointer"
                 onClick={() => handleProfileClick(user.id)}
               >
-                <div className="w-full h-full rounded-full overflow-hidden border-3 border-[#1877F2] group-hover:border-[#166FE5] transition-colors">
+                <div className="w-full h-full rounded-full overflow-hidden border-2 border-[#1877F2] group-hover:border-[#166FE5] transition-colors">
                   <img
-                    src={user.profile_image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1877F2&color=fff&bold=true&size=128`}
+                    src={user.profile_image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1877F2&color=fff&bold=true`}
                     alt={user.name}
                     className="w-full h-full object-cover"
                     loading="lazy"
                     onError={(e) => {
                       const target = e.currentTarget;
-                      target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1877F2&color=fff&bold=true&size=128`;
+                      target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1877F2&color=fff&bold=true`;
                     }}
                   />
                 </div>
                 {user.is_verified && (
-                  <i className="fas fa-check-circle absolute bottom-1 right-1 text-[#1877F2] text-base bg-[#242526] rounded-full p-0.5 border border-[#3A3B3C]"></i>
+                  <i className="fas fa-check-circle absolute bottom-0 right-0 text-[#1877F2] text-sm bg-[#242526] rounded-full p-0.5 border border-[#3A3B3C]"></i>
                 )}
               </div>
 
-              <div className="text-center mb-2">
+              {/* Name - Make clickable as a button */}
+              <div className="text-center mb-1">
                 <button
                   type="button"
                   onClick={() => handleProfileClick(user.id)}
-                  className="text-[#E4E6EB] font-semibold text-[15px] truncate block w-full hover:underline"
+                  className="text-[#E4E6EB] font-semibold text-[13px] truncate block w-full hover:underline"
                 >
                   {user.name}
                 </button>
-                {user.role && (
-                  <div className="text-[#B0B3B8] text-xs mt-1">{user.role}</div>
-                )}
               </div>
 
+              {/* Mutual count */}
               {user.mutual_count > 0 && (
-                <div className="text-center mb-3">
-                  <span className="text-[#B0B3B8] text-[12px]">
+                <div className="text-center mb-2">
+                  <span className="text-[#B0B3B8] text-[11px]">
                     {user.mutual_count} mutual friend{user.mutual_count !== 1 ? 's' : ''}
                   </span>
                 </div>
               )}
 
+              {/* Follow Button */}
               {!currentUser ? (
                 <button
                   onClick={onLoginClick}
-                  className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                  className="w-full py-1.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[12px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
                 >
-                  <i className="fas fa-sign-in-alt text-[11px]"></i>
+                  <i className="fas fa-sign-in-alt text-[10px]"></i>
                   <span>Sign in</span>
                 </button>
               ) : (
                 <button
                   onClick={() => handleFollow(user.id)}
                   disabled={followLoading[user.id]}
-                  className={`w-full py-2.5 text-[13px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                  className={`w-full py-1.5 text-[12px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
                     user.is_following
                       ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                       : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
                   } disabled:opacity-70 disabled:cursor-not-allowed`}
                 >
                   {followLoading[user.id] ? (
-                    <i className="fas fa-spinner fa-spin text-[11px]"></i>
+                    <i className="fas fa-spinner fa-spin text-[10px]"></i>
                   ) : (
                     <>
-                      <i className={`fas ${user.is_following ? 'fa-check' : 'fa-user-plus'} text-[11px]`}></i>
+                      <i className={`fas ${user.is_following ? 'fa-check' : 'fa-user-plus'} text-[10px]`}></i>
                       <span>{user.is_following ? 'Following' : 'Follow'}</span>
                     </>
                   )}
@@ -2728,6 +2691,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
         </div>
       </div>
       
+      {/* Facebook-style separator */}
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
@@ -2735,397 +2699,8 @@ export const PeopleYouMayKnowGrid: React.FC<{
 
 /**
  * =========================
- * ✅ REEL FEED DATA TYPE - FIXED with comprehensive name mapping
- * =========================
- */
-export type ReelFeedData = {
-  id: number | string;
-  user_id: number | string;
-  author: string;
-  avatar?: string;
-  verified?: boolean;
-  video: string;
-  thumbnail?: string;
-  caption?: string;
-  views?: number;
-  likes?: number;
-  comments?: number;
-  shares?: number;
-  created_at?: string;
-  audioUrl?: string;
-  audioStart?: number;
-  audioEnd?: number;
-  songName?: string;
-  songId?: string | number;
-  soundKey?: string;
-};
-
-/**
- * =========================
- * ✅ FORMAT VIEW COUNT - Fixed issue #3 (views not displaying properly)
- * =========================
- */
-const formatReelCount = (n?: number): string => {
-  const v = Number(n || 0);
-  
-  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(v);
-};
-
-/**
- * =========================
- * ✅ GET DISPLAY NAME - Comprehensive name resolver for reel authors
- * Fixes issue #1 (reel author name showing as "User")
- * =========================
- */
-const getReelAuthorName = (reel: any): string => {
-  return (
-    reel?.author_name ||
-    reel?.full_name ||
-    reel?.username ||
-    reel?.user_name ||
-    reel?.name ||
-    (reel?.user && (
-      reel.user.full_name ||
-      reel.user.username ||
-      reel.user.name
-    )) ||
-    (reel?.author && (
-      typeof reel.author === 'string' ? reel.author :
-      reel.author.full_name ||
-      reel.author.username ||
-      reel.author.name
-    )) ||
-    "User"
-  );
-};
-
-/**
- * =========================
- * ✅ REEL NORMALIZER HELPER - FIXED with proper field mapping
- * Converts any API reel data to ReelFeedData format
- * Fixes issues #1 and #3
- * =========================
- */
-export const normalizeReelFromFeed = (item: any): ReelFeedData => {
-  const reelData = item?.reel || item;
-  
-  return {
-    id: reelData?.id || item?.id || 0,
-    user_id: reelData?.user_id ?? reelData?.userId ?? item?.user_id ?? 0,
-    author: getReelAuthorName(reelData) || getReelAuthorName(item),
-    avatar:
-      reelData?.avatar ||
-      reelData?.profile_image_url ||
-      reelData?.user?.profile_image_url ||
-      item?.avatar ||
-      "",
-    verified: Boolean(reelData?.verified || reelData?.is_verified || false),
-    views: Number(
-      reelData?.views_count ??
-      reelData?.view_count ??
-      reelData?.views ??
-      reelData?.total_views ??
-      item?.views_count ??
-      item?.views ??
-      0
-    ),
-    likes: Number(
-      reelData?.likes_count ??
-      reelData?.likes ??
-      reelData?.reactions_count ??
-      0
-    ),
-    comments: Number(
-      reelData?.comments_count ??
-      reelData?.comments ??
-      0
-    ),
-    shares: Number(
-      reelData?.shares_count ??
-      reelData?.shares ??
-      0
-    ),
-    video: reelData?.video_url || reelData?.video || reelData?.media_url || item?.video_url || "",
-    thumbnail: reelData?.thumbnail_url || reelData?.thumbnail || reelData?.cover_url || "",
-    caption: reelData?.caption || reelData?.description || "",
-    created_at: reelData?.created_at || reelData?.createdAt || item?.created_at || "",
-    audioUrl: reelData?.audio_url || reelData?.audioUrl || reelData?.song?.audio_url,
-    audioStart: Number(reelData?.audio_start || reelData?.audioStart || 0),
-    audioEnd: Number(reelData?.audio_end || reelData?.audioEnd || 0),
-    songName: reelData?.song_name || reelData?.songName || reelData?.song?.title,
-    songId: reelData?.song_id || reelData?.songId || reelData?.song?.id,
-    soundKey: reelData?.sound_key || reelData?.soundKey || `reel:${reelData?.id || 0}`,
-  };
-};
-
-/**
- * =========================
- * ✅ REEL DETECTION HELPER
- * =========================
- */
-export const isReelPost = (item: any): boolean => {
-  return (
-    item?.type === "reel" ||
-    item?.post_type === "reel" ||
-    item?.kind === "reel" ||
-    item?.feed_type === "reel" ||
-    item?.item_type === "reel" ||
-    (item?.is_reel === true) ||
-    (item?.format === "reel") ||
-    (item?.video && (item?.audio_url || item?.song_name))
-  );
-};
-
-/**
- * =========================
- * ✅ REEL PREVIEW CARD FOR FEED - FIXED with proper styling and data
- * Opens full player in Reels.tsx with initialReelId
- * Fixes issues #1, #2, #3
- * =========================
- */
-export const ReelFeedCard: React.FC<{
-  reel: ReelFeedData;
-  onOpen?: (reelId: number | string) => void;
-  onOpenMenu?: (reel: ReelFeedData) => void;
-  onProfileClick?: (userId: number | string) => void;
-}> = ({ reel, onOpen, onOpenMenu, onProfileClick }) => {
-  const openReel = () => {
-    onOpen?.(reel.id);
-  };
-
-  const handleProfileClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onProfileClick?.(reel.user_id);
-  };
-
-  return (
-    <div className="w-full" style={{ 
-      background: "#1c1e21",
-      borderTop: "1px solid rgba(255,255,255,0.08)",
-      borderBottom: "1px solid rgba(255,255,255,0.08)",
-      marginBottom: 10,
-      padding: "12px 0 14px"
-    }}>
-      {/* Header */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "0 14px 12px"
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Film size={20} color="#1877f2" />
-          <span style={{ fontSize: 22, fontWeight: 700, color: "#e4e6eb" }}>
-            Reels
-          </span>
-        </div>
-
-        {/* Use PostMenu component for reels */}
-        <PostMenu
-          item={{
-            id: reel.id,
-            user_id: reel.user_id,
-            type: 'reel',
-            content: reel.caption,
-            caption: reel.caption,
-            author: reel.author
-          }}
-          currentUser={{ id: Number(localStorage.getItem('user_id')) }}
-          onShare={(item) => {
-            console.log('Share reel:', item);
-          }}
-        />
-      </div>
-
-      {/* Preview */}
-      <div
-        onClick={openReel}
-        style={{
-          position: "relative",
-          width: "calc(100% - 28px)",
-          margin: "0 14px",
-          aspectRatio: "9 / 16",
-          maxHeight: "75vh",
-          borderRadius: 24,
-          overflow: "hidden",
-          background: "#111",
-          cursor: "pointer",
-        }}
-      >
-        {reel.thumbnail ? (
-          <img
-            src={reel.thumbnail}
-            alt={reel.caption || "Reel preview"}
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "block",
-              objectFit: "cover",
-            }}
-          />
-        ) : (
-          <video
-            src={reel.video}
-            muted
-            playsInline
-            preload="metadata"
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "block",
-              objectFit: "cover",
-            }}
-          />
-        )}
-
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            background:
-              "linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0.10), rgba(0,0,0,0.25))",
-          }}
-        />
-
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            pointerEvents: "none",
-          }}
-        >
-          <div
-            style={{
-              width: 74,
-              height: 74,
-              borderRadius: "50%",
-              border: "3px solid rgba(255,255,255,0.95)",
-              background: "rgba(255,255,255,0.12)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Play size={32} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
-          </div>
-        </div>
-
-        <div
-          style={{
-            position: "absolute",
-            left: 14,
-            right: 14,
-            bottom: 12,
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "space-between",
-            gap: 10,
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                color: "#fff",
-                fontSize: 15,
-                fontWeight: 700,
-                marginBottom: 6,
-                textShadow: "0 1px 3px rgba(0,0,0,0.4)",
-              }}
-            >
-              {reel.author}
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                color: "#fff",
-                fontSize: 14,
-                fontWeight: 700,
-                textShadow: "0 1px 3px rgba(0,0,0,0.4)",
-              }}
-            >
-              <Eye size={18} />
-              <span>{formatReelCount(reel.views)}</span>
-            </div>
-          </div>
-
-          <div
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: "50%",
-              overflow: "hidden",
-              border: "2px solid #fff",
-              background: "#1877f2",
-              flexShrink: 0,
-            }}
-          >
-            {reel.avatar ? (
-              <img
-                src={reel.avatar}
-                alt={reel.author}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  display: "block",
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#fff",
-                  fontWeight: 700,
-                }}
-              >
-                {(reel.author || "U").charAt(0).toUpperCase()}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {reel.songName && (
-          <div style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            background: "rgba(0,0,0,0.6)",
-            backdropFilter: "blur(4px)",
-            padding: "4px 8px",
-            borderRadius: 20,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            border: "1px solid rgba(255,255,255,0.2)",
-          }}>
-            <i className="fas fa-music" style={{ color: "#1877F2", fontSize: 10 }}></i>
-            <span style={{ color: "#fff", fontSize: 10, fontWeight: "bold", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {reel.songName}
-            </span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-/**
- * =========================
  * ✅ GROUPS YOU MAY JOIN - FACEBOOK STYLE FEED CARD
- * ✅ INCREASED SIZE - LARGER CARDS
+ * ✅ UPDATED WITH onProfileClick PROP AND CLICKABLE GROUP COVER/NAME
  * =========================
  */
 interface GroupSuggestion {
@@ -3151,7 +2726,7 @@ export const GroupsYouMayJoinCard: React.FC<{
   isLoading?: boolean;
   onLoginClick?: () => void;
   onOpenGroup?: (groupId: number) => void;
-  onProfileClick?: (userId: number) => void;
+  onProfileClick?: (userId: number) => void; // Add this new prop
   title?: string;
   maxDisplay?: number;
 }> = ({
@@ -3160,10 +2735,10 @@ export const GroupsYouMayJoinCard: React.FC<{
   currentUser,
   isLoading = false,
   onLoginClick,
-  onOpenGroup,
-  onProfileClick,
+  onOpenGroup, // Use this for opening group
+  onProfileClick, // Use this for opening profile (admin)
   title = "Groups You May Join",
-  maxDisplay = 8
+  maxDisplay = 6
 }) => {
   const [joinLoading, setJoinLoading] = useState<{ [key: number]: boolean }>({});
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -3172,6 +2747,7 @@ export const GroupsYouMayJoinCard: React.FC<{
 
   const displayGroups = groups.slice(0, maxDisplay);
 
+  // Check scroll position for arrows
   const checkScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -3198,7 +2774,7 @@ export const GroupsYouMayJoinCard: React.FC<{
     const el = scrollRef.current;
     if (!el) return;
     
-    const scrollAmount = 400;
+    const scrollAmount = 300;
     el.scrollBy({
       left: direction === 'left' ? -scrollAmount : scrollAmount,
       behavior: 'smooth'
@@ -3231,16 +2807,16 @@ export const GroupsYouMayJoinCard: React.FC<{
       <div className="w-full">
         <div className="bg-[#242526] w-full p-4">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
+            <h3 className="text-[#E4E6EB] font-bold text-[17px]">{title}</h3>
           </div>
-          <div className="flex gap-4 overflow-x-hidden py-2">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex-shrink-0 w-[240px] animate-pulse">
-                <div className="h-32 bg-[#3A3B3C] rounded-t-lg"></div>
-                <div className="p-4 bg-[#3A3B3C]">
-                  <div className="h-5 bg-[#4E4F50] rounded w-32 mb-3"></div>
-                  <div className="h-4 bg-[#4E4F50] rounded w-20 mb-4"></div>
-                  <div className="h-10 bg-[#4E4F50] rounded-lg w-full"></div>
+          <div className="flex gap-3 overflow-x-hidden py-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex-shrink-0 w-[180px] animate-pulse">
+                <div className="h-24 bg-[#3A3B3C] rounded-t-lg"></div>
+                <div className="p-3 bg-[#3A3B3C]">
+                  <div className="h-4 bg-[#4E4F50] rounded w-24 mb-2"></div>
+                  <div className="h-3 bg-[#4E4F50] rounded w-16 mb-3"></div>
+                  <div className="h-8 bg-[#4E4F50] rounded-lg w-full"></div>
                 </div>
               </div>
             ))}
@@ -3256,42 +2832,45 @@ export const GroupsYouMayJoinCard: React.FC<{
   return (
     <div className="w-full">
       <div className="bg-[#242526] w-full p-4">
+        {/* Header */}
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
-          <div className="flex items-center gap-2">
+          <h3 className="text-[#E4E6EB] font-bold text-[17px]">{title}</h3>
+          <div className="flex items-center gap-1">
             {canScrollLeft && (
               <button
                 onClick={() => scroll('left')}
-                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 aria-label="Scroll left"
               >
-                <i className="fas fa-chevron-left text-[#E4E6EB] text-base"></i>
+                <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
               </button>
             )}
             {canScrollRight && (
               <button
                 onClick={() => scroll('right')}
-                className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 aria-label="Scroll right"
               >
-                <i className="fas fa-chevron-right text-[#E4E6EB] text-base"></i>
+                <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
               </button>
             )}
           </div>
         </div>
 
+        {/* Horizontal scrollable grid */}
         <div
           ref={scrollRef}
-          className="flex gap-4 overflow-x-auto scrollbar-hide pb-1"
+          className="flex gap-3 overflow-x-auto scrollbar-hide pb-1"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {displayGroups.map((group) => (
             <div
               key={group.id}
-              className="flex-shrink-0 w-[240px] bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors group"
+              className="flex-shrink-0 w-[180px] bg-[#3A3B3C] rounded-lg overflow-hidden hover:bg-[#4E4F50] transition-colors group"
             >
+              {/* Cover Image - Make clickable */}
               <div 
-                className="h-32 bg-[#4E4F50] cursor-pointer relative"
+                className="h-24 bg-[#4E4F50] cursor-pointer relative"
                 onClick={() => handleGroupClick(group.id)}
               >
                 {group.cover_image ? (
@@ -3306,19 +2885,18 @@ export const GroupsYouMayJoinCard: React.FC<{
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#1877F2] to-[#166FE5]">
-                    <i className="fas fa-users text-white text-3xl opacity-50"></i>
+                    <i className="fas fa-users text-white text-2xl opacity-50"></i>
                   </div>
                 )}
-                
-                <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-full text-white text-[11px] font-semibold">
-                  {group.type === 'public' ? '🌍 Public' : '🔒 Private'}
-                </div>
               </div>
 
-              <div className="p-4">
-                <div className="flex items-center gap-3 mb-3">
+              {/* Content */}
+              <div className="p-3">
+                {/* Group Name and Profile Image */}
+                <div className="flex items-center gap-2 mb-2">
+                  {/* Profile Image - Make clickable */}
                   <div 
-                    className="w-12 h-12 rounded-full overflow-hidden bg-[#4E4F50] flex-shrink-0 cursor-pointer border-3 border-[#1877F2] group-hover:border-[#166FE5] transition-colors"
+                    className="w-10 h-10 rounded-full overflow-hidden bg-[#4E4F50] flex-shrink-0 cursor-pointer border-2 border-[#1877F2] group-hover:border-[#166FE5] transition-colors"
                     onClick={() => handleGroupClick(group.id)}
                   >
                     {group.profile_image ? (
@@ -3330,75 +2908,72 @@ export const GroupsYouMayJoinCard: React.FC<{
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-[#3A3B3C]">
-                        <i className="fas fa-users text-[#B0B3B8] text-base"></i>
+                        <i className="fas fa-users text-[#B0B3B8] text-sm"></i>
                       </div>
                     )}
                   </div>
                   
+                  {/* Group Name - Make clickable */}
                   <div className="flex-1 min-w-0">
                     <button
                       type="button"
                       onClick={() => handleGroupClick(group.id)}
-                      className="text-[#E4E6EB] font-semibold text-[15px] truncate w-full text-left hover:underline"
+                      className="text-[#E4E6EB] font-semibold text-[13px] truncate w-full text-left hover:underline"
                     >
                       {group.name}
                     </button>
-                    <div className="text-[#B0B3B8] text-[12px] truncate">
+                    <div className="text-[#B0B3B8] text-[11px] truncate">
                       {group.category}
                     </div>
                   </div>
                 </div>
 
-                <div className="text-[#B0B3B8] text-[12px] mb-3">
-                  <i className="fas fa-users mr-1"></i>
+                {/* Member stats */}
+                <div className="text-[#B0B3B8] text-[11px] mb-2">
                   {group.members_count.toLocaleString()} members
                   {group.mutual_count > 0 && (
-                    <span className="ml-1">· {group.mutual_count} mutual</span>
+                    <span> · {group.mutual_count} mutual</span>
                   )}
                 </div>
 
+                {/* Admin name - Make clickable if onProfileClick exists */}
                 {onProfileClick && (
-                  <div className="text-[#B0B3B8] text-[12px] mb-3">
+                  <div className="text-[#B0B3B8] text-[11px] mb-2">
                     Admin: {' '}
                     <button
                       type="button"
                       onClick={() => handleAdminClick(group.admin_id)}
-                      className="text-[#E4E6EB] hover:underline font-medium"
+                      className="text-[#E4E6EB] hover:underline"
                     >
-                      View Admin
+                      Admin
                     </button>
                   </div>
                 )}
 
-                {group.description && (
-                  <div className="text-[#B0B3B8] text-[12px] mb-3 line-clamp-2">
-                    {group.description}
-                  </div>
-                )}
-
+                {/* Join Button */}
                 {!currentUser ? (
                   <button
                     onClick={onLoginClick}
-                    className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                    className="w-full py-1.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[12px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
                   >
-                    <i className="fas fa-sign-in-alt text-[11px]"></i>
+                    <i className="fas fa-sign-in-alt text-[10px]"></i>
                     <span>Sign in</span>
                   </button>
                 ) : (
                   <button
                     onClick={() => handleJoin(group.id)}
                     disabled={joinLoading[group.id] || group.is_member}
-                    className={`w-full py-2.5 text-[13px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                    className={`w-full py-1.5 text-[12px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
                       group.is_member
                         ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                         : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
                     } disabled:opacity-70 disabled:cursor-not-allowed`}
                   >
                     {joinLoading[group.id] ? (
-                      <i className="fas fa-spinner fa-spin text-[11px]"></i>
+                      <i className="fas fa-spinner fa-spin text-[10px]"></i>
                     ) : (
                       <>
-                        <i className={`fas ${group.is_member ? 'fa-check' : 'fa-user-plus'} text-[11px]`}></i>
+                        <i className={`fas ${group.is_member ? 'fa-check' : 'fa-user-plus'} text-[10px]`}></i>
                         <span>{group.is_member ? 'Joined' : 'Join Group'}</span>
                       </>
                     )}
@@ -3410,6 +2985,7 @@ export const GroupsYouMayJoinCard: React.FC<{
         </div>
       </div>
       
+      {/* Facebook-style separator */}
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
@@ -3455,13 +3031,17 @@ const safeParseJsonArray = (v: any): string[] => {
 };
 
 const getEventCover = (item: any, meta?: any) => {
+  // Check media_urls first (JSON array)
   const urls = safeParseJsonArray(item?.media_urls);
   if (urls.length > 0) return urls[0];
   
+  // Check single media_url
   if (item?.media_url) return item.media_url;
   
+  // Check meta for cover_url
   if (meta?.cover_url) return meta.cover_url;
   
+  // Check meta for image/cover in various formats
   if (meta?.image) return meta.image;
   if (meta?.cover) return meta.cover;
   
@@ -3483,6 +3063,10 @@ const normalizeEventFromFeed = (item: any) => {
 
   const cover = getEventCover(item, meta);
 
+  // ✅ api/feeds event fields:
+  // title -> item.content
+  // description -> item.event_description
+  // date -> item.event_date (your DB column is event_date)
   const id = Number(item?.event_id ?? item?.id ?? meta?.event_id ?? 0);
 
   return {
@@ -3493,10 +3077,13 @@ const normalizeEventFromFeed = (item: any) => {
     location: String(item?.location ?? meta?.location ?? ""),
     event_date: String(item?.event_date ?? meta?.event_date ?? meta?.start_time ?? ""),
     created_at: String(item?.created_at ?? meta?.created_at ?? ""),
+    // counts from feeds (what you added in feeds.ts)
     attendees_count: Number(item?.attending_count ?? meta?.attending_count ?? 0),
     interested_count: Number(item?.interested_count ?? meta?.interested_count ?? 0),
+    // rsvp status from feeds
     user_rsvp_status: String(item?.my_rsvp_status ?? meta?.my_rsvp_status ?? ""),
     creator_id: Number(item?.user_id ?? meta?.creator_id ?? 0),
+    // Creator info
     creator: {
       id: Number(item?.user_id ?? meta?.creator_id ?? 0),
       name: String(item?.name ?? meta?.creator_name ?? "Event Organizer"),
@@ -3579,6 +3166,9 @@ export const EventPost: React.FC<{
     return dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
   };
 
+  /**
+   * ✅ FIXED: RSVP handler that matches AllEvents.tsx exactly
+   */
   const handleRSVPClick = async (target: 'going' | 'interested') => {
     if (!currentUser) {
       alert('Please login to RSVP');
@@ -3611,6 +3201,7 @@ export const EventPost: React.FC<{
       } else nextInt = prevInt + 1;
     }
 
+    // Optimistic UI update
     setRsvpStatus(nextStatus);
     setAttendeesCount(nextAtt);
     setInterestedCount(nextInt);
@@ -3629,6 +3220,7 @@ export const EventPost: React.FC<{
         });
       }
 
+      // Overwrite with backend truth if available
       if (res?.success) {
         if (res.attending_count !== undefined) {
           setAttendeesCount(Number(res.attending_count));
@@ -3641,6 +3233,7 @@ export const EventPost: React.FC<{
         }
       }
     } catch (error) {
+      // Rollback on failure
       setRsvpStatus(prevStatus);
       setAttendeesCount(prevAtt);
       setInterestedCount(prevInt);
@@ -3687,6 +3280,7 @@ export const EventPost: React.FC<{
     }
   };
 
+  // Handle card click to open preview modal
   const handleCardClick = () => {
     if (onEventClick && event.id) {
       onEventClick(event.id);
@@ -3700,6 +3294,7 @@ export const EventPost: React.FC<{
           className="bg-[#242526] w-full overflow-hidden cursor-pointer"
           onClick={handleCardClick}
         >
+          {/* Header */}
           <div className="p-3 md:p-4 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
             <div
               className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
@@ -3749,8 +3344,10 @@ export const EventPost: React.FC<{
             )}
           </div>
 
+          {/* EVENT BODY - FIXED: Image now shows on top */}
           <div className="pb-4" onClick={(e) => e.stopPropagation()}>
             <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
+              {/* Cover Image */}
               {event.cover_url ? (
                 <div className="h-48 bg-[#18191A] overflow-hidden relative">
                   <img
@@ -3769,6 +3366,7 @@ export const EventPost: React.FC<{
                       }
                     }}
                   />
+                  {/* Date Badge */}
                   {dateObj && (
                     <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
                       <div className="text-[#B0B3B8] text-[11px] font-black">
@@ -3796,6 +3394,7 @@ export const EventPost: React.FC<{
                 </div>
               )}
 
+              {/* Details */}
               <div className="p-4">
                 <div className="text-[#E4E6EB] font-black text-[20px] line-clamp-2">
                   {event.title}
@@ -3828,6 +3427,7 @@ export const EventPost: React.FC<{
                   </div>
                 </div>
 
+                {/* RSVP Buttons - Matches AllEvents.tsx exactly */}
                 <div className="mt-4 flex gap-2">
                   <button
                     disabled={loading || isPast}
@@ -3875,7 +3475,9 @@ export const EventPost: React.FC<{
             </div>
           </div>
 
+          {/* Action row - ORIGINAL EVENT ACTION ROW (NO REACTION SUMMARY) */}
           <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+            {/* Like/React Button */}
             <div className="flex-1">
               <ReactionButton
                 currentUserReactions={undefined}
@@ -3885,6 +3487,7 @@ export const EventPost: React.FC<{
               />
             </div>
             
+            {/* Comment Button - UPDATED TO DISCUSS */}
             <button
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
               onClick={handleOpenComments}
@@ -3895,6 +3498,7 @@ export const EventPost: React.FC<{
               </span>
             </button>
             
+            {/* Share Button */}
             <button
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
               onClick={handleShare}
@@ -3908,6 +3512,7 @@ export const EventPost: React.FC<{
         <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
       </div>
 
+      {/* Share Bottom Sheet */}
       {event && (
         <ShareBottomSheet
           isOpen={showShareSheet}
@@ -3987,6 +3592,9 @@ export const EventFeedCard: React.FC<{
   const nowLocal = new Date();
   const isPast = !!dateObj && dateObj < nowLocal;
 
+  /**
+   * ✅ FIXED: RSVP function now matches AllEvents.tsx logic
+   */
   const rsvp = async (target: "going" | "interested") => {
     if (!currentUser) {
       alert("Please login to RSVP");
@@ -4000,6 +3608,7 @@ export const EventFeedCard: React.FC<{
     const prevStatus = (item.my_rsvp_status || '') as '' | 'going' | 'interested';
     const nextStatus: '' | 'going' | 'interested' = prevStatus === target ? '' : target;
 
+    // Save previous counts for rollback
     const prevAtt = Number(item.attending_count ?? 0);
     const prevInt = Number(item.interested_count ?? 0);
 
@@ -4020,6 +3629,7 @@ export const EventFeedCard: React.FC<{
       } else nextInt = prevInt + 1;
     }
 
+    // Optimistic UI update
     onUpdateItem({ 
       my_rsvp_status: nextStatus as any,
       attending_count: nextAtt,
@@ -4040,6 +3650,7 @@ export const EventFeedCard: React.FC<{
         });
       }
 
+      // ✅ IMPORTANT: overwrite from backend truth if available
       if (res?.success) {
         const patch: Partial<FeedEventItem> = {};
         if (res.my_status !== undefined) {
@@ -4054,6 +3665,7 @@ export const EventFeedCard: React.FC<{
         onUpdateItem(patch);
       }
     } catch (e: any) {
+      // rollback counts/status
       onUpdateItem({
         my_rsvp_status: prevStatus as any,
         attending_count: prevAtt,
@@ -4069,6 +3681,7 @@ export const EventFeedCard: React.FC<{
   const attending = Number(item.attending_count ?? 0);
   const interested = Number(item.interested_count ?? 0);
 
+  // Handle card click to open preview modal
   const handleCardClick = () => {
     if (onEventClick) {
       const eventId = item.event_id || item.id;
@@ -4082,6 +3695,7 @@ export const EventFeedCard: React.FC<{
       onClick={handleCardClick}
     >
       <div className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042]">
+        {/* Header */}
         <div className="flex items-center gap-3 p-3" onClick={(e) => e.stopPropagation()}>
           <img
             src={item.profile_image_url || "https://via.placeholder.com/40"}
@@ -4100,6 +3714,7 @@ export const EventFeedCard: React.FC<{
           </div>
         </div>
 
+        {/* Cover image */}
         {item.media_url ? (
           <div className="w-full h-56 bg-black overflow-hidden relative">
             <img 
@@ -4117,6 +3732,7 @@ export const EventFeedCard: React.FC<{
                 }
               }}
             />
+            {/* Date Badge */}
             {dateObj && (
               <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
                 <div className="text-[#B0B3B8] text-[11px] font-black">
@@ -4144,6 +3760,7 @@ export const EventFeedCard: React.FC<{
           </div>
         )}
 
+        {/* Content */}
         <div className="p-4" onClick={(e) => e.stopPropagation()}>
           <div className="text-[#E4E6EB] font-black text-xl leading-tight">
             {item.content}
@@ -4176,12 +3793,14 @@ export const EventFeedCard: React.FC<{
             </div>
           </div>
 
+          {/* Error message if any */}
           {error && (
             <div className="mt-2 text-sm text-red-500 bg-red-500/10 p-2 rounded-lg">
               {error}
             </div>
           )}
 
+          {/* RSVP Buttons - Matches AllEvents.tsx */}
           <div className="mt-4 flex gap-2">
             <button
               disabled={loading || isPast}
@@ -4228,6 +3847,7 @@ export const EventFeedCard: React.FC<{
         </div>
       </div>
       
+      {/* Facebook-style separator */}
       <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
     </div>
   );
@@ -4235,11 +3855,27 @@ export const EventFeedCard: React.FC<{
 
 /**
  * =========================
- * ✅ FIXED: POST CARD WITH UNIFIED AVATAR AND PROPER MEDIA HANDLING
- * AND PROFESSIONAL REACTION TEXT FORMATTING
+ * ✅ ACTIVE COMMENTS STATE WITH LOCKED SNAPSHOT
  * =========================
  */
-export const Post: React.FC<{
+// This should be declared in the parent component that uses the Post component
+// Example:
+// const [activeComments, setActiveComments] = useState<null | { feedKey: string; snapshot: any }>(null);
+//
+// const openComments = (item: any) => {
+//   const feedKey = String(item.feed_key ?? `${item.source}:${item.id}`);
+//   const snapshot = typeof structuredClone === "function" 
+//     ? structuredClone(item) 
+//     : JSON.parse(JSON.stringify(item));
+//   setActiveComments({ feedKey, snapshot });
+// };
+
+/**
+ * =========================
+ * ✅ UPDATED: POST CARD WITH NEW PROPS AND CLICK HANDLERS
+ * =========================
+ */
+export interface PostProps {
   post: PostType;
   author: User | any;
   currentUser: User | null;
@@ -4248,7 +3884,6 @@ export const Post: React.FC<{
   onReact: (id: number, type: ReactionType) => void;
   onShare: (id: number, newShareCount: number) => void;
   onDelete?: (id: number) => void;
-  onEdit?: (id: number, content: string) => void;
   onViewImage: (url: string) => void;
   onOpenComments: (id: number) => void;
   onVideoClick: (p: PostType) => void;
@@ -4256,6 +3891,8 @@ export const Post: React.FC<{
   onHashtagClick?: (tag: string) => void;
   onViewProductFromPost?: (productId: number) => void;
   onOpenGroup?: (groupId: number) => void;
+  onOpenEvent?: (eventId: number) => void;
+  onEventRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
   onOpenAudio?: (item: any) => void;
   onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
   groups?: Group[];
@@ -4266,9 +3903,10 @@ export const Post: React.FC<{
   followLoading?: boolean;
   onEventClick?: (eventId: number) => void;
   onOpenReactions?: (postId: number) => void;
-  onReport?: (postId: number, reason?: string) => void;
-  onHide?: (postId: number) => void;
-}> = ({
+  onEdit?: (postId: number, content: string) => void;
+}
+
+export const Post: React.FC<PostProps> = ({
   post,
   author,
   currentUser,
@@ -4277,7 +3915,6 @@ export const Post: React.FC<{
   onReact,
   onShare,
   onDelete,
-  onEdit,
   onViewImage,
   onOpenComments,
   onVideoClick,
@@ -4295,8 +3932,9 @@ export const Post: React.FC<{
   followLoading = false,
   onEventClick,
   onOpenReactions,
-  onReport,
-  onHide,
+  onEdit,
+  onOpenEvent,
+  onEventRSVP,
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -4338,7 +3976,7 @@ export const Post: React.FC<{
         currentUser={currentUser}
         users={users}
         onProfileClick={onProfileClick}
-        onRSVP={onRSVP}
+        onRSVP={onRSVP || onEventRSVP}
         onFollow={onFollow}
         isFollowing={isFollowing}
         followLoading={followLoading}
@@ -4348,7 +3986,7 @@ export const Post: React.FC<{
         groups={groups}
         brands={brands}
         chats={chats}
-        onEventClick={onEventClick}
+        onEventClick={onEventClick || onOpenEvent}
       />
     );
   }
@@ -4366,7 +4004,6 @@ export const Post: React.FC<{
 
   // Reactions sheet state
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
-  const [showShareSheet, setShowShareSheet] = useState(false);
 
   // Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
@@ -4382,26 +4019,45 @@ export const Post: React.FC<{
 
   // ========== REACTION DATA WITH FALLBACKS ==========
   const myReaction = p.myReaction ?? p.my_reaction ?? null;
+
+  // Count from various possible fields
   const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
+
+  // IMPORTANT: never make it null; fallback to preview list if available
   const reactionsArr: any[] = Array.isArray(p.reactions)
     ? p.reactions
     : Array.isArray(p.reactions_preview)
       ? p.reactions_preview
       : [];
 
-  const reactorNameFromApi = String(p.reactor_name ?? p.reactorName ?? "").trim();
+  // Optional name provided by backend
+  const reactorNameFromApi = String(
+    p.reactor_name ?? p.reactorName ?? ""
+  ).trim();
 
+  // Final values used in the component
   const finalMyReaction: ReactionType | undefined =
     myReaction ||
     (currentUser && reactionsArr.length
       ? (reactionsArr.find((r: any) => Number(r.user_id) === safeUserId(currentUser))?.type as ReactionType)
       : undefined);
 
-  const finalReactionCount = likesCount > 0 ? likesCount : reactionsArr.length;
+  const finalReactionCount =
+    likesCount > 0 ? likesCount : reactionsArr.length;
   
+  // ========== COMMENT COUNT STATE ==========
   const [commentCount, setCommentCount] = useState(() => {
-    if (typeof p.comments_count === 'number') return p.comments_count;
-    if (Array.isArray(p.comments)) return p.comments.length;
+    // Try to get from post.comments_count first (API)
+    if (typeof p.comments_count === 'number') {
+      console.log('📊 Post initial comment count from API:', p.id, p.comments_count);
+      return p.comments_count;
+    }
+    // Fallback to comments array length
+    if (Array.isArray(p.comments)) {
+      console.log('📊 Post initial comment count from array:', p.id, p.comments.length);
+      return p.comments.length;
+    }
+    console.log('📊 Post initial comment count default 0:', p.id);
     return 0;
   });
 
@@ -4409,20 +4065,27 @@ export const Post: React.FC<{
     return safeNumber(p.shares ?? p.shares_count, 0);
   });
 
+  const [showShareSheet, setShowShareSheet] = useState(false);
+
   const createdAtLabel = formatRelativeTime(p.created_at);
   const postId = safePostId(p);
 
   const mediaInfo = getMediaTypeInfo(p);
-  const mediaList = useMemo(() => getPostMediaList(p), [p]);
-  const imageMedia = mediaList.filter(m => m.kind === 'image');
-  const videoMedia = mediaList.filter(m => m.kind === 'video');
+
+  const mediaList = useMemo(() => {
+    return getPostMediaList(p);
+  }, [p]);
 
   const formatCount = (count: number): string => {
-    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
     return count.toString();
   };
 
+  // Facebook-style reaction emojis
   const emojiList = useMemo(() => {
     if (reactionsArr.length > 0) {
       const em = topReactionEmojis(reactionsArr, 2);
@@ -4431,15 +4094,21 @@ export const Post: React.FC<{
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
 
+  // STABLE REACTOR NAME WITH BACKEND FALLBACK
   const reactorName = useMemo(() => {
     if (!finalReactionCount) return "";
+
+    // If we have an array (best), resolve name from it
     if (reactionsArr.length) {
       const name = pickStableReactorName(postId, reactionsArr, users);
       return String(name || "").trim();
     }
+
+    // If no array (common case), use backend-provided name
     return reactorNameFromApi;
   }, [postId, finalReactionCount, reactionsArr, users, reactorNameFromApi]);
 
+  // PROFESSIONAL REACTION TEXT
   const reactionText = useMemo(() => {
     if (!finalReactionCount || !reactorName) return '';
     return formatReactionText(finalReactionCount, reactorName);
@@ -4453,6 +4122,7 @@ export const Post: React.FC<{
         : 0;
     
     if (newCommentCount !== commentCount) {
+      console.log('📊 Syncing comment count from props:', p.id, newCommentCount);
       setCommentCount(newCommentCount);
     }
 
@@ -4461,6 +4131,45 @@ export const Post: React.FC<{
       setShareCount(newShareCount);
     }
   }, [p.comments_count, p.comments, p.shares, p.shares_count]);
+
+  // ========== FETCH UPDATED POST DATA ==========
+  const fetchUpdatedPost = useCallback(async () => {
+    try {
+      const viewerId = currentUser?.id ?? 0;
+      const url = `/api/posts/${postId}?viewerId=${viewerId}`;
+      console.log('📡 Fetching updated post:', url);
+      
+      const token = localStorage.getItem('unera_token');
+      const headers: HeadersInit = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      };
+
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      
+      if (data) {
+        console.log('📥 Received updated post data:', data);
+        
+        // Update comment count
+        if (typeof data.comments_count === 'number') {
+          console.log('📊 Updating comment count from', commentCount, 'to', data.comments_count);
+          setCommentCount(data.comments_count);
+        }
+        
+        // Update share count if available
+        if (typeof data.shares === 'number') {
+          setShareCount(data.shares);
+        }
+        
+        // Update reaction count if needed
+        // You could also update other post data here
+      }
+    } catch (error) {
+      console.error('❌ Failed to fetch updated post:', error);
+    }
+  }, [postId, currentUser?.id, commentCount]);
 
   const handleShareComplete = (destination: string, data?: any) => {
     const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
@@ -4486,47 +4195,45 @@ export const Post: React.FC<{
     setGalleryOpen(true);
   };
 
+  // Split media by type for rendering
+  const imageMedia = mediaList.filter(m => m.kind === 'image');
+  const videoMedia = mediaList.filter(m => m.kind === 'video');
+
+  // ========== OPEN COMMENTS WITH PROPER EVENT HANDLING ==========
   const handleOpenComments = (e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
-      e.stopPropagation();
+      e.stopPropagation(); // ✅ CRITICAL: never trigger PostCard onClick
     }
     
     if (currentUser) {
+      // Just pass the postId to the parent - the parent will handle the locked snapshot
       onOpenComments(postId);
     } else {
       alert('Please login to comment');
     }
   };
 
-  const handleDeleteFromMenu = (postId: number) => {
-    if (onDelete) {
-      onDelete(postId);
+  // ========== HANDLE POST CARD CLICK FOR EVENT/GROUP ==========
+  const handleCardClick = () => {
+    // If it's an event post, open event modal
+    if (isEventPost && p.event_id && onOpenEvent) {
+      onOpenEvent(Number(p.event_id));
     }
+    // If it's a group post, you might want different behavior
+    // You can add group handling here if needed
   };
 
-  const handleEditFromMenu = (postId: number, content: string) => {
-    if (onEdit) {
-      onEdit(postId, content);
-    }
-  };
-
-  const handleReportFromMenu = (postId: number, reason?: string) => {
-    if (onReport) {
-      onReport(postId, reason);
-    }
-  };
-
-  const handleHideFromMenu = (postId: number) => {
-    if (onHide) {
-      onHide(postId);
-    }
-  };
-
+  // ========== REGULAR POST RENDERING ==========
   return (
     <>
-      <div className="w-full relative">
+      {/* Unified post wrapper - add onClick handler for events */}
+      <div 
+        className="w-full"
+        onClick={handleCardClick}
+      >
         <div className="bg-[#242526] w-full overflow-hidden">
+          {/* ===== POST HEADER - Use GroupPostHeader for group posts ===== */}
           {isGroupPost ? (
             <GroupPostHeader
               post={p}
@@ -4534,6 +4241,7 @@ export const Post: React.FC<{
               author={a}
               onOpenGroup={(id) => onOpenGroup?.(id)}
               onOpenProfile={(id) => onProfileClick(id)}
+              onOpenMenu={() => console.log('Open menu')}
             />
           ) : (
             <div className="p-3 md:p-4 flex items-center justify-between">
@@ -4597,24 +4305,24 @@ export const Post: React.FC<{
                 </button>
               )}
 
-              {/* Use the standalone PostMenu component */}
-              <PostMenu
-                item={{
-                  id: postId,
-                  user_id: safeUserId(a),
-                  type: isMarketplace ? 'product' : (isGroupPost ? 'group_post' : 'post'),
-                  content: p.content,
-                  caption: p.caption,
-                  group_id: groupId
-                }}
-                currentUser={currentUser}
-                onShare={(item) => {
-                  setShowShareSheet(true);
-                }}
-              />
+              {onDelete &&
+                currentUser &&
+                safeUserId(currentUser) === Number(p.user_id ?? p.author_id ?? 0) && (
+                  <button
+                    className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(postId);
+                    }}
+                    title="Delete"
+                  >
+                    <i className="fas fa-trash text-[#B0B3B8]"></i>
+                  </button>
+                )}
             </div>
           )}
 
+          {/* ===== MARKETPLACE TOP LINE ===== */}
           {isMarketplace && (
             <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
               <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
@@ -4629,6 +4337,7 @@ export const Post: React.FC<{
             </div>
           )}
 
+          {/* ===== POST CONTENT - Now uses ExpandableRichText with 14 word limit ===== */}
           {p.content && !isMarketplace && (
             <div className="px-3 md:px-4 pb-2">
               <ExpandableRichText
@@ -4636,12 +4345,13 @@ export const Post: React.FC<{
                 users={users}
                 onProfileClick={onProfileClick}
                 onHashtagClick={onHashtagClick}
-                maxWords={14}
+                maxWords={14} // Changed from 25 to 14 words
                 fontSizePx={21}
               />
             </div>
           )}
 
+          {/* ===== MUSIC/PODCAST CARD ===== */}
           {(isMusic || isPodcast) && (
             <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
               <div className="flex items-center gap-3 p-3">
@@ -4673,6 +4383,7 @@ export const Post: React.FC<{
             </div>
           )}
 
+          {/* ===== LINK PREVIEW ===== */}
           {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
             <div
               className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
@@ -4704,6 +4415,7 @@ export const Post: React.FC<{
             </div>
           )}
 
+          {/* ===== BACKGROUND POST ===== */}
           {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
             <div
               className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
@@ -4713,6 +4425,7 @@ export const Post: React.FC<{
             </div>
           )}
 
+          {/* ===== MEDIA RENDERING ===== */}
           {isMarketplace ? (
             mpImages.length > 0 ? (
               <div className="w-full">
@@ -4728,6 +4441,7 @@ export const Post: React.FC<{
             ) : null
           ) : (
             <>
+              {/* Images Grid */}
               {!p.background && imageMedia.length > 0 && (
                 <MediaGrid
                   media={imageMedia.map((m) => ({ url: m.url }))}
@@ -4738,6 +4452,7 @@ export const Post: React.FC<{
                 />
               )}
 
+              {/* Video */}
               {!p.background && videoMedia.length > 0 && (
                 <div
                   className="cursor-pointer relative h-[500px] bg-black"
@@ -4760,6 +4475,7 @@ export const Post: React.FC<{
                 </div>
               )}
               
+              {/* Audio */}
               {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
                 <div className="my-3">
                   {(() => {
@@ -4868,6 +4584,7 @@ export const Post: React.FC<{
             </>
           )}
 
+          {/* ===== MARKETPLACE PRICE AND BUTTON FOOTER ===== */}
           {isMarketplace && price && (
             <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
               <div className="flex items-center gap-1">
@@ -4887,6 +4604,7 @@ export const Post: React.FC<{
             </div>
           )}
 
+          {/* ===== PROFESSIONAL REACTION SUMMARY WITH FORMATTED TEXT ===== */}
           <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {finalReactionCount > 0 && (
@@ -4901,6 +4619,7 @@ export const Post: React.FC<{
                     }
                   }}
                 >
+                  {/* Reaction emojis - shows top 2 emojis stacked */}
                   <div className="flex -space-x-2">
                     {emojiList.slice(0, 2).map((e, i) => (
                       <span
@@ -4913,6 +4632,7 @@ export const Post: React.FC<{
                     ))}
                   </div>
                   
+                  {/* PROFESSIONAL REACTION TEXT - e.g., "5 · Jastin Beda and 4 others" */}
                   {reactionText && (
                     <span className="text-[15px] text-[#E4E6EB] font-medium">
                       {reactionText}
@@ -4922,12 +4642,13 @@ export const Post: React.FC<{
               )}
             </div>
 
+            {/* Comments and Shares counts - CHANGED TEXT ONLY */}
             <div className="flex gap-4">
               <span
                 className="hover:underline cursor-pointer"
                 onClick={() => handleOpenComments()}
               >
-                {formatCount(commentCount)} Discussions
+                {formatCount(commentCount)} Discussions  {/* ✅ CHANGED from "Comments" to "Discussions" */}
               </span>
               {shareCount > 0 && (
                 <span className="hover:underline">
@@ -4937,6 +4658,7 @@ export const Post: React.FC<{
             </div>
           </div>
 
+          {/* ===== ACTION BUTTONS ===== */}
           <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
             <ReactionButton
               currentUserReactions={finalMyReaction}
@@ -4949,7 +4671,7 @@ export const Post: React.FC<{
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
               onClick={(e) => {
                 e.preventDefault();
-                e.stopPropagation();
+                e.stopPropagation(); // ✅ CRITICAL: never trigger PostCard onClick
                 handleOpenComments(e);
               }}
             >
@@ -4974,6 +4696,7 @@ export const Post: React.FC<{
           </div>
         </div>
 
+        {/* Facebook-like separator band */}
         <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
       </div>
 
@@ -4989,6 +4712,7 @@ export const Post: React.FC<{
         onShareComplete={handleShareComplete}
       />
 
+      {/* Reactions Sheet */}
       <ReactionsSheet
         isOpen={showReactionsSheet}
         onClose={() => setShowReactionsSheet(false)}
@@ -4997,6 +4721,7 @@ export const Post: React.FC<{
         onOpenComments={onOpenComments}
       />
 
+      {/* Gallery Viewer for multi-image swiping - WITH ACTIONS AND REACTIONS SHEET SUPPORT */}
       <GalleryViewer
         isOpen={galleryOpen}
         urls={galleryUrls}
@@ -5023,20 +4748,23 @@ export const Post: React.FC<{
   );
 };
 
+// Helper function for safeArrayHelper
+const safeArrayHelper = <T,>(arr: any): T[] => {
+  if (Array.isArray(arr)) return arr;
+  return [];
+};
+
 /**
  * =========================
- * ✅ CREATE POST CARD - WITH SEPARATE PHOTO/VIDEO BUTTONS
- * Video button opens Recorder.tsx
+ * CREATE POST CARD - WITH CREATE EVENT BUTTON
  * =========================
  */
 export const CreatePost: React.FC<{
   currentUser: User;
   onProfileClick: (id: number) => void;
   onClick: () => void;
-  onPhotoClick: () => void;
-  onVideoClick: () => void;
   onCreateEventClick: () => void;
-}> = ({ currentUser, onProfileClick, onClick, onPhotoClick, onVideoClick, onCreateEventClick }) => (
+}> = ({ currentUser, onProfileClick, onClick, onCreateEventClick }) => (
   <div className="w-full">
     <div className="bg-[#242526] w-full p-3 md:p-4">
       <div className="flex gap-2 mb-3">
@@ -5067,18 +4795,10 @@ export const CreatePost: React.FC<{
 
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-          onClick={onPhotoClick}
+          onClick={onClick}
         >
-          <i className="fas fa-image text-[#45BD62] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo</span>
-        </div>
-
-        <div
-          className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-          onClick={onVideoClick}
-        >
-          <i className="fas fa-camera text-[#F3425F] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Video</span>
+          <i className="fas fa-images text-[#45BD62] text-[22px]"></i>
+          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo/Video</span>
         </div>
 
         <div
@@ -5097,7 +4817,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * ✅ CREATE POST MODAL
+ * ✅ UPDATED: CREATE POST MODAL WITH ENHANCED LINK PREVIEW
  * =========================
  */
 export const CreatePostModal: React.FC<{
@@ -5118,26 +4838,31 @@ export const CreatePostModal: React.FC<{
     }
   ) => void;
   onCreateEventClick?: () => void;
-  onOpenRecorder?: () => void;
-}> = ({ currentUser, users, onClose, onCreatePost, onCreateEventClick, onOpenRecorder }) => {
+}> = ({ currentUser, users, onClose, onCreatePost, onCreateEventClick }) => {
   const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
   const [text, setText] = useState('');
+  
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [type, setType] = useState<'text' | 'image' | 'video'>('text');
+
   const [visibility] = useState<'Public' | 'Friends'>('Public');
   const [activeBackground, setActiveBackground] = useState('');
   const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
+
   const [taggedUsers, setTaggedUsers] = useState<number[]>([]);
   const [feeling, setFeeling] = useState('');
   const [location, setLocation] = useState('');
+
   const [locQuery, setLocQuery] = useState('');
   const [locResults, setLocResults] = useState<any[]>([]);
   const [locLoading, setLocLoading] = useState(false);
   const searchTimeout = useRef<any>(null);
   const previewTimeout = useRef<any>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (previewTimeout.current) {
@@ -5229,6 +4954,7 @@ export const CreatePostModal: React.FC<{
 
   const submit = () => {
     if (!canPost) return;
+
     onCreatePost(text, files, {
       type: files.length ? type : 'text',
       visibility,
@@ -5238,6 +4964,7 @@ export const CreatePostModal: React.FC<{
       background: activeBackground || undefined,
       linkPreview: linkPreview || null,
     });
+
     onClose();
   };
 
@@ -5580,26 +5307,12 @@ export const CreatePostModal: React.FC<{
         </div>
 
         <div className="border-t border-[#3E4042]">
-          <OptionsItem 
-            icon="fas fa-image" 
-            color="#45BD62" 
-            label="Photo" 
-            onClick={() => fileInputRef.current?.click()} 
-          />
-          
-          <OptionsItem 
-            icon="fas fa-camera" 
-            color="#F3425F" 
-            label="Video" 
-            onClick={() => {
-              onClose();
-              if (onOpenRecorder) onOpenRecorder();
-            }} 
-          />
-          
+          <OptionsItem icon="fas fa-images" color="#45BD62" label="Photo/video" onClick={() => fileInputRef.current?.click()} />
+          <OptionsItem icon="fas fa-camera" color="#45BD62" label="Camera" onClick={() => cameraInputRef.current?.click()} />
           <OptionsItem icon="fas fa-user-tag" color="#1877F2" label="Tag people" onClick={() => setView('tag')} />
           <OptionsItem icon="far fa-smile" color="#F7B928" label="Feeling/activity" onClick={() => setView('feeling')} />
           <OptionsItem icon="fas fa-map-marker-alt" color="#F02849" label="Check in" onClick={() => setView('location')} />
+          {/* Create Event option in modal footer */}
           <div
             className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors border-t border-[#3E4042]/50 mt-2"
             onClick={() => {
@@ -5631,6 +5344,7 @@ export const CreatePostModal: React.FC<{
         multiple
         onChange={handleFileChange} 
       />
+      <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
     </div>
   );
 };
@@ -5685,18 +5399,23 @@ export const CommentsSheet: React.FC<{
   const p: any = post as any;
   const postId = safePostId(p);
   
-  const discussionsTopRef = useRef<HTMLDivElement>(null);
+  // ========== REFS ==========
+  const discussionsTopRef = useRef<HTMLDivElement>(null); // ✅ Anchor for scrolling to discussions
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
+  // ========== STATE ==========
   const [text, setText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
 
+  // ========== AUTO-SCROLL TO DISCUSSIONS ON MOUNT ==========
   useEffect(() => {
+    // ✅ When opening CommentsSheet from "Discuss", jump directly to the discussions list
+    // without focusing the input (so keyboard stays hidden).
     const t = setTimeout(() => {
       discussionsTopRef.current?.scrollIntoView({
         behavior: "auto",
@@ -5707,6 +5426,7 @@ export const CommentsSheet: React.FC<{
     return () => clearTimeout(t);
   }, [postId]);
 
+  // ========== MARKETPLACE DETECTION ==========
   const meta: any = p?.meta || {};
   
   const isMarketplace =
@@ -5725,6 +5445,7 @@ export const CommentsSheet: React.FC<{
   const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
   const { price, currency, loc } = isMarketplace ? getMarketplacePriceLine(productData) : { price: null, currency: "TZS", loc: "Marketplace" };
 
+  // Music/Podcast detection
   const isMusic = meta?.kind === 'music' || meta?.type === 'music';
   const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
   const song = meta?.song;
@@ -5777,8 +5498,11 @@ export const CommentsSheet: React.FC<{
   };
 
   const formatCount = (count: number): string => {
-    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
     return count.toString();
   };
 
@@ -5890,6 +5614,11 @@ export const CommentsSheet: React.FC<{
 
   const idKey = (v: any) => String(v ?? '').trim();
 
+  /**
+   * =========================
+   * ✅ Build comment threads (root + replies)
+   * =========================
+   */
   const buildThreads = (list: any[]) => {
     const roots = list.filter(c => !c.parent_comment_id);
     
@@ -5903,6 +5632,7 @@ export const CommentsSheet: React.FC<{
       repliesByParent.get(pid)!.push(c);
     });
     
+    // Sort replies oldest first
     repliesByParent.forEach(arr => {
       arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     });
@@ -5970,6 +5700,7 @@ export const CommentsSheet: React.FC<{
         }),
       });
 
+      // 👇 CRITICAL: Call onCommentAdded to refresh the post in the feed
       if (onCommentAdded) {
         console.log('🔄 Calling onCommentAdded to refresh post:', postId);
         onCommentAdded();
@@ -6006,6 +5737,11 @@ export const CommentsSheet: React.FC<{
     id: p.user_id || p.author_id
   };
 
+  /**
+   * =========================
+   * ✅ Render one comment (used for both root and replies)
+   * =========================
+   */
   const renderOneComment = (comment: any, isReply: boolean = false) => {
     const a = resolveAuthor(comment);
     const isCurrentUserComment = a.uid === safeUserId(currentUser);
@@ -6108,7 +5844,7 @@ export const CommentsSheet: React.FC<{
 
         <div className="flex items-center gap-4">
           <div className="text-[#B0B3B8] text-[14px]">
-            {formatCount(comments.length)} discussions
+            {formatCount(comments.length)} discussions  {/* ✅ CHANGED from "comments" to "discussions" */}
           </div>
           <button
             type="button"
@@ -6162,6 +5898,7 @@ export const CommentsSheet: React.FC<{
             </div>
           </div>
 
+          {/* ===== TEXT PREVIEW ===== */}
           {!p.background && textPreview && (
             <div className="mb-4">
               <ExpandableRichText
@@ -6175,6 +5912,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* ===== BACKGROUND POST TEXT ===== */}
           {p.background && textPreview && (
             <div
               className="mb-4 -mx-4 h-[320px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
@@ -6184,6 +5922,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* ===== MARKETPLACE MEDIA IN COMMENTS SHEET ===== */}
           {isMarketplace && mpImages.length > 0 && (
             <div className="mb-4 -mx-4">
               <div className="w-full bg-black">
@@ -6217,6 +5956,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* ===== MUSIC/PODCAST IN COMMENTS SHEET ===== */}
           {(isMusic || isPodcast) && (
             <div className="mb-4 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
               <div className="flex items-center gap-3 p-3">
@@ -6248,6 +5988,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* ===== LINK PREVIEW IN COMMENTS SHEET ===== */}
           {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
             <div
               className="mb-4 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
@@ -6279,6 +6020,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* ===== IMAGES IN COMMENTS SHEET ===== */}
           {!isMarketplace && imageMedia.length > 0 && (
             <div className="mb-4 -mx-4">
               {imageMedia.length > 1 ? (
@@ -6301,6 +6043,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* ===== VIDEO IN COMMENTS SHEET ===== */}
           {!isMarketplace && videoMedia.length > 0 && (
             <div className="mb-4 -mx-4 w-full bg-black">
               <video
@@ -6312,6 +6055,7 @@ export const CommentsSheet: React.FC<{
             </div>
           )}
 
+          {/* ===== AUDIO IN COMMENTS SHEET ===== */}
           {!isMarketplace && mediaInfo.mediaUrl && mediaInfo.isAudio && (
             <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-xl">
               <div className="text-[#E4E6EB] font-bold mb-3">Audio Track</div>
@@ -6326,13 +6070,14 @@ export const CommentsSheet: React.FC<{
               {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
             </div>
             <div className="flex items-center gap-4">
-              <span>{formatCount(comments.length)} discussions</span>
+              <span>{formatCount(comments.length)} discussions</span>  {/* ✅ CHANGED from "comments" to "discussions" */}
               {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
             </div>
           </div>
         </div>
 
         <div className="p-4">
+          {/* ✅ Jump target: opening from Discuss lands here, not the post description */}
           <div ref={discussionsTopRef} />
 
           {replyTo && (
@@ -6370,8 +6115,8 @@ export const CommentsSheet: React.FC<{
 
           {comments.length === 0 ? (
             <div className="text-center py-10">
-              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>
-              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>
+              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>  {/* ✅ CHANGED from "No comments yet" */}
+              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>  {/* ✅ CHANGED message */}
             </div>
           ) : (
             <div className="space-y-6">
@@ -6384,8 +6129,10 @@ export const CommentsSheet: React.FC<{
 
                 return (
                   <div key={rootId} className="space-y-2">
+                    {/* Root comment */}
                     {renderOneComment(root, false)}
 
+                    {/* "View previous X replies" button */}
                     {!isExpanded && hiddenCount > 0 && (
                       <button
                         type="button"
@@ -6396,13 +6143,16 @@ export const CommentsSheet: React.FC<{
                       </button>
                     )}
 
+                    {/* Replies */}
                     {visibleReplies.map(reply => (
                       <div key={String(reply.id)} className="ml-12 relative">
+                        {/* Vertical line connecting replies */}
                         <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
                         {renderOneComment(reply, true)}
                       </div>
                     ))}
 
+                    {/* "Hide replies" button */}
                     {isExpanded && replies.length > MAX_PREVIEW && (
                       <button
                         type="button"
@@ -6437,6 +6187,7 @@ export const CommentsSheet: React.FC<{
               placeholder={replyTo ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...` : "Write a comment..."}
               value={text}
               onChange={(e) => setText(e.target.value)}
+              // ✅ autoFocus removed - keyboard won't pop automatically
             />
           </div>
           <button 
@@ -6521,19 +6272,14 @@ export const SuggestedProductsWidget: React.FC<{
 };
 
 // Export all components
-export { 
-  getMediaTypeInfo,
+export { getMediaTypeInfo,
   getMarketplaceImages,
   getMarketplacePriceLine,
   normalizeEventFromFeed,
   topReactionEmojis,
   safeArray,
-  MarketplaceContext,
   safeNumber,
   safeString,
   safePostId,
   safeUserId,
-  avatarFrom,
-  formatReelCount,
-  getReelAuthorName
-};
+  avatarFrom };
