@@ -1,6 +1,4 @@
-
-
-//Feed.tsx (Updated with PostMenu component and Reel edit/delete)
+//Feed.tsx (Updated with Sponsored posts, fixed Comments API, and instant reactions)
 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
@@ -20,6 +18,7 @@ import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from "../postActionRegistry";
 import { PostMenu } from './Post/PostMenu';
+import { SponsoredPostCard } from "./Ads/SponsoredPostCard"; // Import Sponsored card
 
 // ==================== ICON COMPONENTS (for better rendering) ====================
 const Film: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#1877F2" }) => (
@@ -1055,6 +1054,7 @@ export const RichText = ({
 /**
  * =========================
  * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON - NOW SHOWS "React" LABEL
+ * WITH INSTANT REACTION SUBMISSION (NO DELAY)
  * =========================
  */
 export const ReactionButton: React.FC<{
@@ -1134,6 +1134,7 @@ export const ReactionButton: React.FC<{
     if (isGuest) return alert('Please login to react.');
     if (currentUserReactions) {
       setIsAnimating(true);
+      // INSTANT REACTION: Submit immediately without delay
       onReact(currentUserReactions);
       setTimeout(() => setIsAnimating(false), 300);
     } else {
@@ -1143,6 +1144,7 @@ export const ReactionButton: React.FC<{
 
   const handleDockReact = (type: ReactionType) => {
     setIsAnimating(true);
+    // INSTANT REACTION: Submit immediately when emoji is clicked
     onReact(type);
     setShowDock(false);
     setShowPreview(false);
@@ -4268,6 +4270,7 @@ export const Post: React.FC<{
   onOpenReactions?: (postId: number) => void;
   onReport?: (postId: number, reason?: string) => void;
   onHide?: (postId: number) => void;
+  pushButton?: React.ReactNode; // For sponsored posts
 }> = ({
   post,
   author,
@@ -4297,6 +4300,7 @@ export const Post: React.FC<{
   onOpenReactions,
   onReport,
   onHide,
+  pushButton,
 }) => {
   const { onViewProduct, getProductData } = useContext(MarketplaceContext);
   
@@ -4971,6 +4975,11 @@ export const Post: React.FC<{
               <i className="fas fa-share text-[20px]"></i>
               <span className="text-[17px] font-medium">Share</span>
             </button>
+            {pushButton && (
+              <div className="ml-2">
+                {pushButton}
+              </div>
+            )}
           </div>
         </div>
 
@@ -5647,6 +5656,7 @@ const commentsCache = new Map<number, {
  * ✅ UPDATED: FULL POST VIEW WITH THREADED COMMENTS
  * ✅ SHOW ONLY 1 REPLY WHEN COLLAPSED + "VIEW PREVIOUS X REPLIES" BUTTON
  * ✅ AUTO-SCROLL TO DISCUSSIONS + KEYBOARD HIDDEN UNTIL TAP
+ * ✅ FIXED: Comments API endpoints for group posts and replies
  * =========================
  */
 export const CommentsSheet: React.FC<{
@@ -5684,6 +5694,10 @@ export const CommentsSheet: React.FC<{
   
   const p: any = post as any;
   const postId = safePostId(p);
+  
+  // Detect if this is a group post
+  const isGroupPost = !!(p as any)?.group_id || !!(p as any)?.group;
+  const groupId = (p as any)?.group_id || (p as any)?.group?.id;
   
   const discussionsTopRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -5840,7 +5854,14 @@ export const CommentsSheet: React.FC<{
     
     try {
       const viewerId = safeUserId(currentUser);
-      const data = await apiFetch(`/api/posts/${postId}/comments?viewerId=${viewerId}`);
+      let endpoint = `/api/posts/${postId}/comments?viewerId=${viewerId}`;
+      
+      // If it's a group post, use group comments endpoint
+      if (isGroupPost && groupId) {
+        endpoint = `/api/groups/${groupId}/posts/${postId}/comments?viewerId=${viewerId}`;
+      }
+      
+      const data = await apiFetch(endpoint);
       const arr = Array.isArray(data) ? data : data?.comments || [];
       
       if (arr.length > 0) {
@@ -5886,7 +5907,7 @@ export const CommentsSheet: React.FC<{
         abortControllerRef.current.abort();
       }
     };
-  }, [postId, p.comments]);
+  }, [postId, p.comments, isGroupPost, groupId]);
 
   const idKey = (v: any) => String(v ?? '').trim();
 
@@ -5961,7 +5982,21 @@ export const CommentsSheet: React.FC<{
     }
 
     try {
-      await apiFetch(`/api/posts/${postId}/comment`, {
+      // Determine the correct endpoint based on post type and whether it's a reply
+      let endpoint = '';
+      
+      if (replyTo) {
+        // This is a reply to an existing comment
+        endpoint = `/api/comments/${replyTo.id}/reply`;
+      } else if (isGroupPost && groupId) {
+        // This is a new comment on a group post
+        endpoint = `/api/groups/${groupId}/posts/${postId}/comment`;
+      } else {
+        // This is a new comment on a regular post
+        endpoint = `/api/posts/${postId}/comment`;
+      }
+
+      await apiFetch(endpoint, {
         method: 'POST',
         body: JSON.stringify({
           text: finalText,
