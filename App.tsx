@@ -23,7 +23,7 @@ import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Stor
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
-import { AllEvents } from "./components/AllEvents";
+
 import { ImageViewer, ProfessionalLoader } from './components/Common';
 import {
   BirthdaysPage,
