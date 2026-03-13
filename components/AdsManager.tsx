@@ -1,5 +1,18 @@
 import React, { useState } from 'react';
-import { Eye, MousePointer2, Play, Pause, Trash2, ExternalLink, MoreVertical, Calendar, DollarSign, TrendingUp } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+  faEye,
+  faMousePointer,
+  faPlay,
+  faPause,
+  faTrash,
+  faExternalLinkAlt,
+  faEllipsisV,
+  faCalendar,
+  faDollarSign,
+  faChartLine,
+  faSpinner
+} from '@fortawesome/free-solid-svg-icons';
 import { AdCampaign } from '../types';
 
 interface AdsManagerProps {
@@ -112,7 +125,7 @@ export default function AdsManager({ campaigns, onUpdate, onPause, onResume, onD
                       <div className="min-w-0">
                         <p className="text-sm font-bold text-white truncate">{ad.name}</p>
                         <div className="flex items-center gap-2 text-xs text-zinc-500">
-                          <Calendar className="w-3 h-3" />
+                          <FontAwesomeIcon icon={faCalendar} className="w-3 h-3" />
                           <span>{formatDate(ad.start_date)} - {formatDate(ad.end_date)}</span>
                         </div>
                       </div>
@@ -152,11 +165,11 @@ export default function AdsManager({ campaigns, onUpdate, onPause, onResume, onD
                         title={ad.status === 'active' ? 'Pause' : 'Resume'}
                       >
                         {loadingId === ad.id ? (
-                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          <FontAwesomeIcon icon={faSpinner} className="w-4 h-4 animate-spin" />
                         ) : ad.status === 'active' ? (
-                          <Pause className="w-4 h-4" />
+                          <FontAwesomeIcon icon={faPause} className="w-4 h-4" />
                         ) : (
-                          <Play className="w-4 h-4" />
+                          <FontAwesomeIcon icon={faPlay} className="w-4 h-4" />
                         )}
                       </button>
                       <button 
@@ -165,7 +178,7 @@ export default function AdsManager({ campaigns, onUpdate, onPause, onResume, onD
                         className="p-2 hover:bg-red-500/10 rounded-lg text-zinc-400 hover:text-red-500 transition-colors"
                         title="Delete"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />
                       </button>
                     </div>
                   </td>
@@ -205,11 +218,11 @@ export default function AdsManager({ campaigns, onUpdate, onPause, onResume, onD
                   }`}
                 >
                   {loadingId === ad.id ? (
-                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    <FontAwesomeIcon icon={faSpinner} className="w-4 h-4 animate-spin" />
                   ) : ad.status === 'active' ? (
-                    <Pause className="w-4 h-4" />
+                    <FontAwesomeIcon icon={faPause} className="w-4 h-4" />
                   ) : (
-                    <Play className="w-4 h-4" />
+                    <FontAwesomeIcon icon={faPlay} className="w-4 h-4" />
                   )}
                 </button>
                 <button 
@@ -217,29 +230,29 @@ export default function AdsManager({ campaigns, onUpdate, onPause, onResume, onD
                   disabled={loadingId === ad.id}
                   className="p-2 bg-zinc-800 rounded-lg text-zinc-400"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />
                 </button>
               </div>
             </div>
             
             <div className="grid grid-cols-4 gap-2 pt-4 border-t border-zinc-800">
               <div className="text-center">
-                <Eye className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
+                <FontAwesomeIcon icon={faEye} className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
                 <p className="text-xs font-bold text-white">{ad.analytics.impressions.toLocaleString()}</p>
                 <p className="text-[10px] text-zinc-500">Impr.</p>
               </div>
               <div className="text-center">
-                <MousePointer2 className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
+                <FontAwesomeIcon icon={faMousePointer} className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
                 <p className="text-xs font-bold text-white">{ad.analytics.clicks.toLocaleString()}</p>
                 <p className="text-[10px] text-zinc-500">Clicks</p>
               </div>
               <div className="text-center">
-                <TrendingUp className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
+                <FontAwesomeIcon icon={faChartLine} className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
                 <p className="text-xs font-bold text-emerald-500">{calculateCTR(ad)}%</p>
                 <p className="text-[10px] text-zinc-500">CTR</p>
               </div>
               <div className="text-center">
-                <DollarSign className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
+                <FontAwesomeIcon icon={faDollarSign} className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
                 <p className="text-xs font-bold text-white">${ad.analytics.spend}</p>
                 <p className="text-[10px] text-zinc-500">Spent</p>
               </div>
@@ -247,11 +260,11 @@ export default function AdsManager({ campaigns, onUpdate, onPause, onResume, onD
             
             <div className="flex items-center justify-between text-xs text-zinc-500 pt-2 border-t border-zinc-800">
               <div className="flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
+                <FontAwesomeIcon icon={faCalendar} className="w-3 h-3" />
                 <span>{formatDate(ad.start_date)}</span>
               </div>
               <div className="flex items-center gap-1">
-                <DollarSign className="w-3 h-3" />
+                <FontAwesomeIcon icon={faDollarSign} className="w-3 h-3" />
                 <span>${ad.budget}/day</span>
               </div>
             </div>
@@ -263,7 +276,7 @@ export default function AdsManager({ campaigns, onUpdate, onPause, onResume, onD
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl py-20 text-center">
           <div className="flex flex-col items-center gap-2">
             <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center">
-              <TrendingUp className="w-8 h-8 text-zinc-600" />
+              <FontAwesomeIcon icon={faChartLine} className="w-8 h-8 text-zinc-600" />
             </div>
             <p className="text-zinc-500 font-medium">No campaigns found</p>
             <p className="text-zinc-600 text-sm">Create your first ad to see analytics here.</p>
