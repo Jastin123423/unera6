@@ -1,14 +1,15 @@
-
 import React from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faEllipsisH,
   faHeart,
   faComment,
-  faPaperPlane,
-  faBookmark,
+  faShare,
   faGlobe,
-  faCheckCircle
+  faCheckCircle,
+  faPhone,
+  faEnvelope,
+  faExternalLinkAlt
 } from '@fortawesome/free-solid-svg-icons';
 import { AdType, CTAButton } from '../types';
 
@@ -20,110 +21,141 @@ interface AdPreviewProps {
     description: string;
     cta: CTAButton;
     link?: string;
+    phone?: string;
+    email?: string;
   };
   isFullView?: boolean;
 }
 
 export default function AdPreview({ data, isFullView }: AdPreviewProps) {
-  const hostname = data.link ? new URL(data.link).hostname.replace('www.', '') : 'yourwebsite.com';
+  // Extract hostname from link
+  const getHostname = (url?: string) => {
+    if (!url) return 'example.com';
+    try {
+      const hostname = new URL(url).hostname.replace('www.', '');
+      return hostname;
+    } catch {
+      return 'example.com';
+    }
+  };
+
+  // Get contact info display
+  const getContactDisplay = () => {
+    if (data.link) return getHostname(data.link);
+    if (data.phone) return data.phone;
+    if (data.email) return data.email;
+    return 'example.com';
+  };
+
+  // Get contact icon
+  const getContactIcon = () => {
+    if (data.link) return faExternalLinkAlt;
+    if (data.phone) return faPhone;
+    if (data.email) return faEnvelope;
+    return faGlobe;
+  };
 
   return (
-    <div className={`mx-auto bg-white rounded-xl overflow-hidden shadow-2xl text-black font-sans transition-all duration-500 ${isFullView ? 'w-full max-w-[400px]' : 'w-[320px] md:w-[360px]'}`}>
-      {/* Header */}
-      <div className="p-3 flex items-center justify-between border-b border-zinc-100">
+    <div className={`mx-auto bg-white rounded-lg overflow-hidden shadow-xl text-black font-sans transition-all duration-500 border border-zinc-200 ${
+      isFullView ? 'w-full max-w-[500px]' : 'w-[320px] md:w-[380px]'
+    }`}>
+      {/* Header - Facebook style */}
+      <div className="p-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-inner">
-            Ad
+          {/* Brand/Page Icon */}
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+            {data.name?.charAt(0) || 'A'}
           </div>
           <div>
             <div className="flex items-center gap-1">
-              <p className="text-sm font-bold leading-tight hover:underline cursor-pointer">Sponsored • {data.name || 'Your Brand'}</p>
-              <div className="w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
-                <FontAwesomeIcon icon={faCheckCircle} className="w-2 h-2 text-white" />
-              </div>
+              <span className="text-sm font-semibold hover:underline cursor-pointer">
+                {data.name || 'Sponsored'}
+              </span>
+              <FontAwesomeIcon icon={faCheckCircle} className="w-3.5 h-3.5 text-blue-500" />
             </div>
-            <div className="flex items-center gap-1 text-[10px] text-zinc-500">
+            <div className="flex items-center gap-1 text-[11px] text-zinc-500">
               <span>Sponsored</span>
-              <span>•</span>
+              <span>·</span>
               <FontAwesomeIcon icon={faGlobe} className="w-2.5 h-2.5" />
             </div>
           </div>
         </div>
-        <button className="p-1 hover:bg-zinc-100 rounded-full transition-colors">
-          <FontAwesomeIcon icon={faEllipsisH} className="w-5 h-5 text-zinc-400" />
+        <button className="p-1.5 hover:bg-zinc-100 rounded-full transition-colors">
+          <FontAwesomeIcon icon={faEllipsisH} className="w-4 h-4 text-zinc-600" />
         </button>
       </div>
 
-      {/* Media */}
-      <div className="aspect-square bg-zinc-100 relative overflow-hidden group">
+      {/* Description - Facebook style */}
+      {data.description && (
+        <div className="px-3 pb-2">
+          <p className="text-sm leading-relaxed text-zinc-800">
+            {data.description}
+          </p>
+        </div>
+      )}
+
+      {/* Media - Full width like Facebook */}
+      <div className="w-full bg-zinc-100 relative">
         {data.mediaUrl ? (
           data.type === 'image' ? (
             <img 
               src={data.mediaUrl} 
-              alt="Preview" 
-              className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+              alt="Ad preview" 
+              className="w-full aspect-square object-cover"
+              onError={(e) => {
+                e.currentTarget.src = 'https://via.placeholder.com/500x500?text=Ad+Image';
+              }}
             />
           ) : (
             <video 
               src={data.mediaUrl} 
-              className="w-full h-full object-cover" 
-              autoPlay 
+              className="w-full aspect-square object-cover" 
+              controls={false}
               muted 
               loop 
-              playsInline 
+              playsInline
             />
           )
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center text-zinc-300 gap-2 bg-gradient-to-br from-blue-50 to-indigo-50">
-            <div className="w-16 h-16 rounded-full bg-white shadow-lg flex items-center justify-center">
-              <span className="text-2xl font-bold text-blue-600">Ad</span>
-            </div>
-            <p className="text-xs font-medium text-zinc-400">Your ad preview</p>
+          <div className="w-full aspect-square bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center">
+            <span className="text-zinc-400 text-sm">Ad Preview</span>
           </div>
         )}
       </div>
 
-      {/* CTA Bar */}
-      <div className="bg-zinc-50 px-4 py-3 flex items-center justify-between border-b border-zinc-100 group cursor-pointer hover:bg-zinc-100 transition-colors">
-        <div className="flex-1 min-w-0 pr-4">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold truncate">{hostname}</p>
-          <p className="text-sm font-bold truncate text-zinc-900">{data.name || 'Campaign Name'}</p>
+      {/* Link Preview - Facebook style */}
+      <div className="p-3 bg-zinc-50 border-t border-zinc-200">
+        <div className="flex items-center gap-2 text-xs text-blue-600 mb-1">
+          <FontAwesomeIcon icon={getContactIcon()} className="w-3 h-3" />
+          <span className="truncate">{getContactDisplay()}</span>
         </div>
-        <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm">
+        <p className="text-[13px] font-semibold text-zinc-900 mb-1">
+          {data.cta}
+        </p>
+        <p className="text-xs text-zinc-600">
+          {data.link && 'Click to learn more'}
+          {data.phone && 'Click to call now'}
+          {data.email && 'Click to send email'}
+        </p>
+      </div>
+
+      {/* CTA Button - Facebook style */}
+      <div className="px-3 pb-3">
+        <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors">
           {data.cta}
         </button>
       </div>
 
-      {/* Description */}
-      <div className="p-3">
-        <p className="text-sm leading-relaxed text-zinc-800">
-          {data.description || 'Your ad description will appear here. Make it catchy to grab attention!'}
-        </p>
-      </div>
-
-      {/* Interactions (static for preview) */}
-      <div className="px-3 pb-3">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-4">
-            <button className="hover:scale-110 transition-transform">
-              <FontAwesomeIcon icon={faHeart} className="w-5 h-5 text-zinc-600" />
-            </button>
-            <button className="hover:scale-110 transition-transform">
-              <FontAwesomeIcon icon={faComment} className="w-5 h-5 text-zinc-600" />
-            </button>
-            <button className="hover:scale-110 transition-transform">
-              <FontAwesomeIcon icon={faPaperPlane} className="w-5 h-5 text-zinc-600" />
-            </button>
-          </div>
-          <button className="hover:scale-110 transition-transform">
-            <FontAwesomeIcon icon={faBookmark} className="w-5 h-5 text-zinc-600" />
-          </button>
-        </div>
-        <div className="flex items-center gap-1 text-xs text-zinc-500">
-          <span className="font-bold text-zinc-700">1.2k likes</span>
-          <span>•</span>
-          <span>42 comments</span>
-        </div>
+      {/* Reactions - Static for preview */}
+      <div className="px-3 pb-3 flex items-center gap-2 text-xs text-zinc-500 border-t border-zinc-200 pt-3">
+        <FontAwesomeIcon icon={faHeart} className="w-4 h-4 text-red-500" />
+        <span>24</span>
+        <span className="mx-1">·</span>
+        <FontAwesomeIcon icon={faComment} className="w-4 h-4 text-zinc-500" />
+        <span>3</span>
+        <span className="mx-1">·</span>
+        <FontAwesomeIcon icon={faShare} className="w-4 h-4 text-zinc-500" />
+        <span>1</span>
       </div>
     </div>
   );
