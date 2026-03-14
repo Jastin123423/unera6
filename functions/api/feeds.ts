@@ -1153,24 +1153,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 9) SPONSORED / ADS POSTS - CORRECTED FOR YOUR SCHEMA
+    // 9) SPONSORED / ADS POSTS - MINIMAL WORKING VERSION
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
 
     // Only show active ads
-    whereAds.push(`(a.status = 'active')`);
-
-    // Filter by schedule dates
-    whereAds.push(`(a.start_date IS NULL OR a.start_date <= datetime('now'))`);
-    whereAds.push(`(a.end_date IS NULL OR a.end_date >= datetime('now'))`);
+    whereAds.push(`status = 'active'`);
 
     if (cursor && cursor.trim()) {
-      whereAds.push(`a.created_at < ?`);
+      whereAds.push(`created_at < ?`);
       bindsAds.push(cursor.trim());
     }
     if (seen.length > 0) {
-      whereAds.push(`a.id NOT IN (${seen.map(() => "?").join(",")})`);
+      whereAds.push(`id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsAds.push(...seen);
     }
 
@@ -1181,10 +1177,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         'sponsored' AS source,
         'sponsored' AS item_type,
 
-        a.id AS id,
-        ('ad:' || CAST(a.id AS TEXT)) AS feed_key,
+        id AS id,
+        ('ad:' || CAST(id AS TEXT)) AS feed_key,
 
-        a.created_at AS created_at,
+        created_at AS created_at,
 
         NULL AS post_id,
         NULL AS reel_id,
@@ -1194,7 +1190,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS group_post_id,
         NULL AS product_id2,
 
-        a.advertiser_id AS user_id,
+        advertiser_id AS user_id,
         COALESCE(u.username, 'advertiser') AS username,
         COALESCE(u.name, u.username, 'Sponsored') AS name,
         CASE
@@ -1206,40 +1202,37 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.role, 'business') AS role,
 
         -- Ad content using your schema's column names
-        a.title AS headline,                    -- title maps to headline
-        a.title AS content,                      -- title as content for backward compatibility
-        a.description AS description,             -- description field
-        a.cta_button AS cta_text,                 -- cta_button maps to cta_text
-        a.destination_url AS cta_url,             -- destination_url maps to cta_url
-        a.contact_type AS cta_type,                -- contact_type maps to cta_type
+        title AS headline,
+        title AS content,
+        description AS description,
+        cta_button AS cta_text,
+        destination_url AS cta_url,
+        contact_type AS cta_type,
 
         'public' AS visibility,
-        a.impressions AS views,
+        impressions AS views,
         0 AS shares,
 
-        a.media_url AS media_url,                  -- primary media URL
-        a.media_type AS media_type,                 -- primary media type
+        media_url AS media_url,
+        media_type AS media_type,
 
-        a.media_urls AS media_urls,                 -- JSON array of multiple media URLs
-        a.media_types AS media_types,                -- JSON array of media types
+        media_urls AS media_urls,
+        media_types AS media_types,
 
         0 AS comments_count,
-
         0 AS reactions_count,
         NULL AS my_reaction,
-
         NULL AS reactor_name,
         NULL AS reactions_preview,
         NULL AS reactions_by_type,
 
-        -- For video ads
-        CASE WHEN a.media_type LIKE '%video%' THEN a.media_url ELSE NULL END AS video_url,
-        a.description AS caption,
+        CASE WHEN media_type LIKE '%video%' THEN media_url ELSE NULL END AS video_url,
+        description AS caption,
         NULL AS song_name,
         NULL AS audio_url,
         0 AS audio_start,
         0 AS audio_end,
-        a.target_location AS location,
+        target_location AS location,
         NULL AS sound_key,
         NULL AS sound_id,
 
@@ -1265,19 +1258,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         json_object(
           'kind','ad',
           'type','sponsored',
-          'ad_id', a.id,
-          'advertiser_id', a.advertiser_id,
-          'campaign_name', a.campaign_name,
-          'campaign_id', a.id
+          'ad_id', id,
+          'advertiser_id', advertiser_id,
+          'campaign_name', campaign_name
         ) AS meta,
 
         'Sponsored' AS reason,
-        a.campaign_name AS campaign_name,
+        campaign_name AS campaign_name,
 
-        -- Targeting info for UI
-        a.target_location AS target_location,
-        a.target_country AS target_country,
-        a.target_city AS target_city,
+        target_location AS target_location,
+        target_country AS target_country,
+        target_city AS target_city,
 
         NULL AS group_id,
         NULL AS group_name,
@@ -1338,10 +1329,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       .all();
     const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results) ? freshProductsFeedRes.results : [];
 
+    // ✅ FRESH ADS QUERY
     const freshAdsRes = await env.DB.prepare(
       `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
     )
-      .bind(...bindsAds, Math.min(5, freshCount))
+      .bind(...bindsAds, Math.min(3, freshCount))
       .all();
     const freshAds = Array.isArray(freshAdsRes?.results) ? freshAdsRes.results : [];
 
@@ -1411,10 +1403,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         .all();
       exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results) ? exploreProductsFeedRes.results : [];
 
+      // ✅ EXPLORE ADS QUERY
       const exploreAdsRes = await env.DB.prepare(
         `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
       )
-        .bind(...bindsAds, Math.min(3, exploreCount))
+        .bind(...bindsAds, Math.min(2, exploreCount))
         .all();
       exploreAds = Array.isArray(exploreAdsRes?.results) ? exploreAdsRes.results : [];
 
@@ -1446,7 +1439,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...freshEvents,
       ...freshGroupPosts,
       ...freshProductsFeed,
-      ...freshAds,
+      ...freshAds,           // ✅ Include fresh ads
       ...explorePosts,
       ...exploreReels,
       ...exploreSongs,
@@ -1454,7 +1447,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...exploreEvents,
       ...exploreGroupPosts,
       ...exploreProductsFeed,
-      ...exploreAds,
+      ...exploreAds,         // ✅ Include explore ads
     ];
 
     for (const row of allFeedRows) {
