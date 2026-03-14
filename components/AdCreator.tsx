@@ -50,7 +50,7 @@ interface AdCreatorProps {
     days: number;
   }) => Promise<boolean>;
   currentUser: any;
-  onBack?: () => void; // Add back navigation prop
+  onBack?: () => void;
 }
 
 const CTA_OPTIONS: CTAButton[] = [
@@ -90,6 +90,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
     name: '',
     type: 'image' as AdType,
     mediaUrl: '',
+    mediaUrls: [] as string[],
     description: '',
     link: '',
     phone: '',
@@ -109,18 +110,14 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
       event.preventDefault();
       
       if (step > 1) {
-        // If we're not on the first step, go back one step
         handleBack();
       } else if (onBack) {
-        // If we're on first step, call the parent's back handler
         onBack();
       }
     };
 
-    // Add event listener for popstate (back/forward buttons)
     window.addEventListener('popstate', handleBackButton);
 
-    // Push initial state if we're not on first step
     if (step > 1) {
       window.history.pushState({ step }, '');
     }
@@ -140,14 +137,11 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
   // Handle back navigation
   const handleBack = () => {
     if (step === 2) {
-      // Go back to post selection
       setStep(1);
       setSelectedPost(null);
     } else if (step === 3) {
-      // Go back to campaign details
       setStep(2);
     } else if (step === 1 && onBack) {
-      // Go back to previous page (ads dashboard)
       onBack();
     }
   };
@@ -157,7 +151,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
     loadCachedPosts();
   }, []);
 
-  // Update when userPosts changes (new posts from App.tsx)
+  // Update when userPosts changes
   useEffect(() => {
     if (userPosts.length > 0 && !initialLoadDone.current) {
       updatePostsCache(userPosts);
@@ -203,14 +197,12 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
     }
   };
 
-  // Refresh posts (user initiated)
+  // Refresh posts
   const refreshPosts = () => {
     setLoading(true);
-    // Clear cache and reload from parent
     localStorage.removeItem(POSTS_CACHE_KEY);
     setCachedPosts([]);
     setCurrentPage(1);
-    // Parent will provide fresh posts
     if (userPosts.length > 0) {
       updatePostsCache(userPosts);
       setTotalPosts(userPosts.length);
@@ -233,7 +225,6 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
   // Handle contact type change
   const handleContactTypeChange = (type: 'link' | 'phone' | 'email') => {
     setContactType(type);
-    // Clear other fields
     setFormData({
       ...formData,
       link: '',
@@ -299,7 +290,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
     setSelectedPost(post);
     setSelectedMediaIndex(0);
     
-    // Get the first media URL
+    // Get all media URLs
     const mediaUrls = post.media_urls || (post.media_url ? [post.media_url] : []);
     const mediaUrl = mediaUrls[0] || '';
     
@@ -308,6 +299,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
       name: post.content?.substring(0, 30) || 'New Campaign',
       type: post.type === 'video' ? 'video' : 'image',
       mediaUrl: mediaUrl,
+      mediaUrls: mediaUrls,
       description: post.content || '',
     });
     setStep(2);
@@ -330,7 +322,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
     }
   };
 
-  // Format date nicely
+  // Format date
   const formatDate = (dateString: string) => {
     try {
       const date = new Date(dateString);
@@ -371,7 +363,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
   const currentPosts = getCurrentPosts();
   const totalPages = Math.ceil(totalPosts / postsPerPage);
 
-  // If no userPosts and not loading, show empty state
+  // Empty state
   if (!loading && userPosts.length === 0 && cachedPosts.length === 0) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -409,7 +401,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
         )}
         <div className="flex-1">
           <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Create New Campaign</h2>
-          <p className="text-zinc-400 mt-1 text-sm md:text-base">Boost your posts and reach more people.</p>
+          <p className="text-zinc-400 mt-1 text-sm md:text-base">Boost your posts and reach more people for FREE</p>
         </div>
         <div className="flex items-center gap-3 md:gap-4">
           {[1, 2, 3, 4].map((s) => (
@@ -422,6 +414,19 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
               {step > s ? <FontAwesomeIcon icon={faCheckCircle} className="w-4 h-4 md:w-5 md:h-5" /> : s}
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Free Promotion Banner */}
+      <div className="mb-6 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border border-emerald-500/20 rounded-xl p-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+            <span className="text-emerald-400 text-xl">✨</span>
+          </div>
+          <div>
+            <h3 className="text-emerald-400 font-bold">Free Promotion on UNERA</h3>
+            <p className="text-sm text-zinc-400">All ad campaigns are completely free. No costs, no hidden fees!</p>
+          </div>
         </div>
       </div>
 
@@ -438,6 +443,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
                     className={`p-2 rounded-lg transition-colors ${
                       displayMode === 'grid' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
                     }`}
+                    title="Grid view"
                   >
                     <FontAwesomeIcon icon={faThLarge} className="w-4 h-4" />
                   </button>
@@ -446,6 +452,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
                     className={`p-2 rounded-lg transition-colors ${
                       displayMode === 'list' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
                     }`}
+                    title="List view"
                   >
                     <FontAwesomeIcon icon={faList} className="w-4 h-4" />
                   </button>
@@ -548,7 +555,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
                                   </div>
                                 )}
                                 
-                                {/* Media count badge for multiple media */}
+                                {/* Media count badge */}
                                 {hasMultipleMedia && (
                                   <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg text-xs text-white flex items-center gap-1">
                                     <FontAwesomeIcon icon={faImage} className="w-3 h-3" />
@@ -807,6 +814,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
                         ${formData.budget}
                       </span>
                     </div>
+                    <p className="text-xs text-emerald-400 mt-1">✨ Free promotion - No actual charges</p>
                   </div>
 
                   <div className="space-y-2">
@@ -829,10 +837,10 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
                   </div>
                 </div>
                 
-                <div className="bg-blue-600/10 border border-blue-600/20 rounded-xl p-4">
-                  <p className="text-sm text-blue-400 font-medium mb-1">Total Campaign Cost</p>
-                  <p className="text-2xl font-bold text-white">${formData.budget * formData.days}</p>
-                  <p className="text-xs text-zinc-500 mt-1">${formData.budget}/day for {formData.days} days</p>
+                <div className="bg-emerald-600/10 border border-emerald-600/20 rounded-xl p-4">
+                  <p className="text-sm text-emerald-400 font-medium mb-1">Total Campaign Cost</p>
+                  <p className="text-2xl font-bold text-white">$0.00</p>
+                  <p className="text-xs text-emerald-400 mt-1">✨ Completely free on UNERA</p>
                 </div>
               </div>
 
@@ -921,7 +929,8 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
               </div>
               <div className="pt-2 border-t border-zinc-800">
                 <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider mb-1">Total Cost</p>
-                <p className="text-2xl font-bold text-white">${formData.budget * formData.days}</p>
+                <p className="text-2xl font-bold text-white">$0.00</p>
+                <p className="text-xs text-emerald-400 mt-1">✨ Free promotion on UNERA</p>
               </div>
             </div>
 
@@ -944,7 +953,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
                     <span>Launching...</span>
                   </>
                 ) : (
-                  'Launch Campaign'
+                  'Launch Free Campaign'
                 )}
               </button>
             </div>
@@ -958,7 +967,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
             </div>
             <div>
               <h3 className="text-2xl md:text-3xl font-bold text-white">Campaign Launched!</h3>
-              <p className="text-zinc-400 mt-2 max-w-sm text-sm md:text-base">Your ad is now live and reaching people. Redirecting to dashboard...</p>
+              <p className="text-zinc-400 mt-2 max-w-sm text-sm md:text-base">Your free ad is now live and reaching people. Redirecting to dashboard...</p>
             </div>
           </div>
         )}
