@@ -836,7 +836,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
     if (normalizedReels.length === 0) {
       return (
-        <div className="text-center p-8">
+        <div className="bg-[#242526] p-8 text-center rounded-xl border border-[#3E4042] mx-4 md:mx-0">
           <div className="text-[#B0B3B8] text-lg mb-2">No videos yet</div>
           <p className="text-[#B0B3B8] text-sm">
             {isCurrentUser ? "Create your first reel!" : "This user hasn't uploaded any videos yet."}
@@ -858,7 +858,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
 
     return (
-      <div className="p-2">
+      <div className="bg-[#242526] p-2 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
         <div className="grid grid-cols-3 gap-[2px]">
           {normalizedReels.map((reel) => (
             <div
@@ -920,7 +920,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const renderStories = () => {
     if (userStories.length === 0) {
       return (
-        <div className="text-center p-8">
+        <div className="bg-[#242526] p-8 text-center rounded-xl border border-[#3E4042] mx-4 md:mx-0">
           <div className="text-[#B0B3B8] text-lg mb-2">No stories yet</div>
           <p className="text-[#B0B3B8] text-sm">
             {isCurrentUser ? "Share your first story!" : "This user hasn't shared any stories yet."}
@@ -938,7 +938,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
 
     return (
-      <div className="p-2">
+      <div className="bg-[#242526] p-2 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
         <div className="grid grid-cols-3 gap-[2px]">
           {userStories.map((story: any) => {
             const isVideo = String(story.media_type || story.type || '').includes("video") || 
@@ -999,7 +999,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
   // ========== RENDER ABOUT TAB ==========
   const renderAbout = () => (
-    <div className="p-6 text-[#E4E6EB]">
+    <div className="bg-[#242526] p-6 text-[#E4E6EB] rounded-xl border border-[#3E4042] mx-4 md:mx-0">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold">About</h2>
         {isCurrentUser && (
@@ -1073,7 +1073,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
   // ========== RENDER FOLLOWERS TAB ==========
   const renderFollowers = () => (
-    <div className="p-4">
+    <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
       <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Followers</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {users
@@ -1081,7 +1081,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           .map((follower) => (
             <div
               key={follower.id}
-              className="flex items-start gap-3 p-3 hover:bg-[#3A3B3C] cursor-pointer transition-all duration-200 active:scale-95 rounded-lg"
+              className="flex items-start gap-3 p-3 border border-[#3E4042] rounded-lg hover:bg-[#3A3B3C] cursor-pointer transition-all duration-200 active:scale-95"
               onClick={() => onProfileClick(follower.id)}
             >
               <img
@@ -1107,7 +1107,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     });
 
     return (
-      <div className="p-4">
+      <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
         <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Photos</h2>
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1">
           {photoPosts.map((p: any) => {
@@ -1146,7 +1146,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
       {/* Left Sidebar - Intro */}
       <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
-        <div className="p-4">
+        <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042]">
           <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Intro</h2>
           <div className="flex flex-col gap-3 text-[#E4E6EB]">
             <div className="text-center mb-2">
@@ -1192,19 +1192,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
         {/* Suggested Products Widget */}
         {!isCurrentUser && products.length > 0 && currentUser && (
-          <div className="px-4">
-            <SuggestedProductsWidget
-              products={products}
-              currentUser={currentUser}
-              onViewProduct={(product) => onViewProduct?.(product.id)}
-              onSeeAll={() => console.log('See all products')}
-            />
-          </div>
+          <SuggestedProductsWidget
+            products={products}
+            currentUser={currentUser}
+            onViewProduct={(product) => onViewProduct?.(product.id)}
+            onSeeAll={() => console.log('See all products')}
+          />
         )}
       </div>
 
       {/* Main Content - Posts Feed */}
-      <div className="flex-1 min-w-0 px-4 md:px-0">
+      <div className="flex-1 min-w-0">
         {/* Error display */}
         {loginError && (
           <div className="mb-4 p-3 bg-red-900/80 border border-red-700 rounded-lg text-red-200 text-sm">
@@ -1217,7 +1215,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
         {/* Loading indicator */}
         {isLoadingPosts && (
-          <div className="p-8 text-center">
+          <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042] mb-4">
             <div className="flex justify-center items-center gap-2">
               <i className="fas fa-spinner fa-spin text-[#1877F2] text-xl"></i>
               <span className="text-[#B0B3B8]">Loading posts...</span>
@@ -1227,7 +1225,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
         {/* Stats for current user */}
         {isCurrentUser && !isLoadingPosts && (
-          <div className="p-4 mb-4">
+          <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042]">
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-[#3A3B3C] p-3 rounded-lg">
                 <div className="text-[#B0B3B8] text-xs font-medium mb-1">Total Views</div>
@@ -1248,30 +1246,28 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         {/* Create Post for current user */}
         {isCurrentUser && currentUser && (
           <>
-            <div className="mb-4">
-              <CreatePost
-                currentUser={currentUser}
-                onProfileClick={onProfileClick}
-                onClick={() => setShowCreatePostModal(true)}
-                onCreateEventClick={onCreateEventClick || (() => {})}
-                onPhotoClick={() => {
-                  const input = document.createElement('input');
-                  input.type = 'file';
-                  input.accept = 'image/*';
-                  input.multiple = true;
-                  input.onchange = (e) => {
-                    const files = Array.from((e.target as HTMLInputElement).files || []);
-                    if (files.length > 0) {
-                      onCreatePost('', files, { type: 'image' });
-                    }
-                  };
-                  input.click();
-                }}
-                onVideoClick={() => {
-                  console.log('Open video recorder');
-                }}
-              />
-            </div>
+            <CreatePost
+              currentUser={currentUser}
+              onProfileClick={onProfileClick}
+              onClick={() => setShowCreatePostModal(true)}
+              onCreateEventClick={onCreateEventClick || (() => {})}
+              onPhotoClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.multiple = true;
+                input.onchange = (e) => {
+                  const files = Array.from((e.target as HTMLInputElement).files || []);
+                  if (files.length > 0) {
+                    onCreatePost('', files, { type: 'image' });
+                  }
+                };
+                input.click();
+              }}
+              onVideoClick={() => {
+                console.log('Open video recorder');
+              }}
+            />
             {showCreatePostModal && (
               <CreatePostModal
                 currentUser={currentUser}
@@ -1301,7 +1297,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         )}
 
-        {/* Posts Feed */}
+        {/* Posts Feed - Full width with proper containers */}
         {!isLoadingPosts && filteredProfilePosts.length > 0 ? (
           filteredProfilePosts.map((post: any) => {
             // Check if it's an event post
@@ -1408,7 +1404,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             );
           })
         ) : !isLoadingPosts && filteredProfilePosts.length === 0 && (
-          <div className="p-8 text-center">
+          <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
             <div className="text-[#B0B3B8] text-lg mb-2">No posts yet</div>
             <p className="text-[#B0B3B8] text-sm">
               {isCurrentUser ? "Create your first post!" : "This user hasn't posted anything yet."}
@@ -1428,7 +1424,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   );
 
   return (
-    <div className="w-full bg-[#18191A] min-h-screen font-sans">
+    <div className="w-full bg-[#18191A] min-h-screen">
       {/* File inputs for profile/cover images */}
       <input
         type="file"
@@ -1457,7 +1453,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         }}
       />
 
-      {/* Profile Header - Facebook style */}
+      {/* Profile Header - Like Tuko.co.ke/Facebook */}
       <div className="bg-[#242526] shadow-sm">
         <div className="max-w-[1095px] mx-auto w-full relative">
           {/* Cover Image */}
@@ -1497,7 +1493,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             )}
           </div>
 
-          {/* Profile Picture and Info - Like Tuko.co.ke */}
+          {/* Profile Picture and Info */}
           <div className="px-4 pb-0">
             <div className="flex flex-col md:flex-row items-center md:items-end -mt-[84px] md:-mt-[30px] relative z-10 mb-4">
               <div className="w-[168px] h-[168px] rounded-full border-[6px] border-[#242526] bg-[#242526] overflow-hidden cursor-pointer relative group">
@@ -1539,18 +1535,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               </div>
 
               <div className="flex-1 flex flex-col items-center md:items-start mt-4 md:mt-0 md:ml-6 text-center md:text-left md:mb-4">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-[32px] font-bold text-[#E4E6EB]">
-                    {safeStringHelper((user as any).name, 'User')}
-                  </h1>
+                <h1 className="text-[32px] font-bold text-[#E4E6EB] flex items-center gap-2">
+                  {safeStringHelper((user as any).name, 'User')}
                   {(user as any).is_verified && (
                     <i className="fas fa-check-circle text-[#1877F2] text-[20px]"></i>
                   )}
-                </div>
-                <div className="flex items-center gap-4 mt-1">
-                  <span className="text-[#B0B3B8] font-semibold text-[15px]">
-                    {followerCount} Followers
-                  </span>
                   {(user.role === 'admin' || user.role === 'moderator') && (
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
                       user.role === 'admin' 
@@ -1560,10 +1549,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       {user.role}
                     </span>
                   )}
-                </div>
+                </h1>
+                <span className="text-[#B0B3B8] font-semibold text-[17px] mt-1">
+                  {followerCount} Followers
+                </span>
               </div>
 
-              {/* Action Buttons - Like Tuko.co.ke */}
+              {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 md:mt-0 md:mb-6">
                 {isCurrentUser ? (
                   // Profile owner buttons
@@ -1595,13 +1587,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     </button>
                   </>
                 ) : (
-                  // Other user buttons - Like Tuko.co.ke "Message" and "Follow" buttons
+                  // Other user buttons
                   <>
                     <button
                       onClick={handleOtherMessageClick}
-                      className={`bg-[#1877F2] text-white px-6 py-2 rounded-md font-semibold hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner ${
-                        isChatOpen && activeChatRecipient?.id === user.id ? 'ring-2 ring-white' : ''
-                      }`}
+                      className="bg-[#1877F2] text-white px-6 py-2 rounded-md font-semibold hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner"
                     >
                       <span className="flex items-center gap-2">
                         <i className="fas fa-comment"></i>
@@ -1635,7 +1625,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               </div>
             </div>
 
-            {/* Tabs - Like Tuko.co.ke */}
+            {/* Tabs */}
             <div className="h-[1px] bg-[#3E4042] w-full mt-4"></div>
             <div className="flex items-center gap-1 pt-1 overflow-x-auto whitespace-nowrap scrollbar-hide">
               {(['Posts', 'Videos', 'Stories', 'Photos', 'About', 'Followers'] as const).map((tab) => (
