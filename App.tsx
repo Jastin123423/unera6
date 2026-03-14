@@ -2658,7 +2658,7 @@ export default function App() {
     if (!currentUser) return false;
 
     try {
-      const response = await fetch('/api/ads/campaigns', {
+      const response = await fetch('/api/ads/push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
