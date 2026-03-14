@@ -66,7 +66,7 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
       
       try {
         // Using the same endpoint as UserProfile.tsx
-        const response = await fetch(`/api/posts/by-user?userId=${currentUser.id}&viewerId=${currentUser.id}&limit=50`);
+        const response = await fetch(`/api/posts?userId=${currentUser.id}&viewerId=${currentUser.id}&limit=50`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch posts');
