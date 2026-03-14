@@ -1,4 +1,4 @@
-//Feed.tsx (Updated with Sponsored posts, fixed Comments API, and instant reactions)
+//Feed.tsx (Updated with Sponsored posts, fixed Comments API, instant reactions, and increased text sizes)
 
 import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
 import {
@@ -21,7 +21,7 @@ import { PostMenu } from './Post/PostMenu';
 import { SponsoredPostCard } from "./Ads/SponsoredPostCard"; // Import Sponsored card
 
 // ==================== ICON COMPONENTS (for better rendering) ====================
-const Film: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#1877F2" }) => (
+const Film: React.FC<{ size?: number; color?: string }> = ({ size = 22, color = "#1877F2" }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
     <line x1="7" y1="2" x2="7" y2="22"></line>
@@ -30,11 +30,10 @@ const Film: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = 
     <line x1="2" y1="7" x2="7" y2="7"></line>
     <line x1="2" y1="17" x2="7" y2="17"></line>
     <line x1="17" y1="17" x2="22" y2="17"></line>
-    <line x1="17" y1="7" x2="22" y2="7"></line>
   </svg>
 );
 
-const MoreHorizontal: React.FC<{ size?: number; color?: string }> = ({ size = 24, color = "#b0b3b8" }) => (
+const MoreHorizontal: React.FC<{ size?: number; color?: string }> = ({ size = 26, color = "#b0b3b8" }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="1"></circle>
     <circle cx="19" cy="12" r="1"></circle>
@@ -42,16 +41,62 @@ const MoreHorizontal: React.FC<{ size?: number; color?: string }> = ({ size = 24
   </svg>
 );
 
-const Play: React.FC<{ size?: number; color?: string; fill?: string; style?: React.CSSProperties }> = ({ size = 32, color = "#fff", fill = "#fff", style }) => (
+const Play: React.FC<{ size?: number; color?: string; fill?: string; style?: React.CSSProperties }> = ({ size = 36, color = "#fff", fill = "#fff", style }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
     <polygon points="5 3 19 12 5 21 5 3"></polygon>
   </svg>
 );
 
-const Eye: React.FC<{ size?: number; color?: string }> = ({ size = 18, color = "#fff" }) => (
+const Eye: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = "#fff" }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
     <circle cx="12" cy="12" r="3"></circle>
+  </svg>
+);
+
+// Spark icon (React) - increased size
+const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <defs>
+      <linearGradient id="uneraSparkGrad" x1="12" y1="52" x2="52" y2="12">
+        <stop offset="0%" stopColor="#FF7A45" />
+        <stop offset="55%" stopColor="#FF5A6A" />
+        <stop offset="100%" stopColor="#FF8A3D" />
+      </linearGradient>
+      <filter id="uneraSparkGlow" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="2.2" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+    <circle cx="32" cy="32" r="18" fill="url(#uneraSparkGrad)" opacity="0.14" />
+    <g stroke="url(#uneraSparkGrad)" strokeWidth="5.2" strokeLinecap="round" filter="url(#uneraSparkGlow)">
+      <line x1="32" y1="10" x2="32" y2="18" />
+      <line x1="32" y1="46" x2="32" y2="54" />
+      <line x1="10" y1="32" x2="18" y2="32" />
+      <line x1="46" y1="32" x2="54" y2="32" />
+      <line x1="17" y1="17" x2="22.8" y2="22.8" />
+      <line x1="41.2" y1="41.2" x2="47" y2="47" />
+      <line x1="47" y1="17" x2="41.2" y2="22.8" />
+      <line x1="22.8" y1="41.2" x2="17" y2="47" />
+    </g>
+    <circle cx="32" cy="32" r="6.2" fill="url(#uneraSparkGrad)" />
+  </svg>
+);
+
+// Discuss icon - increased size
+const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size = 28, color = "#1877F2" }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <g fill="none" stroke={color} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
+      <circle cx="27" cy="30" r="2.2" />
+      <circle cx="33" cy="30" r="2.2" />
+      <circle cx="39" cy="30" r="2.2" />
+      <path d="M48 18c3 2 5 5 6 9" />
+      <path d="M44 22c2 1 3 3 4 6" />
+    </g>
   </svg>
 );
 
@@ -768,68 +813,6 @@ const ensureReactionStyles = () => {
 
 /**
  * =========================
- * ✅ NEW ICONS FOR REACT/DISCUSS UI
- * =========================
- */
-
-// ✅ Spark icon (React) - orange/coral gradient like the screenshot
-const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
-  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <defs>
-      <linearGradient id="uneraSparkGrad" x1="12" y1="52" x2="52" y2="12">
-        <stop offset="0%" stopColor="#FF7A45" />
-        <stop offset="55%" stopColor="#FF5A6A" />
-        <stop offset="100%" stopColor="#FF8A3D" />
-      </linearGradient>
-      <filter id="uneraSparkGlow" x="-40%" y="-40%" width="180%" height="180%">
-        <feGaussianBlur stdDeviation="2.2" result="blur" />
-        <feMerge>
-          <feMergeNode in="blur" />
-          <feMergeNode in="SourceGraphic" />
-        </feMerge>
-      </filter>
-    </defs>
-
-    {/* soft glow */}
-    <circle cx="32" cy="32" r="18" fill="url(#uneraSparkGrad)" opacity="0.14" />
-
-    {/* spark rays */}
-    <g stroke="url(#uneraSparkGrad)" strokeWidth="5.2" strokeLinecap="round" filter="url(#uneraSparkGlow)">
-      <line x1="32" y1="10" x2="32" y2="18" />
-      <line x1="32" y1="46" x2="32" y2="54" />
-      <line x1="10" y1="32" x2="18" y2="32" />
-      <line x1="46" y1="32" x2="54" y2="32" />
-
-      <line x1="17" y1="17" x2="22.8" y2="22.8" />
-      <line x1="41.2" y1="41.2" x2="47" y2="47" />
-      <line x1="47" y1="17" x2="41.2" y2="22.8" />
-      <line x1="22.8" y1="41.2" x2="17" y2="47" />
-    </g>
-
-    {/* center dot */}
-    <circle cx="32" cy="32" r="6.2" fill="url(#uneraSparkGrad)" />
-  </svg>
-);
-
-// ✅ Discuss icon - same "chat + signal" style, colored with UNERA blue
-const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size = 26, color = "#1877F2" }) => (
-  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <g fill="none" stroke={color} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
-      {/* bubble */}
-      <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
-      {/* dots */}
-      <circle cx="27" cy="30" r="2.2" />
-      <circle cx="33" cy="30" r="2.2" />
-      <circle cx="39" cy="30" r="2.2" />
-      {/* signal arcs */}
-      <path d="M48 18c3 2 5 5 6 9" />
-      <path d="M44 22c2 1 3 3 4 6" />
-    </g>
-  </svg>
-);
-
-/**
- * =========================
  * ✅ GROUP POST HEADER - FACEBOOK STYLE WITH GROUP + USER OVERLAY
  * =========================
  */
@@ -888,7 +871,7 @@ const GroupPostHeader: React.FC<{
         <div className="min-w-0">
           {/* Group name row - MAKE GROUP NAME CLICKABLE */}
           <button
-            className="text-left font-extrabold text-[18px] leading-[1.1] text-[#E4E6EB] truncate hover:underline"
+            className="text-left font-extrabold text-[20px] leading-[1.1] text-[#E4E6EB] truncate hover:underline"
             onClick={(e) => {
               e.stopPropagation();
               if (groupId && onOpenGroup) onOpenGroup(groupId);
@@ -898,9 +881,9 @@ const GroupPostHeader: React.FC<{
           </button>
 
           {/* User + time row */}
-          <div className="flex items-center gap-2 text-[13px] text-[#B0B3B8] min-w-0">
+          <div className="flex items-center gap-2 text-[15px] text-[#B0B3B8] min-w-0">
             <button
-              className="font-semibold text-[#B0B3B8] hover:underline truncate"
+              className="font-semibold text-[15px] text-[#B0B3B8] hover:underline truncate"
               onClick={(e) => {
                 e.stopPropagation();
                 if (userId && onOpenProfile) onOpenProfile(userId);
@@ -913,7 +896,7 @@ const GroupPostHeader: React.FC<{
             <span className="truncate">{timeAgo}</span>
 
             <span>·</span>
-            <i className="fas fa-users text-[12px]" />
+            <i className="fas fa-users text-[14px]" />
           </div>
         </div>
       </div>
@@ -942,7 +925,7 @@ const ExpandableRichText: React.FC<{
   onProfileClick,
   onHashtagClick,
   maxWords = 14,
-  fontSizePx = 21,
+  fontSizePx = 23, // Increased from 21px to 23px
   forceExpanded = false,
 }) => {
   const [expanded, setExpanded] = useState(false);
@@ -969,7 +952,7 @@ const ExpandableRichText: React.FC<{
             e.stopPropagation();
             setExpanded((v) => !v);
           }}
-          className="ml-2 font-bold text-[#1877F2] hover:underline"
+          className="ml-2 font-bold text-[#1877F2] hover:underline text-[16px]"
         >
           {expanded ? 'See less' : 'See more'}
         </button>
@@ -998,7 +981,7 @@ export const RichText = ({
   const parts = text.split(/(#[a-zA-Z0-9_]+|@\w+(?:\s\w+)?)/g);
 
   return (
-    <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words">
+    <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words text-[23px]">
       {parts.map((part, index) => {
         if (part.startsWith('@')) {
           const name = part.substring(1).trim().toLowerCase();
@@ -1012,7 +995,7 @@ export const RichText = ({
             return (
               <span
                 key={index}
-                className="text-[#1877F2] font-semibold cursor-pointer hover:underline"
+                className="text-[#1877F2] font-semibold cursor-pointer hover:underline text-[23px]"
                 onClick={(e) => {
                   e.stopPropagation();
                   onProfileClick(safeUserId(user));
@@ -1024,7 +1007,7 @@ export const RichText = ({
           }
 
           return (
-            <span key={index} className="text-[#1877F2] font-semibold">
+            <span key={index} className="text-[#1877F2] font-semibold text-[23px]">
               {part}
             </span>
           );
@@ -1034,7 +1017,7 @@ export const RichText = ({
           return (
             <span
               key={index}
-              className="text-[#1877F2] cursor-pointer hover:underline"
+              className="text-[#1877F2] cursor-pointer hover:underline text-[23px]"
               onClick={(e) => {
                 e.stopPropagation();
                 onHashtagClick && onHashtagClick(part);
@@ -1045,7 +1028,7 @@ export const RichText = ({
           );
         }
 
-        return <span key={index}>{part}</span>;
+        return <span key={index} className="text-[23px]">{part}</span>;
       })}
     </span>
   );
@@ -1172,7 +1155,7 @@ export const ReactionButton: React.FC<{
     >
       {showPreview && (
         <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
-          <div className="text-3xl">
+          <div className="text-4xl">
             {previewEmoji}
           </div>
         </div>
@@ -1187,7 +1170,7 @@ export const ReactionButton: React.FC<{
             {reactionConfig.map((r) => (
               <div
                 key={r.type}
-                className="text-2xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
+                className="text-3xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleDockReact(r.type as ReactionType);
@@ -1212,11 +1195,11 @@ export const ReactionButton: React.FC<{
       >
         {activeReaction ? (
           <>
-            <span className="text-[20px] transition-transform duration-300">
+            <span className="text-[22px] transition-transform duration-300">
               {activeReaction.icon}
             </span>
             <span
-              className="text-[17px] font-medium transition-colors duration-300"
+              className="text-[19px] font-medium transition-colors duration-300"
               style={{ color: activeReaction.color }}
             >
               React
@@ -1225,9 +1208,9 @@ export const ReactionButton: React.FC<{
         ) : (
           <>
             <span className="flex items-center justify-center -mt-[1px]">
-              <SparkReactIcon size={26} />
+              <SparkReactIcon size={28} />
             </span>
-            <span className="text-[17px] font-medium text-[#B0B3B8]">React</span>
+            <span className="text-[19px] font-medium text-[#B0B3B8]">React</span>
           </>
         )}
       </button>
@@ -1715,7 +1698,7 @@ export const ReactionsSheet: React.FC<{
   const Tab = ({ t, label, count }: { t: string; label: React.ReactNode; count: number }) => (
     <button
       onClick={() => setActive(t)}
-      className={`px-3 py-2 text-[15px] font-bold border-b-2 whitespace-nowrap ${
+      className={`px-3 py-2 text-[17px] font-bold border-b-2 whitespace-nowrap ${
         active === t ? "text-[#1877F2] border-[#1877F2]" : "text-[#B0B3B8] border-transparent"
       }`}
     >
@@ -1734,7 +1717,7 @@ export const ReactionsSheet: React.FC<{
         >
           <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
         </button>
-        <div className="text-[#E4E6EB] font-bold text-[18px]">People who reacted</div>
+        <div className="text-[#E4E6EB] font-bold text-[20px]">People who reacted</div>
       </div>
 
       {/* tabs */}
@@ -1744,7 +1727,7 @@ export const ReactionsSheet: React.FC<{
           <Tab
             key={t}
             t={t}
-            label={<span className="text-[18px]">{reactionEmoji(t)}</span>}
+            label={<span className="text-[20px]">{reactionEmoji(t)}</span>}
             count={counts[t] || 0}
           />
         ))}
@@ -1753,9 +1736,9 @@ export const ReactionsSheet: React.FC<{
       {/* list */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="p-6 text-[#B0B3B8] text-center">Loading reactions...</div>
+          <div className="p-6 text-[#B0B3B8] text-center text-[17px]">Loading reactions...</div>
         ) : filtered.length === 0 ? (
-          <div className="p-6 text-[#B0B3B8] text-center">No reactions yet.</div>
+          <div className="p-6 text-[#B0B3B8] text-center text-[17px]">No reactions yet.</div>
         ) : (
           <div className="p-2">
             {filtered.map((r, idx) => {
@@ -1772,15 +1755,15 @@ export const ReactionsSheet: React.FC<{
                 >
                   <div className="relative">
                     <img src={img} className="w-12 h-12 rounded-full object-cover" alt="" />
-                    <div className="absolute -right-1 -bottom-1 w-6 h-6 rounded-full bg-[#242526] border border-[#3E4042] flex items-center justify-center text-[14px]">
+                    <div className="absolute -right-1 -bottom-1 w-6 h-6 rounded-full bg-[#242526] border border-[#3E4042] flex items-center justify-center text-[16px]">
                       {reactionEmoji(String(r?.type))}
                     </div>
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="text-[#E4E6EB] font-bold truncate">{name}</div>
+                    <div className="text-[#E4E6EB] font-bold text-[17px] truncate">{name}</div>
                     {u?.username ? (
-                      <div className="text-[#B0B3B8] text-xs truncate">@{u.username}</div>
+                      <div className="text-[#B0B3B8] text-[14px] truncate">@{u.username}</div>
                     ) : null}
                   </div>
                 </button>
@@ -1798,7 +1781,7 @@ export const ReactionsSheet: React.FC<{
               onClose();
               onOpenComments(postId);
             }}
-            className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-bold rounded-lg transition-colors"
+            className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-bold rounded-lg transition-colors text-[17px]"
           >
             View Discussions
           </button>
@@ -1897,7 +1880,7 @@ export const GalleryViewer: React.FC<{
         className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3 bg-black/40"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-white text-sm font-semibold">
+        <div className="text-white text-[17px] font-semibold">
           {currentIndex + 1}/{urls.length}
         </div>
         <button
@@ -1939,11 +1922,11 @@ export const GalleryViewer: React.FC<{
         onClick={(e) => e.stopPropagation()}
       >
         {/* Totals row */}
-        <div className="flex items-center justify-between text-[#B0B3B8] text-sm mb-2 px-2">
+        <div className="flex items-center justify-between text-[#B0B3B8] text-[15px] mb-2 px-2">
           <div className="flex items-center gap-2">
             {reactionCount > 0 && (
               <span 
-                className="text-[#E4E6EB] font-bold cursor-pointer hover:underline flex items-center gap-2"
+                className="text-[#E4E6EB] font-bold cursor-pointer hover:underline flex items-center gap-2 text-[15px]"
                 onClick={onOpenReactions}
               >
                 <div className="flex -space-x-2">
@@ -1953,7 +1936,7 @@ export const GalleryViewer: React.FC<{
                     .map((t, i) => (
                       <span
                         key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-black flex items-center justify-center text-[14px]"
+                        className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-black flex items-center justify-center text-[16px]"
                       >
                         {reactionEmoji(t as string)}
                       </span>
@@ -1965,13 +1948,13 @@ export const GalleryViewer: React.FC<{
           </div>
           <div className="flex gap-3">
             <span 
-              className="hover:underline cursor-pointer" 
+              className="hover:underline cursor-pointer text-[15px]" 
               onClick={onOpenComments}
             >
               {formatCount(commentCount)} Discussions
             </span>
             {shareCount > 0 && (
-              <span className="hover:underline cursor-pointer" onClick={onShare}>
+              <span className="hover:underline cursor-pointer text-[15px]" onClick={onShare}>
                 {formatCount(shareCount)} Shares
               </span>
             )}
@@ -1990,8 +1973,8 @@ export const GalleryViewer: React.FC<{
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
             onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}
           >
-            <DiscussSignalIcon size={26} color="#1877F2" />
-            <span className="text-[17px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+            <DiscussSignalIcon size={28} color="#1877F2" />
+            <span className="text-[19px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
               Discuss
             </span>
           </button>
@@ -1999,8 +1982,8 @@ export const GalleryViewer: React.FC<{
             className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
             onClick={() => (currentUser ? onShare() : alert("Please login to share posts."))}
           >
-            <i className="fas fa-share text-[20px]"></i>
-            <span className="text-[17px] font-medium">Share</span>
+            <i className="fas fa-share text-[22px]"></i>
+            <span className="text-[19px] font-medium">Share</span>
           </button>
         </div>
       </div>
@@ -2132,11 +2115,11 @@ export const ShareBottomSheet: React.FC<{
               className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
               onClick={() => setActiveFlow('sheet')}
             ></i>
-            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to UNERA Feed</h3>
+            <h3 className="text-[#E4E6EB] text-[22px] font-medium">Share to UNERA Feed</h3>
           </div>
           <button
             onClick={() => handleShareAction('feed')}
-            className="text-[#1877F2] font-bold text-[17px]"
+            className="text-[#1877F2] font-bold text-[19px]"
           >
             POST
           </button>
@@ -2149,8 +2132,8 @@ export const ShareBottomSheet: React.FC<{
               className="w-12 h-12 rounded-full object-cover"
             />
             <div>
-              <div className="text-[#E4E6EB] font-bold">{currentUser.name}</div>
-              <select className="bg-[#3A3B3C] text-[#E4E6EB] text-sm px-3 py-1 rounded-lg mt-1">
+              <div className="text-[#E4E6EB] font-bold text-[17px]">{currentUser.name}</div>
+              <select className="bg-[#3A3B3C] text-[#E4E6EB] text-[15px] px-3 py-1 rounded-lg mt-1">
                 <option>🌍 Public</option>
                 <option>👥 Friends</option>
                 <option>🔒 Only me</option>
@@ -2158,7 +2141,7 @@ export const ShareBottomSheet: React.FC<{
             </div>
           </div>
           <textarea
-            className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[20px] outline-none resize-none min-h-[200px]"
+            className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[22px] outline-none resize-none min-h-[200px]"
             placeholder="Write something..."
           />
         </div>
@@ -2175,28 +2158,28 @@ export const ShareBottomSheet: React.FC<{
               className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
               onClick={() => setActiveFlow('sheet')}
             ></i>
-            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to Groups & Brands</h3>
+            <h3 className="text-[#E4E6EB] text-[22px] font-medium">Share to Groups & Brands</h3>
           </div>
           <button
             onClick={() => handleShareAction('group')}
-            className="text-[#1877F2] font-bold text-[17px]"
+            className="text-[#1877F2] font-bold text-[19px]"
           >
             SHARE
           </button>
         </div>
         <div className="p-4 border-b border-[#3E4042]">
-          <div className="text-[#B0B3B8] text-sm mb-2">Share with up to 10 groups you're in</div>
+          <div className="text-[#B0B3B8] text-[15px] mb-2">Share with up to 10 groups you're in</div>
           <input
             type="text"
             placeholder="Search groups..."
-            className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg"
+            className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg text-[15px]"
           />
         </div>
         <div className="flex-1 p-4 overflow-y-auto">
           {groups.length === 0 ? (
             <div className="text-center py-10">
               <i className="fas fa-users text-4xl text-[#3A3B3C] mb-3"></i>
-              <div className="text-[#E4E6EB]">No groups available</div>
+              <div className="text-[#E4E6EB] text-[17px]">No groups available</div>
             </div>
           ) : (
             groups.slice(0, 5).map((group) => (
@@ -2208,13 +2191,13 @@ export const ShareBottomSheet: React.FC<{
                     className="w-10 h-10 rounded-full"
                   />
                   <div>
-                    <div className="text-[#E4E6EB] font-medium">{group.name}</div>
-                    <div className="text-[#B0B3B8] text-xs">{group.members_count} members</div>
+                    <div className="text-[#E4E6EB] font-medium text-[15px]">{group.name}</div>
+                    <div className="text-[#B0B3B8] text-[13px]">{group.members_count} members</div>
                   </div>
                 </div>
                 <button 
                   onClick={() => handleShareAction('group')}
-                  className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
+                  className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-[15px]"
                 >
                   Share
                 </button>
@@ -2235,12 +2218,12 @@ export const ShareBottomSheet: React.FC<{
               className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
               onClick={() => setActiveFlow('sheet')}
             ></i>
-            <h3 className="text-[#E4E6EB] text-[20px] font-medium">Share to Messages</h3>
+            <h3 className="text-[#E4E6EB] text-[22px] font-medium">Share to Messages</h3>
           </div>
         </div>
         <div className="p-4 border-b border-[#3E4042]">
           <textarea
-            className="w-full bg-[#3A3B3C] text-[#E4E6EB] rounded-xl p-3 min-h-[80px]"
+            className="w-full bg-[#3A3B3C] text-[#E4E6EB] rounded-xl p-3 min-h-[80px] text-[15px]"
             placeholder="Write a message..."
           />
         </div>
@@ -2248,7 +2231,7 @@ export const ShareBottomSheet: React.FC<{
           <input
             type="text"
             placeholder="Search friends..."
-            className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg"
+            className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg text-[15px]"
           />
         </div>
         <div className="flex-1 p-4 overflow-y-auto">
@@ -2264,13 +2247,13 @@ export const ShareBottomSheet: React.FC<{
                     className="w-10 h-10 rounded-full"
                   />
                   <div>
-                    <div className="text-[#E4E6EB] font-medium">{user.name}</div>
-                    <div className="text-[#B0B3B8] text-xs">@{user.username}</div>
+                    <div className="text-[#E4E6EB] font-medium text-[15px]">{user.name}</div>
+                    <div className="text-[#B0B3B8] text-[13px]">@{user.username}</div>
                   </div>
                 </div>
                 <button 
                   onClick={() => handleShareAction('message')}
-                  className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-sm"
+                  className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-[15px]"
                 >
                   Send
                 </button>
@@ -2320,15 +2303,15 @@ export const ShareBottomSheet: React.FC<{
               
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[#E4E6EB] font-semibold text-sm">
+                  <span className="text-[#E4E6EB] font-semibold text-[15px]">
                     {post.author?.name || 'Original Author'}
                   </span>
-                  <span className="text-[#B0B3B8] text-xs">•</span>
-                  <span className="text-[#B0B3B8] text-xs">
+                  <span className="text-[#B0B3B8] text-[13px]">•</span>
+                  <span className="text-[#B0B3B8] text-[13px]">
                     {formatRelativeTime(post.created_at)}
                   </span>
                 </div>
-                <p className="text-[#B0B3B8] text-sm line-clamp-2">
+                <p className="text-[#B0B3B8] text-[15px] line-clamp-2">
                   {textPreview || 'Shared post'}
                 </p>
               </div>
@@ -2352,14 +2335,14 @@ export const ShareBottomSheet: React.FC<{
                 <i className="fas fa-newspaper text-[#1877F2] text-lg"></i>
               </div>
               <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
+                <div className="text-[#E4E6EB] font-medium text-[17px]">
                   Share to UNERA Feed
                 </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
+                <div className="text-[#B0B3B8] text-[13px] mt-0.5">
                   Share to your profile feed
                 </div>
               </div>
-              <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
+              <i className="fas fa-chevron-right text-[#B0B3B8] text-[15px]"></i>
             </button>
 
             <button
@@ -2376,14 +2359,14 @@ export const ShareBottomSheet: React.FC<{
                 <i className="fas fa-users text-[#45BD62] text-lg"></i>
               </div>
               <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
+                <div className="text-[#E4E6EB] font-medium text-[17px]">
                   Share to Groups & Brands
                 </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
+                <div className="text-[#B0B3B8] text-[13px] mt-0.5">
                   Share with up to 10 groups/brands
                 </div>
               </div>
-              <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
+              <i className="fas fa-chevron-right text-[#B0B3B8] text-[15px]"></i>
             </button>
 
             <button
@@ -2400,14 +2383,14 @@ export const ShareBottomSheet: React.FC<{
                 <i className="fas fa-comment-alt text-[#1877F2] text-lg"></i>
               </div>
               <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
+                <div className="text-[#E4E6EB] font-medium text-[17px]">
                   Send as a Message
                 </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
+                <div className="text-[#B0B3B8] text-[13px] mt-0.5">
                   Share via direct message
                 </div>
               </div>
-              <i className="fas fa-chevron-right text-[#B0B3B8] text-sm"></i>
+              <i className="fas fa-chevron-right text-[#B0B3B8] text-[15px]"></i>
             </button>
 
             <button
@@ -2422,10 +2405,10 @@ export const ShareBottomSheet: React.FC<{
                 <i className="fab fa-whatsapp text-[#25D366] text-lg"></i>
               </div>
               <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
+                <div className="text-[#E4E6EB] font-medium text-[17px]">
                   Send via WhatsApp
                 </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
+                <div className="text-[#B0B3B8] text-[13px] mt-0.5">
                   Share to WhatsApp
                 </div>
               </div>
@@ -2444,10 +2427,10 @@ export const ShareBottomSheet: React.FC<{
                 <i className="fas fa-link text-[#1877F2] text-lg"></i>
               </div>
               <div className="flex-1 text-left">
-                <div className="text-[#E4E6EB] font-medium text-[15px]">
+                <div className="text-[#E4E6EB] font-medium text-[17px]">
                   Copy Post Link
                 </div>
-                <div className="text-[#B0B3B8] text-xs mt-0.5">
+                <div className="text-[#B0B3B8] text-[13px] mt-0.5">
                   Copy link to clipboard
                 </div>
               </div>
@@ -2456,7 +2439,7 @@ export const ShareBottomSheet: React.FC<{
 
           {currentUser && users.length > 0 && (
             <div className="mt-6">
-              <div className="text-[#B0B3B8] text-xs font-semibold uppercase tracking-wider mb-3 px-1">
+              <div className="text-[#B0B3B8] text-[13px] font-semibold uppercase tracking-wider mb-3 px-1">
                 Share with recent contacts
               </div>
               <div className="flex gap-3">
@@ -2478,7 +2461,7 @@ export const ShareBottomSheet: React.FC<{
                           className="w-full h-full rounded-full object-cover"
                         />
                       </div>
-                      <span className="text-[#E4E6EB] text-xs font-medium max-w-[60px] truncate">
+                      <span className="text-[#E4E6EB] text-[13px] font-medium max-w-[60px] truncate">
                         {user.name.split(' ')[0]}
                       </span>
                     </button>
@@ -2491,7 +2474,7 @@ export const ShareBottomSheet: React.FC<{
         <div className="p-4 pt-3 border-t border-[#3E4042]">
           <button
             onClick={closeSheet}
-            className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold rounded-xl transition-colors"
+            className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold rounded-xl transition-colors text-[17px]"
           >
             Cancel
           </button>
@@ -2598,7 +2581,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
       <div className="w-full">
         <div className="bg-[#242526] w-full p-4">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
+            <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
           </div>
           <div className="flex gap-4 overflow-x-hidden py-2">
             {[1, 2, 3, 4].map((i) => (
@@ -2622,7 +2605,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
     <div className="w-full">
       <div className="bg-[#242526] w-full p-4">
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
+          <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
           <div className="flex items-center gap-2">
             {canScrollLeft && (
               <button
@@ -2680,18 +2663,18 @@ export const PeopleYouMayKnowGrid: React.FC<{
                 <button
                   type="button"
                   onClick={() => handleProfileClick(user.id)}
-                  className="text-[#E4E6EB] font-semibold text-[15px] truncate block w-full hover:underline"
+                  className="text-[#E4E6EB] font-semibold text-[17px] truncate block w-full hover:underline"
                 >
                   {user.name}
                 </button>
                 {user.role && (
-                  <div className="text-[#B0B3B8] text-xs mt-1">{user.role}</div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-1">{user.role}</div>
                 )}
               </div>
 
               {user.mutual_count > 0 && (
                 <div className="text-center mb-3">
-                  <span className="text-[#B0B3B8] text-[12px]">
+                  <span className="text-[#B0B3B8] text-[13px]">
                     {user.mutual_count} mutual friend{user.mutual_count !== 1 ? 's' : ''}
                   </span>
                 </div>
@@ -2700,26 +2683,26 @@ export const PeopleYouMayKnowGrid: React.FC<{
               {!currentUser ? (
                 <button
                   onClick={onLoginClick}
-                  className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                  className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[15px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
                 >
-                  <i className="fas fa-sign-in-alt text-[11px]"></i>
+                  <i className="fas fa-sign-in-alt text-[13px]"></i>
                   <span>Sign in</span>
                 </button>
               ) : (
                 <button
                   onClick={() => handleFollow(user.id)}
                   disabled={followLoading[user.id]}
-                  className={`w-full py-2.5 text-[13px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                  className={`w-full py-2.5 text-[15px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
                     user.is_following
                       ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                       : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
                   } disabled:opacity-70 disabled:cursor-not-allowed`}
                 >
                   {followLoading[user.id] ? (
-                    <i className="fas fa-spinner fa-spin text-[11px]"></i>
+                    <i className="fas fa-spinner fa-spin text-[13px]"></i>
                   ) : (
                     <>
-                      <i className={`fas ${user.is_following ? 'fa-check' : 'fa-user-plus'} text-[11px]`}></i>
+                      <i className={`fas ${user.is_following ? 'fa-check' : 'fa-user-plus'} text-[13px]`}></i>
                       <span>{user.is_following ? 'Following' : 'Follow'}</span>
                     </>
                   )}
@@ -2919,8 +2902,8 @@ export const ReelFeedCard: React.FC<{
         padding: "0 14px 12px"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Film size={20} color="#1877f2" />
-          <span style={{ fontSize: 22, fontWeight: 700, color: "#e4e6eb" }}>
+          <Film size={22} color="#1877f2" />
+          <span style={{ fontSize: 24, fontWeight: 700, color: "#e4e6eb" }}>
             Reels
           </span>
         </div>
@@ -3014,7 +2997,7 @@ export const ReelFeedCard: React.FC<{
               justifyContent: "center",
             }}
           >
-            <Play size={32} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
+            <Play size={36} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
           </div>
         </div>
 
@@ -3034,7 +3017,7 @@ export const ReelFeedCard: React.FC<{
             <div
               style={{
                 color: "#fff",
-                fontSize: 15,
+                fontSize: 17,
                 fontWeight: 700,
                 marginBottom: 6,
                 textShadow: "0 1px 3px rgba(0,0,0,0.4)",
@@ -3049,12 +3032,12 @@ export const ReelFeedCard: React.FC<{
                 alignItems: "center",
                 gap: 6,
                 color: "#fff",
-                fontSize: 14,
+                fontSize: 16,
                 fontWeight: 700,
                 textShadow: "0 1px 3px rgba(0,0,0,0.4)",
               }}
             >
-              <Eye size={18} />
+              <Eye size={20} />
               <span>{formatReelCount(reel.views)}</span>
             </div>
           </div>
@@ -3091,6 +3074,7 @@ export const ReelFeedCard: React.FC<{
                   justifyContent: "center",
                   color: "#fff",
                   fontWeight: 700,
+                  fontSize: 18,
                 }}
               >
                 {(reel.author || "U").charAt(0).toUpperCase()}
@@ -3113,8 +3097,8 @@ export const ReelFeedCard: React.FC<{
             gap: 4,
             border: "1px solid rgba(255,255,255,0.2)",
           }}>
-            <i className="fas fa-music" style={{ color: "#1877F2", fontSize: 10 }}></i>
-            <span style={{ color: "#fff", fontSize: 10, fontWeight: "bold", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <i className="fas fa-music" style={{ color: "#1877F2", fontSize: 12 }}></i>
+            <span style={{ color: "#fff", fontSize: 12, fontWeight: "bold", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {reel.songName}
             </span>
           </div>
@@ -3233,7 +3217,7 @@ export const GroupsYouMayJoinCard: React.FC<{
       <div className="w-full">
         <div className="bg-[#242526] w-full p-4">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
+            <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
           </div>
           <div className="flex gap-4 overflow-x-hidden py-2">
             {[1, 2, 3, 4].map((i) => (
@@ -3259,7 +3243,7 @@ export const GroupsYouMayJoinCard: React.FC<{
     <div className="w-full">
       <div className="bg-[#242526] w-full p-4">
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-[#E4E6EB] font-bold text-[18px]">{title}</h3>
+          <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
           <div className="flex items-center gap-2">
             {canScrollLeft && (
               <button
@@ -3312,7 +3296,7 @@ export const GroupsYouMayJoinCard: React.FC<{
                   </div>
                 )}
                 
-                <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-full text-white text-[11px] font-semibold">
+                <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-full text-white text-[13px] font-semibold">
                   {group.type === 'public' ? '🌍 Public' : '🔒 Private'}
                 </div>
               </div>
@@ -3341,17 +3325,17 @@ export const GroupsYouMayJoinCard: React.FC<{
                     <button
                       type="button"
                       onClick={() => handleGroupClick(group.id)}
-                      className="text-[#E4E6EB] font-semibold text-[15px] truncate w-full text-left hover:underline"
+                      className="text-[#E4E6EB] font-semibold text-[17px] truncate w-full text-left hover:underline"
                     >
                       {group.name}
                     </button>
-                    <div className="text-[#B0B3B8] text-[12px] truncate">
+                    <div className="text-[#B0B3B8] text-[13px] truncate">
                       {group.category}
                     </div>
                   </div>
                 </div>
 
-                <div className="text-[#B0B3B8] text-[12px] mb-3">
+                <div className="text-[#B0B3B8] text-[13px] mb-3">
                   <i className="fas fa-users mr-1"></i>
                   {group.members_count.toLocaleString()} members
                   {group.mutual_count > 0 && (
@@ -3360,12 +3344,12 @@ export const GroupsYouMayJoinCard: React.FC<{
                 </div>
 
                 {onProfileClick && (
-                  <div className="text-[#B0B3B8] text-[12px] mb-3">
+                  <div className="text-[#B0B3B8] text-[13px] mb-3">
                     Admin: {' '}
                     <button
                       type="button"
                       onClick={() => handleAdminClick(group.admin_id)}
-                      className="text-[#E4E6EB] hover:underline font-medium"
+                      className="text-[#E4E6EB] hover:underline font-medium text-[13px]"
                     >
                       View Admin
                     </button>
@@ -3373,7 +3357,7 @@ export const GroupsYouMayJoinCard: React.FC<{
                 )}
 
                 {group.description && (
-                  <div className="text-[#B0B3B8] text-[12px] mb-3 line-clamp-2">
+                  <div className="text-[#B0B3B8] text-[13px] mb-3 line-clamp-2">
                     {group.description}
                   </div>
                 )}
@@ -3381,26 +3365,26 @@ export const GroupsYouMayJoinCard: React.FC<{
                 {!currentUser ? (
                   <button
                     onClick={onLoginClick}
-                    className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                    className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[15px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
                   >
-                    <i className="fas fa-sign-in-alt text-[11px]"></i>
+                    <i className="fas fa-sign-in-alt text-[13px]"></i>
                     <span>Sign in</span>
                   </button>
                 ) : (
                   <button
                     onClick={() => handleJoin(group.id)}
                     disabled={joinLoading[group.id] || group.is_member}
-                    className={`w-full py-2.5 text-[13px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                    className={`w-full py-2.5 text-[15px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
                       group.is_member
                         ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                         : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
                     } disabled:opacity-70 disabled:cursor-not-allowed`}
                   >
                     {joinLoading[group.id] ? (
-                      <i className="fas fa-spinner fa-spin text-[11px]"></i>
+                      <i className="fas fa-spinner fa-spin text-[13px]"></i>
                     ) : (
                       <>
-                        <i className={`fas ${group.is_member ? 'fa-check' : 'fa-user-plus'} text-[11px]`}></i>
+                        <i className={`fas ${group.is_member ? 'fa-check' : 'fa-user-plus'} text-[13px]`}></i>
                         <span>{group.is_member ? 'Joined' : 'Join Group'}</span>
                       </>
                     )}
@@ -3717,14 +3701,14 @@ export const EventPost: React.FC<{
               />
               <div className="min-w-0">
                 <div className="flex items-center gap-1 flex-wrap">
-                  <h4 className="font-bold text-[#E4E6EB] text-[18.5px] truncate">
+                  <h4 className="font-bold text-[#E4E6EB] text-[20px] truncate">
                     {creator?.name || creator?.username || 'User'}
                   </h4>
                 </div>
-                <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[15px]">
                   <span>{formatRelativeTime(event.created_at)}</span>
                   <span>•</span>
-                  <i className="fas fa-globe-americas text-[12px]"></i>
+                  <i className="fas fa-globe-americas text-[14px]"></i>
                   <span>• created an event</span>
                 </div>
               </div>
@@ -3734,7 +3718,7 @@ export const EventPost: React.FC<{
               <button
                 onClick={handleFollowClick}
                 disabled={followLoading}
-                className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                className={`px-3 py-1.5 text-[15px] font-semibold rounded-lg transition-all duration-200 ml-2 ${
                   isFollowing 
                     ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                     : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -3773,10 +3757,10 @@ export const EventPost: React.FC<{
                   />
                   {dateObj && (
                     <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                      <div className="text-[#B0B3B8] text-[11px] font-black">
+                      <div className="text-[#B0B3B8] text-[13px] font-black">
                         {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
                       </div>
-                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">
+                      <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
                         {dateObj.getDate()}
                       </div>
                     </div>
@@ -3787,10 +3771,10 @@ export const EventPost: React.FC<{
                   <i className="fas fa-calendar text-white/30 text-5xl"></i>
                   {dateObj && (
                     <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                      <div className="text-[#B0B3B8] text-[11px] font-black">
+                      <div className="text-[#B0B3B8] text-[13px] font-black">
                         {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
                       </div>
-                      <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">
+                      <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
                         {dateObj.getDate()}
                       </div>
                     </div>
@@ -3799,19 +3783,19 @@ export const EventPost: React.FC<{
               )}
 
               <div className="p-4">
-                <div className="text-[#E4E6EB] font-black text-[20px] line-clamp-2">
+                <div className="text-[#E4E6EB] font-black text-[22px] line-clamp-2">
                   {event.title}
                 </div>
 
                 {event.description && (
-                  <div className="text-[#B0B3B8] text-[14px] mt-1 line-clamp-2">
+                  <div className="text-[#B0B3B8] text-[16px] mt-1 line-clamp-2">
                     {event.description}
                   </div>
                 )}
 
                 <div className="mt-3 space-y-2">
                   {event.event_date && (
-                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
                       <i className={`fas fa-calendar-alt ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"} w-4`}></i>
                       <span>
                         {formatEventDate()} at {formatEventTime()}
@@ -3819,12 +3803,12 @@ export const EventPost: React.FC<{
                     </div>
                   )}
                   {event.location && (
-                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
                       <i className="fas fa-map-marker-alt text-[#F02849] w-4"></i>
                       <span className="line-clamp-1">{event.location}</span>
                     </div>
                   )}
-                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[13px]">
+                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
                     <i className="fas fa-users text-[#45BD62] w-4"></i>
                     <span>{attendeesCount} attending • {interestedCount} interested</span>
                   </div>
@@ -3837,7 +3821,7 @@ export const EventPost: React.FC<{
                       e.stopPropagation(); 
                       handleRSVPClick('going'); 
                     }}
-                    className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
+                    className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${
                       isPast ? "opacity-50 cursor-not-allowed" : ""
                     } ${
                       rsvpStatus === 'going'
@@ -3858,7 +3842,7 @@ export const EventPost: React.FC<{
                       e.stopPropagation(); 
                       handleRSVPClick('interested'); 
                     }}
-                    className={`flex-1 h-11 rounded-lg font-bold transition-colors ${
+                    className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${
                       isPast ? "opacity-50 cursor-not-allowed" : ""
                     } ${
                       rsvpStatus === 'interested'
@@ -3891,8 +3875,8 @@ export const EventPost: React.FC<{
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
               onClick={handleOpenComments}
             >
-              <DiscussSignalIcon size={26} color="#1877F2" />
-              <span className="text-[17px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+              <DiscussSignalIcon size={28} color="#1877F2" />
+              <span className="text-[19px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
                 Discuss
               </span>
             </button>
@@ -3901,8 +3885,8 @@ export const EventPost: React.FC<{
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
               onClick={handleShare}
             >
-              <i className="fas fa-share text-[20px]"></i>
-              <span className="text-[17px] font-medium">Share</span>
+              <i className="fas fa-share text-[22px]"></i>
+              <span className="text-[19px] font-medium">Share</span>
             </button>
           </div>
         </div>
@@ -4095,8 +4079,8 @@ export const EventFeedCard: React.FC<{
             }}
           />
           <div className="min-w-0">
-            <div className="text-[#E4E6EB] font-bold truncate">{item.name}</div>
-            <div className="text-[#B0B3B8] text-xs">
+            <div className="text-[#E4E6EB] font-bold text-[20px] truncate">{item.name}</div>
+            <div className="text-[#B0B3B8] text-[15px]">
               {formatRelativeTime(item.created_at)} • created an event
             </div>
           </div>
@@ -4121,10 +4105,10 @@ export const EventFeedCard: React.FC<{
             />
             {dateObj && (
               <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                <div className="text-[#B0B3B8] text-[11px] font-black">
+                <div className="text-[#B0B3B8] text-[13px] font-black">
                   {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
                 </div>
-                <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">
+                <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
                   {dateObj.getDate()}
                 </div>
               </div>
@@ -4135,10 +4119,10 @@ export const EventFeedCard: React.FC<{
             <i className="fas fa-calendar text-[#1877F2] text-4xl opacity-60"></i>
             {dateObj && (
               <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                <div className="text-[#B0B3B8] text-[11px] font-black">
+                <div className="text-[#B0B3B8] text-[13px] font-black">
                   {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
                 </div>
-                <div className="text-[#E4E6EB] text-[20px] font-black leading-tight">
+                <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
                   {dateObj.getDate()}
                 </div>
               </div>
@@ -4147,17 +4131,17 @@ export const EventFeedCard: React.FC<{
         )}
 
         <div className="p-4" onClick={(e) => e.stopPropagation()}>
-          <div className="text-[#E4E6EB] font-black text-xl leading-tight">
+          <div className="text-[#E4E6EB] font-black text-[22px] leading-tight">
             {item.content}
           </div>
 
           {item.event_description ? (
-            <div className="text-[#B0B3B8] text-sm mt-2 line-clamp-2">
+            <div className="text-[#B0B3B8] text-[16px] mt-2 line-clamp-2">
               {item.event_description}
             </div>
           ) : null}
 
-          <div className="mt-3 space-y-2 text-[#B0B3B8] text-sm">
+          <div className="mt-3 space-y-2 text-[#B0B3B8] text-[15px]">
             {whenText ? (
               <div className="flex items-center gap-2">
                 <i className={`fas fa-clock ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"} w-5`}></i>
@@ -4179,7 +4163,7 @@ export const EventFeedCard: React.FC<{
           </div>
 
           {error && (
-            <div className="mt-2 text-sm text-red-500 bg-red-500/10 p-2 rounded-lg">
+            <div className="mt-2 text-[15px] text-red-500 bg-red-500/10 p-2 rounded-lg">
               {error}
             </div>
           )}
@@ -4191,7 +4175,7 @@ export const EventFeedCard: React.FC<{
                 e.stopPropagation();
                 rsvp("going");
               }}
-              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
+              className={`flex-1 py-2.5 rounded-lg font-bold text-[15px] disabled:opacity-60 transition-colors ${
                 isPast ? "opacity-50 cursor-not-allowed" : ""
               } ${
                 my === "going"
@@ -4212,7 +4196,7 @@ export const EventFeedCard: React.FC<{
                 e.stopPropagation();
                 rsvp("interested");
               }}
-              className={`flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-60 transition-colors ${
+              className={`flex-1 py-2.5 rounded-lg font-bold text-[15px] disabled:opacity-60 transition-colors ${
                 isPast ? "opacity-50 cursor-not-allowed" : ""
               } ${
                 my === "interested"
@@ -4552,17 +4536,17 @@ export const Post: React.FC<{
                 />
                 <div className="min-w-0">
                   <div className="flex items-center gap-1 flex-wrap">
-                    <h4 className="font-bold text-[#E4E6EB] text-[18.5px] cursor-pointer hover:underline truncate">
+                    <h4 className="font-bold text-[#E4E6EB] text-[20px] cursor-pointer hover:underline truncate">
                       {a.name || a.username || 'User'}
                     </h4>
                     {a.is_verified && (
-                      <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
+                      <i className="fas fa-check-circle text-[#1877F2] text-[15px]"></i>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
+                  <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[15px]">
                     <span>{createdAtLabel}</span>
                     <span>•</span>
-                    <i className="fas fa-globe-americas text-[12px]"></i>
+                    <i className="fas fa-globe-americas text-[14px]"></i>
                     {p.location && (
                       <>
                         <span>•</span>
@@ -4585,7 +4569,7 @@ export const Post: React.FC<{
                 <button
                   onClick={handleFollowClick}
                   disabled={followLoading}
-                  className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                  className={`px-3 py-1.5 text-[15px] font-semibold rounded-lg transition-all duration-200 ml-2 ${
                     isFollowing 
                       ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                       : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -4621,13 +4605,13 @@ export const Post: React.FC<{
 
           {isMarketplace && (
             <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
-              <span className="text-[#1877F2] font-semibold text-sm bg-[#1877F2]/10 px-2 py-1 rounded-full">
+              <span className="text-[#1877F2] font-semibold text-[15px] bg-[#1877F2]/10 px-2 py-1 rounded-full">
                 Marketplace
               </span>
               {loc && (
                 <div className="flex items-center gap-1 text-[#B0B3B8]">
-                  <i className="fas fa-map-marker-alt text-[12px] text-[#F02849]"></i>
-                  <span className="text-sm">{loc}</span>
+                  <i className="fas fa-map-marker-alt text-[14px] text-[#F02849]"></i>
+                  <span className="text-[15px]">{loc}</span>
                 </div>
               )}
             </div>
@@ -4641,7 +4625,7 @@ export const Post: React.FC<{
                 onProfileClick={onProfileClick}
                 onHashtagClick={onHashtagClick}
                 maxWords={14}
-                fontSizePx={21}
+                fontSizePx={23}
               />
             </div>
           )}
@@ -4655,10 +4639,10 @@ export const Post: React.FC<{
                   alt=""
                 />
                 <div className="flex-1 overflow-hidden">
-                  <div className="text-white font-bold truncate">
+                  <div className="text-white font-bold text-[17px] truncate">
                     {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
                   </div>
-                  <div className="text-[#B0B3B8] text-xs truncate">
+                  <div className="text-[#B0B3B8] text-[14px] truncate">
                     {isMusic ? song?.artist_name : podcast?.description}
                   </div>
                 </div>
@@ -4669,7 +4653,7 @@ export const Post: React.FC<{
                     e.stopPropagation();
                     onOpenAudio?.(isMusic ? song : podcast);
                   }}
-                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl"
+                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
                 >
                   Play
                 </button>
@@ -4695,13 +4679,13 @@ export const Post: React.FC<{
                 </div>
               )}
               <div className="p-4 bg-[#3A3B3C]">
-                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+                <div className="text-[#B0B3B8] text-[13px] uppercase font-bold mb-1">
                   {p.link_preview.domain}
                 </div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-2">
+                <div className="text-[#E4E6EB] font-bold text-[19px] mb-1 line-clamp-2">
                   {p.link_preview.title}
                 </div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-3">
+                <div className="text-[#B0B3B8] text-[16px] line-clamp-3">
                   {p.link_preview.description}
                 </div>
               </div>
@@ -4808,11 +4792,11 @@ export const Post: React.FC<{
                                   </div>
 
                                   <div className="flex-1 min-w-0">
-                                    <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-                                    <div className="text-[#B0B3B8] text-sm truncate">
+                                    <div className="text-[#E4E6EB] font-bold text-[17px]">Audio Track</div>
+                                    <div className="text-[#B0B3B8] text-[15px] truncate">
                                       {titleText}
                                     </div>
-                                    <div className="text-[#B0B3B8] text-xs truncate">
+                                    <div className="text-[#B0B3B8] text-[14px] truncate">
                                       {artistText}
                                     </div>
                                   </div>
@@ -4828,7 +4812,7 @@ export const Post: React.FC<{
                                         coverImage: cover || a.profile_image_url,
                                       })
                                     }
-                                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors flex-shrink-0"
+                                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors flex-shrink-0"
                                   >
                                     <i className="fas fa-play mr-1"></i> Play
                                   </button>
@@ -4841,8 +4825,8 @@ export const Post: React.FC<{
                             <div className="flex items-center gap-3">
                               <i className="fas fa-music text-[#1877F2] text-2xl"></i>
                               <div className="flex-1">
-                                <div className="text-[#E4E6EB] font-bold">Audio Track</div>
-                                <div className="text-[#B0B3B8] text-sm">
+                                <div className="text-[#E4E6EB] font-bold text-[17px]">Audio Track</div>
+                                <div className="text-[#B0B3B8] text-[15px]">
                                   {p.content || 'Listen to audio'}
                                 </div>
                               </div>
@@ -4857,7 +4841,7 @@ export const Post: React.FC<{
                                     coverImage: a.profile_image_url,
                                   })
                                 }
-                                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+                                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors"
                               >
                                 <i className="fas fa-play mr-1"></i> Play
                               </button>
@@ -4875,12 +4859,12 @@ export const Post: React.FC<{
           {isMarketplace && price && (
             <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
               <div className="flex items-center gap-1">
-                <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
-                <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
+                <span className="text-[#E4E6EB] text-[19px] font-bold">{currency}</span>
+                <span className="text-[#E4E6EB] text-[22px] font-bold">{price}</span>
               </div>
 
               <button
-                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-[15px] transition-colors shadow-sm"
                 onClick={(e) => {
                   e.stopPropagation();
                   if (productId) onViewProduct?.(productId);
@@ -4891,7 +4875,7 @@ export const Post: React.FC<{
             </div>
           )}
 
-          <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
+          <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {finalReactionCount > 0 && (
                 <div
@@ -4909,7 +4893,7 @@ export const Post: React.FC<{
                     {emojiList.slice(0, 2).map((e, i) => (
                       <span
                         key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
+                        className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
                         style={{ zIndex: 10 - i }}
                       >
                         {e}
@@ -4918,7 +4902,7 @@ export const Post: React.FC<{
                   </div>
                   
                   {reactionText && (
-                    <span className="text-[15px] text-[#E4E6EB] font-medium">
+                    <span className="text-[17px] text-[#E4E6EB] font-medium">
                       {reactionText}
                     </span>
                   )}
@@ -4928,13 +4912,13 @@ export const Post: React.FC<{
 
             <div className="flex gap-4">
               <span
-                className="hover:underline cursor-pointer"
+                className="hover:underline cursor-pointer text-[16px]"
                 onClick={() => handleOpenComments()}
               >
                 {formatCount(commentCount)} Discussions
               </span>
               {shareCount > 0 && (
-                <span className="hover:underline">
+                <span className="hover:underline text-[16px]">
                   {formatCount(shareCount)} Shares
                 </span>
               )}
@@ -4957,8 +4941,8 @@ export const Post: React.FC<{
                 handleOpenComments(e);
               }}
             >
-              <DiscussSignalIcon size={26} color="#1877F2" />
-              <span className="text-[17px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+              <DiscussSignalIcon size={28} color="#1877F2" />
+              <span className="text-[19px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
                 Discuss
               </span>
             </button>
@@ -4972,8 +4956,8 @@ export const Post: React.FC<{
                 setShowShareSheet(true);
               }}
             >
-              <i className="fas fa-share text-[20px]"></i>
-              <span className="text-[17px] font-medium">Share</span>
+              <i className="fas fa-share text-[22px]"></i>
+              <span className="text-[19px] font-medium">Share</span>
             </button>
             {pushButton && (
               <div className="ml-2">
@@ -5059,7 +5043,7 @@ export const CreatePost: React.FC<{
           className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
           onClick={onClick}
         >
-          <span className="text-[#B0B3B8] text-[17px] truncate">
+          <span className="text-[#B0B3B8] text-[19px] truncate">
             What's on your mind, {String((currentUser as any).name || '').split(' ')[0] || 'there'}?
           </span>
         </div>
@@ -5070,32 +5054,32 @@ export const CreatePost: React.FC<{
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onClick}
         >
-          <i className="fas fa-video text-[#F3425F] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Live Video</span>
+          <i className="fas fa-video text-[#F3425F] text-[24px]"></i>
+          <span className="text-[#B0B3B8] font-semibold text-[17px] hidden sm:block">Live Video</span>
         </div>
 
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onPhotoClick}
         >
-          <i className="fas fa-image text-[#45BD62] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Photo</span>
+          <i className="fas fa-image text-[#45BD62] text-[24px]"></i>
+          <span className="text-[#B0B3B8] font-semibold text-[17px] hidden sm:block">Photo</span>
         </div>
 
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onVideoClick}
         >
-          <i className="fas fa-camera text-[#F3425F] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Video</span>
+          <i className="fas fa-camera text-[#F3425F] text-[24px]"></i>
+          <span className="text-[#B0B3B8] font-semibold text-[17px] hidden sm:block">Video</span>
         </div>
 
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onCreateEventClick}
         >
-          <i className="fas fa-calendar-alt text-[#F7B928] text-[22px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[15px] hidden sm:block">Create Event</span>
+          <i className="fas fa-calendar-alt text-[#F7B928] text-[24px]"></i>
+          <span className="text-[#B0B3B8] font-semibold text-[17px] hidden sm:block">Create Event</span>
         </div>
       </div>
     </div>
@@ -5265,8 +5249,8 @@ export const CreatePostModal: React.FC<{
       className="flex items-center gap-3 p-3 hover:bg-[#3A3B3C] active:bg-[#3A3B3C] cursor-pointer transition-colors"
       onClick={onClick}
     >
-      <i className={`${icon} text-[24px] w-8 text-center`} style={{ color }}></i>
-      <span className="text-[#E4E6EB] text-[17px] font-medium">{label}</span>
+      <i className={`${icon} text-[26px] w-8 text-center`} style={{ color }}></i>
+      <span className="text-[#E4E6EB] text-[19px] font-medium">{label}</span>
     </div>
   );
 
@@ -5278,10 +5262,10 @@ export const CreatePostModal: React.FC<{
             className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
             onClick={() => setView('main')}
           ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">Tag People</h3>
+          <h3 className="text-[#E4E6EB] text-[21px] font-bold">Tag People</h3>
           <button
             onClick={() => setView('main')}
-            className="ml-auto text-[#1877F2] font-bold"
+            className="ml-auto text-[#1877F2] font-bold text-[17px]"
           >
             Done
           </button>
@@ -5308,7 +5292,7 @@ export const CreatePostModal: React.FC<{
                     className="w-10 h-10 rounded-full object-cover"
                     alt=""
                   />
-                  <span className="text-[#E4E6EB] font-semibold">{u.name || u.username || 'User'}</span>
+                  <span className="text-[#E4E6EB] font-semibold text-[17px]">{u.name || u.username || 'User'}</span>
                 </div>
                 {taggedUsers.includes(safeUserId(u)) && (
                   <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>
@@ -5328,14 +5312,14 @@ export const CreatePostModal: React.FC<{
             className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
             onClick={() => setView('main')}
           ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">How are you feeling?</h3>
+          <h3 className="text-[#E4E6EB] text-[21px] font-bold">How are you feeling?</h3>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-2">
           {FEELINGS.map((f) => (
             <div
               key={f}
-              className="p-3 bg-[#242526] rounded-lg text-center cursor-pointer hover:bg-[#3A3B3C] text-[#E4E6EB]"
+              className="p-3 bg-[#242526] rounded-lg text-center cursor-pointer hover:bg-[#3A3B3C] text-[#E4E6EB] text-[17px]"
               onClick={() => {
                 setFeeling(f);
                 setView('main');
@@ -5357,7 +5341,7 @@ export const CreatePostModal: React.FC<{
             className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
             onClick={() => setView('main')}
           ></i>
-          <h3 className="text-[#E4E6EB] text-lg font-bold">Search Location</h3>
+          <h3 className="text-[#E4E6EB] text-[21px] font-bold">Search Location</h3>
         </div>
 
         <div className="p-4 flex-1 flex flex-col overflow-hidden">
@@ -5365,7 +5349,7 @@ export const CreatePostModal: React.FC<{
             <input
               type="text"
               placeholder="Where are you?"
-              className="w-full bg-[#3A3B3C] rounded-xl p-4 pl-12 text-[#E4E6EB] outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+              className="w-full bg-[#3A3B3C] rounded-xl p-4 pl-12 text-[#E4E6EB] outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[17px]"
               autoFocus
               value={locQuery}
               onChange={onLocQueryChange}
@@ -5401,8 +5385,8 @@ export const CreatePostModal: React.FC<{
                         <i className="fas fa-location-dot text-[#E4E6EB]"></i>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-[#E4E6EB] font-bold block truncate">{title}</span>
-                        <span className="text-[#B0B3B8] text-xs block truncate">{display}</span>
+                        <span className="text-[#E4E6EB] font-bold block truncate text-[17px]">{title}</span>
+                        <span className="text-[#B0B3B8] text-[14px] block truncate">{display}</span>
                       </div>
                     </div>
                   );
@@ -5411,11 +5395,11 @@ export const CreatePostModal: React.FC<{
             ) : locQuery.length >= 3 && !locLoading ? (
               <div className="text-center py-10">
                 <i className="fas fa-map-marked-alt text-4xl text-[#3A3B3C] mb-4"></i>
-                <p className="text-[#B0B3B8]">No matching locations found.</p>
+                <p className="text-[#B0B3B8] text-[17px]">No matching locations found.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                <p className="text-xs font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
+                <p className="text-[14px] font-bold text-[#B0B3B8] uppercase tracking-widest mb-2 px-1">
                   Nearby Suggestions
                 </p>
                 {LOCATIONS_DATA.slice(0, 6).map((loc) => (
@@ -5430,7 +5414,7 @@ export const CreatePostModal: React.FC<{
                     <div className="w-10 h-10 bg-[#3A3B3C] rounded-full flex items-center justify-center text-xl">
                       {loc.flag}
                     </div>
-                    <span className="text-[#E4E6EB] font-semibold">{loc.name}</span>
+                    <span className="text-[#E4E6EB] font-semibold text-[17px]">{loc.name}</span>
                   </div>
                 ))}
               </div>
@@ -5449,12 +5433,12 @@ export const CreatePostModal: React.FC<{
             className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
             onClick={onClose}
           ></i>
-          <h3 className="text-[#E4E6EB] text-[20px] font-medium">Create Post</h3>
+          <h3 className="text-[#E4E6EB] text-[22px] font-medium">Create Post</h3>
         </div>
         <button
           onClick={submit}
           disabled={!canPost}
-          className="text-[#E4E6EB] font-bold text-[17px] disabled:text-[#B0B3B8]"
+          className="text-[#E4E6EB] font-bold text-[19px] disabled:text-[#B0B3B8]"
         >
           POST
         </button>
@@ -5470,19 +5454,19 @@ export const CreatePostModal: React.FC<{
             />
             <div>
               <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[17px]">
+                <h4 className="font-bold text-[#E4E6EB] text-[19px]">
                   {(currentUser as any).name || (currentUser as any).username || 'User'}
                 </h4>
-                {feeling && <span className="text-[#E4E6EB] text-[15px]"> is feeling {feeling}</span>}
-                {location && <span className="text-[#E4E6EB] text-[15px]"> in {location.split(',')[0]}</span>}
+                {feeling && <span className="text-[#E4E6EB] text-[17px]"> is feeling {feeling}</span>}
+                {location && <span className="text-[#E4E6EB] text-[17px]"> in {location.split(',')[0]}</span>}
                 {taggedUsers.length > 0 && (
-                  <span className="text-[#E4E6EB] text-[15px]"> with {taggedUsers.length} others</span>
+                  <span className="text-[#E4E6EB] text-[17px]"> with {taggedUsers.length} others</span>
                 )}
               </div>
 
               <div className="flex items-center gap-2 mt-0.5">
-                <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[13px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
-                  <i className="fas fa-globe-americas text-[12px]"></i>
+                <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[15px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
+                  <i className="fas fa-globe-americas text-[14px]"></i>
                   <span>{visibility}</span>
                 </div>
               </div>
@@ -5499,7 +5483,7 @@ export const CreatePostModal: React.FC<{
               className={`w-full bg-transparent outline-none text-[#E4E6EB] placeholder-[#B0B3B8] resize-none ${
                 activeBackground
                   ? 'text-center font-bold text-3xl drop-shadow-md placeholder-white/70'
-                  : 'text-[24px]'
+                  : 'text-[26px]'
               }`}
               placeholder="What's on your mind?"
               value={text}
@@ -5511,7 +5495,7 @@ export const CreatePostModal: React.FC<{
           {isFetchingPreview && (
             <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-lg flex items-center justify-center">
               <i className="fas fa-spinner fa-spin text-[#1877F2] mr-2"></i>
-              <span className="text-[#B0B3B8]">Loading link preview...</span>
+              <span className="text-[#B0B3B8] text-[17px]">Loading link preview...</span>
             </div>
           )}
 
@@ -5524,9 +5508,9 @@ export const CreatePostModal: React.FC<{
                 <img src={linkPreview.image} alt="Preview" className="w-full h-48 object-cover" />
               )}
               <div className="p-3 bg-[#3A3B3C]">
-                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">{linkPreview.domain}</div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-1">{linkPreview.title}</div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-2">{linkPreview.description}</div>
+                <div className="text-[#B0B3B8] text-[13px] uppercase font-bold mb-1">{linkPreview.domain}</div>
+                <div className="text-[#E4E6EB] font-bold text-[19px] mb-1 line-clamp-1">{linkPreview.title}</div>
+                <div className="text-[#B0B3B8] text-[16px] line-clamp-2">{linkPreview.description}</div>
               </div>
             </div>
           )}
@@ -5616,8 +5600,8 @@ export const CreatePostModal: React.FC<{
               if (onCreateEventClick) onCreateEventClick();
             }}
           >
-            <i className="fas fa-calendar-alt text-[24px] w-8 text-center" style={{ color: '#F7B928' }}></i>
-            <span className="text-[#E4E6EB] text-[17px] font-medium">Create Event</span>
+            <i className="fas fa-calendar-alt text-[26px] w-8 text-center" style={{ color: '#F7B928' }}></i>
+            <span className="text-[#E4E6EB] text-[19px] font-medium">Create Event</span>
           </div>
         </div>
       </div>
@@ -5626,7 +5610,7 @@ export const CreatePostModal: React.FC<{
         <button
           onClick={submit}
           disabled={!canPost}
-          className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors disabled:bg-[#3A3B3C] text-lg shadow-sm"
+          className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors disabled:bg-[#3A3B3C] text-[19px] shadow-sm"
         >
           POST
         </button>
@@ -6060,12 +6044,12 @@ export const CommentsSheet: React.FC<{
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 flex-wrap">
                 <span
-                  className="text-[#E4E6EB] font-bold text-[15px] cursor-pointer hover:underline"
+                  className="text-[#E4E6EB] font-bold text-[17px] cursor-pointer hover:underline"
                   onClick={() => a.uid && onProfileClick(a.uid)}
                 >
                   {a.name}
                 </span>
-                <span className="text-[#B0B3B8] text-[12px]">
+                <span className="text-[#B0B3B8] text-[14px]">
                   • {formatRelativeTime(comment.created_at || comment.createdAt || comment.timestamp)}
                 </span>
               </div>
@@ -6073,7 +6057,7 @@ export const CommentsSheet: React.FC<{
               {onFollow && currentUser && a.uid && !isCurrentUserComment && (
                 <button
                   onClick={(e) => handleFollowClick(e, a.uid)}
-                  className={`px-2 py-0.5 text-xs font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                  className={`px-2 py-0.5 text-[14px] font-semibold rounded-lg transition-all duration-200 ml-2 ${
                     isFollowing 
                       ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                       : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -6085,7 +6069,7 @@ export const CommentsSheet: React.FC<{
             </div>
           </div>
           
-          <div className="text-[#E4E6EB] text-[18px] font-bold whitespace-pre-wrap break-words mb-2">
+          <div className="text-[#E4E6EB] text-[20px] font-bold whitespace-pre-wrap break-words mb-2">
             <RichText
               text={String(comment.text || '')}
               users={users}
@@ -6097,7 +6081,7 @@ export const CommentsSheet: React.FC<{
           <div className="flex items-center gap-4">
             <button
               onClick={() => handleLikeComment(comment)}
-              className={`text-[13px] ${comment.liked_by_me ? 'text-[#1877F2] font-semibold' : 'text-[#B0B3B8] hover:text-[#E4E6EB]'}`}
+              className={`text-[15px] ${comment.liked_by_me ? 'text-[#1877F2] font-semibold' : 'text-[#B0B3B8] hover:text-[#E4E6EB]'}`}
             >
               {comment.liked_by_me ? 'Liked' : 'Like'}
             </button>
@@ -6111,12 +6095,12 @@ export const CommentsSheet: React.FC<{
                 inputRef.current?.focus();
                 setShowEmojiPicker(false);
               }}
-              className="text-[13px] text-[#B0B3B8] hover:text-[#E4E6EB]"
+              className="text-[15px] text-[#B0B3B8] hover:text-[#E4E6EB]"
             >
               Reply
             </button>
             {comment.likes_count > 0 && (
-              <span className="text-[13px] text-[#B0B3B8]">
+              <span className="text-[15px] text-[#B0B3B8]">
                 {formatCount(comment.likes_count)} like{comment.likes_count !== 1 ? 's' : ''}
               </span>
             )}
@@ -6138,16 +6122,16 @@ export const CommentsSheet: React.FC<{
           >
             <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
           </button>
-          <div className="text-[#E4E6EB] font-bold text-[20px]">Post</div>
+          <div className="text-[#E4E6EB] font-bold text-[22px]">Post</div>
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="text-[#B0B3B8] text-[14px]">
+          <div className="text-[#B0B3B8] text-[16px]">
             {formatCount(comments.length)} discussions
           </div>
           <button
             type="button"
-            className="text-[#1877F2] font-bold text-[15px] hover:underline"
+            className="text-[#1877F2] font-bold text-[17px] hover:underline"
             onClick={onClose}
           >
             See less
@@ -6170,21 +6154,21 @@ export const CommentsSheet: React.FC<{
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-[#E4E6EB] font-bold text-[17px] truncate cursor-pointer hover:underline"
+                  <div className="text-[#E4E6EB] font-bold text-[19px] truncate cursor-pointer hover:underline"
                     onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}>
                     {postAuthor?.name || postAuthor?.username || 'User'}
                   </div>
-                  <div className="text-[#B0B3B8] text-[13px] flex items-center gap-2">
+                  <div className="text-[#B0B3B8] text-[15px] flex items-center gap-2">
                     <span>{formatRelativeTime(p.created_at)}</span>
                     <span>•</span>
-                    <i className="fas fa-globe-americas text-[12px]"></i>
+                    <i className="fas fa-globe-americas text-[14px]"></i>
                   </div>
                 </div>
                 
                 {onFollow && currentUser && postAuthor?.id && safeUserId(postAuthor) !== safeUserId(currentUser) && (
                   <button
                     onClick={(e) => handleFollowClick(e, safeUserId(postAuthor))}
-                    className={`px-3 py-1 text-sm font-semibold rounded-lg transition-all duration-200 ${
+                    className={`px-3 py-1 text-[15px] font-semibold rounded-lg transition-all duration-200 ${
                       checkIsFollowing && checkIsFollowing(safeUserId(postAuthor))
                         ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                         : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -6204,7 +6188,7 @@ export const CommentsSheet: React.FC<{
                 users={users}
                 onProfileClick={onProfileClick}
                 onHashtagClick={onHashtagClick}
-                fontSizePx={21}
+                fontSizePx={23}
                 forceExpanded={true}
               />
             </div>
@@ -6235,12 +6219,12 @@ export const CommentsSheet: React.FC<{
           {isMarketplace && price && (
             <div className="mb-4 px-4 py-2 flex items-center justify-between bg-[#242526] border border-[#3E4042] rounded-lg">
               <div className="flex items-center gap-1">
-                <span className="text-[#E4E6EB] text-lg font-bold">{currency}</span>
-                <span className="text-[#E4E6EB] text-xl font-bold">{price}</span>
+                <span className="text-[#E4E6EB] text-[19px] font-bold">{currency}</span>
+                <span className="text-[#E4E6EB] text-[22px] font-bold">{price}</span>
               </div>
 
               <button
-                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-sm transition-colors shadow-sm"
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-[15px] transition-colors shadow-sm"
                 onClick={(e) => {
                   e.stopPropagation();
                   if (productId && onViewProductFromPost) onViewProductFromPost(productId);
@@ -6261,10 +6245,10 @@ export const CommentsSheet: React.FC<{
                   alt=""
                 />
                 <div className="flex-1 overflow-hidden">
-                  <div className="text-white font-bold truncate">
+                  <div className="text-white font-bold text-[17px] truncate">
                     {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
                   </div>
-                  <div className="text-[#B0B3B8] text-xs truncate">
+                  <div className="text-[#B0B3B8] text-[14px] truncate">
                     {isMusic ? song?.artist_name : podcast?.description}
                   </div>
                 </div>
@@ -6275,7 +6259,7 @@ export const CommentsSheet: React.FC<{
                     e.stopPropagation();
                     onOpenAudio?.(isMusic ? song : podcast);
                   }}
-                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl"
+                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
                 >
                   Play
                 </button>
@@ -6301,13 +6285,13 @@ export const CommentsSheet: React.FC<{
                 </div>
               )}
               <div className="p-4 bg-[#3A3B3C]">
-                <div className="text-[#B0B3B8] text-xs uppercase font-bold mb-1">
+                <div className="text-[#B0B3B8] text-[13px] uppercase font-bold mb-1">
                   {p.link_preview.domain}
                 </div>
-                <div className="text-[#E4E6EB] font-bold text-[17px] mb-1 line-clamp-2">
+                <div className="text-[#E4E6EB] font-bold text-[19px] mb-1 line-clamp-2">
                   {p.link_preview.title}
                 </div>
-                <div className="text-[#B0B3B8] text-[14px] line-clamp-3">
+                <div className="text-[#B0B3B8] text-[16px] line-clamp-3">
                   {p.link_preview.description}
                 </div>
               </div>
@@ -6349,14 +6333,14 @@ export const CommentsSheet: React.FC<{
 
           {!isMarketplace && mediaInfo.mediaUrl && mediaInfo.isAudio && (
             <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-xl">
-              <div className="text-[#E4E6EB] font-bold mb-3">Audio Track</div>
+              <div className="text-[#E4E6EB] font-bold text-[17px] mb-3">Audio Track</div>
               <audio controls className="w-full">
                 <source src={mediaInfo.mediaUrl} />
               </audio>
             </div>
           )}
 
-          <div className="flex items-center justify-between text-[#B0B3B8] text-[14px] pt-3 border-t border-[#3E4042]">
+          <div className="flex items-center justify-between text-[#B0B3B8] text-[16px] pt-3 border-t border-[#3E4042]">
             <div className="flex items-center gap-2">
               {!!p.reactions_count && <span>{formatCount(Number(p.reactions_count))} reactions</span>}
             </div>
@@ -6373,8 +6357,8 @@ export const CommentsSheet: React.FC<{
           {replyTo && (
             <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-[#B0B3B8] text-sm">Replying to</span>
-                <span className="text-[#1877F2] font-medium">
+                <span className="text-[#B0B3B8] text-[15px]">Replying to</span>
+                <span className="text-[#1877F2] font-medium text-[15px]">
                   {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
                 </span>
               </div>
@@ -6405,8 +6389,8 @@ export const CommentsSheet: React.FC<{
 
           {comments.length === 0 ? (
             <div className="text-center py-10">
-              <div className="text-[#B0B3B8] text-lg mb-2">No discussions yet</div>
-              <p className="text-[#B0B3B8] text-sm">Be the first to start a discussion!</p>
+              <div className="text-[#B0B3B8] text-[19px] mb-2">No discussions yet</div>
+              <p className="text-[#B0B3B8] text-[15px]">Be the first to start a discussion!</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -6424,7 +6408,7 @@ export const CommentsSheet: React.FC<{
                     {!isExpanded && hiddenCount > 0 && (
                       <button
                         type="button"
-                        className="ml-12 text-[#1877F2] font-bold text-[14px] hover:underline"
+                        className="ml-12 text-[#1877F2] font-bold text-[16px] hover:underline"
                         onClick={() => toggleThread(rootId, true)}
                       >
                         View previous {hiddenCount} repl{hiddenCount === 1 ? "y" : "ies"}
@@ -6441,7 +6425,7 @@ export const CommentsSheet: React.FC<{
                     {isExpanded && replies.length > MAX_PREVIEW && (
                       <button
                         type="button"
-                        className="ml-12 text-[#B0B3B8] text-[13px] hover:text-[#E4E6EB]"
+                        className="ml-12 text-[#B0B3B8] text-[15px] hover:text-[#E4E6EB]"
                         onClick={() => toggleThread(rootId, false)}
                       >
                         Hide replies
@@ -6468,7 +6452,7 @@ export const CommentsSheet: React.FC<{
             <input
               ref={inputRef}
               type="text"
-              className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[15px]"
+              className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[17px]"
               placeholder={replyTo ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...` : "Write a comment..."}
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -6476,7 +6460,7 @@ export const CommentsSheet: React.FC<{
           </div>
           <button 
             type="submit" 
-            className="text-[#1877F2] font-bold text-[15px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
+            className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
             disabled={!text.trim()}
           >
             Post
@@ -6508,10 +6492,10 @@ export const SuggestedProductsWidget: React.FC<{
     <div className="w-full">
       <div className="bg-[#242526] w-full p-4">
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-[#E4E6EB] font-bold text-lg">Marketplace for you</h3>
+          <h3 className="text-[#E4E6EB] font-bold text-[21px]">Marketplace for you</h3>
           <button
             onClick={onSeeAll}
-            className="text-[#1877F2] font-semibold text-[15px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
+            className="text-[#1877F2] font-semibold text-[17px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
           >
             See all
           </button>
@@ -6536,12 +6520,12 @@ export const SuggestedProductsWidget: React.FC<{
                     alt={product.title}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                   />
-                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-black text-white">
+                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[13px] font-black text-white">
                     {symbol}
                     {product.main_price}
                   </div>
                 </div>
-                <h4 className="text-[#E4E6EB] text-sm font-semibold truncate px-0.5 leading-tight">
+                <h4 className="text-[#E4E6EB] text-[15px] font-semibold truncate px-0.5 leading-tight">
                   {product.title}
                 </h4>
               </div>
