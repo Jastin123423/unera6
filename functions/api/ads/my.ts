@@ -19,8 +19,8 @@ const json = (data: any, status = 200) =>
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
-
     const userId = Number(request.headers.get("x-user-id"));
+    if (!userId) return json({ error: "Missing user id" }, 400);
 
     const ads = await env.DB.prepare(`
       SELECT *
@@ -31,9 +31,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       .bind(userId)
       .all();
 
-    return json({ ads: ads.results });
+    // Parse JSON fields for each ad
+    const parsedAds = ads.results.map((ad: any) => ({
+      ...ad,
+      media_urls: ad.media_urls ? JSON.parse(ad.media_urls) : [],
+      media_types: ad.media_types ? JSON.parse(ad.media_types) : [],
+      target_interests: ad.target_interests ? JSON.parse(ad.target_interests) : [],
+      // Ensure boolean fields
+      is_free: ad.is_free === 1
+    }));
+
+    return json({ ads: parsedAds });
 
   } catch (err) {
+    console.error("Error fetching ads:", err);
     return json({ error: String(err) }, 500);
   }
 };
