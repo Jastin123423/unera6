@@ -1,8 +1,8 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { User } from "../../types";
 
 interface SponsoredPostCardProps {
-  ad: any; // The ad object from the feed
+  ad: any;
   currentUser?: User | null;
   onProfileClick?: (id: number) => void;
   onAnalyticsClick?: (adId: number) => void;
@@ -20,7 +20,8 @@ export const SponsoredPostCard: React.FC<SponsoredPostCardProps> = ({
   onHideAd,
   onReportAd,
 }) => {
-  const [showMenu, setShowMenu] = React.useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
 
   const isOwner = currentUser?.id === ad.user_id || currentUser?.id === ad.advertiser_id;
@@ -48,7 +49,7 @@ export const SponsoredPostCard: React.FC<SponsoredPostCardProps> = ({
       body: JSON.stringify({
         ad_id: ad.id,
       }),
-    });
+    }).catch(err => console.error('Failed to record impression:', err));
   }, [ad.id, currentUser?.id]);
 
   const handleClick = () => {
@@ -61,10 +62,10 @@ export const SponsoredPostCard: React.FC<SponsoredPostCardProps> = ({
       body: JSON.stringify({
         ad_id: ad.id,
       }),
-    });
+    }).catch(err => console.error('Failed to record click:', err));
 
-    if (ad.cta_url) {
-      window.open(ad.cta_url, '_blank', 'noopener,noreferrer');
+    if (ad.destination_url || ad.cta_url) {
+      window.open(ad.destination_url || ad.cta_url, '_blank', 'noopener,noreferrer');
     }
     
     onClick?.();
@@ -78,6 +79,7 @@ export const SponsoredPostCard: React.FC<SponsoredPostCardProps> = ({
   // Get CTA button text based on type
   const getCTAText = () => {
     if (ad.cta_text) return ad.cta_text;
+    if (ad.cta_button) return ad.cta_button;
     
     switch(ad.cta_type) {
       case 'phone': return 'Call Now';
@@ -88,7 +90,19 @@ export const SponsoredPostCard: React.FC<SponsoredPostCardProps> = ({
   };
 
   // Get media URL (either from media_url or first item in media_urls)
-  const mediaUrl = ad.media_url || (ad.media_urls && ad.media_urls[0]) || null;
+  const mediaUrl = !imageError ? (ad.media_url || (ad.media_urls && ad.media_urls[0]) || null) : null;
+
+  // Get title/headline
+  const title = ad.headline || ad.title || ad.campaign_name || 'Sponsored';
+
+  // Get description
+  const description = ad.description || ad.content || '';
+
+  // Get advertiser name
+  const advertiserName = ad.name || ad.advertiser_name || 'Sponsored';
+
+  // Get profile image
+  const profileImage = ad.profile_image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(advertiserName)}&background=1877F2&color=fff`;
 
   return (
     <div className="bg-[#242526] rounded-xl shadow-sm mb-4 overflow-hidden border border-[#3E4042]">
@@ -96,21 +110,21 @@ export const SponsoredPostCard: React.FC<SponsoredPostCardProps> = ({
       <div className="flex items-center justify-between p-3">
         <div className="flex items-center">
           <img
-            src={ad.profile_image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(ad.name || 'Sponsored')}&background=1877F2&color=fff`}
+            src={profileImage}
             className="w-10 h-10 rounded-full mr-3 object-cover"
-            alt={ad.name}
+            alt={advertiserName}
             onError={(e) => {
               const target = e.currentTarget;
-              target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(ad.name || 'Sponsored')}&background=1877F2&color=fff`;
+              target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(advertiserName)}&background=1877F2&color=fff`;
             }}
           />
 
           <div>
             <div
-              className="font-semibold text-[#E4E6EB] cursor-pointer hover:underline"
+              className="font-semibold text-[#E4E6EB] text-[17px] cursor-pointer hover:underline"
               onClick={() => onProfileClick?.(ad.user_id || ad.advertiser_id)}
             >
-              {ad.name || 'Sponsored'}
+              {advertiserName}
               {ad.is_verified && (
                 <i className="fas fa-check-circle text-[#1877F2] text-[13px] ml-1"></i>
               )}
@@ -171,23 +185,23 @@ export const SponsoredPostCard: React.FC<SponsoredPostCardProps> = ({
         </div>
       </div>
 
-      {/* HEADLINE */}
-      {ad.headline && (
+      {/* TITLE */}
+      {title && (
         <div className="px-3 pb-1">
-          <h3 className="text-[#E4E6EB] font-bold text-[18px]">
-            {ad.headline}
+          <h3 className="text-[#E4E6EB] font-bold text-[20px]">
+            {title}
           </h3>
         </div>
       )}
 
-      {/* DESCRIPTION / CONTENT */}
-      {(ad.description || ad.content) && (
-        <div className="px-3 pb-3 text-[#B0B3B8] text-[15px]">
-          {ad.description || ad.content}
+      {/* DESCRIPTION */}
+      {description && (
+        <div className="px-3 pb-3 text-[#B0B3B8] text-[16px]">
+          {description}
         </div>
       )}
 
-      {/* MEDIA */}
+      {/* MEDIA - Only show if there's a valid image */}
       {mediaUrl && (
         <div 
           onClick={handleClick}
@@ -195,61 +209,68 @@ export const SponsoredPostCard: React.FC<SponsoredPostCardProps> = ({
         >
           <img
             src={mediaUrl}
-            alt={ad.headline || 'Sponsored ad'}
+            alt={title}
             className="w-full max-h-[400px] object-cover"
             loading="lazy"
-            onError={(e) => {
-              const target = e.currentTarget;
-              target.style.display = 'none';
-            }}
+            onError={() => setImageError(true)}
           />
         </div>
       )}
 
-      {/* CTA BUTTON - Show if there's a URL or if it's phone/email type */}
-      {(ad.cta_url || ad.cta_type === 'phone' || ad.cta_type === 'email') && (
+      {/* FALLBACK when no image - Show colored background with icon */}
+      {!mediaUrl && (
+        <div 
+          onClick={handleClick}
+          className="cursor-pointer bg-gradient-to-r from-[#1877F2] to-[#166FE5] h-32 flex items-center justify-center"
+        >
+          <i className="fas fa-ad text-white text-5xl opacity-50"></i>
+        </div>
+      )}
+
+      {/* CTA BUTTON - Always show if there's a URL or call-to-action */}
+      {(ad.destination_url || ad.cta_url || ad.cta_text || ad.cta_button) && (
         <div className="px-3 py-2">
           <button
             onClick={handleCTAClick}
-            className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-semibold py-2.5 rounded-lg transition-colors"
+            className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-semibold py-3 rounded-lg transition-colors text-[16px]"
           >
             {getCTAText()}
           </button>
         </div>
       )}
 
-      {/* ACTIONS */}
+      {/* ACTIONS - Facebook style actions */}
       <div className="flex justify-between text-sm px-4 py-3 border-t border-[#3E4042] text-[#B0B3B8]">
-        <button className="hover:text-[#E4E6EB] flex items-center gap-1">
-          <i className="far fa-thumbs-up"></i>
-          <span>Like</span>
+        <button className="hover:text-[#E4E6EB] flex items-center gap-1 flex-1 justify-center py-1">
+          <i className="far fa-thumbs-up text-[18px]"></i>
+          <span className="text-[15px]">Like</span>
         </button>
 
-        <button className="hover:text-[#E4E6EB] flex items-center gap-1">
-          <i className="far fa-comment"></i>
-          <span>Comment</span>
+        <button className="hover:text-[#E4E6EB] flex items-center gap-1 flex-1 justify-center py-1">
+          <i className="far fa-comment text-[18px]"></i>
+          <span className="text-[15px]">Comment</span>
         </button>
 
-        <button className="hover:text-[#E4E6EB] flex items-center gap-1">
-          <i className="far fa-share-square"></i>
-          <span>Share</span>
+        <button className="hover:text-[#E4E6EB] flex items-center gap-1 flex-1 justify-center py-1">
+          <i className="fas fa-share text-[18px]"></i>
+          <span className="text-[15px]">Share</span>
         </button>
 
         {/* Advertiser analytics */}
         {isOwner && (
           <button
             onClick={() => onAnalyticsClick?.(ad.id)}
-            className="text-green-500 font-semibold hover:text-green-400 flex items-center gap-1"
+            className="text-green-500 font-semibold hover:text-green-400 flex items-center gap-1 flex-1 justify-center py-1"
           >
-            <i className="fas fa-chart-bar"></i>
-            <span>Analytics</span>
+            <i className="fas fa-chart-bar text-[18px]"></i>
+            <span className="text-[15px]">Analytics</span>
           </button>
         )}
       </div>
 
       {/* Campaign info */}
       {ad.campaign_name && (
-        <div className="px-4 pb-2 text-[#B0B3B8] text-xs border-t border-[#3E4042] pt-2">
+        <div className="px-4 pb-2 text-[#B0B3B8] text-[13px] border-t border-[#3E4042] pt-2">
           <i className="fas fa-bullhorn mr-1"></i>
           Campaign: {ad.campaign_name}
           {ad.target_location && (
