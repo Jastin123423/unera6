@@ -1,27 +1,22 @@
-
 import React, { useState } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faUpload,
-  faImage,
-  faVideo,
-  faMapMarkerAlt,
-  faCalendar,
-  faLink,
-  faFont,
-  faMousePointer,
-  faCheckCircle,
-  faTimes,
-  faDollarSign,
-  faSpinner
-} from '@fortawesome/free-solid-svg-icons';
 import { AdType, CTAButton, Post } from '../types';
-import AdPreview from './AdPreview';
 
 interface AdCreatorProps {
   onSuccess: () => void;
   userPosts?: Post[]; // Pass user's posts to select from
-  onCreateCampaign: (postId: number, budget: number, days: number) => Promise<boolean>;
+  onCreateCampaign: (adData: {
+    postId: number;
+    title: string;
+    description: string;
+    budget: number;
+    days: number;
+    bidPerClick: number;
+    targetCountry: string;
+    targetCity: string;
+    targetAgeMin: number;
+    targetAgeMax: number;
+    mediaUrl?: string;
+  }) => Promise<boolean>;
 }
 
 const CTA_OPTIONS: CTAButton[] = ['Learn More', 'Subscribe', 'See More', 'Watch More', 'Shop Now', 'Sign Up', 'Contact Us'];
@@ -30,15 +25,16 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
   const [step, setStep] = useState(1);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [formData, setFormData] = useState({
-    name: '',
-    type: 'image' as AdType,
-    mediaUrl: '',
+    title: '',
     description: '',
-    link: '',
-    cta: 'Learn More' as CTAButton,
-    location: '',
     budget: 5,
     days: 7,
+    bidPerClick: 0.02,
+    targetCountry: '',
+    targetCity: '',
+    targetAgeMin: 18,
+    targetAgeMax: 65,
+    mediaUrl: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -51,7 +47,19 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
     if (!selectedPost) return;
     
     setIsSubmitting(true);
-    const success = await onCreateCampaign(selectedPost.id, formData.budget, formData.days);
+    const success = await onCreateCampaign({
+      postId: selectedPost.id,
+      title: formData.title,
+      description: formData.description,
+      budget: formData.budget,
+      days: formData.days,
+      bidPerClick: formData.bidPerClick,
+      targetCountry: formData.targetCountry,
+      targetCity: formData.targetCity,
+      targetAgeMin: formData.targetAgeMin,
+      targetAgeMax: formData.targetAgeMax,
+      mediaUrl: selectedPost.media_url || formData.mediaUrl,
+    });
     setIsSubmitting(false);
     
     if (success) {
@@ -66,10 +74,9 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
     setSelectedPost(post);
     setFormData({
       ...formData,
-      name: post.content?.substring(0, 30) || 'New Campaign',
-      type: post.type === 'video' ? 'video' : 'image',
-      mediaUrl: post.media_url || '',
+      title: post.content?.substring(0, 50) || 'New Campaign',
       description: post.content || '',
+      mediaUrl: post.media_url || '',
     });
     setStep(2);
   };
@@ -89,7 +96,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
                 step === s ? 'bg-blue-600 text-white' : step > s ? 'bg-emerald-500 text-white' : 'bg-zinc-800 text-zinc-500'
               }`}
             >
-              {step > s ? <FontAwesomeIcon icon={faCheckCircle} className="w-4 h-4 md:w-5 md:h-5" /> : s}
+              {step > s ? <i className="fas fa-check w-4 h-4 md:w-5 md:h-5"></i> : s}
             </div>
           ))}
         </div>
@@ -103,7 +110,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
             {userPosts.length === 0 ? (
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
                 <div className="w-16 h-16 mx-auto mb-4 bg-zinc-800 rounded-full flex items-center justify-center">
-                  <FontAwesomeIcon icon={faImage} className="w-8 h-8 text-zinc-600" />
+                  <i className="fas fa-image text-3xl text-zinc-600"></i>
                 </div>
                 <p className="text-zinc-400">No posts yet</p>
                 <p className="text-zinc-600 text-sm mt-1">Create a post first to boost it</p>
@@ -142,76 +149,53 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
           <form onSubmit={handleSubmit} className="space-y-6 animate-in fade-in duration-300">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="space-y-6">
+                {/* Campaign Title */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                    <FontAwesomeIcon icon={faFont} className="w-4 h-4" /> Campaign Name
+                    <i className="fas fa-heading w-4 h-4"></i> Campaign Title
                   </label>
                   <input 
                     type="text"
                     required
                     placeholder="Summer Sale 2024"
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm md:text-base"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   />
                 </div>
 
+                {/* Description */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                    <FontAwesomeIcon icon={faLink} className="w-4 h-4" /> Destination Link
+                    <i className="fas fa-align-left w-4 h-4"></i> Description
                   </label>
-                  <input 
-                    type="url"
+                  <textarea 
                     required
-                    placeholder="https://yourwebsite.com"
+                    rows={3}
+                    placeholder="Describe your campaign..."
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm md:text-base"
-                    value={formData.link}
-                    onChange={(e) => setFormData({ ...formData, link: e.target.value })}
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                    <FontAwesomeIcon icon={faMousePointer} className="w-4 h-4" /> Call to Action
-                  </label>
-                  <select 
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all appearance-none text-sm md:text-base"
-                    value={formData.cta}
-                    onChange={(e) => setFormData({ ...formData, cta: e.target.value as CTAButton })}
-                  >
-                    {CTA_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                    <FontAwesomeIcon icon={faMapMarkerAlt} className="w-4 h-4" /> Target Location
-                  </label>
-                  <input 
-                    type="text"
-                    required
-                    placeholder="e.g. United States, London, Global"
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm md:text-base"
-                    value={formData.location}
-                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                  />
-                </div>
-
+                {/* Budget & Duration */}
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                      <FontAwesomeIcon icon={faDollarSign} className="w-4 h-4" /> Budget ($)
+                      <i className="fas fa-dollar-sign w-4 h-4"></i> Total Budget ($)
                     </label>
                     <div className="flex items-center gap-4">
                       <input 
                         type="range"
                         min="1"
-                        max="100"
+                        max="1000"
+                        step="1"
                         className="flex-1 h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
                         value={formData.budget}
                         onChange={(e) => setFormData({ ...formData, budget: parseInt(e.target.value) })}
                       />
-                      <span className="bg-zinc-900 px-3 md:px-4 py-2 rounded-lg border border-zinc-800 text-white font-bold w-16 text-center">
+                      <span className="bg-zinc-900 px-3 md:px-4 py-2 rounded-lg border border-zinc-800 text-white font-bold w-20 text-center">
                         ${formData.budget}
                       </span>
                     </div>
@@ -219,13 +203,13 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
 
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                      <FontAwesomeIcon icon={faCalendar} className="w-4 h-4" /> Duration (Days)
+                      <i className="fas fa-calendar w-4 h-4"></i> Duration (Days)
                     </label>
                     <div className="flex items-center gap-4">
                       <input 
                         type="range"
                         min="1"
-                        max="30"
+                        max="90"
                         className="flex-1 h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
                         value={formData.days}
                         onChange={(e) => setFormData({ ...formData, days: parseInt(e.target.value) })}
@@ -235,12 +219,116 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
                       </span>
                     </div>
                   </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                      <i className="fas fa-mouse-pointer w-4 h-4"></i> Bid Per Click ($)
+                    </label>
+                    <div className="flex items-center gap-4">
+                      <input 
+                        type="range"
+                        min="0.01"
+                        max="5"
+                        step="0.01"
+                        className="flex-1 h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        value={formData.bidPerClick}
+                        onChange={(e) => setFormData({ ...formData, bidPerClick: parseFloat(e.target.value) })}
+                      />
+                      <span className="bg-zinc-900 px-3 md:px-4 py-2 rounded-lg border border-zinc-800 text-white font-bold w-20 text-center">
+                        ${formData.bidPerClick.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Targeting */}
+                <div className="space-y-4">
+                  <h4 className="text-white font-semibold">Targeting</h4>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-300">Country</label>
+                      <input 
+                        type="text"
+                        placeholder="e.g. Tanzania"
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        value={formData.targetCountry}
+                        onChange={(e) => setFormData({ ...formData, targetCountry: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-300">City</label>
+                      <input 
+                        type="text"
+                        placeholder="e.g. Dar es Salaam"
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        value={formData.targetCity}
+                        onChange={(e) => setFormData({ ...formData, targetCity: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-300">Min Age</label>
+                      <input 
+                        type="number"
+                        min="13"
+                        max="100"
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        value={formData.targetAgeMin}
+                        onChange={(e) => setFormData({ ...formData, targetAgeMin: parseInt(e.target.value) })}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-300">Max Age</label>
+                      <input 
+                        type="number"
+                        min="13"
+                        max="100"
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        value={formData.targetAgeMax}
+                        onChange={(e) => setFormData({ ...formData, targetAgeMax: parseInt(e.target.value) })}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div>
                 <label className="text-sm font-medium text-zinc-300 mb-3 block">Preview</label>
-                <AdPreview data={formData} />
+                <div className="bg-white rounded-xl overflow-hidden shadow-2xl">
+                  {/* Ad Preview Header */}
+                  <div className="p-3 flex items-center gap-2 border-b">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-xs font-bold">
+                      Ad
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-black">{formData.title || 'Campaign Title'}</p>
+                      <p className="text-[10px] text-zinc-500">Sponsored</p>
+                    </div>
+                  </div>
+                  
+                  {/* Preview Media */}
+                  <div className="aspect-square bg-zinc-100">
+                    {selectedPost.media_url ? (
+                      <img src={selectedPost.media_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50">
+                        <i className="fas fa-ad text-4xl text-zinc-300"></i>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Preview Description */}
+                  <div className="p-3">
+                    <p className="text-xs text-black line-clamp-2">
+                      {formData.description || 'Your ad description will appear here'}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -269,29 +357,30 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
               <p className="text-zinc-400">Review your ad settings before launching.</p>
             </div>
             
-            <div className="flex justify-center">
-              <AdPreview data={formData} isFullView />
-            </div>
-
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider">Campaign Name</p>
-                  <p className="text-white font-medium">{formData.name}</p>
+                  <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider">Campaign Title</p>
+                  <p className="text-white font-medium">{formData.title}</p>
                 </div>
                 <div>
                   <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider">Budget & Duration</p>
                   <p className="text-white font-medium">${formData.budget} • {formData.days} days</p>
                 </div>
                 <div>
-                  <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider">Target Location</p>
-                  <p className="text-white font-medium">{formData.location}</p>
+                  <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider">Bid Per Click</p>
+                  <p className="text-white font-medium">${formData.bidPerClick.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider">Call to Action</p>
-                  <p className="text-white font-medium">{formData.cta}</p>
+                  <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider">Target Location</p>
+                  <p className="text-white font-medium">{formData.targetCountry || 'Any'} {formData.targetCity && `• ${formData.targetCity}`}</p>
+                </div>
+                <div>
+                  <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider">Target Age</p>
+                  <p className="text-white font-medium">{formData.targetAgeMin} - {formData.targetAgeMax} years</p>
                 </div>
               </div>
+              
               <div className="pt-2 border-t border-zinc-800">
                 <p className="text-zinc-500 uppercase text-[10px] font-bold tracking-wider mb-1">Total Cost</p>
                 <p className="text-2xl font-bold text-white">${formData.budget * formData.days}</p>
@@ -313,7 +402,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
               >
                 {isSubmitting ? (
                   <>
-                    <FontAwesomeIcon icon={faSpinner} className="w-5 h-5 animate-spin" />
+                    <i className="fas fa-spinner fa-spin w-5 h-5"></i>
                     <span>Launching...</span>
                   </>
                 ) : (
@@ -327,7 +416,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign 
         {step === 4 && (
           <div className="flex flex-col items-center justify-center text-center space-y-6 py-12 md:py-20 animate-in zoom-in-95 duration-500">
             <div className="w-20 h-20 md:w-24 md:h-24 bg-emerald-500 rounded-full flex items-center justify-center shadow-xl shadow-emerald-900/40">
-              <FontAwesomeIcon icon={faCheckCircle} className="w-10 h-10 md:w-12 md:h-12 text-white" />
+              <i className="fas fa-check-circle text-4xl md:text-5xl text-white"></i>
             </div>
             <div>
               <h3 className="text-2xl md:text-3xl font-bold text-white">Campaign Launched!</h3>
