@@ -925,7 +925,7 @@ const ExpandableRichText: React.FC<{
   onProfileClick,
   onHashtagClick,
   maxWords = 14,
-  fontSizePx = 23, // Increased from 21px to 23px
+  fontSizePx = 23,
   forceExpanded = false,
 }) => {
   const [expanded, setExpanded] = useState(false);
@@ -1199,7 +1199,7 @@ export const ReactionButton: React.FC<{
               {activeReaction.icon}
             </span>
             <span
-              className="text-[19px] font-medium transition-colors duration-300"
+              className="text-[19px] font-bold transition-colors duration-300"
               style={{ color: activeReaction.color }}
             >
               React
@@ -1210,7 +1210,7 @@ export const ReactionButton: React.FC<{
             <span className="flex items-center justify-center -mt-[1px]">
               <SparkReactIcon size={28} />
             </span>
-            <span className="text-[19px] font-medium text-[#B0B3B8]">React</span>
+            <span className="text-[19px] font-bold text-[#B0B3B8]">React</span>
           </>
         )}
       </button>
@@ -1974,7 +1974,7 @@ export const GalleryViewer: React.FC<{
             onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}
           >
             <DiscussSignalIcon size={28} color="#1877F2" />
-            <span className="text-[19px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+            <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
               Discuss
             </span>
           </button>
@@ -1983,7 +1983,7 @@ export const GalleryViewer: React.FC<{
             onClick={() => (currentUser ? onShare() : alert("Please login to share posts."))}
           >
             <i className="fas fa-share text-[22px]"></i>
-            <span className="text-[19px] font-medium">Share</span>
+            <span className="text-[19px] font-bold">Share</span>
           </button>
         </div>
       </div>
@@ -2011,6 +2011,65 @@ export const ShareBottomSheet: React.FC<{
   const [isAnimating, setIsAnimating] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+
+  // Helper function to get the correct share endpoint based on post type
+  const getShareEndpoint = () => {
+    const p = post as any;
+    
+    if (p.source === 'event' || p.item_type === 'event') {
+      return '/api/events/share';
+    }
+    else if (p.source === 'group_post' || p.item_type === 'group_post') {
+      return '/api/groups/posts/share';
+    }
+    else if (p.source === 'product' || p.item_type === 'product') {
+      return '/api/products/share';
+    }
+    else if (p.source === 'reel' || p.item_type === 'reel') {
+      return '/api/reels/share';
+    }
+    else if (p.source === 'song' || p.item_type === 'song') {
+      return '/api/songs/share';
+    }
+    else if (p.source === 'podcast' || p.item_type === 'podcast') {
+      return '/api/podcasts/share';
+    }
+    else {
+      return '/api/posts/share';
+    }
+  };
+
+  // Helper function to get the correct share payload based on post type
+  const getSharePayload = (destination: string) => {
+    const p = post as any;
+    const base = {
+      user_id: currentUser?.id,
+      destination: destination,
+      shared_at: new Date().toISOString()
+    };
+    
+    if (p.source === 'event' || p.item_type === 'event') {
+      return { ...base, event_id: p.event_id || p.id };
+    }
+    else if (p.source === 'group_post' || p.item_type === 'group_post') {
+      return { ...base, post_id: p.id, group_id: p.group_id };
+    }
+    else if (p.source === 'product' || p.item_type === 'product') {
+      return { ...base, product_id: p.product_id || p.id };
+    }
+    else if (p.source === 'reel' || p.item_type === 'reel') {
+      return { ...base, reel_id: p.reel_id || p.id };
+    }
+    else if (p.source === 'song' || p.item_type === 'song') {
+      return { ...base, song_id: p.song_id2 || p.id };
+    }
+    else if (p.source === 'podcast' || p.item_type === 'podcast') {
+      return { ...base, podcast_id: p.podcast_id || p.id };
+    }
+    else {
+      return { ...base, post_id: p.id };
+    }
+  };
 
   useEffect(() => {
     const handleBackdropClick = (e: MouseEvent) => {
@@ -2057,14 +2116,10 @@ export const ShareBottomSheet: React.FC<{
     }
 
     try {
-      const payload = {
-        post_id: post.id,
-        user_id: currentUser.id,
-        destination,
-        shared_at: new Date().toISOString(),
-      };
+      const endpoint = getShareEndpoint();
+      const payload = getSharePayload(destination);
 
-      const response = await apiFetch('/api/posts/share', {
+      const response = await apiFetch(endpoint, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
@@ -2663,7 +2718,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
                 <button
                   type="button"
                   onClick={() => handleProfileClick(user.id)}
-                  className="text-[#E4E6EB] font-semibold text-[17px] truncate block w-full hover:underline"
+                  className="text-[#E4E6EB] font-bold text-[17px] truncate block w-full hover:underline"
                 >
                   {user.name}
                 </button>
@@ -2683,7 +2738,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
               {!currentUser ? (
                 <button
                   onClick={onLoginClick}
-                  className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[15px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                  className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[15px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
                 >
                   <i className="fas fa-sign-in-alt text-[13px]"></i>
                   <span>Sign in</span>
@@ -2692,7 +2747,7 @@ export const PeopleYouMayKnowGrid: React.FC<{
                 <button
                   onClick={() => handleFollow(user.id)}
                   disabled={followLoading[user.id]}
-                  className={`w-full py-2.5 text-[15px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                  className={`w-full py-2.5 text-[15px] font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
                     user.is_following
                       ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                       : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -3325,7 +3380,7 @@ export const GroupsYouMayJoinCard: React.FC<{
                     <button
                       type="button"
                       onClick={() => handleGroupClick(group.id)}
-                      className="text-[#E4E6EB] font-semibold text-[17px] truncate w-full text-left hover:underline"
+                      className="text-[#E4E6EB] font-bold text-[17px] truncate w-full text-left hover:underline"
                     >
                       {group.name}
                     </button>
@@ -3365,7 +3420,7 @@ export const GroupsYouMayJoinCard: React.FC<{
                 {!currentUser ? (
                   <button
                     onClick={onLoginClick}
-                    className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[15px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                    className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[15px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
                   >
                     <i className="fas fa-sign-in-alt text-[13px]"></i>
                     <span>Sign in</span>
@@ -3374,7 +3429,7 @@ export const GroupsYouMayJoinCard: React.FC<{
                   <button
                     onClick={() => handleJoin(group.id)}
                     disabled={joinLoading[group.id] || group.is_member}
-                    className={`w-full py-2.5 text-[15px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                    className={`w-full py-2.5 text-[15px] font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
                       group.is_member
                         ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                         : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -3645,9 +3700,31 @@ export const EventPost: React.FC<{
     }
   };
 
-  const handleReact = (type: ReactionType) => {
-    if (onReact && event.id) {
+  const getReactionEndpoint = () => {
+    if (event.id) {
+      return `/api/events/${event.id}/react`;
+    }
+    return null;
+  };
+
+  const handleReact = async (type: ReactionType) => {
+    if (!currentUser || !event.id || !onReact) return;
+    
+    const endpoint = getReactionEndpoint();
+    if (!endpoint) return;
+
+    try {
+      await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: currentUser.id,
+          type: type
+        })
+      });
+      
       onReact(event.id, type);
+    } catch (error) {
+      console.error('Failed to react to event:', error);
     }
   };
 
@@ -3718,7 +3795,7 @@ export const EventPost: React.FC<{
               <button
                 onClick={handleFollowClick}
                 disabled={followLoading}
-                className={`px-3 py-1.5 text-[15px] font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                className={`px-3 py-1.5 text-[15px] font-bold rounded-lg transition-all duration-200 ml-2 ${
                   isFollowing 
                     ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                     : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -3876,7 +3953,7 @@ export const EventPost: React.FC<{
               onClick={handleOpenComments}
             >
               <DiscussSignalIcon size={28} color="#1877F2" />
-              <span className="text-[19px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+              <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
                 Discuss
               </span>
             </button>
@@ -3886,7 +3963,7 @@ export const EventPost: React.FC<{
               onClick={handleShare}
             >
               <i className="fas fa-share text-[22px]"></i>
-              <span className="text-[19px] font-medium">Share</span>
+              <span className="text-[19px] font-bold">Share</span>
             </button>
           </div>
         </div>
@@ -3904,7 +3981,10 @@ export const EventPost: React.FC<{
             content: event.title,
             description: event.description,
             media_url: event.cover_url,
-            created_at: event.created_at
+            created_at: event.created_at,
+            source: 'event',
+            item_type: 'event',
+            event_id: event.id
           }}
           currentUser={currentUser}
           users={users}
@@ -4468,6 +4548,50 @@ export const Post: React.FC<{
     }
   };
 
+  const getReactionEndpoint = (item: any) => {
+    if (item.source === 'group_post' || item.item_type === 'group_post') {
+      return `/api/groups/${item.group_id}/posts/${item.id}/react`;
+    }
+    else if (item.source === 'product' || item.item_type === 'product') {
+      return `/api/products/${item.product_id || item.id}/react`;
+    }
+    else if (item.source === 'reel' || item.item_type === 'reel') {
+      return `/api/reels/${item.reel_id || item.id}/react`;
+    }
+    else if (item.source === 'song' || item.item_type === 'song') {
+      return `/api/songs/${item.song_id2 || item.id}/react`;
+    }
+    else if (item.source === 'podcast' || item.item_type === 'podcast') {
+      return `/api/podcasts/${item.podcast_id || item.id}/react`;
+    }
+    else {
+      return `/api/posts/${item.id}/react`;
+    }
+  };
+
+  const handleReactClick = async (type: ReactionType) => {
+    if (!currentUser) {
+      alert('Please login to react.');
+      return;
+    }
+
+    const endpoint = getReactionEndpoint(p);
+    
+    try {
+      await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: currentUser.id,
+          type: type
+        })
+      });
+      
+      onReact(postId, type);
+    } catch (error) {
+      console.error('Failed to react:', error);
+    }
+  };
+
   const openGallery = (urls: string[], index: number) => {
     setGalleryUrls(urls);
     setGalleryIndex(index);
@@ -4569,7 +4693,7 @@ export const Post: React.FC<{
                 <button
                   onClick={handleFollowClick}
                   disabled={followLoading}
-                  className={`px-3 py-1.5 text-[15px] font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                  className={`px-3 py-1.5 text-[15px] font-bold rounded-lg transition-all duration-200 ml-2 ${
                     isFollowing 
                       ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                       : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -4605,7 +4729,7 @@ export const Post: React.FC<{
 
           {isMarketplace && (
             <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
-              <span className="text-[#1877F2] font-semibold text-[15px] bg-[#1877F2]/10 px-2 py-1 rounded-full">
+              <span className="text-[#1877F2] font-bold text-[15px] bg-[#1877F2]/10 px-2 py-1 rounded-full">
                 Marketplace
               </span>
               {loc && (
@@ -4702,18 +4826,133 @@ export const Post: React.FC<{
           )}
 
           {isMarketplace ? (
-            mpImages.length > 0 ? (
-              <div className="w-full">
-                <div className="w-full bg-black">
-                  <MediaGrid
-                    media={mpImages.map(url => ({ url }))}
-                    onOpen={(url, index) => {
-                      openGallery(mpImages, index);
+            <>
+              {mpImages.length > 0 ? (
+                <div className="w-full">
+                  <div className="w-full bg-black">
+                    <MediaGrid
+                      media={mpImages.map(url => ({ url }))}
+                      onOpen={(url, index) => {
+                        openGallery(mpImages, index);
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              
+              {/* Product price and view button */}
+              {price && (
+                <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[#E4E6EB] text-[19px] font-bold">{currency}</span>
+                    <span className="text-[#E4E6EB] text-[22px] font-bold">{price}</span>
+                  </div>
+
+                  <button
+                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (productId) onViewProduct?.(productId);
                     }}
-                  />
+                  >
+                    View product
+                  </button>
+                </div>
+              )}
+
+              {/* Reactions count row */}
+              <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+                <div className="flex items-center gap-2">
+                  {finalReactionCount > 0 && (
+                    <div
+                      className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onOpenReactions) {
+                          onOpenReactions(postId);
+                        } else {
+                          setShowReactionsSheet(true);
+                        }
+                      }}
+                    >
+                      <div className="flex -space-x-2">
+                        {emojiList.slice(0, 2).map((e, i) => (
+                          <span
+                            key={i}
+                            className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                            style={{ zIndex: 10 - i }}
+                          >
+                            {e}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      {reactionText && (
+                        <span className="text-[17px] text-[#E4E6EB] font-bold">
+                          {reactionText}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-4">
+                  <span
+                    className="hover:underline cursor-pointer text-[16px]"
+                    onClick={() => handleOpenComments()}
+                  >
+                    {formatCount(commentCount)} Discussions
+                  </span>
+                  {shareCount > 0 && (
+                    <span className="hover:underline text-[16px]">
+                      {formatCount(shareCount)} Shares
+                    </span>
+                  )}
                 </div>
               </div>
-            ) : null
+
+              {/* Actions row */}
+              <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+                <ReactionButton
+                  currentUserReactions={finalMyReaction}
+                  reactionCount={finalReactionCount}
+                  onReact={handleReactClick}
+                  isGuest={!currentUser}
+                />
+                <button
+                  type="button"
+                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleOpenComments(e);
+                  }}
+                >
+                  <DiscussSignalIcon size={28} color="#1877F2" />
+                  <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                    Discuss
+                  </span>
+                </button>
+                <button
+                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                  onClick={() => {
+                    if (!currentUser) {
+                      alert('Please login to share posts.');
+                      return;
+                    }
+                    setShowShareSheet(true);
+                  }}
+                >
+                  <i className="fas fa-share text-[22px]"></i>
+                  <span className="text-[19px] font-bold">Share</span>
+                </button>
+                {pushButton && (
+                  <div className="ml-2">
+                    {pushButton}
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
             <>
               {!p.background && imageMedia.length > 0 && (
@@ -4853,118 +5092,101 @@ export const Post: React.FC<{
                   })()}
                 </div>
               )}
-            </>
-          )}
 
-          {isMarketplace && price && (
-            <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
-              <div className="flex items-center gap-1">
-                <span className="text-[#E4E6EB] text-[19px] font-bold">{currency}</span>
-                <span className="text-[#E4E6EB] text-[22px] font-bold">{price}</span>
-              </div>
+              {/* Reactions count row */}
+              <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+                <div className="flex items-center gap-2">
+                  {finalReactionCount > 0 && (
+                    <div
+                      className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onOpenReactions) {
+                          onOpenReactions(postId);
+                        } else {
+                          setShowReactionsSheet(true);
+                        }
+                      }}
+                    >
+                      <div className="flex -space-x-2">
+                        {emojiList.slice(0, 2).map((e, i) => (
+                          <span
+                            key={i}
+                            className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                            style={{ zIndex: 10 - i }}
+                          >
+                            {e}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      {reactionText && (
+                        <span className="text-[17px] text-[#E4E6EB] font-bold">
+                          {reactionText}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-              <button
-                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-[15px] transition-colors shadow-sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (productId) onViewProduct?.(productId);
-                }}
-              >
-                View product
-              </button>
-            </div>
-          )}
-
-          <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
-            <div className="flex items-center gap-2">
-              {finalReactionCount > 0 && (
-                <div
-                  className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onOpenReactions) {
-                      onOpenReactions(postId);
-                    } else {
-                      setShowReactionsSheet(true);
-                    }
-                  }}
-                >
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  
-                  {reactionText && (
-                    <span className="text-[17px] text-[#E4E6EB] font-medium">
-                      {reactionText}
+                <div className="flex gap-4">
+                  <span
+                    className="hover:underline cursor-pointer text-[16px]"
+                    onClick={() => handleOpenComments()}
+                  >
+                    {formatCount(commentCount)} Discussions
+                  </span>
+                  {shareCount > 0 && (
+                    <span className="hover:underline text-[16px]">
+                      {formatCount(shareCount)} Shares
                     </span>
                   )}
                 </div>
-              )}
-            </div>
-
-            <div className="flex gap-4">
-              <span
-                className="hover:underline cursor-pointer text-[16px]"
-                onClick={() => handleOpenComments()}
-              >
-                {formatCount(commentCount)} Discussions
-              </span>
-              {shareCount > 0 && (
-                <span className="hover:underline text-[16px]">
-                  {formatCount(shareCount)} Shares
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-            <ReactionButton
-              currentUserReactions={finalMyReaction}
-              reactionCount={finalReactionCount}
-              onReact={(type) => onReact(postId, type)}
-              isGuest={!currentUser}
-            />
-            <button
-              type="button"
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleOpenComments(e);
-              }}
-            >
-              <DiscussSignalIcon size={28} color="#1877F2" />
-              <span className="text-[19px] font-medium text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-                Discuss
-              </span>
-            </button>
-            <button
-              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => {
-                if (!currentUser) {
-                  alert('Please login to share posts.');
-                  return;
-                }
-                setShowShareSheet(true);
-              }}
-            >
-              <i className="fas fa-share text-[22px]"></i>
-              <span className="text-[19px] font-medium">Share</span>
-            </button>
-            {pushButton && (
-              <div className="ml-2">
-                {pushButton}
               </div>
-            )}
-          </div>
+
+              {/* Actions row */}
+              <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+                <ReactionButton
+                  currentUserReactions={finalMyReaction}
+                  reactionCount={finalReactionCount}
+                  onReact={handleReactClick}
+                  isGuest={!currentUser}
+                />
+                <button
+                  type="button"
+                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleOpenComments(e);
+                  }}
+                >
+                  <DiscussSignalIcon size={28} color="#1877F2" />
+                  <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                    Discuss
+                  </span>
+                </button>
+                <button
+                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                  onClick={() => {
+                    if (!currentUser) {
+                      alert('Please login to share posts.');
+                      return;
+                    }
+                    setShowShareSheet(true);
+                  }}
+                >
+                  <i className="fas fa-share text-[22px]"></i>
+                  <span className="text-[19px] font-bold">Share</span>
+                </button>
+                {pushButton && (
+                  <div className="ml-2">
+                    {pushButton}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
@@ -4973,7 +5195,13 @@ export const Post: React.FC<{
       <ShareBottomSheet
         isOpen={showShareSheet}
         onClose={() => setShowShareSheet(false)}
-        post={p}
+        post={{
+          ...p,
+          source: isMarketplace ? 'product' : (isGroupPost ? 'group_post' : 'post'),
+          item_type: isMarketplace ? 'product' : (isGroupPost ? 'group_post' : 'post'),
+          product_id: productId,
+          group_id: groupId
+        }}
         currentUser={currentUser}
         users={users}
         groups={groups}
@@ -5055,7 +5283,7 @@ export const CreatePost: React.FC<{
           onClick={onClick}
         >
           <i className="fas fa-video text-[#F3425F] text-[24px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[17px] hidden sm:block">Live Video</span>
+          <span className="text-[#B0B3B8] font-bold text-[17px] hidden sm:block">Live Video</span>
         </div>
 
         <div
@@ -5063,7 +5291,7 @@ export const CreatePost: React.FC<{
           onClick={onPhotoClick}
         >
           <i className="fas fa-image text-[#45BD62] text-[24px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[17px] hidden sm:block">Photo</span>
+          <span className="text-[#B0B3B8] font-bold text-[17px] hidden sm:block">Photo</span>
         </div>
 
         <div
@@ -5071,7 +5299,7 @@ export const CreatePost: React.FC<{
           onClick={onVideoClick}
         >
           <i className="fas fa-camera text-[#F3425F] text-[24px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[17px] hidden sm:block">Video</span>
+          <span className="text-[#B0B3B8] font-bold text-[17px] hidden sm:block">Video</span>
         </div>
 
         <div
@@ -5079,7 +5307,7 @@ export const CreatePost: React.FC<{
           onClick={onCreateEventClick}
         >
           <i className="fas fa-calendar-alt text-[#F7B928] text-[24px]"></i>
-          <span className="text-[#B0B3B8] font-semibold text-[17px] hidden sm:block">Create Event</span>
+          <span className="text-[#B0B3B8] font-bold text-[17px] hidden sm:block">Create Event</span>
         </div>
       </div>
     </div>
@@ -5250,7 +5478,7 @@ export const CreatePostModal: React.FC<{
       onClick={onClick}
     >
       <i className={`${icon} text-[26px] w-8 text-center`} style={{ color }}></i>
-      <span className="text-[#E4E6EB] text-[19px] font-medium">{label}</span>
+      <span className="text-[#E4E6EB] text-[19px] font-bold">{label}</span>
     </div>
   );
 
@@ -5292,7 +5520,7 @@ export const CreatePostModal: React.FC<{
                     className="w-10 h-10 rounded-full object-cover"
                     alt=""
                   />
-                  <span className="text-[#E4E6EB] font-semibold text-[17px]">{u.name || u.username || 'User'}</span>
+                  <span className="text-[#E4E6EB] font-bold text-[17px]">{u.name || u.username || 'User'}</span>
                 </div>
                 {taggedUsers.includes(safeUserId(u)) && (
                   <i className="fas fa-check-circle text-[#1877F2] text-xl"></i>
@@ -5414,7 +5642,7 @@ export const CreatePostModal: React.FC<{
                     <div className="w-10 h-10 bg-[#3A3B3C] rounded-full flex items-center justify-center text-xl">
                       {loc.flag}
                     </div>
-                    <span className="text-[#E4E6EB] font-semibold text-[17px]">{loc.name}</span>
+                    <span className="text-[#E4E6EB] font-bold text-[17px]">{loc.name}</span>
                   </div>
                 ))}
               </div>
@@ -5433,7 +5661,7 @@ export const CreatePostModal: React.FC<{
             className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
             onClick={onClose}
           ></i>
-          <h3 className="text-[#E4E6EB] text-[22px] font-medium">Create Post</h3>
+          <h3 className="text-[#E4E6EB] text-[22px] font-bold">Create Post</h3>
         </div>
         <button
           onClick={submit}
@@ -5465,7 +5693,7 @@ export const CreatePostModal: React.FC<{
               </div>
 
               <div className="flex items-center gap-2 mt-0.5">
-                <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[15px] font-semibold text-[#E4E6EB] border border-[#3E4042]">
+                <div className="bg-[#3A3B3C] rounded-md px-2 py-1 inline-flex items-center gap-1 text-[15px] font-bold text-[#E4E6EB] border border-[#3E4042]">
                   <i className="fas fa-globe-americas text-[14px]"></i>
                   <span>{visibility}</span>
                 </div>
@@ -5601,7 +5829,7 @@ export const CreatePostModal: React.FC<{
             }}
           >
             <i className="fas fa-calendar-alt text-[26px] w-8 text-center" style={{ color: '#F7B928' }}></i>
-            <span className="text-[#E4E6EB] text-[19px] font-medium">Create Event</span>
+            <span className="text-[#E4E6EB] text-[19px] font-bold">Create Event</span>
           </div>
         </div>
       </div>
@@ -5693,6 +5921,129 @@ export const CommentsSheet: React.FC<{
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+
+  // Helper function to get the correct comment endpoint based on post type
+  const getCommentEndpoint = () => {
+    const p = post as any;
+    const viewerId = safeUserId(currentUser);
+    
+    if (p.source === 'event' || p.item_type === 'event') {
+      const eventId = p.event_id || p.id;
+      return `/api/events/${eventId}/comments?viewerId=${viewerId}`;
+    }
+    else if (p.source === 'group_post' || p.item_type === 'group_post') {
+      const groupId = p.group_id;
+      const postId = p.id;
+      return `/api/groups/${groupId}/posts/${postId}/comments?viewerId=${viewerId}`;
+    }
+    else if (p.source === 'product' || p.item_type === 'product') {
+      const productId = p.product_id || p.id;
+      return `/api/products/${productId}/reviews?viewerId=${viewerId}`;
+    }
+    else if (p.source === 'reel' || p.item_type === 'reel') {
+      const reelId = p.reel_id || p.id;
+      return `/api/reels/${reelId}/comments?viewerId=${viewerId}`;
+    }
+    else if (p.source === 'song' || p.item_type === 'song') {
+      const songId = p.song_id2 || p.id;
+      return `/api/songs/${songId}/comments?viewerId=${viewerId}`;
+    }
+    else if (p.source === 'podcast' || p.item_type === 'podcast') {
+      const podcastId = p.podcast_id || p.id;
+      return `/api/podcasts/${podcastId}/comments?viewerId=${viewerId}`;
+    }
+    else {
+      return `/api/posts/${p.id}/comments?viewerId=${viewerId}`;
+    }
+  };
+
+  // Helper function for adding new comments
+  const getAddCommentEndpoint = () => {
+    const p = post as any;
+    
+    if (p.source === 'event' || p.item_type === 'event') {
+      const eventId = p.event_id || p.id;
+      return `/api/events/${eventId}/comment`;
+    }
+    else if (p.source === 'group_post' || p.item_type === 'group_post') {
+      const groupId = p.group_id;
+      const postId = p.id;
+      return `/api/groups/${groupId}/posts/${postId}/comment`;
+    }
+    else if (p.source === 'product' || p.item_type === 'product') {
+      const productId = p.product_id || p.id;
+      return `/api/products/${productId}/review`;
+    }
+    else if (p.source === 'reel' || p.item_type === 'reel') {
+      const reelId = p.reel_id || p.id;
+      return `/api/reels/${reelId}/comment`;
+    }
+    else if (p.source === 'song' || p.item_type === 'song') {
+      const songId = p.song_id2 || p.id;
+      return `/api/songs/${songId}/comment`;
+    }
+    else if (p.source === 'podcast' || p.item_type === 'podcast') {
+      const podcastId = p.podcast_id || p.id;
+      return `/api/podcasts/${podcastId}/comment`;
+    }
+    else {
+      return `/api/posts/${p.id}/comment`;
+    }
+  };
+
+  // Helper function for replies
+  const getReplyEndpoint = (commentId: number) => {
+    const p = post as any;
+    
+    if (p.source === 'event' || p.item_type === 'event') {
+      return `/api/event-comments/${commentId}/reply`;
+    }
+    else if (p.source === 'group_post' || p.item_type === 'group_post') {
+      return `/api/group-post-comments/${commentId}/reply`;
+    }
+    else if (p.source === 'product' || p.item_type === 'product') {
+      return `/api/product-reviews/${commentId}/reply`;
+    }
+    else if (p.source === 'reel' || p.item_type === 'reel') {
+      return `/api/reel-comments/${commentId}/reply`;
+    }
+    else if (p.source === 'song' || p.item_type === 'song') {
+      return `/api/song-comments/${commentId}/reply`;
+    }
+    else if (p.source === 'podcast' || p.item_type === 'podcast') {
+      return `/api/podcast-comments/${commentId}/reply`;
+    }
+    else {
+      return `/api/comments/${commentId}/reply`;
+    }
+  };
+
+  // Helper function for likes
+  const getLikeEndpoint = (commentId: number) => {
+    const p = post as any;
+    
+    if (p.source === 'event' || p.item_type === 'event') {
+      return `/api/event-comments/${commentId}/like`;
+    }
+    else if (p.source === 'group_post' || p.item_type === 'group_post') {
+      return `/api/group-post-comments/${commentId}/like`;
+    }
+    else if (p.source === 'product' || p.item_type === 'product') {
+      return `/api/product-reviews/${commentId}/like`;
+    }
+    else if (p.source === 'reel' || p.item_type === 'reel') {
+      return `/api/reel-comments/${commentId}/like`;
+    }
+    else if (p.source === 'song' || p.item_type === 'song') {
+      return `/api/song-comments/${commentId}/like`;
+    }
+    else if (p.source === 'podcast' || p.item_type === 'podcast') {
+      return `/api/podcast-comments/${commentId}/like`;
+    }
+    else {
+      return `/api/comments/${commentId}/like`;
+    }
+  };
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -5803,7 +6154,8 @@ export const CommentsSheet: React.FC<{
     }
 
     try {
-      await apiFetch(`/api/comments/${comment.id}/like`, {
+      const endpoint = getLikeEndpoint(comment.id);
+      await apiFetch(endpoint, {
         method: 'POST',
         body: JSON.stringify({ user_id: safeUserId(currentUser) }),
       });
@@ -5837,14 +6189,7 @@ export const CommentsSheet: React.FC<{
     abortControllerRef.current = new AbortController();
     
     try {
-      const viewerId = safeUserId(currentUser);
-      let endpoint = `/api/posts/${postId}/comments?viewerId=${viewerId}`;
-      
-      // If it's a group post, use group comments endpoint
-      if (isGroupPost && groupId) {
-        endpoint = `/api/groups/${groupId}/posts/${postId}/comments?viewerId=${viewerId}`;
-      }
-      
+      const endpoint = getCommentEndpoint();
       const data = await apiFetch(endpoint);
       const arr = Array.isArray(data) ? data : data?.comments || [];
       
@@ -5891,7 +6236,7 @@ export const CommentsSheet: React.FC<{
         abortControllerRef.current.abort();
       }
     };
-  }, [postId, p.comments, isGroupPost, groupId]);
+  }, [postId, p.comments]);
 
   const idKey = (v: any) => String(v ?? '').trim();
 
@@ -5966,18 +6311,12 @@ export const CommentsSheet: React.FC<{
     }
 
     try {
-      // Determine the correct endpoint based on post type and whether it's a reply
       let endpoint = '';
       
       if (replyTo) {
-        // This is a reply to an existing comment
-        endpoint = `/api/comments/${replyTo.id}/reply`;
-      } else if (isGroupPost && groupId) {
-        // This is a new comment on a group post
-        endpoint = `/api/groups/${groupId}/posts/${postId}/comment`;
+        endpoint = getReplyEndpoint(replyTo.id);
       } else {
-        // This is a new comment on a regular post
-        endpoint = `/api/posts/${postId}/comment`;
+        endpoint = getAddCommentEndpoint();
       }
 
       await apiFetch(endpoint, {
@@ -6044,7 +6383,7 @@ export const CommentsSheet: React.FC<{
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 flex-wrap">
                 <span
-                  className="text-[#E4E6EB] font-bold text-[17px] cursor-pointer hover:underline"
+                  className="text-[#E4E6EB] font-bold text-[18px] cursor-pointer hover:underline"
                   onClick={() => a.uid && onProfileClick(a.uid)}
                 >
                   {a.name}
@@ -6057,7 +6396,7 @@ export const CommentsSheet: React.FC<{
               {onFollow && currentUser && a.uid && !isCurrentUserComment && (
                 <button
                   onClick={(e) => handleFollowClick(e, a.uid)}
-                  className={`px-2 py-0.5 text-[14px] font-semibold rounded-lg transition-all duration-200 ml-2 ${
+                  className={`px-2 py-0.5 text-[14px] font-bold rounded-lg transition-all duration-200 ml-2 ${
                     isFollowing 
                       ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                       : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -6069,7 +6408,7 @@ export const CommentsSheet: React.FC<{
             </div>
           </div>
           
-          <div className="text-[#E4E6EB] text-[20px] font-bold whitespace-pre-wrap break-words mb-2">
+          <div className="text-[#E4E6EB] text-[19px] font-bold whitespace-pre-wrap break-words mb-2">
             <RichText
               text={String(comment.text || '')}
               users={users}
@@ -6081,7 +6420,7 @@ export const CommentsSheet: React.FC<{
           <div className="flex items-center gap-4">
             <button
               onClick={() => handleLikeComment(comment)}
-              className={`text-[15px] ${comment.liked_by_me ? 'text-[#1877F2] font-semibold' : 'text-[#B0B3B8] hover:text-[#E4E6EB]'}`}
+              className={`text-[15px] ${comment.liked_by_me ? 'text-[#1877F2] font-bold' : 'text-[#B0B3B8] hover:text-[#E4E6EB]'}`}
             >
               {comment.liked_by_me ? 'Liked' : 'Like'}
             </button>
@@ -6154,7 +6493,7 @@ export const CommentsSheet: React.FC<{
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-[#E4E6EB] font-bold text-[19px] truncate cursor-pointer hover:underline"
+                  <div className="text-[#E4E6EB] font-bold text-[20px] truncate cursor-pointer hover:underline"
                     onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}>
                     {postAuthor?.name || postAuthor?.username || 'User'}
                   </div>
@@ -6168,7 +6507,7 @@ export const CommentsSheet: React.FC<{
                 {onFollow && currentUser && postAuthor?.id && safeUserId(postAuthor) !== safeUserId(currentUser) && (
                   <button
                     onClick={(e) => handleFollowClick(e, safeUserId(postAuthor))}
-                    className={`px-3 py-1 text-[15px] font-semibold rounded-lg transition-all duration-200 ${
+                    className={`px-3 py-1 text-[15px] font-bold rounded-lg transition-all duration-200 ${
                       checkIsFollowing && checkIsFollowing(safeUserId(postAuthor))
                         ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' 
                         : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
@@ -6224,7 +6563,7 @@ export const CommentsSheet: React.FC<{
               </div>
 
               <button
-                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-semibold text-[15px] transition-colors shadow-sm"
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
                 onClick={(e) => {
                   e.stopPropagation();
                   if (productId && onViewProductFromPost) onViewProductFromPost(productId);
@@ -6358,7 +6697,7 @@ export const CommentsSheet: React.FC<{
             <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-[#B0B3B8] text-[15px]">Replying to</span>
-                <span className="text-[#1877F2] font-medium text-[15px]">
+                <span className="text-[#1877F2] font-bold text-[15px]">
                   {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
                 </span>
               </div>
@@ -6495,7 +6834,7 @@ export const SuggestedProductsWidget: React.FC<{
           <h3 className="text-[#E4E6EB] font-bold text-[21px]">Marketplace for you</h3>
           <button
             onClick={onSeeAll}
-            className="text-[#1877F2] font-semibold text-[17px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
+            className="text-[#1877F2] font-bold text-[17px] hover:bg-[#3A3B3C] px-2 py-1 rounded transition-colors"
           >
             See all
           </button>
@@ -6520,12 +6859,12 @@ export const SuggestedProductsWidget: React.FC<{
                     alt={product.title}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                   />
-                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[13px] font-black text-white">
+                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[13px] font-bold text-white">
                     {symbol}
                     {product.main_price}
                   </div>
                 </div>
-                <h4 className="text-[#E4E6EB] text-[15px] font-semibold truncate px-0.5 leading-tight">
+                <h4 className="text-[#E4E6EB] text-[15px] font-bold truncate px-0.5 leading-tight">
                   {product.title}
                 </h4>
               </div>
