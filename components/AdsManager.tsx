@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faEye,
@@ -24,28 +24,19 @@ interface AdsManagerProps {
   onPause: (id: number) => Promise<boolean>;
   onResume: (id: number) => Promise<boolean>;
   onDelete: (id: number) => Promise<boolean>;
-  loading?: boolean;
 }
 
-export default function AdsManager({ 
-  campaigns, 
-  onUpdate, 
-  onPause, 
-  onResume, 
-  onDelete, 
-  loading 
-}: AdsManagerProps) {
+export default function AdsManager({ campaigns, onUpdate, onPause, onResume, onDelete }: AdsManagerProps) {
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'paused' | 'completed'>('all');
 
-  // Memoize filtered campaigns to prevent unnecessary recalculations
+  // Memoize filtered campaigns to prevent recalculation
   const filteredCampaigns = useMemo(() => {
     if (filter === 'all') return campaigns;
     return campaigns.filter(ad => ad.status === filter);
   }, [campaigns, filter]);
 
-  // Memoize handlers to prevent recreation on each render
-  const handleToggle = useCallback(async (ad: AdCampaign) => {
+  const handleToggle = async (ad: AdCampaign) => {
     setLoadingId(ad.id);
     const success = ad.status === 'active' 
       ? await onPause(ad.id)
@@ -55,9 +46,9 @@ export default function AdsManager({
       onUpdate();
     }
     setLoadingId(null);
-  }, [onPause, onResume, onUpdate]);
+  };
 
-  const handleDelete = useCallback(async (id: number) => {
+  const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this campaign?')) return;
     
     setLoadingId(id);
@@ -66,65 +57,44 @@ export default function AdsManager({
       onUpdate();
     }
     setLoadingId(null);
-  }, [onDelete, onUpdate]);
+  };
 
-  const formatDate = useCallback((dateString?: string) => {
+  const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString();
-  }, []);
+  };
 
-  const calculateCTR = useCallback((ad: AdCampaign) => {
+  const calculateCTR = (ad: AdCampaign) => {
     if (ad.analytics.impressions === 0) return '0.0';
     return ((ad.analytics.clicks / ad.analytics.impressions) * 100).toFixed(1);
-  }, []);
+  };
 
-  const getStatusColor = useCallback((status: string) => {
+  const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'bg-emerald-500/10 text-emerald-500';
       case 'paused': return 'bg-amber-500/10 text-amber-500';
       case 'completed': return 'bg-zinc-500/10 text-zinc-500';
       default: return 'bg-zinc-500/10 text-zinc-500';
     }
-  }, []);
+  };
 
-  // Get media URL from campaign
-  const getMediaUrl = useCallback((ad: AdCampaign) => {
+  // Helper to get media URL
+  const getMediaUrl = (ad: AdCampaign) => {
     if (ad.mediaUrl) return ad.mediaUrl;
-    if (ad.media_urls && Array.isArray(ad.media_urls) && ad.media_urls.length > 0) {
-      return ad.media_urls[0];
-    }
+    if (ad.media_urls && ad.media_urls.length > 0) return ad.media_urls[0];
     return null;
-  }, []);
+  };
 
-  // Check if campaign has video
-  const isVideo = useCallback((ad: AdCampaign) => {
+  // Check if video
+  const isVideoAd = (ad: AdCampaign) => {
     return ad.type === 'video' || 
-           (ad.media_types && Array.isArray(ad.media_types) && ad.media_types[0]?.startsWith('video/'));
-  }, []);
-
-  // Get media count
-  const getMediaCount = useCallback((ad: AdCampaign) => {
-    if (ad.media_urls && Array.isArray(ad.media_urls)) {
-      return ad.media_urls.length;
-    }
-    return ad.mediaUrl ? 1 : 0;
-  }, []);
+           (ad.media_types && ad.media_types[0]?.startsWith('video/'));
+  };
 
   // Get display name
-  const getDisplayName = useCallback((ad: AdCampaign) => {
+  const getDisplayName = (ad: AdCampaign) => {
     return ad.name || ad.campaign_name || `Campaign #${ad.id}`;
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
-        <div className="flex flex-col items-center gap-4">
-          <FontAwesomeIcon icon={faSpinner} className="w-10 h-10 text-blue-500 animate-spin" />
-          <p className="text-zinc-400">Loading your campaigns...</p>
-        </div>
-      </div>
-    );
-  }
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -180,8 +150,7 @@ export default function AdsManager({
               ) : (
                 filteredCampaigns.map((ad) => {
                   const mediaUrl = getMediaUrl(ad);
-                  const mediaCount = getMediaCount(ad);
-                  const isVideoAd = isVideo(ad);
+                  const isVideo = isVideoAd(ad);
                   const displayName = getDisplayName(ad);
                   
                   return (
@@ -192,13 +161,12 @@ export default function AdsManager({
                           <div className="w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0 border border-zinc-700 relative">
                             {mediaUrl ? (
                               <>
-                                {isVideoAd ? (
+                                {isVideo ? (
                                   <div className="relative w-full h-full">
                                     <img 
                                       src={mediaUrl} 
                                       alt={displayName}
                                       className="w-full h-full object-cover"
-                                      loading="lazy"
                                     />
                                     <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
                                       <FontAwesomeIcon icon={faPlayCircle} className="w-4 h-4 text-white" />
@@ -209,28 +177,18 @@ export default function AdsManager({
                                     src={mediaUrl} 
                                     alt={displayName}
                                     className="w-full h-full object-cover"
-                                    loading="lazy"
-                                    onError={(e) => {
-                                      e.currentTarget.src = 'https://via.placeholder.com/48x48?text=Ad';
-                                    }}
                                   />
                                 )}
-                                {mediaCount > 1 && (
-                                  <div className="absolute bottom-0 right-0 bg-black/60 text-[8px] text-white px-1 rounded-tl">
-                                    +{mediaCount-1}
-                                  </div>
-                                )}
+                                {/* Free badge */}
+                                <div className="absolute top-0 left-0 bg-emerald-500/90 text-[8px] text-white px-1 rounded-br">
+                                  FREE
+                                </div>
                               </>
                             ) : (
                               <div className="w-full h-full bg-gradient-to-br from-blue-600/20 to-emerald-600/20 flex items-center justify-center">
                                 <FontAwesomeIcon icon={faFileImage} className="w-4 h-4 text-zinc-500" />
                               </div>
                             )}
-                            
-                            {/* Free badge */}
-                            <div className="absolute top-0 left-0 bg-emerald-500/90 text-[8px] text-white px-1 rounded-br">
-                              FREE
-                            </div>
                           </div>
                           
                           {/* Campaign Info */}
@@ -240,9 +198,6 @@ export default function AdsManager({
                               <FontAwesomeIcon icon={faCalendar} className="w-3 h-3" />
                               <span>{formatDate(ad.start_date)} - {formatDate(ad.end_date)}</span>
                             </div>
-                            {ad.description && (
-                              <p className="text-xs text-zinc-600 truncate max-w-[200px]">{ad.description}</p>
-                            )}
                           </div>
                         </div>
                       </td>
@@ -312,20 +267,19 @@ export default function AdsManager({
       {/* Mobile Card View */}
       <div className="md:hidden space-y-4">
         {filteredCampaigns.length === 0 ? (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
-            <div className="flex flex-col items-center gap-3">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl py-12 text-center">
+            <div className="flex flex-col items-center gap-2">
               <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center">
                 <FontAwesomeIcon icon={faChartLine} className="w-8 h-8 text-zinc-600" />
               </div>
               <p className="text-zinc-500 font-medium">No campaigns found</p>
-              <p className="text-zinc-600 text-sm">Create your first free ad to get started.</p>
+              <p className="text-zinc-600 text-sm">Create your first free ad.</p>
             </div>
           </div>
         ) : (
           filteredCampaigns.map((ad) => {
             const mediaUrl = getMediaUrl(ad);
-            const mediaCount = getMediaCount(ad);
-            const isVideoAd = isVideo(ad);
+            const isVideo = isVideoAd(ad);
             const displayName = getDisplayName(ad);
             
             return (
@@ -336,13 +290,12 @@ export default function AdsManager({
                     <div className="w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden border border-zinc-700 relative flex-shrink-0">
                       {mediaUrl ? (
                         <>
-                          {isVideoAd ? (
+                          {isVideo ? (
                             <div className="relative w-full h-full">
                               <img 
                                 src={mediaUrl} 
                                 alt={displayName}
                                 className="w-full h-full object-cover"
-                                loading="lazy"
                               />
                               <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
                                 <FontAwesomeIcon icon={faPlayCircle} className="w-3 h-3 text-white" />
@@ -353,20 +306,18 @@ export default function AdsManager({
                               src={mediaUrl} 
                               alt={displayName}
                               className="w-full h-full object-cover"
-                              loading="lazy"
                             />
                           )}
+                          {/* Free badge */}
+                          <div className="absolute top-0 left-0 bg-emerald-500/90 text-[8px] text-white px-1 rounded-br">
+                            FREE
+                          </div>
                         </>
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-blue-600/20 to-emerald-600/20 flex items-center justify-center">
                           <FontAwesomeIcon icon={faFileImage} className="w-4 h-4 text-zinc-500" />
                         </div>
                       )}
-                      
-                      {/* Free badge */}
-                      <div className="absolute top-0 left-0 bg-emerald-500/90 text-[8px] text-white px-1 rounded-br">
-                        FREE
-                      </div>
                     </div>
                     
                     <div>
@@ -403,7 +354,7 @@ export default function AdsManager({
                   </div>
                 </div>
                 
-                {/* Campaign Details */}
+                {/* Stats Grid */}
                 <div className="grid grid-cols-4 gap-2 pt-4 border-t border-zinc-800">
                   <div className="text-center">
                     <FontAwesomeIcon icon={faEye} className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
@@ -421,7 +372,7 @@ export default function AdsManager({
                     <p className="text-[10px] text-zinc-500">CTR</p>
                   </div>
                   <div className="text-center">
-                    <FontAwesomeIcon icon={faDollarSign} className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
+                    <FontAwesomeIcon icon={faStar} className="w-4 h-4 mx-auto mb-1 text-emerald-400" />
                     <p className="text-xs font-bold text-white">$0</p>
                     <p className="text-[10px] text-emerald-400">FREE</p>
                   </div>
@@ -438,14 +389,6 @@ export default function AdsManager({
                     <span className="text-emerald-400">Free</span>
                   </div>
                 </div>
-
-                {/* Media count badge if multiple images */}
-                {mediaCount > 1 && (
-                  <div className="flex items-center gap-1 text-xs text-zinc-500">
-                    <FontAwesomeIcon icon={faImage} className="w-3 h-3" />
-                    <span>{mediaCount} images</span>
-                  </div>
-                )}
               </div>
             );
           })
