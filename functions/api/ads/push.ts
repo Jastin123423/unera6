@@ -178,21 +178,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       SELECT * FROM ads WHERE id = ?
     `).bind(result.meta.last_row_id).first();
 
-    // Update the post to mark it as boosted (optional)
-    await env.DB.prepare(`
-      UPDATE posts SET is_boosted = 1 WHERE id = ?
-    `).bind(post_id).run();
-
-    // Log initial impression
-    await env.DB.prepare(`
-      INSERT INTO ad_impressions (ad_id, user_id, viewed_at)
-      VALUES (?, ?, ?)
-    `).bind(result.meta.last_row_id, userId, start_date).run();
+    // Parse JSON fields for the campaign
+    const parsedCampaign = {
+      ...campaign,
+      media_urls: campaign.media_urls ? JSON.parse(campaign.media_urls) : [],
+      media_types: campaign.media_types ? JSON.parse(campaign.media_types) : [],
+      is_free: campaign.is_free === 1
+    };
 
     return json({
       success: true,
       ad_id: result.meta.last_row_id,
-      campaign: campaign,
+      campaign: parsedCampaign,
       message: "Campaign created successfully",
       is_free: true
     });
