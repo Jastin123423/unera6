@@ -30,7 +30,8 @@ import {
   faRedo,
   faChartLine,
   faBullhorn,
-  faChartBar
+  faChartBar,
+  faArrowLeft
 } from '@fortawesome/free-solid-svg-icons';
 import { AdType, CTAButton, Post } from '../types';
 import AdPreview from './AdPreview';
@@ -49,6 +50,7 @@ interface AdCreatorProps {
     days: number;
   }) => Promise<boolean>;
   currentUser: any;
+  onBack?: () => void; // Add back navigation prop
 }
 
 const CTA_OPTIONS: CTAButton[] = [
@@ -68,7 +70,7 @@ const CONTACT_TYPES = [
 const POSTS_CACHE_KEY = 'unera_ads_posts_cache';
 const POSTS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign, currentUser }: AdCreatorProps) {
+export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign, currentUser, onBack }: AdCreatorProps) {
   const [step, setStep] = useState(1);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
@@ -100,6 +102,55 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const initialLoadDone = useRef(false);
+
+  // Handle browser back button
+  useEffect(() => {
+    const handleBackButton = (event: PopStateEvent) => {
+      event.preventDefault();
+      
+      if (step > 1) {
+        // If we're not on the first step, go back one step
+        handleBack();
+      } else if (onBack) {
+        // If we're on first step, call the parent's back handler
+        onBack();
+      }
+    };
+
+    // Add event listener for popstate (back/forward buttons)
+    window.addEventListener('popstate', handleBackButton);
+
+    // Push initial state if we're not on first step
+    if (step > 1) {
+      window.history.pushState({ step }, '');
+    }
+
+    return () => {
+      window.removeEventListener('popstate', handleBackButton);
+    };
+  }, [step, onBack]);
+
+  // Update history when step changes
+  useEffect(() => {
+    if (step > 1) {
+      window.history.pushState({ step }, '');
+    }
+  }, [step]);
+
+  // Handle back navigation
+  const handleBack = () => {
+    if (step === 2) {
+      // Go back to post selection
+      setStep(1);
+      setSelectedPost(null);
+    } else if (step === 3) {
+      // Go back to campaign details
+      setStep(2);
+    } else if (step === 1 && onBack) {
+      // Go back to previous page (ads dashboard)
+      onBack();
+    }
+  };
 
   // Load cached posts on mount
   useEffect(() => {
@@ -213,6 +264,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setStep(3);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleFinalSubmit = async () => {
@@ -236,6 +288,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
     
     if (success) {
       setStep(4);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       setTimeout(() => {
         onSuccess();
       }, 2000);
@@ -258,6 +311,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
       description: post.content || '',
     });
     setStep(2);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Pagination handlers
@@ -342,8 +396,18 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
 
   return (
     <div className="max-w-7xl mx-auto animate-in slide-in-from-bottom-4 duration-500 px-4 py-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-        <div>
+      {/* Header with Back Button */}
+      <div className="flex items-center gap-4 mb-6">
+        {(step > 1 || onBack) && (
+          <button
+            onClick={handleBack}
+            className="w-10 h-10 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors"
+            aria-label="Go back"
+          >
+            <FontAwesomeIcon icon={faArrowLeft} className="w-5 h-5 text-white" />
+          </button>
+        )}
+        <div className="flex-1">
           <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Create New Campaign</h2>
           <p className="text-zinc-400 mt-1 text-sm md:text-base">Boost your posts and reach more people.</p>
         </div>
@@ -780,7 +844,10 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
                     link: formData.link || undefined,
                     phone: formData.phone || undefined,
                     email: formData.email || undefined
-                  }} 
+                  }}
+                  advertiserName={currentUser?.name || "Sponsored"}
+                  advertiserAvatar={currentUser?.profile_image_url}
+                  isVerified={currentUser?.is_verified}
                 />
               </div>
             </div>
@@ -788,7 +855,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
             <div className="flex gap-4 pt-4">
               <button 
                 type="button"
-                onClick={() => setStep(1)}
+                onClick={handleBack}
                 className="flex-1 bg-zinc-800 text-white font-bold py-3 md:py-4 rounded-xl hover:bg-zinc-700 transition-all"
               >
                 Back to Posts
@@ -817,7 +884,10 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
                   link: formData.link || undefined,
                   phone: formData.phone || undefined,
                   email: formData.email || undefined
-                }} 
+                }}
+                advertiserName={currentUser?.name || "Sponsored"}
+                advertiserAvatar={currentUser?.profile_image_url}
+                isVerified={currentUser?.is_verified}
                 isFullView 
               />
             </div>
@@ -857,7 +927,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
 
             <div className="flex gap-4">
               <button 
-                onClick={() => setStep(2)}
+                onClick={handleBack}
                 className="flex-1 bg-zinc-800 text-white font-bold py-4 rounded-xl hover:bg-zinc-700 transition-all"
                 disabled={isSubmitting}
               >
