@@ -348,7 +348,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) REELS (unchanged) + comments_count=0
+    // 2) REELS
     // ============================================================
     const whereReels: string[] = [];
     const bindsReels: any[] = [];
@@ -454,7 +454,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 3) SONGS (unchanged) + comments_count=0
+    // 3) SONGS
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -578,7 +578,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) PODCASTS (unchanged) + comments_count=0
+    // 4) PODCASTS
     // ============================================================
     const wherePodcasts: string[] = [];
     const bindsPodcasts: any[] = [];
@@ -691,7 +691,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS (unchanged) + comments_count=0
+    // 5) EVENTS
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -825,7 +825,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 6) GROUP POSTS ✅ multi-images + ✅ full reaction types + comments_count=0
+    // 6) GROUP POSTS
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -1005,7 +1005,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS feed-injection + comments_count=0
+    // 7) PRODUCTS feed-injection
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -1153,19 +1153,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 9) SPONSORED / ADS POSTS ✅ 
+    // 9) SPONSORED / ADS POSTS - CORRECTED FOR YOUR SCHEMA
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
 
     // Only show active ads
-    whereAds.push(`(a.status = 'active' OR a.status IS NULL)`);
+    whereAds.push(`(a.status = 'active')`);
 
-    // Filter by targeting if needed
-    if (userId > 0) {
-      // You can add targeting logic here
-      // e.g., a.target_country = user.country OR a.target_interests LIKE '%...%'
-    }
+    // Filter by schedule dates
+    whereAds.push(`(a.start_date IS NULL OR a.start_date <= datetime('now'))`);
+    whereAds.push(`(a.end_date IS NULL OR a.end_date >= datetime('now'))`);
 
     if (cursor && cursor.trim()) {
       whereAds.push(`a.created_at < ?`);
@@ -1207,22 +1205,23 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'business') AS role,
 
-        a.headline AS content,
-        a.headline AS headline,
-        a.description AS description,
-        a.cta_button AS cta_text,
-        a.destination_url AS cta_url,
-        a.cta_type AS cta_type,
+        -- Ad content using your schema's column names
+        a.title AS headline,                    -- title maps to headline
+        a.title AS content,                      -- title as content for backward compatibility
+        a.description AS description,             -- description field
+        a.cta_button AS cta_text,                 -- cta_button maps to cta_text
+        a.destination_url AS cta_url,             -- destination_url maps to cta_url
+        a.contact_type AS cta_type,                -- contact_type maps to cta_type
 
         'public' AS visibility,
         a.impressions AS views,
         0 AS shares,
 
-        a.media_url AS media_url,
-        a.media_type AS media_type,
+        a.media_url AS media_url,                  -- primary media URL
+        a.media_type AS media_type,                 -- primary media type
 
-        a.media_urls AS media_urls,
-        NULL AS media_types,
+        a.media_urls AS media_urls,                 -- JSON array of multiple media URLs
+        a.media_types AS media_types,                -- JSON array of media types
 
         0 AS comments_count,
 
@@ -1233,13 +1232,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS reactions_preview,
         NULL AS reactions_by_type,
 
-        CASE WHEN a.media_type = 'video' THEN a.media_url ELSE NULL END AS video_url,
+        -- For video ads
+        CASE WHEN a.media_type LIKE '%video%' THEN a.media_url ELSE NULL END AS video_url,
         a.description AS caption,
         NULL AS song_name,
         NULL AS audio_url,
         0 AS audio_start,
         0 AS audio_end,
-        NULL AS location,
+        a.target_location AS location,
         NULL AS sound_key,
         NULL AS sound_id,
 
@@ -1267,10 +1267,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'type','sponsored',
           'ad_id', a.id,
           'advertiser_id', a.advertiser_id,
-          'campaign_id', a.campaign_id
+          'campaign_name', a.campaign_name,
+          'campaign_id', a.id
         ) AS meta,
 
         'Sponsored' AS reason,
+        a.campaign_name AS campaign_name,
+
+        -- Targeting info for UI
+        a.target_location AS target_location,
+        a.target_country AS target_country,
+        a.target_city AS target_city,
 
         NULL AS group_id,
         NULL AS group_name,
