@@ -17,41 +17,42 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
 
     const url = new URL(request.url);
-    const limit = Number(url.searchParams.get("limit") || 20);
-    const cursor = Number(url.searchParams.get("cursor") || 0);
 
-    /* -----------------------------
+    const limit = Number(url.searchParams.get("limit") || 20);
+    const cursor = Number(url.searchParams.get("cursor") || 999999999);
+
+    /* -------------------------
        1️⃣ FETCH POSTS
-    ------------------------------*/
+    ------------------------- */
 
     const postsQuery = `
       SELECT 
         p.*,
-        u.name AS author_name,
+        u.name as author_name,
         u.profile_image_url,
         u.is_verified
       FROM posts p
-      LEFT JOIN users u ON u.id = p.author_id
+      LEFT JOIN users u ON u.id = p.user_id
       WHERE p.id < ?
       ORDER BY p.id DESC
       LIMIT ?
     `;
 
     const postsRes = await env.DB.prepare(postsQuery)
-      .bind(cursor || 999999999, limit)
+      .bind(cursor, limit)
       .all();
 
     const posts = postsRes.results || [];
 
-    /* -----------------------------
+    /* -------------------------
        2️⃣ FETCH ACTIVE ADS
-    ------------------------------*/
+    ------------------------- */
 
     const adsQuery = `
       SELECT 
         a.*,
-        u.name AS advertiser_name,
-        u.profile_image_url AS advertiser_image,
+        u.name as advertiser_name,
+        u.profile_image_url as advertiser_image,
         u.is_verified
       FROM ads a
       LEFT JOIN users u ON u.id = a.advertiser_id
@@ -65,28 +66,31 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const adsRes = await env.DB.prepare(adsQuery).all();
     const ads = adsRes.results || [];
 
-    /* -----------------------------
+    /* -------------------------
        3️⃣ MIX POSTS + ADS
-    ------------------------------*/
+    ------------------------- */
 
     const feed: any[] = [];
     let adIndex = 0;
 
     for (let i = 0; i < posts.length; i++) {
 
-      /* NORMAL POST */
+      const post = posts[i];
+
       feed.push({
         type: "post",
-        ...posts[i],
+        ...post,
+
         author: {
-          id: posts[i].author_id,
-          name: posts[i].author_name,
-          profile_image_url: posts[i].profile_image_url,
-          is_verified: posts[i].is_verified
+          id: post.user_id,
+          name: post.author_name,
+          profile_image_url: post.profile_image_url,
+          is_verified: post.is_verified
         }
       });
 
       /* INSERT AD EVERY 4 POSTS */
+
       if ((i + 1) % 4 === 0 && ads[adIndex]) {
 
         const ad = ads[adIndex];
@@ -117,7 +121,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             is_verified: ad.is_verified
           },
 
-          reason: "Based on your interests",
+          reason: "Sponsored",
 
           likes: ad.impressions || 0,
           comments: 0,
@@ -132,9 +136,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       }
     }
 
-    /* -----------------------------
-       4️⃣ NEXT CURSOR
-    ------------------------------*/
+    /* -------------------------
+       4️⃣ PAGINATION CURSOR
+    ------------------------- */
 
     const nextCursor =
       posts.length > 0 ? posts[posts.length - 1].id : null;
