@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-  faUpload,
   faImage,
   faVideo,
   faMapMarkerAlt,
@@ -10,19 +9,23 @@ import {
   faFont,
   faMousePointer,
   faCheckCircle,
-  faTimes,
   faDollarSign,
   faSpinner,
   faPlayCircle,
   faFileImage,
-  faClock
+  faClock,
+  faHeart,
+  faChevronLeft,
+  faChevronRight,
+  faTimes,
+  faPlus
 } from '@fortawesome/free-solid-svg-icons';
 import { AdType, CTAButton, Post } from '../types';
 import AdPreview from './AdPreview';
 
 interface AdCreatorProps {
   onSuccess: () => void;
-  currentUser: any; // Add currentUser prop
+  userPosts?: Post[];
   onCreateCampaign: (postId: number, campaignData: {
     name: string;
     link: string;
@@ -31,16 +34,15 @@ interface AdCreatorProps {
     budget: number;
     days: number;
   }) => Promise<boolean>;
+  currentUser: any;
 }
 
 const CTA_OPTIONS: CTAButton[] = ['Learn More', 'Sign Up', 'Subscribe', 'Shop Now', 'Contact Us', 'Call Now', 'Email Us', 'WhatsApp', 'Download', 'Get Quote', 'Book Now'];
 
-export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: AdCreatorProps) {
+export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign, currentUser }: AdCreatorProps) {
   const [step, setStep] = useState(1);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-  const [userPosts, setUserPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -56,44 +58,24 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
   
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ✅ Fetch user's posts on component mount - like UserProfile.tsx
-  useEffect(() => {
-    const fetchUserPosts = async () => {
-      if (!currentUser) return;
-      
-      setLoading(true);
-      setError(null);
-      
-      try {
-        // Using the same endpoint as UserProfile.tsx
-        const response = await fetch(`/api/posts?userId=${currentUser.id}&viewerId=${currentUser.id}&limit=50`);
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch posts');
-        }
-        
-        const data = await response.json();
-        
-        // Handle different response formats (like in App.tsx)
-        const postsList = Array.isArray(data) ? data : 
-                         data?.posts || data?.results || data?.data || [];
-        
-        // Sort by date (newest first)
-        const sortedPosts = postsList.sort((a: any, b: any) => 
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-        
-        setUserPosts(sortedPosts);
-      } catch (err) {
-        console.error('Error fetching posts:', err);
-        setError('Failed to load your posts');
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Handle post selection
+  const selectPost = (post: Post) => {
+    setSelectedPost(post);
+    setSelectedMediaIndex(0);
     
-    fetchUserPosts();
-  }, [currentUser]);
+    // Get the first media URL
+    const mediaUrls = post.media_urls || (post.media_url ? [post.media_url] : []);
+    const mediaUrl = mediaUrls[0] || '';
+    
+    setFormData({
+      ...formData,
+      name: post.content?.substring(0, 30) || 'New Campaign',
+      type: post.type === 'video' ? 'video' : 'image',
+      mediaUrl: mediaUrl,
+      description: post.content || '',
+    });
+    setStep(2);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,18 +107,6 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
     }
   };
 
-  const selectPost = (post: Post) => {
-    setSelectedPost(post);
-    setFormData({
-      ...formData,
-      name: post.content?.substring(0, 30) || 'New Campaign',
-      type: post.type === 'video' ? 'video' : 'image',
-      mediaUrl: post.media_url || '',
-      description: post.content || '',
-    });
-    setStep(2);
-  };
-
   // Format date nicely
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -151,8 +121,28 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
     return date.toLocaleDateString();
   };
 
+  // Get all media from post
+  const getPostMedia = (post: Post) => {
+    if (post.media_urls && Array.isArray(post.media_urls) && post.media_urls.length > 0) {
+      return post.media_urls;
+    }
+    if (post.media_url) {
+      return [post.media_url];
+    }
+    return [];
+  };
+
+  // Check if post has video
+  const isVideoPost = (post: Post) => {
+    if (post.type === 'video') return true;
+    if (post.media_types && Array.isArray(post.media_types)) {
+      return post.media_types.some(type => type?.startsWith('video/'));
+    }
+    return post.media_type?.startsWith('video/') || false;
+  };
+
   return (
-    <div className="max-w-7xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-7xl mx-auto animate-in slide-in-from-bottom-4 duration-500 px-4">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Create New Campaign</h2>
@@ -177,29 +167,7 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
           <div className="space-y-6 animate-in fade-in duration-300">
             <h3 className="text-lg font-bold text-white">Select a post to boost</h3>
             
-            {loading ? (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
-                <div className="flex flex-col items-center gap-4">
-                  <FontAwesomeIcon icon={faSpinner} className="w-10 h-10 text-blue-500 animate-spin" />
-                  <p className="text-zinc-400">Loading your posts...</p>
-                </div>
-              </div>
-            ) : error ? (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center">
-                    <FontAwesomeIcon icon={faTimes} className="w-8 h-8 text-red-500" />
-                  </div>
-                  <p className="text-zinc-400">{error}</p>
-                  <button 
-                    onClick={() => window.location.reload()}
-                    className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    Try Again
-                  </button>
-                </div>
-              </div>
-            ) : userPosts.length === 0 ? (
+            {userPosts.length === 0 ? (
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
                 <div className="flex flex-col items-center gap-3">
                   <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center">
@@ -216,12 +184,12 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {userPosts.map((post) => {
-                  // Determine media type for icon
-                  const isVideo = post.type === 'video' || post.media_type?.startsWith('video/');
-                  const hasMedia = post.media_url || (post.media_urls && post.media_urls.length > 0);
-                  const mediaUrl = post.media_url || (post.media_urls && post.media_urls[0]);
+                  const mediaUrls = getPostMedia(post);
+                  const hasMultipleMedia = mediaUrls.length > 1;
+                  const isVideo = isVideoPost(post);
+                  const reactionCount = post.reactions?.length || post.reactions_count || 0;
                   
                   return (
                     <button
@@ -229,48 +197,80 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
                       onClick={() => selectPost(post)}
                       className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-blue-600/50 hover:shadow-lg hover:shadow-blue-900/20 transition-all group text-left relative"
                     >
-                      {/* Media Thumbnail */}
-                      <div className="aspect-video bg-zinc-800 relative overflow-hidden">
-                        {hasMedia ? (
+                      {/* Media Grid */}
+                      <div className="relative">
+                        {mediaUrls.length > 0 ? (
                           <>
-                            {isVideo ? (
-                              <div className="relative w-full h-full">
-                                <video 
-                                  src={mediaUrl} 
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                  muted
-                                  loop
-                                />
-                                <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                                  <FontAwesomeIcon icon={faPlayCircle} className="w-10 h-10 text-white opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all" />
-                                </div>
+                            {mediaUrls.length === 1 ? (
+                              // Single media
+                              <div className="aspect-video bg-zinc-800 relative overflow-hidden">
+                                {isVideo ? (
+                                  <div className="relative w-full h-full">
+                                    <video 
+                                      src={mediaUrls[0]} 
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                      muted
+                                    />
+                                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                                      <FontAwesomeIcon icon={faPlayCircle} className="w-10 h-10 text-white opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all" />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <img 
+                                    src={mediaUrls[0]} 
+                                    alt="" 
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                    onError={(e) => {
+                                      e.currentTarget.src = 'https://via.placeholder.com/400x225?text=Image+Error';
+                                    }}
+                                  />
+                                )}
                               </div>
                             ) : (
-                              <img 
-                                src={mediaUrl} 
-                                alt="" 
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                onError={(e) => {
-                                  // Fallback if image fails to load
-                                  e.currentTarget.src = 'https://via.placeholder.com/400x225?text=No+Image';
-                                }}
-                              />
+                              // Multiple media grid
+                              <div className="grid grid-cols-2 gap-0.5 bg-black">
+                                {mediaUrls.slice(0, 4).map((url, idx) => (
+                                  <div key={idx} className="aspect-video bg-zinc-800 relative overflow-hidden">
+                                    {idx === 3 && mediaUrls.length > 4 ? (
+                                      <div className="w-full h-full bg-black/70 flex items-center justify-center">
+                                        <span className="text-white font-bold text-lg">+{mediaUrls.length - 3}</span>
+                                      </div>
+                                    ) : (
+                                      <img 
+                                        src={url} 
+                                        alt="" 
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          e.currentTarget.style.display = 'none';
+                                        }}
+                                      />
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            
+                            {/* Media count badge for multiple media */}
+                            {hasMultipleMedia && (
+                              <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg text-xs text-white flex items-center gap-1">
+                                <FontAwesomeIcon icon={faImage} className="w-3 h-3" />
+                                <span>{mediaUrls.length}</span>
+                              </div>
+                            )}
+                            
+                            {/* Video badge */}
+                            {isVideo && (
+                              <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg text-xs text-white flex items-center gap-1">
+                                <FontAwesomeIcon icon={faVideo} className="w-3 h-3" />
+                                <span>Video</span>
+                              </div>
                             )}
                           </>
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-900">
+                          <div className="aspect-video bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center">
                             <FontAwesomeIcon icon={faFileImage} className="w-12 h-12 text-zinc-600" />
                           </div>
                         )}
-                        
-                        {/* Media type badge */}
-                        <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg text-xs text-white">
-                          {isVideo ? (
-                            <><FontAwesomeIcon icon={faVideo} className="mr-1" /> Video</>
-                          ) : (
-                            <><FontAwesomeIcon icon={faImage} className="mr-1" /> Photo</>
-                          )}
-                        </div>
                       </div>
                       
                       {/* Post Info */}
@@ -286,12 +286,12 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
                           </div>
                           <div className="flex items-center gap-1 text-zinc-500">
                             <FontAwesomeIcon icon={faHeart} className="w-3 h-3" />
-                            <span>{post.reactions?.length || 0}</span>
+                            <span>{reactionCount}</span>
                           </div>
                         </div>
                       </div>
                       
-                      {/* Selected overlay (when hovering) */}
+                      {/* Hover overlay */}
                       <div className="absolute inset-0 bg-blue-600/0 group-hover:bg-blue-600/10 transition-all pointer-events-none rounded-xl"></div>
                     </button>
                   );
@@ -313,7 +313,7 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
                     type="text"
                     required
                     placeholder="Summer Sale 2024"
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm md:text-base"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   />
@@ -327,7 +327,7 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
                     type="url"
                     required
                     placeholder="https://yourwebsite.com"
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm md:text-base"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
                     value={formData.link}
                     onChange={(e) => setFormData({ ...formData, link: e.target.value })}
                   />
@@ -338,7 +338,7 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
                     <FontAwesomeIcon icon={faMousePointer} className="w-4 h-4" /> Call to Action
                   </label>
                   <select 
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all appearance-none text-sm md:text-base"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all appearance-none"
                     value={formData.cta}
                     onChange={(e) => setFormData({ ...formData, cta: e.target.value as CTAButton })}
                   >
@@ -354,7 +354,7 @@ export default function AdCreator({ onSuccess, currentUser, onCreateCampaign }: 
                     type="text"
                     required
                     placeholder="e.g. United States, London, Global"
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm md:text-base"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
                     value={formData.location}
                     onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                   />
