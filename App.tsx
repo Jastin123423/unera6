@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -42,6 +41,14 @@ import { NotificationsPage } from './components/NotificationsPage';
 import Dashboard from './components/Dashboard';
 import AdCreator from './components/AdCreator';
 import AdsManager from './components/AdsManager';
+// 2️⃣ ADD FONT AWESOME IMPORTS FOR ICONS
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+  faChartLine, 
+  faPlus, 
+  faBullhorn, 
+  faChartBar 
+} from '@fortawesome/free-solid-svg-icons';
 import { TrendingUp } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
 import {
@@ -2633,17 +2640,25 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Create new ad campaign
+  // Create new ad campaign - UPDATED to match AdCreator props
   const createAdCampaign = useCallback(async (
     postId: number,
-    budget: number,
-    days: number
+    campaignData: {
+      name: string;
+      link?: string;
+      phone?: string;
+      email?: string;
+      cta: string;
+      location: string;
+      budget: number;
+      days: number;
+    }
   ) => {
     if (!requireAuth('Creating ads')) return false;
     if (!currentUser) return false;
 
     try {
-      const response = await fetch('/api/ads/push', {
+      const response = await fetch('/api/ads/campaigns', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2651,13 +2666,12 @@ export default function App() {
         },
         body: JSON.stringify({
           post_id: postId,
-          budget,
-          days
+          ...campaignData
         })
       });
 
       const data = await response.json();
-
+      
       if (data.success) {
         // Refresh ads list
         await fetchMyAds();
@@ -6264,66 +6278,77 @@ export default function App() {
             />
           )}
 
-          {/* 8️⃣ ADD ADS VIEW HERE */}
+          {/* 8️⃣ ADD ADS VIEW HERE - COMPLETE UPDATED VERSION */}
           {view === 'ads' && currentUser && (
             <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
               {/* Tab navigation for ads */}
-              <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2">
+              <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2 overflow-x-auto">
                 <button
                   onClick={() => setActiveAdTab('dashboard')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
                     activeAdTab === 'dashboard'
                       ? 'bg-[#1877F2] text-white'
                       : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
                   }`}
                 >
+                  <FontAwesomeIcon icon={faChartLine} className="w-4 h-4" />
                   Dashboard
                 </button>
                 <button
                   onClick={() => setActiveAdTab('create')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
                     activeAdTab === 'create'
                       ? 'bg-[#1877F2] text-white'
                       : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
                   }`}
                 >
+                  <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
                   Create Campaign
                 </button>
                 <button
                   onClick={() => setActiveAdTab('ads')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
                     activeAdTab === 'ads'
                       ? 'bg-[#1877F2] text-white'
                       : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
                   }`}
                 >
+                  <FontAwesomeIcon icon={faBullhorn} className="w-4 h-4" />
                   My Campaigns
                 </button>
                 <button
                   onClick={() => setActiveAdTab('analytics')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
                     activeAdTab === 'analytics'
                       ? 'bg-[#1877F2] text-white'
                       : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
                   }`}
                 >
+                  <FontAwesomeIcon icon={faChartBar} className="w-4 h-4" />
                   Analytics
                 </button>
               </div>
 
-              {activeAdTab === 'dashboard' && <Dashboard campaigns={adCampaigns} loading={adsLoading} />}
+              {/* Dashboard Tab */}
+              {activeAdTab === 'dashboard' && (
+                <Dashboard campaigns={adCampaigns} loading={adsLoading} />
+              )}
               
+              {/* Create Campaign Tab - COMPLETE UPDATED VERSION */}
               {activeAdTab === 'create' && (
                 <AdCreator 
                   onSuccess={() => {
                     setActiveAdTab('ads');
                     fetchMyAds();
                   }}
-                  userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser.id))}
+                  // Pass all user posts - filtered by current user
+                  userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser?.id))}
                   onCreateCampaign={createAdCampaign}
+                  currentUser={currentUser}
                 />
               )}
               
+              {/* My Campaigns Tab */}
               {activeAdTab === 'ads' && (
                 <AdsManager 
                   campaigns={adCampaigns} 
@@ -6335,7 +6360,10 @@ export default function App() {
                 />
               )}
               
-              {activeAdTab === 'analytics' && <Dashboard campaigns={adCampaigns} loading={adsLoading} />}
+              {/* Analytics Tab */}
+              {activeAdTab === 'analytics' && (
+                <Dashboard campaigns={adCampaigns} loading={adsLoading} />
+              )}
             </div>
           )}
         </div>
