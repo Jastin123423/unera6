@@ -31,7 +31,8 @@ import {
   faChartLine,
   faBullhorn,
   faChartBar,
-  faArrowLeft
+  faArrowLeft,
+  faStar
 } from '@fortawesome/free-solid-svg-icons';
 import { AdType, CTAButton, Post } from '../types';
 import AdPreview from './AdPreview';
@@ -51,6 +52,7 @@ interface AdCreatorProps {
   }) => Promise<boolean>;
   currentUser: any;
   onBack?: () => void;
+  initialPost?: Post | null;
 }
 
 const CTA_OPTIONS: CTAButton[] = [
@@ -70,9 +72,16 @@ const CONTACT_TYPES = [
 const POSTS_CACHE_KEY = 'unera_ads_posts_cache';
 const POSTS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign, currentUser, onBack }: AdCreatorProps) {
+export default function AdCreator({ 
+  onSuccess, 
+  userPosts = [], 
+  onCreateCampaign, 
+  currentUser, 
+  onBack,
+  initialPost 
+}: AdCreatorProps) {
   const [step, setStep] = useState(1);
-  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(initialPost || null);
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const [cachedPosts, setCachedPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,6 +112,32 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const initialLoadDone = useRef(false);
+  const initialPostProcessed = useRef(false);
+
+  // Handle initial post if provided
+  useEffect(() => {
+    if (initialPost && !initialPostProcessed.current) {
+      console.log("Initial post detected:", initialPost);
+      setSelectedPost(initialPost);
+      
+      // Get all media URLs
+      const mediaUrls = initialPost.media_urls || (initialPost.media_url ? [initialPost.media_url] : []);
+      const mediaUrl = mediaUrls[0] || '';
+      
+      setFormData({
+        ...formData,
+        name: initialPost.content?.substring(0, 30) || 'New Campaign',
+        type: initialPost.type === 'video' ? 'video' : 'image',
+        mediaUrl: mediaUrl,
+        mediaUrls: mediaUrls,
+        description: initialPost.content || '',
+      });
+      
+      setStep(2);
+      initialPostProcessed.current = true;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [initialPost]);
 
   // Handle browser back button
   useEffect(() => {
@@ -151,7 +186,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
     loadCachedPosts();
   }, []);
 
-  // Update when userPosts changes
+  // Update when userPosts changes (new posts from App.tsx)
   useEffect(() => {
     if (userPosts.length > 0 && !initialLoadDone.current) {
       updatePostsCache(userPosts);
@@ -288,7 +323,6 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
 
   const selectPost = (post: Post) => {
     setSelectedPost(post);
-    setSelectedMediaIndex(0);
     
     // Get all media URLs
     const mediaUrls = post.media_urls || (post.media_url ? [post.media_url] : []);
@@ -363,8 +397,15 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
   const currentPosts = getCurrentPosts();
   const totalPages = Math.ceil(totalPosts / postsPerPage);
 
+  // If we have an initial post and we're still on step 1, go to step 2
+  useEffect(() => {
+    if (initialPost && step === 1 && selectedPost) {
+      setStep(2);
+    }
+  }, [initialPost, step, selectedPost]);
+
   // Empty state
-  if (!loading && userPosts.length === 0 && cachedPosts.length === 0) {
+  if (!loading && userPosts.length === 0 && cachedPosts.length === 0 && !initialPost) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
@@ -400,8 +441,12 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
           </button>
         )}
         <div className="flex-1">
-          <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Create New Campaign</h2>
-          <p className="text-zinc-400 mt-1 text-sm md:text-base">Boost your posts and reach more people for FREE</p>
+          <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+            {initialPost ? 'Boost Your Post' : 'Create New Campaign'}
+          </h2>
+          <p className="text-zinc-400 mt-1 text-sm md:text-base">
+            {initialPost ? 'Configure your ad settings below' : 'Boost your posts and reach more people for FREE'}
+          </p>
         </div>
         <div className="flex items-center gap-3 md:gap-4">
           {[1, 2, 3, 4].map((s) => (
@@ -418,20 +463,53 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
       </div>
 
       {/* Free Promotion Banner */}
-      <div className="mb-6 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border border-emerald-500/20 rounded-xl p-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
-            <span className="text-emerald-400 text-xl">✨</span>
-          </div>
-          <div>
-            <h3 className="text-emerald-400 font-bold">Free Promotion on UNERA</h3>
-            <p className="text-sm text-zinc-400">All ad campaigns are completely free. No costs, no hidden fees!</p>
+      {!initialPost && (
+        <div className="mb-6 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border border-emerald-500/20 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+              <FontAwesomeIcon icon={faStar} className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div>
+              <h3 className="text-emerald-400 font-bold">Free Promotion on UNERA</h3>
+              <p className="text-sm text-zinc-400">All ad campaigns are completely free. No costs, no hidden fees!</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Selected Post Banner (when coming from push more) */}
+      {initialPost && selectedPost && step === 2 && (
+        <div className="mb-6 bg-blue-600/10 border border-blue-600/20 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-800 flex-shrink-0">
+              {selectedPost.media_url ? (
+                <img 
+                  src={selectedPost.media_url} 
+                  alt="" 
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-blue-600 to-emerald-600 flex items-center justify-center">
+                  <FontAwesomeIcon icon={faImage} className="w-4 h-4 text-white" />
+                </div>
+              )}
+            </div>
+            <div className="flex-1">
+              <h3 className="text-blue-400 font-bold">Selected Post</h3>
+              <p className="text-sm text-zinc-300 line-clamp-1">{selectedPost.content || 'Post content'}</p>
+            </div>
+            <button
+              onClick={() => setStep(1)}
+              className="text-sm text-zinc-400 hover:text-white px-3 py-1 rounded-lg hover:bg-zinc-800"
+            >
+              Change
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
-        {step === 1 && (
+        {step === 1 && !initialPost && (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-white">Select a post to boost</h3>
@@ -866,7 +944,7 @@ export default function AdCreator({ onSuccess, userPosts = [], onCreateCampaign,
                 onClick={handleBack}
                 className="flex-1 bg-zinc-800 text-white font-bold py-3 md:py-4 rounded-xl hover:bg-zinc-700 transition-all"
               >
-                Back to Posts
+                Back
               </button>
               <button 
                 type="submit"
