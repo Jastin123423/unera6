@@ -64,7 +64,7 @@ import {
   Group,
   Brand,
   Song,
-  AdCampaign, // Add this type if not already defined
+  AdCampaign,
 } from './types';
 
 /** ---------- Type for People You May Know suggestions ---------- */
@@ -1435,6 +1435,9 @@ export default function App() {
   const [adCampaigns, setAdCampaigns] = useState<any[]>([]);
   const [adsLoading, setAdsLoading] = useState(false);
   const [activeAdTab, setActiveAdTab] = useState<'dashboard' | 'create' | 'ads' | 'analytics'>('dashboard');
+  
+  // 📝 NEW STATE FOR SELECTED POST
+  const [selectedPostForAd, setSelectedPostForAd] = useState<PostType | null>(null);
 
   // ============================================================================
   // ✅ People You May Know - State declarations
@@ -2539,50 +2542,40 @@ export default function App() {
     return likedTracks.includes(`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`);
   }, [currentAudioTrack, likedTracks]);
 
-  // 3️⃣ ADD PUSH MORE FUNCTION
+  // 3️⃣ ADD PUSH MORE FUNCTION - OPENS AD CREATOR WITH PRE-SELECTED POST
   const pushMore = async (postId: number) => {
     if (!requireAuth('Boosting posts')) return;
     if (!currentUser) return;
 
     try {
-      const res = await fetch('/api/ads/push', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': String(currentUser.id),
-        },
-        body: JSON.stringify({
-          post_id: postId,
-          budget: 5,      // You can make this configurable
-          days: 3,        // You can make this configurable
-        }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        setPushedPosts(prev => ({
-          ...prev,
-          [postId]: true,
-        }));
-        
-        // Optional: Show success message
-        const toast = document.createElement('div');
-        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
-        toast.innerText = 'Post boosted successfully!';
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 2000);
-        
-        // Refresh ads list after pushing
-        fetchMyAds();
+      // Find the post from posts array
+      const selectedPost = posts.find(p => p.id === postId);
+      
+      if (!selectedPost) {
+        throw new Error('Post not found');
       }
+
+      // Set the selected post in state
+      setSelectedPostForAd(selectedPost);
+      
+      // Navigate to ads section and set active tab to create
+      setView('ads');
+      setActiveAdTab('create');
+      
+      // Show toast notification
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.innerText = 'Opening ad creator...';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+      
     } catch (err) {
       console.error('Push more failed', err);
       
-      // Optional: Show error message
+      // Show error message
       const toast = document.createElement('div');
       toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
-      toast.innerText = 'Failed to boost post';
+      toast.innerText = 'Failed to open ad creator';
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 2000);
     }
@@ -6334,17 +6327,31 @@ export default function App() {
                 <Dashboard campaigns={adCampaigns} loading={adsLoading} />
               )}
               
-              {/* Create Campaign Tab - COMPLETE UPDATED VERSION */}
+              {/* Create Campaign Tab - UPDATED WITH BACK FUNCTION AND INITIAL POST */}
               {activeAdTab === 'create' && (
                 <AdCreator 
                   onSuccess={() => {
                     setActiveAdTab('ads');
                     fetchMyAds();
+                    // Clear the selected post after success
+                    setSelectedPostForAd(null);
+                    // Mark the post as pushed
+                    if (selectedPostForAd) {
+                      setPushedPosts(prev => ({
+                        ...prev,
+                        [selectedPostForAd.id]: true
+                      }));
+                    }
                   }}
-                  // Pass all user posts - filtered by current user
+                  onBack={() => {
+                    setActiveAdTab('dashboard');
+                    // Clear selected post when going back
+                    setSelectedPostForAd(null);
+                  }}
                   userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser?.id))}
                   onCreateCampaign={createAdCampaign}
                   currentUser={currentUser}
+                  initialPost={selectedPostForAd} // Pass the pre-selected post
                 />
               )}
               
