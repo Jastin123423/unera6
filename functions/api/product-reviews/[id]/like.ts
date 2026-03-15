@@ -1,4 +1,3 @@
-
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { createNotification } from "../../../utils/createNotification";
 
@@ -74,17 +73,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     if (comment && comment.user_id !== user_id) {
       await createNotification(
         env,
-        comment.user_id,
-        user_id,
-        "like",
-        "product_comment",
-        comment_id,
-        `like_comment_${comment_id}_${user_id}`
+        comment.user_id,        // recipient_id
+        user_id,                // actor_id
+        "like",                 // type
+        "product_comment",      // entity_type
+        comment_id,             // entity_id
+        `like_comment_${comment_id}`  // group_key
       );
     }
   }
 
- // Get updated like count
+  // Get updated like count
   const count = await env.DB.prepare(`
     SELECT likes_count FROM product_comments WHERE id = ?
   `)
