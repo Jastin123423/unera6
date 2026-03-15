@@ -11,6 +11,14 @@ interface Props {
   stickyHeader?: boolean;
 }
 
+/**
+ * Tailored to match the screenshot spacing and typography:
+ * - Header title ~22px
+ * - Actor name bold and slightly larger (15-16px)
+ * - "New" / "Earlier" headers bold
+ * - Compact rows with tighter vertical spacing
+ * - Unread indicator as a left blue bar
+ */
 const formatTimestamp = (iso: string) => {
   const d = new Date(iso);
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -34,6 +42,7 @@ export const NotificationsPage: React.FC<Props> = ({
 }) => {
   const getUser = (id:number)=>users.find(u=>u.id===id);
 
+  // Local copy for optimistic updates
   const [localNotifications, setLocalNotifications] = useState<Notification[]>(notifications);
   const [isProcessing, setIsProcessing] = useState(false);
   const [toast, setToast] = useState<{ type: "error" | "success"; text: string } | null>(null);
@@ -100,8 +109,8 @@ export const NotificationsPage: React.FC<Props> = ({
         role="button"
         tabIndex={0}
         onClick={() => onProfileClick(actor?.id || 0)}
-        className={`flex items-start gap-3 px-3 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2b2c2d] focus:outline-none transition-colors
-          ${!n.is_read ? "border-l-4 border-[#1877F2] pl-[10px]" : "pl-3"}
+        className={`flex items-start gap-3 px-4 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2b2c2d] focus:outline-none transition-colors
+          ${!n.is_read ? "border-l-4 border-[#1877F2] pl-[12px]" : "pl-4"}
         `}
       >
         {/* Avatar */}
@@ -113,10 +122,10 @@ export const NotificationsPage: React.FC<Props> = ({
 
         {/* Text */}
         <div className="flex-1 min-w-0">
-          <div className="text-sm text-gray-900 dark:text-[#E4E6EB] leading-tight truncate">
+          <div className="text-[15px] leading-tight truncate text-gray-900 dark:text-[#E4E6EB]">
             <button
               onClick={(e)=>{ e.stopPropagation(); onProfileClick(actor?.id || 0); }}
-              className="font-semibold text-inherit hover:underline truncate"
+              className="font-bold text-inherit hover:underline truncate"
               aria-label={`Open profile of ${actor?.name || "user"}`}
             >
               {actor?.name || "Someone"}
@@ -129,7 +138,7 @@ export const NotificationsPage: React.FC<Props> = ({
             <span className="font-normal">{" "}{message}</span>
           </div>
 
-          <div className="text-xs text-gray-500 dark:text-[#B0B3B8] mt-1">
+          <div className="text-[13px] text-gray-500 dark:text-[#B0B3B8] mt-1">
             {formatTimestamp(n.created_at)}
           </div>
         </div>
@@ -161,7 +170,7 @@ export const NotificationsPage: React.FC<Props> = ({
         )}
 
         <div className="flex-1 flex items-center gap-3">
-          <h2 className="text-gray-900 dark:text-[#E4E6EB] font-bold text-lg">Notifications</h2>
+          <h2 className="text-[#E4E6EB] dark:text-[#E4E6EB] font-bold text-[22px] leading-tight">Notifications</h2>
 
           {unreadCount > 0 && (
             <div className="inline-flex items-center justify-center bg-[#E53935] text-white text-[12px] font-semibold rounded-full px-2 py-0.5">
@@ -188,7 +197,7 @@ export const NotificationsPage: React.FC<Props> = ({
       <div className="divide-y divide-gray-100 dark:divide-[#3E4042]">
         {newNotifications.length > 0 && (
           <div className="py-2">
-            <div className="px-3 py-2 text-gray-600 dark:text-[#B0B3B8] text-[13px] font-semibold">New</div>
+            <div className="px-4 py-2 text-gray-600 dark:text-[#B0B3B8] text-[14px] font-bold">New</div>
             <div className="space-y-0">
               {newNotifications.map(renderRow)}
             </div>
@@ -197,7 +206,7 @@ export const NotificationsPage: React.FC<Props> = ({
 
         {earlierNotifications.length > 0 && (
           <div className="py-2">
-            <div className="px-3 py-2 text-gray-600 dark:text-[#B0B3B8] text-[13px] font-semibold">Earlier</div>
+            <div className="px-4 py-2 text-gray-600 dark:text-[#B0B3B8] text-[14px] font-bold">Earlier</div>
             <div className="space-y-0">
               {earlierNotifications.map(renderRow)}
             </div>
