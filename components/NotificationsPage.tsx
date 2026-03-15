@@ -4,14 +4,10 @@ import { Notification, User } from "../types";
 interface Props {
   notifications: Notification[];
   users: User[];
-  onBack?: () => void; // optional for inline usage
+  onBack?: () => void;
   onProfileClick: (id: number) => void;
   onMarkAllAsRead?: () => Promise<any> | void;
   simulateApi?: boolean;
-  /**
-   * If true, header will stick to the top of the component's bounding box.
-   * Useful when the component is placed in a tall column.
-   */
   stickyHeader?: boolean;
 }
 
@@ -38,7 +34,6 @@ export const NotificationsPage: React.FC<Props> = ({
 }) => {
   const getUser = (id:number)=>users.find(u=>u.id===id);
 
-  // Local copy for optimistic updates
   const [localNotifications, setLocalNotifications] = useState<Notification[]>(notifications);
   const [isProcessing, setIsProcessing] = useState(false);
   const [toast, setToast] = useState<{ type: "error" | "success"; text: string } | null>(null);
@@ -98,10 +93,6 @@ export const NotificationsPage: React.FC<Props> = ({
   const renderRow = (n: Notification) => {
     const actor = getUser(n.actor_id);
     const message = n.message || "interacted with you";
-    const iconClass = n.type === "friend_accept" ? "fas fa-user-check"
-      : n.type === "follow_invite" ? "fas fa-user-plus"
-      : n.type === "like" ? "fas fa-thumbs-up"
-      : "fas fa-bell";
 
     return (
       <div
@@ -109,26 +100,23 @@ export const NotificationsPage: React.FC<Props> = ({
         role="button"
         tabIndex={0}
         onClick={() => onProfileClick(actor?.id || 0)}
-        className={`flex gap-3 p-3 rounded-lg cursor-pointer hover:bg-[#f0f2f5] dark:hover:bg-[#3A3B3C] focus:outline-none transition-colors ${
-          !n.is_read ? "bg-[#eef6ff] dark:bg-[#263951]" : "bg-white dark:bg-transparent"
-        }`}
+        className={`flex items-start gap-3 px-3 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2b2c2d] focus:outline-none transition-colors
+          ${!n.is_read ? "border-l-4 border-[#1877F2] pl-[10px]" : "pl-3"}
+        `}
       >
-        <div className="relative flex-shrink-0">
-          <img
-            src={actor?.profile_image_url}
-            alt={actor?.name || "avatar"}
-            className="w-12 h-12 rounded-full object-cover"
-          />
-          <div className="absolute bottom-0 right-0 w-6 h-6 bg-[#1877F2] rounded-full flex items-center justify-center border-2 border-white dark:border-[#18191A]">
-            <i className={`${iconClass} text-white text-[10px]`}></i>
-          </div>
-        </div>
+        {/* Avatar */}
+        <img
+          src={actor?.profile_image_url}
+          alt={actor?.name || "avatar"}
+          className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+        />
 
-        <div className="flex flex-col flex-1 min-w-0">
-          <div className="text-gray-900 dark:text-[#E4E6EB] text-[15px] truncate">
+        {/* Text */}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm text-gray-900 dark:text-[#E4E6EB] leading-tight truncate">
             <button
               onClick={(e)=>{ e.stopPropagation(); onProfileClick(actor?.id || 0); }}
-              className="font-semibold text-left text-inherit hover:underline truncate"
+              className="font-semibold text-inherit hover:underline truncate"
               aria-label={`Open profile of ${actor?.name || "user"}`}
             >
               {actor?.name || "Someone"}
@@ -141,15 +129,16 @@ export const NotificationsPage: React.FC<Props> = ({
             <span className="font-normal">{" "}{message}</span>
           </div>
 
-          <div className="text-gray-500 dark:text-[#B0B3B8] text-[13px] mt-1">
+          <div className="text-xs text-gray-500 dark:text-[#B0B3B8] mt-1">
             {formatTimestamp(n.created_at)}
           </div>
         </div>
 
+        {/* menu */}
         <button
           onClick={(e)=>{ e.stopPropagation(); /* open menu handler */ }}
           aria-label="Notification menu"
-          className="text-gray-500 dark:text-[#B0B3B8] ml-2 flex-shrink-0"
+          className="text-gray-400 dark:text-[#B0B3B8] ml-2 flex-shrink-0"
         >
           <i className="fas fa-ellipsis-h"></i>
         </button>
@@ -196,27 +185,27 @@ export const NotificationsPage: React.FC<Props> = ({
       </div>
 
       {/* Content */}
-      <div className="p-2 space-y-4">
+      <div className="divide-y divide-gray-100 dark:divide-[#3E4042]">
         {newNotifications.length > 0 && (
-          <div>
+          <div className="py-2">
             <div className="px-3 py-2 text-gray-600 dark:text-[#B0B3B8] text-[13px] font-semibold">New</div>
-            <div className="space-y-2 px-1">
+            <div className="space-y-0">
               {newNotifications.map(renderRow)}
             </div>
           </div>
         )}
 
         {earlierNotifications.length > 0 && (
-          <div>
+          <div className="py-2">
             <div className="px-3 py-2 text-gray-600 dark:text-[#B0B3B8] text-[13px] font-semibold">Earlier</div>
-            <div className="space-y-2 px-1">
+            <div className="space-y-0">
               {earlierNotifications.map(renderRow)}
             </div>
           </div>
         )}
 
         {localNotifications.length === 0 && (
-          <div className="mt-8 text-center text-gray-500 dark:text-[#B0B3B8]">
+          <div className="p-6 text-center text-gray-500 dark:text-[#B0B3B8]">
             No notifications yet
           </div>
         )}
