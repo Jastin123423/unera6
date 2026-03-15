@@ -49,12 +49,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (product && product.seller_id !== user_id) {
     await createNotification(
       env,
-      product.seller_id,
-      user_id,
-      "share",
-      "product",
-      product_id,
-      `share_product_${product_id}_${user_id}`
+      product.seller_id,     // recipient_id
+      user_id,               // actor_id
+      "share",               // type
+      "product",             // entity_type
+      product_id,            // entity_id
+      `share_product_${product_id}`  // group_key
     );
   }
 
