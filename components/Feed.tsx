@@ -1,6 +1,6 @@
-//Feed.tsx (Updated with Sponsored posts, fixed Comments API, instant reactions, and increased text sizes)
+//Feed.tsx (Updated with React.memo optimizations and custom comparators)
 
-import React, { useEffect, useMemo, useRef, useState, useCallback, useContext } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback, useContext, memo } from 'react';
 import {
   User,
   Post as PostType,
@@ -1034,603 +1034,38 @@ export const RichText = ({
   );
 };
 
-/**
- * =========================
- * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON - NOW SHOWS "React" LABEL
- * WITH INSTANT REACTION SUBMISSION (NO DELAY)
- * =========================
- */
-export const ReactionButton: React.FC<{
-  currentUserReactions: ReactionType | undefined;
-  reactionCount: number;
-  onReact: (type: ReactionType) => void;
-  isGuest?: boolean;
-}> = ({ currentUserReactions, reactionCount, onReact, isGuest }) => {
-  const [showDock, setShowDock] = useState(false);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
-  const timerRef = useRef<any>(null);
-  const longPressTimerRef = useRef<any>(null);
-  const dockRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    ensureReactionStyles();
-  }, []);
-
-  const reactionConfig = [
-    { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
-    { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
-    { type: 'haha', icon: '😂', color: '#F7B928', label: 'Haha' },
-    { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
-    { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
-    { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
-    { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
-    { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
-    { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
-    { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
-    { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
-    { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
-    { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
-    { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
-    { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
-    { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
-    { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
-    { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
-    { type: 'unicorn', icon: '🦄', color: '#E040FB', label: 'Unicorn' },
-    { type: 'rainbow', icon: '🌈', color: '#00E676', label: 'Rainbow' },
-    { type: 'money', icon: '💰', color: '#4CAF50', label: 'Money' },
-    { type: 'muscle', icon: '💪', color: '#FF5722', label: 'Muscle' },
-    { type: 'brain', icon: '🧠', color: '#9C27B0', label: 'Brain' },
-    { type: 'lightning', icon: '⚡', color: '#FFEB3B', label: 'Lightning' },
-    { type: 'gem', icon: '💎', color: '#00BCD4', label: 'Gem' },
-  ] as const;
-
-  const handleMouseEnter = () => {
-    if (isGuest) return;
-    timerRef.current = setTimeout(() => setShowDock(true), 500);
-  };
-
-  const handleMouseLeave = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setTimeout(() => setShowDock(false), 250);
-    setShowPreview(false);
-  };
-
-  const handleTouchStart = () => {
-    if (isGuest) return;
-    longPressTimerRef.current = setTimeout(() => {
-      setShowDock(true);
-      setShowPreview(true);
-      setPreviewEmoji('👍');
-    }, 600);
-  };
-
-  const handleTouchEnd = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-    }
-    setTimeout(() => setShowPreview(false), 300);
-  };
-
-  const handleClick = () => {
-    if (isGuest) return alert('Please login to react.');
-    if (currentUserReactions) {
-      setIsAnimating(true);
-      // INSTANT REACTION: Submit immediately without delay
-      onReact(currentUserReactions);
-      setTimeout(() => setIsAnimating(false), 300);
-    } else {
-      setShowDock(!showDock);
-    }
-  };
-
-  const handleDockReact = (type: ReactionType) => {
-    setIsAnimating(true);
-    // INSTANT REACTION: Submit immediately when emoji is clicked
-    onReact(type);
-    setShowDock(false);
-    setShowPreview(false);
-    setTimeout(() => setIsAnimating(false), 300);
-  };
-
-  const handleEmojiHover = (emoji: string) => {
-    if (showPreview) {
-      setPreviewEmoji(emoji);
-    }
-  };
-
-  const activeReaction = currentUserReactions
-    ? reactionConfig.find((r) => r.type === currentUserReactions)
-    : null;
-
+// ==================== CUSTOM COMPARISON FUNCTIONS ====================
+const postPropsEqual = (prev: any, next: any) => {
   return (
-    <div
-      className="flex-1 relative group"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
-    >
-      {showPreview && (
-        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
-          <div className="text-4xl">
-            {previewEmoji}
-          </div>
-        </div>
-      )}
-
-      {showDock && (
-        <div 
-          ref={dockRef}
-          className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
-        >
-          <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
-            {reactionConfig.map((r) => (
-              <div
-                key={r.type}
-                className="text-3xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDockReact(r.type as ReactionType);
-                }}
-                onMouseEnter={() => handleEmojiHover(r.icon)}
-                title={r.label}
-              >
-                {r.icon}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <button
-        onClick={handleClick}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
-          isAnimating ? 'scale-110' : ''
-        }`}
-      >
-        {activeReaction ? (
-          <>
-            <span className="text-[22px] transition-transform duration-300">
-              {activeReaction.icon}
-            </span>
-            <span
-              className="text-[19px] font-bold transition-colors duration-300"
-              style={{ color: activeReaction.color }}
-            >
-              React
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="flex items-center justify-center -mt-[1px]">
-              <SparkReactIcon size={28} />
-            </span>
-            <span className="text-[19px] font-bold text-[#B0B3B8]">React</span>
-          </>
-        )}
-      </button>
-    </div>
+    prev.post?.id === next.post?.id &&
+    prev.post?.reactions_count === next.post?.reactions_count &&
+    prev.post?.comments_count === next.post?.comments_count &&
+    prev.post?.shares === next.post?.shares &&
+    prev.myReaction === next.myReaction &&
+    prev.isFollowing === next.isFollowing &&
+    prev.followLoading === next.followLoading
   );
 };
 
-/**
- * =========================
- * ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
- * =========================
- */
-const getMediaTypeInfo = (post: any) => {
-  const mediaUrl = String(post?.media_url || '');
-  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
-  const typeRaw = String(post?.type || '').toLowerCase();
-
-  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
-  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
-
-  const isImage =
-    typeRaw === 'image' ||
-    mediaTypeRaw === 'image' ||
-    mediaTypeRaw.startsWith('image/') ||
-    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
-
-  const isVideo =
-    typeRaw === 'video' ||
-    mediaTypeRaw === 'video' ||
-    mediaTypeRaw.startsWith('video/') ||
-    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
-
-  const isAudio =
-    typeRaw === 'audio' ||
-    mediaTypeRaw.startsWith('audio/') ||
-    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
-
-  return {
-    mediaUrl,
-    isImage,
-    isVideo,
-    isAudio,
-    extension: ext,
-    mimeType: mediaTypeRaw,
-  };
-};
-
-/**
- * =========================
- * ✅ getPostMediaList Helper for Multiple Images Support
- * =========================
- */
-type NormalizedMedia = { url: string; kind: 'image' | 'video'; width?: number; height?: number };
-
-const getPostMediaList = (post: any): NormalizedMedia[] => {
-  const out: NormalizedMedia[] = [];
-
-  const arrUrls: any[] = Array.isArray(post?.media_urls)
-    ? post.media_urls
-    : Array.isArray(post?.images)
-      ? post.images
-      : [];
-
-  for (const u of arrUrls) {
-    const url = String(u || '').trim();
-    if (!url) continue;
-    out.push({ 
-      url, 
-      kind: 'image',
-      width: typeof u === 'object' ? u?.width : undefined,
-      height: typeof u === 'object' ? u?.height : undefined
-    });
-  }
-
-  const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
-  for (const m of arrMedia) {
-    const url = String(m?.url || m?.media_url || '').trim();
-    if (!url) continue;
-
-    const type = String(m?.type || m?.media_type || '').toLowerCase();
-    const clean = url.split('?')[0].split('#')[0];
-    const ext = clean.split('.').pop()?.toLowerCase() || '';
-
-    const isVideo =
-      type.startsWith('video') ||
-      ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
-
-    out.push({ 
-      url, 
-      kind: isVideo ? 'video' : 'image',
-      width: m?.width,
-      height: m?.height
-    });
-  }
-
-  if (out.length === 0) {
-    const single = String(post?.media_url || '').trim();
-    if (single) {
-      const info = getMediaTypeInfo(post);
-      if (info.isVideo) out.push({ url: single, kind: 'video' });
-      else if (info.isImage) out.push({ url: single, kind: 'image' });
-    }
-  }
-
-  return out.filter((x) => x.url);
-};
-
-type MediaOrientation = "portrait" | "landscape" | "square";
-
-const getOrientation = (item: {
-  width?: number;
-  height?: number;
-}): MediaOrientation => {
-  const w = Number(item?.width || 0);
-  const h = Number(item?.height || 0);
-
-  if (!w || !h) return "square";
-
-  const ratio = w / h;
-
-  if (ratio > 1.15) return "landscape";
-  if (ratio < 0.87) return "portrait";
-  return "square";
-};
-
-const classifyOrientations = (
-  media: { width?: number; height?: number }[]
-): MediaOrientation[] => {
-  return media.map(getOrientation);
-};
-
-/**
- * =========================
- * ✅ UPDATED: MediaGrid Component - Supports 5, 6 images and +N overlay with smart layouts
- * =========================
- */
-const MediaGrid: React.FC<{
-  media: { url: string }[];
-  onOpen: (url: string, index: number) => void;
-}> = ({ media, onOpen }) => {
-  const total = Array.isArray(media) ? media.length : 0;
-
-  const [measuredMedia, setMeasuredMedia] = useState(media);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      const next = await Promise.all(
-        media.map(
-          (item) =>
-            new Promise<{ url: string; width?: number; height?: number }>((resolve) => {
-              if (item.width && item.height) {
-                resolve(item);
-                return;
-              }
-
-              const img = new Image();
-              img.onload = () => {
-                resolve({
-                  ...item,
-                  width: img.naturalWidth,
-                  height: img.naturalHeight,
-                });
-              };
-              img.onerror = () => resolve(item);
-              img.src = item.url;
-            })
-        )
-      );
-
-      if (!cancelled) {
-        setMeasuredMedia(next);
-      }
-    };
-
-    run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [media]);
-
-  const visible =
-    total <= 4
-      ? measuredMedia
-      : total === 5
-      ? measuredMedia.slice(0, 5)
-      : measuredMedia.slice(0, 6);
-
-  const extra =
-    total <= 5
-      ? 0
-      : total === 6
-      ? 0
-      : total - 6;
-
-  const orientations = classifyOrientations(visible);
-
-  const Tile = ({
-    url,
-    index,
-    className,
-    showOverlay = false,
-  }: {
-    url: string;
-    index: number;
-    className: string;
-    showOverlay?: boolean;
-  }) => (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(url, index);
-      }}
-      className={`relative overflow-hidden ${className}`}
-      style={{ borderRadius: 0 }}
-    >
-      <img
-        src={url}
-        alt=""
-        loading="lazy"
-        className="absolute inset-0 w-full h-full object-cover"
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = "none";
-        }}
-      />
-
-      {showOverlay && extra > 0 && (
-        <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-          <span className="text-white font-bold text-[34px] leading-none">
-            +{extra}
-          </span>
-        </div>
-      )}
-    </button>
-  );
-
-  if (total === 0) return null;
-
-  if (total === 1) {
-    return (
-      <div className="w-full bg-black">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(visible[0].url, 0);
-          }}
-          className="w-full block"
-        >
-          <img
-            src={visible[0].url}
-            alt=""
-            loading="lazy"
-            className="w-full h-auto max-h-[650px] object-contain"
-          />
-        </button>
-      </div>
-    );
-  }
-
-  if (total === 2) {
-    return (
-      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
-        <Tile url={visible[1].url} index={1} className="h-[320px] w-full" />
-      </div>
-    );
-  }
-
-  if (total === 3) {
-    return (
-      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={visible[0].url} index={0} className="h-[420px] w-full" />
-        <div className="grid grid-rows-2 gap-[2px] h-[420px]">
-          <Tile url={visible[1].url} index={1} className="w-full h-full" />
-          <Tile url={visible[2].url} index={2} className="w-full h-full" />
-        </div>
-      </div>
-    );
-  }
-
-  if (total === 4) {
-    return (
-      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-        <Tile url={visible[0].url} index={0} className="h-[260px] w-full" />
-        <Tile url={visible[1].url} index={1} className="h-[260px] w-full" />
-        <Tile url={visible[2].url} index={2} className="h-[260px] w-full" />
-        <Tile url={visible[3].url} index={3} className="h-[260px] w-full" />
-      </div>
-    );
-  }
-
-  if (total === 5) {
-    return (
-      <div className="w-full bg-black">
-        <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-          <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
-          <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
-        </div>
-
-        <div className="grid grid-cols-3 gap-[2px]">
-          <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
-          <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
-          <Tile
-            url={visible[4].url}
-            index={4}
-            className="h-[170px] w-full"
-            showOverlay={extra > 0}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Smart 6-image layout based on orientation
-  if (total >= 6) {
-    const first = orientations[0];
-    const second = orientations[1];
-    const third = orientations[2];
-
-    const topPortraitPair = first === "portrait" && second === "portrait";
-    const firstLandscape = first === "landscape" || second === "landscape";
-    const tallLeft = third === "portrait";
-
-    // Layout A: Tall left + 3 stacked right - Best when 3rd image is portrait
-    if (tallLeft) {
-      return (
-        <div className="w-full bg-black">
-          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-            <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
-            <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-[2px]">
-            <Tile url={visible[2].url} index={2} className="h-[340px] w-full" />
-            <div className="grid grid-rows-3 gap-[2px] h-[340px]">
-              <Tile url={visible[3].url} index={3} className="w-full h-full" />
-              <Tile url={visible[4].url} index={4} className="w-full h-full" />
-              <Tile
-                url={visible[5].url}
-                index={5}
-                className="w-full h-full"
-                showOverlay={extra > 0}
-              />
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Layout B: 2 top large + 4 bottom squares - Better for landscapes/squares
-    if (firstLandscape || !topPortraitPair) {
-      return (
-        <div className="w-full bg-black">
-          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-            <Tile url={visible[0].url} index={0} className="h-[230px] w-full" />
-            <Tile url={visible[1].url} index={1} className="h-[230px] w-full" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-[2px]">
-            <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
-            <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
-            <Tile url={visible[4].url} index={4} className="h-[170px] w-full" />
-            <Tile
-              url={visible[5].url}
-              index={5}
-              className="h-[170px] w-full"
-              showOverlay={extra > 0}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    // Layout C: 1 big left + 2 stacked right on top, then 3 bottom tiles
-    // Good for portrait-heavy first image
-    return (
-      <div className="w-full bg-black">
-        <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-          <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
-          <div className="grid grid-rows-2 gap-[2px] h-[320px]">
-            <Tile url={visible[1].url} index={1} className="w-full h-full" />
-            <Tile url={visible[2].url} index={2} className="w-full h-full" />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-[2px]">
-          <Tile url={visible[3].url} index={3} className="h-[150px] w-full" />
-          <Tile url={visible[4].url} index={4} className="h-[150px] w-full" />
-          <Tile
-            url={visible[5].url}
-            index={5}
-            className="h-[150px] w-full"
-            showOverlay={extra > 0}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Fallback for any other case (should not reach here)
+const eventPostPropsEqual = (prev: any, next: any) => {
   return (
-    <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
-      <Tile url={visible[0].url} index={0} className="h-[180px] w-full" />
-      <Tile url={visible[1].url} index={1} className="h-[180px] w-full" />
-      <Tile url={visible[2].url} index={2} className="h-[180px] w-full" />
-      <Tile url={visible[3].url} index={3} className="h-[180px] w-full" />
-      <Tile url={visible[4].url} index={4} className="h-[180px] w-full" />
-      <Tile
-        url={visible[5].url}
-        index={5}
-        className="h-[180px] w-full"
-        showOverlay={extra > 0}
-      />
-    </div>
+    prev.event?.id === next.event?.id &&
+    prev.event?.attendees_count === next.event?.attendees_count &&
+    prev.event?.interested_count === next.event?.interested_count &&
+    prev.event?.user_rsvp_status === next.event?.user_rsvp_status
   );
 };
+
+const reelCardPropsEqual = (prev: any, next: any) => {
+  return (
+    prev.reel?.id === next.reel?.id &&
+    prev.reel?.views === next.reel?.views &&
+    prev.reel?.likes === next.reel?.likes &&
+    prev.reel?.comments === next.reel?.comments
+  );
+};
+
+// ==================== MEMOIZED COMPONENTS ====================
 
 /**
  * =========================
@@ -1790,6 +1225,11 @@ export const ReactionsSheet: React.FC<{
     </div>
   );
 };
+
+// Wrap ReactionsSheet with memo
+export const ReactionsSheet = memo(ReactionsSheet, (prev, next) => {
+  return prev.isOpen === next.isOpen && prev.postId === next.postId;
+});
 
 /**
  * =========================
@@ -1990,6 +1430,19 @@ export const GalleryViewer: React.FC<{
     </div>
   );
 };
+
+// Wrap GalleryViewer with memo
+export const GalleryViewer = memo(GalleryViewer, (prev, next) => {
+  return (
+    prev.isOpen === next.isOpen &&
+    prev.urls === next.urls &&
+    prev.startIndex === next.startIndex &&
+    prev.reactionCount === next.reactionCount &&
+    prev.commentCount === next.commentCount &&
+    prev.shareCount === next.shareCount &&
+    prev.myReaction === next.myReaction
+  );
+});
 
 /**
  * =========================
@@ -2539,6 +1992,15 @@ export const ShareBottomSheet: React.FC<{
   );
 };
 
+// Wrap ShareBottomSheet with memo
+export const ShareBottomSheet = memo(ShareBottomSheet, (prev, next) => {
+  return (
+    prev.isOpen === next.isOpen &&
+    prev.post?.id === next.post?.id &&
+    prev.currentUser?.id === next.currentUser?.id
+  );
+});
+
 /**
  * =========================
  * ✅ PEOPLE YOU MAY KNOW - FACEBOOK STYLE FEED CARD
@@ -2772,6 +2234,15 @@ export const PeopleYouMayKnowGrid: React.FC<{
     </div>
   );
 };
+
+// Wrap PeopleYouMayKnowGrid with memo
+export const PeopleYouMayKnowGrid = memo(PeopleYouMayKnowGrid, (prev, next) => {
+  return (
+    prev.users === next.users && // shallow compare array reference – if parent recreates, you may need deeper check
+    prev.currentUser?.id === next.currentUser?.id &&
+    prev.isLoading === next.isLoading
+  );
+});
 
 /**
  * =========================
@@ -3163,6 +2634,9 @@ export const ReelFeedCard: React.FC<{
   );
 };
 
+// Wrap ReelFeedCard with memo
+export const ReelFeedCard = memo(ReelFeedCard, reelCardPropsEqual);
+
 /**
  * =========================
  * ✅ GROUPS YOU MAY JOIN - FACEBOOK STYLE FEED CARD
@@ -3455,6 +2929,15 @@ export const GroupsYouMayJoinCard: React.FC<{
     </div>
   );
 };
+
+// Wrap GroupsYouMayJoinCard with memo
+export const GroupsYouMayJoinCard = memo(GroupsYouMayJoinCard, (prev, next) => {
+  return (
+    prev.groups === next.groups &&
+    prev.currentUser?.id === next.currentUser?.id &&
+    prev.isLoading === next.isLoading
+  );
+});
 
 // Add CSS for hiding scrollbar
 const scrollbarHideStyles = `
@@ -3998,6 +3481,9 @@ export const EventPost: React.FC<{
   );
 };
 
+// Wrap EventPost with memo
+export const EventPost = memo(EventPost, eventPostPropsEqual);
+
 /**
  * =========================
  * ✅ UPDATED: EVENT FEED CARD COMPONENT - ORIGINAL VERSION (NO REACTION FEATURES)
@@ -4298,6 +3784,646 @@ export const EventFeedCard: React.FC<{
     </div>
   );
 };
+
+// Wrap EventFeedCard with memo
+export const EventFeedCard = memo(EventFeedCard, (prev, next) => {
+  return (
+    prev.item.id === next.item.id &&
+    prev.item.my_rsvp_status === next.item.my_rsvp_status &&
+    prev.item.attending_count === next.item.attending_count &&
+    prev.item.interested_count === next.item.interested_count
+  );
+});
+
+/**
+ * =========================
+ * ✅ UPDATED: FACEBOOK-STYLE REACTION BUTTON - NOW SHOWS "React" LABEL
+ * WITH INSTANT REACTION SUBMISSION (NO DELAY)
+ * =========================
+ */
+export const ReactionButton: React.FC<{
+  currentUserReactions: ReactionType | undefined;
+  reactionCount: number;
+  onReact: (type: ReactionType) => void;
+  isGuest?: boolean;
+}> = ({ currentUserReactions, reactionCount, onReact, isGuest }) => {
+  const [showDock, setShowDock] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
+  const timerRef = useRef<any>(null);
+  const longPressTimerRef = useRef<any>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    ensureReactionStyles();
+  }, []);
+
+  const reactionConfig = [
+    { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
+    { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
+    { type: 'haha', icon: '😂', color: '#F7B928', label: 'Haha' },
+    { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
+    { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
+    { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
+    { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
+    { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
+    { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
+    { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
+    { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
+    { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
+    { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
+    { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
+    { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
+    { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
+    { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
+    { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
+    { type: 'unicorn', icon: '🦄', color: '#E040FB', label: 'Unicorn' },
+    { type: 'rainbow', icon: '🌈', color: '#00E676', label: 'Rainbow' },
+    { type: 'money', icon: '💰', color: '#4CAF50', label: 'Money' },
+    { type: 'muscle', icon: '💪', color: '#FF5722', label: 'Muscle' },
+    { type: 'brain', icon: '🧠', color: '#9C27B0', label: 'Brain' },
+    { type: 'lightning', icon: '⚡', color: '#FFEB3B', label: 'Lightning' },
+    { type: 'gem', icon: '💎', color: '#00BCD4', label: 'Gem' },
+  ] as const;
+
+  const handleMouseEnter = () => {
+    if (isGuest) return;
+    timerRef.current = setTimeout(() => setShowDock(true), 500);
+  };
+
+  const handleMouseLeave = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setTimeout(() => setShowDock(false), 250);
+    setShowPreview(false);
+  };
+
+  const handleTouchStart = () => {
+    if (isGuest) return;
+    longPressTimerRef.current = setTimeout(() => {
+      setShowDock(true);
+      setShowPreview(true);
+      setPreviewEmoji('👍');
+    }, 600);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    setTimeout(() => setShowPreview(false), 300);
+  };
+
+  const handleClick = () => {
+    if (isGuest) return alert('Please login to react.');
+    if (currentUserReactions) {
+      setIsAnimating(true);
+      // INSTANT REACTION: Submit immediately without delay
+      onReact(currentUserReactions);
+      setTimeout(() => setIsAnimating(false), 300);
+    } else {
+      setShowDock(!showDock);
+    }
+  };
+
+  const handleDockReact = (type: ReactionType) => {
+    setIsAnimating(true);
+    // INSTANT REACTION: Submit immediately when emoji is clicked
+    onReact(type);
+    setShowDock(false);
+    setShowPreview(false);
+    setTimeout(() => setIsAnimating(false), 300);
+  };
+
+  const handleEmojiHover = (emoji: string) => {
+    if (showPreview) {
+      setPreviewEmoji(emoji);
+    }
+  };
+
+  const activeReaction = currentUserReactions
+    ? reactionConfig.find((r) => r.type === currentUserReactions)
+    : null;
+
+  return (
+    <div
+      className="flex-1 relative group"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+    >
+      {showPreview && (
+        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
+          <div className="text-4xl">
+            {previewEmoji}
+          </div>
+        </div>
+      )}
+
+      {showDock && (
+        <div 
+          ref={dockRef}
+          className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
+        >
+          <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
+            {reactionConfig.map((r) => (
+              <div
+                key={r.type}
+                className="text-3xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDockReact(r.type as ReactionType);
+                }}
+                onMouseEnter={() => handleEmojiHover(r.icon)}
+                title={r.label}
+              >
+                {r.icon}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
+          isAnimating ? 'scale-110' : ''
+        }`}
+      >
+        {activeReaction ? (
+          <>
+            <span className="text-[22px] transition-transform duration-300">
+              {activeReaction.icon}
+            </span>
+            <span
+              className="text-[19px] font-bold transition-colors duration-300"
+              style={{ color: activeReaction.color }}
+            >
+              React
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="flex items-center justify-center -mt-[1px]">
+              <SparkReactIcon size={28} />
+            </span>
+            <span className="text-[19px] font-bold text-[#B0B3B8]">React</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+};
+
+// Wrap ReactionButton with memo
+export const ReactionButton = memo(ReactionButton, (prev, next) => {
+  return (
+    prev.currentUserReactions === next.currentUserReactions &&
+    prev.reactionCount === next.reactionCount &&
+    prev.isGuest === next.isGuest
+  );
+});
+
+/**
+ * =========================
+ * ROBUST MEDIA TYPE DETECTION FOR CLOUDFLARE R2
+ * =========================
+ */
+const getMediaTypeInfo = (post: any) => {
+  const mediaUrl = String(post?.media_url || '');
+  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
+  const typeRaw = String(post?.type || '').toLowerCase();
+
+  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
+  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
+
+  const isImage =
+    typeRaw === 'image' ||
+    mediaTypeRaw === 'image' ||
+    mediaTypeRaw.startsWith('image/') ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
+
+  const isVideo =
+    typeRaw === 'video' ||
+    mediaTypeRaw === 'video' ||
+    mediaTypeRaw.startsWith('video/') ||
+    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
+
+  const isAudio =
+    typeRaw === 'audio' ||
+    mediaTypeRaw.startsWith('audio/') ||
+    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
+
+  return {
+    mediaUrl,
+    isImage,
+    isVideo,
+    isAudio,
+    extension: ext,
+    mimeType: mediaTypeRaw,
+  };
+};
+
+/**
+ * =========================
+ * ✅ getPostMediaList Helper for Multiple Images Support
+ * =========================
+ */
+type NormalizedMedia = { url: string; kind: 'image' | 'video'; width?: number; height?: number };
+
+const getPostMediaList = (post: any): NormalizedMedia[] => {
+  const out: NormalizedMedia[] = [];
+
+  const arrUrls: any[] = Array.isArray(post?.media_urls)
+    ? post.media_urls
+    : Array.isArray(post?.images)
+      ? post.images
+      : [];
+
+  for (const u of arrUrls) {
+    const url = String(u || '').trim();
+    if (!url) continue;
+    out.push({ 
+      url, 
+      kind: 'image',
+      width: typeof u === 'object' ? u?.width : undefined,
+      height: typeof u === 'object' ? u?.height : undefined
+    });
+  }
+
+  const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
+  for (const m of arrMedia) {
+    const url = String(m?.url || m?.media_url || '').trim();
+    if (!url) continue;
+
+    const type = String(m?.type || m?.media_type || '').toLowerCase();
+    const clean = url.split('?')[0].split('#')[0];
+    const ext = clean.split('.').pop()?.toLowerCase() || '';
+
+    const isVideo =
+      type.startsWith('video') ||
+      ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
+
+    out.push({ 
+      url, 
+      kind: isVideo ? 'video' : 'image',
+      width: m?.width,
+      height: m?.height
+    });
+  }
+
+  if (out.length === 0) {
+    const single = String(post?.media_url || '').trim();
+    if (single) {
+      const info = getMediaTypeInfo(post);
+      if (info.isVideo) out.push({ url: single, kind: 'video' });
+      else if (info.isImage) out.push({ url: single, kind: 'image' });
+    }
+  }
+
+  return out.filter((x) => x.url);
+};
+
+type MediaOrientation = "portrait" | "landscape" | "square";
+
+const getOrientation = (item: {
+  width?: number;
+  height?: number;
+}): MediaOrientation => {
+  const w = Number(item?.width || 0);
+  const h = Number(item?.height || 0);
+
+  if (!w || !h) return "square";
+
+  const ratio = w / h;
+
+  if (ratio > 1.15) return "landscape";
+  if (ratio < 0.87) return "portrait";
+  return "square";
+};
+
+const classifyOrientations = (
+  media: { width?: number; height?: number }[]
+): MediaOrientation[] => {
+  return media.map(getOrientation);
+};
+
+/**
+ * =========================
+ * ✅ UPDATED: MediaGrid Component - Supports 5, 6 images and +N overlay with smart layouts
+ * =========================
+ */
+const MediaGrid: React.FC<{
+  media: { url: string }[];
+  onOpen: (url: string, index: number) => void;
+}> = ({ media, onOpen }) => {
+  const total = Array.isArray(media) ? media.length : 0;
+
+  const [measuredMedia, setMeasuredMedia] = useState(media);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      const next = await Promise.all(
+        media.map(
+          (item) =>
+            new Promise<{ url: string; width?: number; height?: number }>((resolve) => {
+              if (item.width && item.height) {
+                resolve(item);
+                return;
+              }
+
+              const img = new Image();
+              img.onload = () => {
+                resolve({
+                  ...item,
+                  width: img.naturalWidth,
+                  height: img.naturalHeight,
+                });
+              };
+              img.onerror = () => resolve(item);
+              img.src = item.url;
+            })
+        )
+      );
+
+      if (!cancelled) {
+        setMeasuredMedia(next);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [media]);
+
+  const visible =
+    total <= 4
+      ? measuredMedia
+      : total === 5
+      ? measuredMedia.slice(0, 5)
+      : measuredMedia.slice(0, 6);
+
+  const extra =
+    total <= 5
+      ? 0
+      : total === 6
+      ? 0
+      : total - 6;
+
+  const orientations = classifyOrientations(visible);
+
+  const Tile = ({
+    url,
+    index,
+    className,
+    showOverlay = false,
+  }: {
+    url: string;
+    index: number;
+    className: string;
+    showOverlay?: boolean;
+  }) => (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(url, index);
+      }}
+      className={`relative overflow-hidden ${className}`}
+      style={{ borderRadius: 0 }}
+    >
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        className="absolute inset-0 w-full h-full object-cover"
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.display = "none";
+        }}
+      />
+
+      {showOverlay && extra > 0 && (
+        <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+          <span className="text-white font-bold text-[34px] leading-none">
+            +{extra}
+          </span>
+        </div>
+      )}
+    </button>
+  );
+
+  if (total === 0) return null;
+
+  if (total === 1) {
+    return (
+      <div className="w-full bg-black">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(visible[0].url, 0);
+          }}
+          className="w-full block"
+        >
+          <img
+            src={visible[0].url}
+            alt=""
+            loading="lazy"
+            className="w-full h-auto max-h-[650px] object-contain"
+          />
+        </button>
+      </div>
+    );
+  }
+
+  if (total === 2) {
+    return (
+      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+        <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
+        <Tile url={visible[1].url} index={1} className="h-[320px] w-full" />
+      </div>
+    );
+  }
+
+  if (total === 3) {
+    return (
+      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+        <Tile url={visible[0].url} index={0} className="h-[420px] w-full" />
+        <div className="grid grid-rows-2 gap-[2px] h-[420px]">
+          <Tile url={visible[1].url} index={1} className="w-full h-full" />
+          <Tile url={visible[2].url} index={2} className="w-full h-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (total === 4) {
+    return (
+      <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+        <Tile url={visible[0].url} index={0} className="h-[260px] w-full" />
+        <Tile url={visible[1].url} index={1} className="h-[260px] w-full" />
+        <Tile url={visible[2].url} index={2} className="h-[260px] w-full" />
+        <Tile url={visible[3].url} index={3} className="h-[260px] w-full" />
+      </div>
+    );
+  }
+
+  if (total === 5) {
+    return (
+      <div className="w-full bg-black">
+        <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+          <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
+          <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
+        </div>
+
+        <div className="grid grid-cols-3 gap-[2px]">
+          <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
+          <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
+          <Tile
+            url={visible[4].url}
+            index={4}
+            className="h-[170px] w-full"
+            showOverlay={extra > 0}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Smart 6-image layout based on orientation
+  if (total >= 6) {
+    const first = orientations[0];
+    const second = orientations[1];
+    const third = orientations[2];
+
+    const topPortraitPair = first === "portrait" && second === "portrait";
+    const firstLandscape = first === "landscape" || second === "landscape";
+    const tallLeft = third === "portrait";
+
+    // Layout A: Tall left + 3 stacked right - Best when 3rd image is portrait
+    if (tallLeft) {
+      return (
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
+            <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-[2px]">
+            <Tile url={visible[2].url} index={2} className="h-[340px] w-full" />
+            <div className="grid grid-rows-3 gap-[2px] h-[340px]">
+              <Tile url={visible[3].url} index={3} className="w-full h-full" />
+              <Tile url={visible[4].url} index={4} className="w-full h-full" />
+              <Tile
+                url={visible[5].url}
+                index={5}
+                className="w-full h-full"
+                showOverlay={extra > 0}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Layout B: 2 top large + 4 bottom squares - Better for landscapes/squares
+    if (firstLandscape || !topPortraitPair) {
+      return (
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile url={visible[0].url} index={0} className="h-[230px] w-full" />
+            <Tile url={visible[1].url} index={1} className="h-[230px] w-full" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-[2px]">
+            <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
+            <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
+            <Tile url={visible[4].url} index={4} className="h-[170px] w-full" />
+            <Tile
+              url={visible[5].url}
+              index={5}
+              className="h-[170px] w-full"
+              showOverlay={extra > 0}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Layout C: 1 big left + 2 stacked right on top, then 3 bottom tiles
+    // Good for portrait-heavy first image
+    return (
+      <div className="w-full bg-black">
+        <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+          <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
+          <div className="grid grid-rows-2 gap-[2px] h-[320px]">
+            <Tile url={visible[1].url} index={1} className="w-full h-full" />
+            <Tile url={visible[2].url} index={2} className="w-full h-full" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-[2px]">
+          <Tile url={visible[3].url} index={3} className="h-[150px] w-full" />
+          <Tile url={visible[4].url} index={4} className="h-[150px] w-full" />
+          <Tile
+            url={visible[5].url}
+            index={5}
+            className="h-[150px] w-full"
+            showOverlay={extra > 0}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback for any other case (should not reach here)
+  return (
+    <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
+      <Tile url={visible[0].url} index={0} className="h-[180px] w-full" />
+      <Tile url={visible[1].url} index={1} className="h-[180px] w-full" />
+      <Tile url={visible[2].url} index={2} className="h-[180px] w-full" />
+      <Tile url={visible[3].url} index={3} className="h-[180px] w-full" />
+      <Tile url={visible[4].url} index={4} className="h-[180px] w-full" />
+      <Tile
+        url={visible[5].url}
+        index={5}
+        className="h-[180px] w-full"
+        showOverlay={extra > 0}
+      />
+    </div>
+  );
+};
+
+// Wrap MediaGrid with memo
+const MediaGrid = memo(MediaGrid, (prev, next) => {
+  return prev.media === next.media;
+});
+
+// Wrap GroupPostHeader with memo
+const GroupPostHeader = memo(GroupPostHeader, (prev, next) => {
+  return (
+    prev.post?.id === next.post?.id &&
+    prev.group?.id === next.group?.id &&
+    prev.author?.id === next.author?.id
+  );
+});
+
+// Wrap ExpandableRichText with memo
+const ExpandableRichText = memo(ExpandableRichText, (prev, next) => {
+  return (
+    prev.text === next.text &&
+    prev.forceExpanded === next.forceExpanded &&
+    prev.users === next.users
+  );
+});
 
 /**
  * =========================
@@ -5243,6 +5369,9 @@ export const Post: React.FC<{
     </>
   );
 };
+
+// Wrap Post with memo
+export const Post = memo(Post, postPropsEqual);
 
 /**
  * =========================
@@ -6810,6 +6939,11 @@ export const CommentsSheet: React.FC<{
   );
 };
 
+// Wrap CommentsSheet with memo
+export const CommentsSheet = memo(CommentsSheet, (prev, next) => {
+  return prev.post?.id === next.post?.id && prev.currentUser?.id === next.currentUser?.id;
+});
+
 /**
  * =========================
  * SUGGESTED PRODUCTS WIDGET
@@ -6878,7 +7012,15 @@ export const SuggestedProductsWidget: React.FC<{
   );
 };
 
-// Export all components
+// Wrap SuggestedProductsWidget with memo
+export const SuggestedProductsWidget = memo(SuggestedProductsWidget, (prev, next) => {
+  return (
+    prev.products === next.products &&
+    prev.currentUser?.id === next.currentUser?.id
+  );
+});
+
+// Export all components and helpers (unchanged)
 export { 
   getMediaTypeInfo,
   getMarketplaceImages,
