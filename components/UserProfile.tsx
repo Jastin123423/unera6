@@ -47,25 +47,6 @@ const safeStringHelper = (v: any, fallback = '') => (typeof v === 'string' ? v :
 const safePostIdHelper = (p: any) => safeNumberHelper(p?.id ?? p?.post_id ?? p?.postId, 0);
 const safeUserIdHelper = (u: any) => safeNumberHelper(u?.id ?? u?.user_id ?? u?.userId, 0);
 
-// Add CSS for hiding scrollbar
-const scrollbarHideStyles = `
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-`;
-
-// Inject styles if not already present
-if (typeof document !== 'undefined' && !document.getElementById('user-profile-styles')) {
-  const style = document.createElement('style');
-  style.id = 'user-profile-styles';
-  style.textContent = scrollbarHideStyles;
-  document.head.appendChild(style);
-}
-
 interface EditProfileModalProps {
   user: User;
   onClose: () => void;
@@ -849,13 +830,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     });
   }, [profilePosts]);
 
-  // ========== RENDER VIDEOS TAB - NO CONTAINER ==========
+  // ========== RENDER VIDEOS TAB (Reels Grid) ==========
   const renderVideos = () => {
     const normalizedReels = userReels.map(reel => normalizeReelFromFeed(reel));
 
     if (normalizedReels.length === 0) {
       return (
-        <div className="text-center p-8">
+        <div className="bg-[#242526] p-8 text-center rounded-xl border border-[#3E4042] mx-4 md:mx-0">
           <div className="text-[#B0B3B8] text-lg mb-2">No videos yet</div>
           <p className="text-[#B0B3B8] text-sm">
             {isCurrentUser ? "Create your first reel!" : "This user hasn't uploaded any videos yet."}
@@ -877,7 +858,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
 
     return (
-      <div className="w-full">
+      <div className="bg-[#242526] p-2 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
         <div className="grid grid-cols-3 gap-[2px]">
           {normalizedReels.map((reel) => (
             <div
@@ -935,11 +916,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     );
   };
 
-  // ========== RENDER STORIES TAB - NO CONTAINER ==========
+  // ========== RENDER STORIES TAB ==========
   const renderStories = () => {
     if (userStories.length === 0) {
       return (
-        <div className="text-center p-8">
+        <div className="bg-[#242526] p-8 text-center rounded-xl border border-[#3E4042] mx-4 md:mx-0">
           <div className="text-[#B0B3B8] text-lg mb-2">No stories yet</div>
           <p className="text-[#B0B3B8] text-sm">
             {isCurrentUser ? "Share your first story!" : "This user hasn't shared any stories yet."}
@@ -957,7 +938,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
 
     return (
-      <div className="w-full">
+      <div className="bg-[#242526] p-2 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
         <div className="grid grid-cols-3 gap-[2px]">
           {userStories.map((story: any) => {
             const isVideo = String(story.media_type || story.type || '').includes("video") || 
@@ -1016,9 +997,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     );
   };
 
-  // ========== RENDER ABOUT TAB - NO CONTAINER ==========
+  // ========== RENDER ABOUT TAB ==========
   const renderAbout = () => (
-    <div className="p-6 text-[#E4E6EB]">
+    <div className="bg-[#242526] p-6 text-[#E4E6EB] rounded-xl border border-[#3E4042] mx-4 md:mx-0">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold">About</h2>
         {isCurrentUser && (
@@ -1090,9 +1071,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     </div>
   );
 
-  // ========== RENDER FOLLOWERS TAB - NO CONTAINER ==========
+  // ========== RENDER FOLLOWERS TAB ==========
   const renderFollowers = () => (
-    <div className="p-4">
+    <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
       <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Followers</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {users
@@ -1100,7 +1081,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           .map((follower) => (
             <div
               key={follower.id}
-              className="flex items-start gap-3 p-3 hover:bg-[#3A3B3C] cursor-pointer transition-all duration-200 active:scale-95"
+              className="flex items-start gap-3 p-3 border border-[#3E4042] rounded-lg hover:bg-[#3A3B3C] cursor-pointer transition-all duration-200 active:scale-95"
               onClick={() => onProfileClick(follower.id)}
             >
               <img
@@ -1118,7 +1099,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     </div>
   );
 
-  // ========== RENDER PHOTOS TAB - NO CONTAINER ==========
+  // ========== RENDER PHOTOS TAB ==========
   const renderPhotos = () => {
     const photoPosts = filteredProfilePosts.filter((p: any) => {
       const mediaInfo = getMediaTypeInfo(p);
@@ -1126,7 +1107,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     });
 
     return (
-      <div className="p-4">
+      <div className="bg-[#242526] p-4 rounded-xl border border-[#3E4042] mx-4 md:mx-0">
         <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Photos</h2>
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1">
           {photoPosts.map((p: any) => {
@@ -1160,12 +1141,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     );
   };
 
-  // ========== RENDER POSTS TAB (MAIN FEED) - KEEP ORIGINAL CONTAINERS ==========
+  // ========== RENDER POSTS TAB (MAIN FEED) ==========
   const renderPosts = () => (
     <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
-      {/* Left Sidebar - Intro - NO CONTAINER */}
+      {/* Left Sidebar - Intro */}
       <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
-        <div className="p-4">
+        <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042]">
           <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Intro</h2>
           <div className="flex flex-col gap-3 text-[#E4E6EB]">
             <div className="text-center mb-2">
@@ -1211,19 +1192,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
         {/* Suggested Products Widget */}
         {!isCurrentUser && products.length > 0 && currentUser && (
-          <div className="px-4">
-            <SuggestedProductsWidget
-              products={products}
-              currentUser={currentUser}
-              onViewProduct={(product) => onViewProduct?.(product.id)}
-              onSeeAll={() => console.log('See all products')}
-            />
-          </div>
+          <SuggestedProductsWidget
+            products={products}
+            currentUser={currentUser}
+            onViewProduct={(product) => onViewProduct?.(product.id)}
+            onSeeAll={() => console.log('See all products')}
+          />
         )}
       </div>
 
-      {/* Main Content - Posts Feed - KEEP ORIGINAL CONTAINERS */}
-      <div className="flex-1 min-w-0 px-4 md:px-0">
+      {/* Main Content - Posts Feed */}
+      <div className="flex-1 min-w-0">
         {/* Error display */}
         {loginError && (
           <div className="mb-4 p-3 bg-red-900/80 border border-red-700 rounded-lg text-red-200 text-sm">
@@ -1318,7 +1297,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         )}
 
-        {/* Posts Feed - KEEP ORIGINAL CONTAINERS */}
+        {/* Posts Feed - Full width with proper containers */}
         {!isLoadingPosts && filteredProfilePosts.length > 0 ? (
           filteredProfilePosts.map((post: any) => {
             // Check if it's an event post
@@ -1334,21 +1313,20 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             if (isEventPost) {
               const event = normalizeEventFromFeed(post);
               return (
-                <div key={post.id} className="mb-4">
-                  <EventPost
-                    event={event}
-                    author={user}
-                    currentUser={currentUser}
-                    users={users}
-                    onProfileClick={onProfileClick}
-                    onRSVP={onRSVP}
-                    onFollow={onFollow}
-                    isFollowing={isFollowing}
-                    groups={groups}
-                    brands={brands}
-                    onEventClick={(eventId) => console.log('Event clicked:', eventId)}
-                  />
-                </div>
+                <EventPost
+                  key={post.id}
+                  event={event}
+                  author={user}
+                  currentUser={currentUser}
+                  users={users}
+                  onProfileClick={onProfileClick}
+                  onRSVP={onRSVP}
+                  onFollow={onFollow}
+                  isFollowing={isFollowing}
+                  groups={groups}
+                  brands={brands}
+                  onEventClick={(eventId) => console.log('Event clicked:', eventId)}
+                />
               );
             }
 
@@ -1475,7 +1453,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         }}
       />
 
-      {/* Profile Header - Keep header container for visual structure */}
+      {/* Profile Header - Like Tuko.co.ke/Facebook */}
       <div className="bg-[#242526] shadow-sm">
         <div className="max-w-[1095px] mx-auto w-full relative">
           {/* Cover Image */}
@@ -1668,7 +1646,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         </div>
       </div>
 
-      {/* Admin/Moderator Controls - Keep as is */}
+      {/* Admin/Moderator Controls */}
       {isAdminOrModerator && (
         <div className="max-w-[1095px] mx-auto mt-6 px-4">
           <div className="bg-[#242526] rounded-xl p-4 shadow-sm border border-red-900/50">
