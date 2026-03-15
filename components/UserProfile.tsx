@@ -1016,7 +1016,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     );
   };
 
-  // ========== RENDER ABOUT TAB - NO CONTAINER ==========
+  // ========== RENDER ABOUT TAB - NO CONTAINER, HIDDEN FIELDS ==========
   const renderAbout = () => (
     <div className="p-6 text-[#E4E6EB]">
       <div className="flex justify-between items-center mb-4">
@@ -1038,32 +1038,27 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="flex flex-col gap-4">
           <h3 className="text-xl font-bold">Work & Education</h3>
-          <div className="flex items-center gap-3">
-            <i className="fas fa-briefcase text-[#B0B3B8] w-6 text-center"></i>
-            <span>
-              {(user as any).work ? `Works at ${(user as any).work}` : 'No workplace to show'}
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <i className="fas fa-graduation-cap text-[#B0B3B8] w-6 text-center"></i>
-            <span>
-              {(user as any).education
-                ? `Studied at ${(user as any).education}`
-                : 'No schools to show'}
-            </span>
-          </div>
+          {(user as any).work && (
+            <div className="flex items-center gap-3">
+              <i className="fas fa-briefcase text-[#B0B3B8] w-6 text-center"></i>
+              <span>Works at {(user as any).work}</span>
+            </div>
+          )}
+          {/* Education field hidden as requested */}
         </div>
 
         <div className="flex flex-col gap-4">
           <h3 className="text-xl font-bold">Contact & Basic Info</h3>
-          <div className="flex items-center gap-3">
-            <i className="fas fa-map-marker-alt text-[#B0B3B8] w-6 text-center"></i>
-            <span>{(user as any).location || 'No location to show'}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <i className="fas fa-link text-[#B0B3B8] w-6 text-center"></i>
-            <span>
-              {(user as any).website ? (
+          {(user as any).location && (
+            <div className="flex items-center gap-3">
+              <i className="fas fa-map-marker-alt text-[#B0B3B8] w-6 text-center"></i>
+              <span>{(user as any).location}</span>
+            </div>
+          )}
+          {(user as any).website && (
+            <div className="flex items-center gap-3">
+              <i className="fas fa-link text-[#B0B3B8] w-6 text-center"></i>
+              <span>
                 <a
                   href={(user as any).website}
                   target="_blank"
@@ -1072,19 +1067,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 >
                   {(user as any).website}
                 </a>
-              ) : (
-                'No website'
-              )}
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <i className="fas fa-birthday-cake text-[#B0B3B8] w-6 text-center"></i>
-            <span>{(user as any).birth_date || 'No birth date'}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <i className="fas fa-venus-mars text-[#B0B3B8] w-6 text-center"></i>
-            <span>{(user as any).gender || 'Not specified'}</span>
-          </div>
+              </span>
+            </div>
+          )}
+          {/* Birth date field hidden as requested */}
         </div>
       </div>
     </div>
@@ -1118,7 +1104,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     </div>
   );
 
-  // ========== RENDER PHOTOS TAB - NO CONTAINER ==========
+  // ========== RENDER PHOTOS TAB - NO CONTAINER, NO GAPS ==========
   const renderPhotos = () => {
     const photoPosts = filteredProfilePosts.filter((p: any) => {
       const mediaInfo = getMediaTypeInfo(p);
@@ -1126,9 +1112,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     });
 
     return (
-      <div className="p-4">
-        <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Photos</h2>
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1">
+      <div className="w-full">
+        <h2 className="text-xl font-bold text-[#E4E6EB] p-4 pb-0">Photos</h2>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-[2px] p-0">
           {photoPosts.map((p: any) => {
             const mediaInfo = getMediaTypeInfo(p);
             return (
@@ -1163,51 +1149,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   // ========== RENDER POSTS TAB (MAIN FEED) - KEEP ORIGINAL CONTAINERS ==========
   const renderPosts = () => (
     <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
-      {/* Left Sidebar - Intro */}
+      {/* Left Sidebar - Intro - DELETED COMPLETELY */}
       <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
-        <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042]">
-          <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Intro</h2>
-          <div className="flex flex-col gap-3 text-[#E4E6EB]">
-            <div className="text-center mb-2">
-              <p className="text-[15px]">{safeBio || 'No bio available'}</p>
-            </div>
-            <div className="h-[1px] bg-[#3E4042] w-full my-1"></div>
-
-            {(user as any).work && (
-              <div className="flex items-center gap-3">
-                <i className="fas fa-briefcase text-[#B0B3B8] w-5 text-center"></i>
-                <span>{(user as any).work}</span>
-              </div>
-            )}
-            {(user as any).location && (
-              <div className="flex items-center gap-3">
-                <i className="fas fa-map-marker-alt text-[#B0B3B8] w-5 text-center"></i>
-                <span>{(user as any).location}</span>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3">
-              <i className="fas fa-rss text-[#B0B3B8] w-5 text-center"></i>
-              <span>{followerCount} Followers</span>
-            </div>
-
-            {isAdmin && (
-              <div className="flex items-center gap-3">
-                <i className="fas fa-shield-alt text-[#B0B3B8] w-5 text-center"></i>
-                <span className="capitalize">Role: {user.role || 'user'}</span>
-              </div>
-            )}
-
-            {isCurrentUser && (
-              <button
-                className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 rounded-md transition-colors text-[15px] mt-2 active:scale-95 active:shadow-inner"
-                onClick={() => setShowEditProfile(true)}
-              >
-                Edit Details
-              </button>
-            )}
-          </div>
-        </div>
+        {/* Intro section completely removed */}
 
         {/* Suggested Products Widget */}
         {!isCurrentUser && products.length > 0 && currentUser && (
