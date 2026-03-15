@@ -1,4 +1,4 @@
-// UserProfile.tsx - Facebook-style like Tuko.co.ke with no containers
+// UserProfile.tsx - Facebook-style like Tuko.co.ke
 import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
@@ -849,7 +849,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     });
   }, [profilePosts]);
 
-  // ========== RENDER VIDEOS TAB (Reels Grid) - NO CONTAINER ==========
+  // ========== RENDER VIDEOS TAB - NO CONTAINER ==========
   const renderVideos = () => {
     const normalizedReels = userReels.map(reel => normalizeReelFromFeed(reel));
 
@@ -1160,11 +1160,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     );
   };
 
-  // ========== RENDER POSTS TAB (MAIN FEED) - ZERO GAPS ==========
+  // ========== RENDER POSTS TAB (MAIN FEED) - KEEP ORIGINAL CONTAINERS ==========
   const renderPosts = () => (
-    <div className="w-full flex flex-col md:flex-row">
+    <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
       {/* Left Sidebar - Intro - NO CONTAINER */}
-      <div className="w-full md:w-[380px] flex-shrink-0">
+      <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
         <div className="p-4">
           <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Intro</h2>
           <div className="flex flex-col gap-3 text-[#E4E6EB]">
@@ -1209,7 +1209,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         </div>
 
-        {/* Suggested Products Widget - keep its internal styling */}
+        {/* Suggested Products Widget */}
         {!isCurrentUser && products.length > 0 && currentUser && (
           <div className="px-4">
             <SuggestedProductsWidget
@@ -1222,11 +1222,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         )}
       </div>
 
-      {/* Main Content - Posts Feed - ZERO GAPS */}
-      <div className="flex-1">
+      {/* Main Content - Posts Feed - KEEP ORIGINAL CONTAINERS */}
+      <div className="flex-1 min-w-0 px-4 md:px-0">
         {/* Error display */}
         {loginError && (
-          <div className="m-4 p-3 bg-red-900/80 border border-red-700 rounded-lg text-red-200 text-sm">
+          <div className="mb-4 p-3 bg-red-900/80 border border-red-700 rounded-lg text-red-200 text-sm">
             <div className="flex items-center gap-2">
               <i className="fas fa-exclamation-circle"></i>
               <span>{loginError}</span>
@@ -1236,7 +1236,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
         {/* Loading indicator */}
         {isLoadingPosts && (
-          <div className="m-4 p-8 text-center">
+          <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042] mb-4">
             <div className="flex justify-center items-center gap-2">
               <i className="fas fa-spinner fa-spin text-[#1877F2] text-xl"></i>
               <span className="text-[#B0B3B8]">Loading posts...</span>
@@ -1244,9 +1244,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         )}
 
-        {/* Stats for current user - NO CONTAINER */}
+        {/* Stats for current user */}
         {isCurrentUser && !isLoadingPosts && (
-          <div className="m-4">
+          <div className="bg-[#242526] rounded-xl p-4 mb-4 border border-[#3E4042]">
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-[#3A3B3C] p-3 rounded-lg">
                 <div className="text-[#B0B3B8] text-xs font-medium mb-1">Total Views</div>
@@ -1267,30 +1267,28 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         {/* Create Post for current user */}
         {isCurrentUser && currentUser && (
           <>
-            <div className="px-4">
-              <CreatePost
-                currentUser={currentUser}
-                onProfileClick={onProfileClick}
-                onClick={() => setShowCreatePostModal(true)}
-                onCreateEventClick={onCreateEventClick || (() => {})}
-                onPhotoClick={() => {
-                  const input = document.createElement('input');
-                  input.type = 'file';
-                  input.accept = 'image/*';
-                  input.multiple = true;
-                  input.onchange = (e) => {
-                    const files = Array.from((e.target as HTMLInputElement).files || []);
-                    if (files.length > 0) {
-                      onCreatePost('', files, { type: 'image' });
-                    }
-                  };
-                  input.click();
-                }}
-                onVideoClick={() => {
-                  console.log('Open video recorder');
-                }}
-              />
-            </div>
+            <CreatePost
+              currentUser={currentUser}
+              onProfileClick={onProfileClick}
+              onClick={() => setShowCreatePostModal(true)}
+              onCreateEventClick={onCreateEventClick || (() => {})}
+              onPhotoClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.multiple = true;
+                input.onchange = (e) => {
+                  const files = Array.from((e.target as HTMLInputElement).files || []);
+                  if (files.length > 0) {
+                    onCreatePost('', files, { type: 'image' });
+                  }
+                };
+                input.click();
+              }}
+              onVideoClick={() => {
+                console.log('Open video recorder');
+              }}
+            />
             {showCreatePostModal && (
               <CreatePostModal
                 currentUser={currentUser}
@@ -1309,7 +1307,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
         {/* People You May Know */}
         {!isCurrentUser && peopleSuggestions.length > 0 && (
-          <div className="px-4 mb-4">
+          <div className="mb-4">
             <PeopleYouMayKnowGrid
               users={peopleSuggestions}
               onFollow={onFollow}
@@ -1320,7 +1318,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         )}
 
-        {/* Posts Feed - Posts keep their internal styling */}
+        {/* Posts Feed - KEEP ORIGINAL CONTAINERS */}
         {!isLoadingPosts && filteredProfilePosts.length > 0 ? (
           filteredProfilePosts.map((post: any) => {
             // Check if it's an event post
@@ -1336,7 +1334,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             if (isEventPost) {
               const event = normalizeEventFromFeed(post);
               return (
-                <div key={post.id} className="px-4">
+                <div key={post.id} className="mb-4">
                   <EventPost
                     event={event}
                     author={user}
@@ -1358,7 +1356,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             const isAuthor = currentUser && Number(post.user_id) === Number(currentUser.id);
             
             return (
-              <div key={post.id} className="relative px-4 mb-4">
+              <div key={post.id} className="relative mb-4">
                 {/* Three-dot menu for post author */}
                 {isAuthor && (
                   <div className="absolute top-4 right-4 z-10">
@@ -1428,7 +1426,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             );
           })
         ) : !isLoadingPosts && filteredProfilePosts.length === 0 && (
-          <div className="m-4 p-8 text-center">
+          <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
             <div className="text-[#B0B3B8] text-lg mb-2">No posts yet</div>
             <p className="text-[#B0B3B8] text-sm">
               {isCurrentUser ? "Create your first post!" : "This user hasn't posted anything yet."}
