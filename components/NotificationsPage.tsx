@@ -4,18 +4,15 @@ import { Notification, User } from "../types";
 interface Props {
   notifications: Notification[];
   users: User[];
-  onBack: () => void;
+  onBack?: () => void; // optional for inline usage
   onProfileClick: (id: number) => void;
-  /**
-   * Optional handler that should return a Promise.
-   * Example: () => api.post("/notifications/mark_all_read")
-   */
   onMarkAllAsRead?: () => Promise<any> | void;
-  /**
-   * Optional: if true, component will simulate an API call when no onMarkAllAsRead is provided.
-   * Remove in production.
-   */
   simulateApi?: boolean;
+  /**
+   * If true, header will stick to the top of the component's bounding box.
+   * Useful when the component is placed in a tall column.
+   */
+  stickyHeader?: boolean;
 }
 
 const formatTimestamp = (iso: string) => {
@@ -36,16 +33,16 @@ export const NotificationsPage: React.FC<Props> = ({
   onBack,
   onProfileClick,
   onMarkAllAsRead,
-  simulateApi = false
+  simulateApi = false,
+  stickyHeader = false
 }) => {
   const getUser = (id:number)=>users.find(u=>u.id===id);
 
-  // Local copy of notifications for optimistic updates
+  // Local copy for optimistic updates
   const [localNotifications, setLocalNotifications] = useState<Notification[]>(notifications);
   const [isProcessing, setIsProcessing] = useState(false);
   const [toast, setToast] = useState<{ type: "error" | "success"; text: string } | null>(null);
 
-  // Keep local state in sync when parent prop changes
   useEffect(() => {
     setLocalNotifications(notifications);
   }, [notifications]);
@@ -55,7 +52,6 @@ export const NotificationsPage: React.FC<Props> = ({
     [localNotifications]
   );
 
-  // Group into "new" and "earlier" using a 48-hour threshold
   const { newNotifications, earlierNotifications } = useMemo(() => {
     const now = Date.now();
     const threshold = 48 * 60 * 60 * 1000;
@@ -69,42 +65,29 @@ export const NotificationsPage: React.FC<Props> = ({
     return { newNotifications: newN, earlierNotifications: earlierN };
   }, [localNotifications]);
 
-  // Helper to show toast briefly
   const showToast = (type: "error" | "success", text: string, ms = 3500) => {
     setToast({ type, text });
     window.setTimeout(() => setToast(null), ms);
   };
 
-  // Mark all as read with optimistic update
   const handleMarkAllAsRead = async () => {
     if (isProcessing || unreadCount === 0) return;
-
-    // Save snapshot for rollback
     const snapshot = localNotifications.map(n => ({ ...n }));
-
-    // Optimistically mark all as read locally
     setLocalNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
     setIsProcessing(true);
 
     try {
-      // If parent provided a handler, call it and await its promise
       if (onMarkAllAsRead) {
         const result = onMarkAllAsRead();
-        // If handler returns a promise, await it
         if (result && typeof (result as Promise<any>).then === "function") {
           await result as Promise<any>;
         }
       } else if (simulateApi) {
-        // Optional simulated API call for local testing (remove in production)
-        await new Promise((res) => setTimeout(res, 800));
-      } else {
-        // No handler and no simulation: just resolve immediately (local-only optimistic)
+        await new Promise(res => setTimeout(res, 700));
       }
-
       setIsProcessing(false);
       showToast("success", "All notifications marked as read");
     } catch (err) {
-      // Rollback to snapshot on error
       setLocalNotifications(snapshot);
       setIsProcessing(false);
       showToast("error", "Failed to mark all as read. Please try again.");
@@ -126,28 +109,26 @@ export const NotificationsPage: React.FC<Props> = ({
         role="button"
         tabIndex={0}
         onClick={() => onProfileClick(actor?.id || 0)}
-        className={`flex gap-3 p-3 rounded-lg cursor-pointer hover:bg-[#3A3B3C] focus:outline-none ${
-          !n.is_read ? "bg-[#263951]" : "bg-transparent"
+        className={`flex gap-3 p-3 rounded-lg cursor-pointer hover:bg-[#f0f2f5] dark:hover:bg-[#3A3B3C] focus:outline-none transition-colors ${
+          !n.is_read ? "bg-[#eef6ff] dark:bg-[#263951]" : "bg-white dark:bg-transparent"
         }`}
       >
-
         <div className="relative flex-shrink-0">
           <img
             src={actor?.profile_image_url}
             alt={actor?.name || "avatar"}
             className="w-12 h-12 rounded-full object-cover"
           />
-
-          <div className="absolute bottom-0 right-0 w-6 h-6 bg-[#1877F2] rounded-full flex items-center justify-center border-2 border-[#18191A]">
+          <div className="absolute bottom-0 right-0 w-6 h-6 bg-[#1877F2] rounded-full flex items-center justify-center border-2 border-white dark:border-[#18191A]">
             <i className={`${iconClass} text-white text-[10px]`}></i>
           </div>
         </div>
 
         <div className="flex flex-col flex-1 min-w-0">
-          <div className="text-[#E4E6EB] text-[15px] truncate">
+          <div className="text-gray-900 dark:text-[#E4E6EB] text-[15px] truncate">
             <button
               onClick={(e)=>{ e.stopPropagation(); onProfileClick(actor?.id || 0); }}
-              className="font-semibold text-left text-[#E4E6EB] hover:underline truncate"
+              className="font-semibold text-left text-inherit hover:underline truncate"
               aria-label={`Open profile of ${actor?.name || "user"}`}
             >
               {actor?.name || "Someone"}
@@ -160,61 +141,51 @@ export const NotificationsPage: React.FC<Props> = ({
             <span className="font-normal">{" "}{message}</span>
           </div>
 
-          <div className="text-[#B0B3B8] text-[13px] mt-1">
+          <div className="text-gray-500 dark:text-[#B0B3B8] text-[13px] mt-1">
             {formatTimestamp(n.created_at)}
           </div>
         </div>
 
         <button
-          onClick={(e)=>{ e.stopPropagation(); /* open menu handler if you have one */ }}
+          onClick={(e)=>{ e.stopPropagation(); /* open menu handler */ }}
           aria-label="Notification menu"
-          className="text-[#B0B3B8] ml-2 flex-shrink-0"
+          className="text-gray-500 dark:text-[#B0B3B8] ml-2 flex-shrink-0"
         >
           <i className="fas fa-ellipsis-h"></i>
         </button>
-
       </div>
     );
   };
 
   return (
-    <div className="fixed inset-0 z-[300] bg-[#18191A] overflow-y-auto">
-
+    <section className="w-full max-w-3xl mx-auto bg-transparent">
       {/* Header */}
-      <div className="sticky top-0 bg-[#242526] h-14 flex items-center px-3 border-b border-[#3E4042]">
-
-        <div className="flex items-center">
+      <div className={`${stickyHeader ? "sticky top-0" : ""} bg-white dark:bg-[#242526] px-4 py-3 border-b border-gray-200 dark:border-[#3E4042] flex items-center gap-3 z-10`}>
+        {onBack && (
           <button
             onClick={onBack}
-            className="mr-3 text-[#E4E6EB] p-2 rounded hover:bg-[#3A3B3C] focus:outline-none"
+            className="text-gray-700 dark:text-[#E4E6EB] p-2 rounded hover:bg-gray-100 dark:hover:bg-[#3A3B3C] focus:outline-none"
             aria-label="Back"
           >
-            <i className="fas fa-arrow-left text-xl"></i>
+            <i className="fas fa-arrow-left"></i>
           </button>
-        </div>
+        )}
 
         <div className="flex-1 flex items-center gap-3">
-          <h2 className="text-[#E4E6EB] font-bold text-[22px]">
-            Notifications
-          </h2>
+          <h2 className="text-gray-900 dark:text-[#E4E6EB] font-bold text-lg">Notifications</h2>
 
-          {/* unread counter badge */}
           {unreadCount > 0 && (
-            <div
-              className="ml-1 inline-flex items-center justify-center bg-[#E53935] text-white text-[12px] font-semibold rounded-full px-2 py-0.5"
-              aria-label={`${unreadCount} unread notifications`}
-            >
+            <div className="inline-flex items-center justify-center bg-[#E53935] text-white text-[12px] font-semibold rounded-full px-2 py-0.5">
               {unreadCount}
             </div>
           )}
         </div>
 
-        {/* Mark all as read button */}
         <div className="flex items-center">
           <button
             onClick={handleMarkAllAsRead}
             disabled={isProcessing || unreadCount === 0}
-            className={`text-[#B0B3B8] px-3 py-2 rounded hover:bg-[#3A3B3C] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center`}
+            className="text-gray-600 dark:text-[#B0B3B8] px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-[#3A3B3C] disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             aria-label="Mark all as read"
             title="Mark all as read"
           >
@@ -222,17 +193,13 @@ export const NotificationsPage: React.FC<Props> = ({
             <span className="text-sm">{isProcessing ? "Marking..." : "Mark all as read"}</span>
           </button>
         </div>
-
       </div>
 
+      {/* Content */}
       <div className="p-2 space-y-4">
-
         {newNotifications.length > 0 && (
           <div>
-            <div className="px-3 py-2 text-[#B0B3B8] text-[13px] font-semibold">
-              New
-            </div>
-
+            <div className="px-3 py-2 text-gray-600 dark:text-[#B0B3B8] text-[13px] font-semibold">New</div>
             <div className="space-y-2 px-1">
               {newNotifications.map(renderRow)}
             </div>
@@ -241,10 +208,7 @@ export const NotificationsPage: React.FC<Props> = ({
 
         {earlierNotifications.length > 0 && (
           <div>
-            <div className="px-3 py-2 text-[#B0B3B8] text-[13px] font-semibold">
-              Earlier
-            </div>
-
+            <div className="px-3 py-2 text-gray-600 dark:text-[#B0B3B8] text-[13px] font-semibold">Earlier</div>
             <div className="space-y-2 px-1">
               {earlierNotifications.map(renderRow)}
             </div>
@@ -252,11 +216,10 @@ export const NotificationsPage: React.FC<Props> = ({
         )}
 
         {localNotifications.length === 0 && (
-          <div className="mt-8 text-center text-[#B0B3B8]">
+          <div className="mt-8 text-center text-gray-500 dark:text-[#B0B3B8]">
             No notifications yet
           </div>
         )}
-
       </div>
 
       {/* Toast */}
@@ -265,6 +228,6 @@ export const NotificationsPage: React.FC<Props> = ({
           {toast.text}
         </div>
       )}
-    </div>
+    </section>
   );
 };
