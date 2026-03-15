@@ -22,7 +22,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return Response.json({ error: "Invalid data" }, { headers: cors });
   }
 
-  // Insert share
+  // Insert share record
   await env.DB.prepare(`
     INSERT INTO product_shares (product_id, user_id, destination, shared_at)
     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -39,7 +39,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     .bind(product_id)
     .run();
 
-  // Get product owner
+  // Get product owner for notification
   const product = await env.DB.prepare(`
     SELECT seller_id FROM products WHERE id = ?
   `)
