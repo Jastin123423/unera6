@@ -1,4 +1,4 @@
-// Feed.tsx – Fully optimized with React.memo, optimistic updates, and unified post preview
+8// Feed.tsx – Fully optimized with React.memo, optimistic updates, and unified post preview
 // No duplicate exports, fixed reaction delays, and consistent post shapes
 
 import React, {
@@ -6167,7 +6167,7 @@ export {
   safeNumber,
   safeString,
   safePostId,
-  ReactionsSheet
+  ReactionsSheet,
   safeUserId,
   avatarFrom,
   formatReelCount,
