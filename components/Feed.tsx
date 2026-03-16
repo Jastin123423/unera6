@@ -7560,56 +7560,77 @@ export const Feed = memo(({
               ) : undefined}
             />
 
-            {/* People You May Know Grid - FIRST APPEARANCE */}
-            {showFirstPymk && (
-              <PeopleYouMayKnowGrid
-                users={peopleYouMayKnow}
-                onFollow={(id: number) => onFollowFromPymk?.(id)}
-                currentUser={currentUser}
-                isLoading={pymkLoading}
-                onLoginClick={onLoginClick}
-                onProfileClick={onProfileClick}
-                title="People You May Know"
-                maxDisplay={8}
-              />
-            )}
+              {/* People You May Know Grid - FIRST APPEARANCE */}
+              {showFirstPymk && (
+                <PeopleYouMayKnowGrid
+                  users={peopleYouMayKnow}
+                  onFollow={(id: number) => onFollowFromPymk?.(id)}
+                  currentUser={currentUser}
+                  isLoading={pymkLoading}
+                  onLoginClick={onLoginClick}
+                  onProfileClick={onProfileClick}
+                  title="People You May Know"
+                  maxDisplay={8}
+                />
+              )}
 
-            {/* People You May Know Grid - SECOND APPEARANCE */}
-            {showSecondPymk && (
-              <PeopleYouMayKnowGrid
-                users={peopleYouMayKnow}
-                onFollow={(id: number) => onFollowFromPymk?.(id)}
-                currentUser={currentUser}
-                isLoading={pymkLoading}
-                onLoginClick={onLoginClick}
-                onProfileClick={onProfileClick}
-                title="More People You May Know"
-                maxDisplay={8}
-              />
-            )}
+              {/* People You May Know Grid - SECOND APPEARANCE */}
+              {showSecondPymk && (
+                <PeopleYouMayKnowGrid
+                  users={peopleYouMayKnow}
+                  onFollow={(id: number) => onFollowFromPymk?.(id)}
+                  currentUser={currentUser}
+                  isLoading={pymkLoading}
+                  onLoginClick={onLoginClick}
+                  onProfileClick={onProfileClick}
+                  title="More People You May Know"
+                  maxDisplay={8}
+                />
+              )}
 
-            {/* Groups You May Join Card */}
-            {showGroupsYouMayJoin && (
-              <GroupsYouMayJoinCard
-                groups={groupsYouMayJoin}
-                currentUser={currentUser}
-                isLoading={gymjLoading}
-                onJoin={(groupId: number) => onJoinGroupSuggestion?.(groupId)}
-                onLoginClick={onLoginClick}
-                onOpenGroup={(groupId: number) => onOpenGroup?.(groupId)}
-                onProfileClick={onProfileClick}
-                title="Groups You May Join"
-                maxDisplay={8}
-              />
-            )}
-          </React.Fragment>
-        );
-      })}
-    </div>
-  );
-}, (prev, next) => {
-  // Custom comparison for memo
-  return prev.feedItems === next.feedItems && 
-         prev.currentUser?.id === next.currentUser?.id;
-}); 
-          
+              {/* Groups You May Join Card */}
+              {showGroupsYouMayJoin && (
+                <GroupsYouMayJoinCard
+                  groups={groupsYouMayJoin}
+                  currentUser={currentUser}
+                  isLoading={gymjLoading}
+                  onJoin={(groupId: number) => onJoinGroupSuggestion?.(groupId)}
+                  onLoginClick={onLoginClick}
+                  onOpenGroup={(groupId: number) => onOpenGroup?.(groupId)}
+                  onProfileClick={onProfileClick}
+                  title="Groups You May Join"
+                  maxDisplay={8}
+                />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  }, (prev, next) => {
+    // Custom comparison for memo
+    return prev.feedItems === next.feedItems && 
+           prev.currentUser?.id === next.currentUser?.id;
+  }
+);
+
+// ==================== EXPORT ALL COMPONENTS ====================
+export {
+  ReactionsSheet,
+  GalleryViewer,
+  ShareBottomSheet,
+  PeopleYouMayKnowGrid,
+  ReelFeedCard,
+  GroupsYouMayJoinCard,
+  EventPost,
+  EventFeedCard,
+  ReactionButton,
+  RichText,
+  SponsoredPostCard,
+  Post,
+  CreatePost,
+  CreatePostModal,
+  CommentsSheet,
+  SuggestedProductsWidget,
+  Feed as default,
+};
