@@ -11,7 +11,6 @@ import {
   SuggestedProductsWidget,
   ShareBottomSheet,
   CommentsSheet,
-  ReactionsSheet,
   GalleryViewer,
   CreatePost,
   CreatePostModal,
