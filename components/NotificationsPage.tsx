@@ -119,7 +119,7 @@ export const NotificationsPage: React.FC<Props> = ({
               onClick={(e) => { e.stopPropagation(); onProfileClick(actor?.id || 0); }}
               className="truncate"
               aria-label={`Open profile of ${actor?.name || "user"}`}
-              style={{ fontSize: 19.5, fontWeight: 800, lineHeight: 1.1, color: "var(--tw-text-opacity, 1)" }}
+              style={{ fontSize: 16.5, fontWeight: 700 , lineHeight: 1.1, color: "var(--tw-text-opacity, 1)" }}
             >
               {actor?.name || "Someone"}
             </button>
