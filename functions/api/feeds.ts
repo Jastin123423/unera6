@@ -42,7 +42,6 @@ const cleanUrl = (v: any) => {
 };
 
 const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
-  // For URL arrays
   if (Array.isArray(raw)) return raw.map(cleanUrl).filter(Boolean).slice(0, maxItems);
 
   if (typeof raw === "string") {
@@ -66,7 +65,6 @@ const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
 };
 
 const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
-  // For types arrays like ["image","video"] (NOT URLs)
   if (Array.isArray(raw)) {
     return raw
       .map((x) => String(x ?? "").trim())
@@ -121,9 +119,9 @@ const normalizeMedia = (row: any) => {
 
   return {
     media_url: single || null,
-    media_urls: outUrls, // ✅ ALWAYS array
-    media_types: outTypes, // ✅ ALWAYS array (best-effort)
-    images: outUrls, // ✅ alias for your UI
+    media_urls: outUrls,
+    media_types: outTypes,
+    images: outUrls,
   };
 };
 
@@ -160,7 +158,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const reactionUserId = userId || 0;
 
     const limit = clamp(toInt(url.searchParams.get("limit"), 20), 1, 50);
-    const cursor = url.searchParams.get("cursor"); // older-than created_at
+    const cursor = url.searchParams.get("cursor");
     const seed = toInt(url.searchParams.get("seed"), 1);
     const seen = parseSeenIds(url.searchParams.get("seen"), 250);
     const debug = url.searchParams.get("debug") === "1";
@@ -177,14 +175,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     wherePosts.push(
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
-
-    // block product posts stored inside posts.content
-    wherePosts.push(`(p.content IS NULL OR (
-      p.content NOT LIKE '%"post_type":"product"%'
-      AND p.content NOT LIKE '%"kind":"product"%'
-      AND p.content NOT LIKE '%"product_id"%'
-      AND p.content NOT LIKE '%marketplace%'
-    ))`);
 
     if (cursor && cursor.trim()) {
       wherePosts.push(`p.created_at < ?`);
@@ -255,7 +245,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE p.media_types
         END AS media_types,
 
-        -- ✅ NEW: comments count for feed cards
         (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
 
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
@@ -901,19 +890,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             END
         END AS media_type,
 
-        -- ✅ multi media stored in gp.media_urls (JSON text)
         CASE
           WHEN gp.media_urls LIKE 'data:%' THEN NULL
           WHEN length(gp.media_urls) > 5000 THEN NULL
           ELSE gp.media_urls
         END AS media_urls,
 
-        -- if you add gp.media_types later, select it here
         NULL AS media_types,
 
         0 AS comments_count,
 
-        -- ✅ reactions like posts (group_post_reactions)
         (SELECT COUNT(*) FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id) AS reactions_count,
         (SELECT gpr.type FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id AND gpr.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -1153,87 +1139,88 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-// 8) ADS / SPONSORED POSTS - MODIFIED ONLY
-// ============================================================
-const whereAds: string[] = [];
-const bindsAds: any[] = [];
+    // 9) SPONSORED / ADS POSTS - FIXED TO USE SIMPLE SHAPE
+    // ============================================================
+    const whereAds: string[] = [];
+    const bindsAds: any[] = [];
 
-// Only show active ads
-whereAds.push(`a.status = 'active'`);
+    // Only show active ads
+    whereAds.push(`a.status = 'active'`);
 
-if (cursor && cursor.trim()) {
-  whereAds.push(`a.created_at < ?`);
-  bindsAds.push(cursor.trim());
-}
-if (seen.length > 0) {
-  whereAds.push(`a.id NOT IN (${seen.map(() => "?").join(",")})`);
-  bindsAds.push(...seen);
-}
+    if (cursor && cursor.trim()) {
+      whereAds.push(`a.created_at < ?`);
+      bindsAds.push(cursor.trim());
+    }
+    if (seen.length > 0) {
+      whereAds.push(`a.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsAds.push(...seen);
+    }
 
-const whereAdsSql = whereAds.length ? `WHERE ${whereAds.join(" AND ")}` : "";
+    const whereAdsSql = whereAds.length ? `WHERE ${whereAds.join(" AND ")}` : "";
 
-const selectAds = `
-  SELECT
-    a.id,
-    a.advertiser_id AS user_id,
-    a.title AS content,
-    'public' AS visibility,
-    a.impressions AS views,
-    0 AS shares,
-    a.media_url,
-    a.media_type,
-    a.media_urls,
-    a.media_types,
-    a.created_at,
-    
-    COALESCE(u.username, 'advertiser') AS username,
-    COALESCE(u.name, u.username, 'Sponsored') AS name,
-    u.profile_image_url,
-    COALESCE(u.is_verified, 0) AS is_verified,
-    COALESCE(u.role, 'business') AS role,
-    
-    -- Original post metrics
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT COUNT(*) FROM post_reactions WHERE post_id = a.post_id)
-      ELSE 0 
-    END AS reactions_count,
-    
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT COUNT(*) FROM post_comments WHERE post_id = a.post_id)
-      ELSE 0 
-    END AS comments_count,
-    
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT shares FROM posts WHERE id = a.post_id)
-      ELSE 0 
-    END AS shares,
-    
-    NULL AS my_reaction,
-    NULL AS reactions_preview,
-    
-    -- Ad-specific fields
-    a.description,
-    a.cta_button AS cta_text,
-    a.destination_url AS cta_url,
-    a.contact_type AS cta_type,
-    a.campaign_name,
-    a.status AS campaign_status,
-    a.start_date,
-    a.end_date,
-    1 AS is_sponsored,
-    a.target_location,
-    a.target_country,
-    a.target_city
-    
-  FROM ads a
-  LEFT JOIN users u ON u.id = a.advertiser_id
-  ${whereAdsSql}
-  ORDER BY a.created_at DESC
-`;
-      
+    // ✅ FIXED: Keep the variable name as baseSelectAds to match the rest of the code
+    const baseSelectAds = `
+      SELECT
+        a.id,
+        a.advertiser_id AS user_id,
+        a.title AS content,
+        a.description,
+        'public' AS visibility,
+        a.impressions AS views,
+        0 AS shares,
+        a.media_url,
+        a.media_type,
+        a.media_urls,
+        a.media_types,
+        a.created_at,
+        
+        COALESCE(u.username, 'advertiser') AS username,
+        COALESCE(u.name, u.username, 'Sponsored') AS name,
+        u.profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'business') AS role,
+        
+        -- Original post metrics
+        CASE 
+          WHEN a.post_id IS NOT NULL 
+          THEN (SELECT COUNT(*) FROM post_reactions WHERE post_id = a.post_id)
+          ELSE 0 
+        END AS reactions_count,
+        
+        CASE 
+          WHEN a.post_id IS NOT NULL 
+          THEN (SELECT COUNT(*) FROM post_comments WHERE post_id = a.post_id)
+          ELSE 0 
+        END AS comments_count,
+        
+        CASE 
+          WHEN a.post_id IS NOT NULL 
+          THEN (SELECT shares FROM posts WHERE id = a.post_id)
+          ELSE 0 
+        END AS shares,
+        
+        NULL AS my_reaction,
+        NULL AS reactions_preview,
+        
+        -- Ad-specific fields
+        a.cta_button AS cta_text,
+        a.destination_url AS cta_url,
+        a.contact_type AS cta_type,
+        a.campaign_name,
+        a.status AS campaign_status,
+        a.start_date,
+        a.end_date,
+        1 AS is_sponsored,
+        a.target_location,
+        a.target_country,
+        a.target_city
+        
+      FROM ads a
+      LEFT JOIN users u ON u.id = a.advertiser_id
+      ${whereAdsSql}
+      ORDER BY a.created_at DESC
+    `;
+
     // ============================================================
     // RUN QUERIES (Fresh)
     // ============================================================
@@ -1286,9 +1273,9 @@ const selectAds = `
       .all();
     const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results) ? freshProductsFeedRes.results : [];
 
-    // ✅ FRESH ADS QUERY
+    // ✅ FRESH ADS QUERY - Using baseSelectAds
     const freshAdsRes = await env.DB.prepare(
-      `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
+      `${baseSelectAds} LIMIT ?`
     )
       .bind(...bindsAds, Math.min(3, freshCount))
       .all();
@@ -1360,9 +1347,9 @@ const selectAds = `
         .all();
       exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results) ? exploreProductsFeedRes.results : [];
 
-      // ✅ EXPLORE ADS QUERY
+      // ✅ EXPLORE ADS QUERY - Using baseSelectAds
       const exploreAdsRes = await env.DB.prepare(
-        `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
+        `${baseSelectAds} ORDER BY RANDOM() LIMIT ?`
       )
         .bind(...bindsAds, Math.min(2, exploreCount))
         .all();
@@ -1396,7 +1383,7 @@ const selectAds = `
       ...freshEvents,
       ...freshGroupPosts,
       ...freshProductsFeed,
-      ...freshAds,           // ✅ Include fresh ads
+      ...freshAds,
       ...explorePosts,
       ...exploreReels,
       ...exploreSongs,
@@ -1404,7 +1391,7 @@ const selectAds = `
       ...exploreEvents,
       ...exploreGroupPosts,
       ...exploreProductsFeed,
-      ...exploreAds,         // ✅ Include explore ads
+      ...exploreAds,
     ];
 
     for (const row of allFeedRows) {
@@ -1434,7 +1421,6 @@ const selectAds = `
     const ordered = orderedRaw.map((item: any) => ({
       ...item,
       ...normalizeMedia(item),
-      // ensure numeric count
       comments_count: Number((item as any)?.comments_count ?? 0),
     }));
 
