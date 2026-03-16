@@ -167,7 +167,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const exploreCount = Math.max(0, limit - freshCount);
 
     // ============================================================
-    // 1) POSTS - SIMPLE SHAPE
+    // 1) POSTS - (unchanged)
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -243,7 +243,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) REELS - SIMPLE SHAPE
+    // 2) REELS - (unchanged)
     // ============================================================
     const whereReels: string[] = [];
     const bindsReels: any[] = [];
@@ -296,7 +296,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 3) SONGS - SIMPLE SHAPE
+    // 3) SONGS - (unchanged)
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -345,7 +345,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) PODCASTS - SIMPLE SHAPE
+    // 4) PODCASTS - (unchanged)
     // ============================================================
     const wherePodcasts: string[] = [];
     const bindsPodcasts: any[] = [];
@@ -394,7 +394,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS - SIMPLE SHAPE
+    // 5) EVENTS - (unchanged)
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -456,7 +456,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 6) GROUP POSTS - SIMPLE SHAPE
+    // 6) GROUP POSTS - (unchanged)
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -537,7 +537,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS - SIMPLE SHAPE
+    // 7) PRODUCTS - (unchanged)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -594,7 +594,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) ADS / SPONSORED POSTS - SIMPLE SHAPE
+    // 8) SPONSORED / ADS POSTS - FIXED TO USE SIMPLE SHAPE
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
@@ -613,12 +613,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereAdsSql = whereAds.length ? `WHERE ${whereAds.join(" AND ")}` : "";
 
+    // ✅ FIXED: Using the same simple shape as other queries
     const selectAds = `
       SELECT
         a.id,
         a.advertiser_id AS user_id,
         a.title AS content,
-        a.description,
         'public' AS visibility,
         a.impressions AS views,
         0 AS shares,
@@ -634,7 +634,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'business') AS role,
         
-        -- Original post metrics
+        -- Original post metrics from the promoted post
         CASE 
           WHEN a.post_id IS NOT NULL 
           THEN (SELECT COUNT(*) FROM post_reactions WHERE post_id = a.post_id)
@@ -656,7 +656,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS my_reaction,
         NULL AS reactions_preview,
         
-        -- Ad-specific fields (your Feed.tsx will ignore these)
+        -- Ad-specific fields for the frontend
+        a.description,
         a.cta_button AS cta_text,
         a.destination_url AS cta_url,
         a.contact_type AS cta_type,
@@ -664,7 +665,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         a.status AS campaign_status,
         a.start_date,
         a.end_date,
-        1 AS is_sponsored,
+        1 AS is_sponsored,  -- Flag to identify sponsored posts
         a.target_location,
         a.target_country,
         a.target_city
@@ -777,7 +778,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       nextCursor,
       hasMore,
       feed,
-      products: fresh.products, // Separate products list if needed
+      products: fresh.products,
     };
 
     if (debug) {
