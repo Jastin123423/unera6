@@ -6988,7 +6988,6 @@ export {
   safePostId,
   safeUserId,
   avatarFrom,
-  getMediaTypeInfo,
   formatReelCount,
   getReelAuthorName,
 };
