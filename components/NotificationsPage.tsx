@@ -119,7 +119,7 @@ export const NotificationsPage: React.FC<Props> = ({
               onClick={(e) => { e.stopPropagation(); onProfileClick(actor?.id || 0); }}
               className="truncate"
               aria-label={`Open profile of ${actor?.name || "user"}`}
-              style={{ fontSize: 16.5, fontWeight: 700 , lineHeight: 1.1, color: "var(--tw-text-opacity, 1)" }}
+              style={{ fontSize: 15.5, fontWeight: 660 , lineHeight: 1.1, color: "var(--tw-text-opacity, 1)" }}
             >
               {actor?.name || "Someone"}
             </button>
@@ -127,12 +127,12 @@ export const NotificationsPage: React.FC<Props> = ({
             {actor?.is_verified && (
               <i
                 className="fas fa-check-circle"
-                style={{ color: "#1877F2", fontSize: 18, marginLeft: 6 }}
+                style={{ color: "#1877F2", fontSize: 16, marginLeft: 6 }}
                 aria-hidden
               />
             )}
 
-            <span style={{ fontSize: 20, fontWeight: 400, marginLeft: 8, color: "inherit" }} className="truncate">
+            <span style={{ fontSize: 14, fontWeight: 300, marginLeft: 8, color: "inherit" }} className="truncate">
               {message}
             </span>
           </div>
