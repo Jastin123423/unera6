@@ -255,7 +255,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE p.media_types
         END AS media_types,
 
-        -- ✅ NEW: comments count for feed cards
+        -- ✅ comments count for feed cards
         (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
 
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
@@ -1153,13 +1153,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 9) SPONSORED / ADS POSTS - FIXED AMBIGUOUS COLUMN ERROR
+    // 9) SPONSORED / ADS POSTS - UPDATED WITH ALL REQUIRED FIELDS
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
 
-    // Only show active ads
-    whereAds.push(`a.status = 'active'`);
+    // Show both active and inactive ads (for when campaign ends)
+    // No status filter - show all ads, frontend will check campaign_status
 
     if (cursor && cursor.trim()) {
       whereAds.push(`a.created_at < ?`);
@@ -1176,20 +1176,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       SELECT
         'sponsored' AS source,
         'sponsored' AS item_type,
-
+        1 AS is_sponsored,
+        
         a.id AS id,
         ('ad:' || CAST(a.id AS TEXT)) AS feed_key,
-
+        
         a.created_at AS created_at,
-
-        NULL AS post_id,
-        NULL AS reel_id,
-        NULL AS song_id2,
-        NULL AS podcast_id,
-        NULL AS event_id,
-        NULL AS group_post_id,
-        NULL AS product_id2,
-
+        
         a.advertiser_id AS user_id,
         COALESCE(u.username, 'advertiser') AS username,
         COALESCE(u.name, u.username, 'Sponsored') AS name,
@@ -1200,32 +1193,39 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         END AS profile_image_url,
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'business') AS role,
-
-        -- Ad content using your schema's column names
+        
+        -- Ad content
         a.title AS headline,
         a.title AS content,
         a.description AS description,
         a.cta_button AS cta_text,
         a.destination_url AS cta_url,
         a.contact_type AS cta_type,
-
+        
         'public' AS visibility,
         a.impressions AS views,
         0 AS shares,
-
+        
         a.media_url AS media_url,
         a.media_type AS media_type,
-
         a.media_urls AS media_urls,
         a.media_types AS media_types,
-
+        
+        -- ✅ ORIGINAL POST METRICS (if this ad is promoting a post)
+        (SELECT reactions_count FROM posts WHERE id = a.post_id) AS original_reactions_count,
+        (SELECT comments_count FROM posts WHERE id = a.post_id) AS original_comments_count,
+        (SELECT shares FROM posts WHERE id = a.post_id) AS original_shares_count,
+        
+        -- Comments count for this ad (usually 0)
         0 AS comments_count,
+        
+        -- Reactions (0 for ads unless you add ad reactions)
         0 AS reactions_count,
         NULL AS my_reaction,
         NULL AS reactor_name,
         NULL AS reactions_preview,
         NULL AS reactions_by_type,
-
+        
         CASE WHEN a.media_type LIKE '%video%' THEN a.media_url ELSE NULL END AS video_url,
         a.description AS caption,
         NULL AS song_name,
@@ -1235,7 +1235,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         a.target_location AS location,
         NULL AS sound_key,
         NULL AS sound_id,
-
+        
         NULL AS song_title,
         NULL AS song_artist_name,
         NULL AS song_album_name,
@@ -1244,17 +1244,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS song_genre,
         NULL AS song_likes_count,
         NULL AS song_plays_count,
-
+        
         NULL AS podcast_title,
         NULL AS podcast_description,
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
-
+        
         'sponsored' AS type,
         'ad' AS post_type,
         'ad' AS kind,
-
+        
         json_object(
           'kind','ad',
           'type','sponsored',
@@ -1262,19 +1262,30 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           'advertiser_id', a.advertiser_id,
           'campaign_name', a.campaign_name
         ) AS meta,
-
+        
         'Sponsored' AS reason,
         a.campaign_name AS campaign_name,
-
+        
         a.target_location AS target_location,
         a.target_country AS target_country,
         a.target_city AS target_city,
-
+        
+        -- ✅ Campaign status and dates for frontend to determine if active
+        a.status AS campaign_status,
+        a.start_date AS start_date,
+        a.end_date AS end_date,
+        
+        a.post_id AS promoted_post_id,
+        a.budget AS budget,
+        a.daily_budget AS daily_budget,
+        
         NULL AS group_id,
         NULL AS group_name,
         NULL AS group_image
       FROM ads a
       LEFT JOIN users u ON u.id = a.advertiser_id
+      ${whereAdsSql}
+      ORDER BY a.created_at DESC
     `;
 
     // ============================================================
@@ -1331,7 +1342,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     // ✅ FRESH ADS QUERY
     const freshAdsRes = await env.DB.prepare(
-      `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
+      `${baseSelectAds} ${whereAdsSql} LIMIT ?`
     )
       .bind(...bindsAds, Math.min(3, freshCount))
       .all();
