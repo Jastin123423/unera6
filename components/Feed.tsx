@@ -5434,9 +5434,7 @@ export const CreatePostModal = memo(
     return prev.currentUser?.id === next.currentUser?.id;
   }
 );
-
-// ==================== COMMENTS SHEET (Updated with PostPreview) ====================
-
+      
    // ==================== COMMENTS SHEET (Updated with PostPreview) ====================
 export const CommentsSheet = memo(
   ({
