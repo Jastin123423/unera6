@@ -26,7 +26,6 @@ import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from '../postActionRegistry';
 import { PostMenu } from './Post/PostMenu';
-import { SponsoredPostCard } from './Ads/SponsoredPostCard';
 
 // ==================== ICON COMPONENTS ====================
 const Film: React.FC<{ size?: number; color?: string }> = ({
