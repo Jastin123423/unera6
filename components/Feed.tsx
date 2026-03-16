@@ -1,5 +1,4 @@
 // Feed.tsx – Fully optimized with React.memo, no duplicate exports
-// PART 1 – Up to and including the Post component
 
 import React, {
   useEffect,
@@ -50,6 +49,7 @@ const Film: React.FC<{ size?: number; color?: string }> = ({
     <line x1="2" y1="12" x2="22" y2="12"></line>
     <line x1="2" y1="7" x2="7" y2="7"></line>
     <line x1="2" y1="17" x2="7" y2="17"></line>
+    <line x1="17" y1="17" x2="22" y2="17"></line>
   </svg>
 );
 
@@ -3515,7 +3515,7 @@ export const EventFeedCard = memo(
 
 /**
  * =========================
- * ✅ REACTION BUTTON (with loading state)
+ * ✅ REACTION BUTTON
  * =========================
  */
 export const ReactionButton = memo(
@@ -3524,13 +3524,11 @@ export const ReactionButton = memo(
     reactionCount,
     onReact,
     isGuest,
-    isLoading,
   }: {
     currentUserReactions: ReactionType | undefined;
     reactionCount: number;
     onReact: (type: ReactionType) => void;
     isGuest?: boolean;
-    isLoading?: boolean;
   }) => {
     const [showDock, setShowDock] = useState(false);
     const [isAnimating, setIsAnimating] = useState(false);
@@ -3669,16 +3667,13 @@ export const ReactionButton = memo(
 
         <button
           onClick={handleClick}
-          disabled={isLoading}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
             isAnimating ? 'scale-110' : ''
-          } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+          }`}
         >
-          {isLoading ? (
-            <i className="fas fa-spinner fa-spin text-[#B0B3B8] text-xl" />
-          ) : activeReaction ? (
+          {activeReaction ? (
             <>
               <span className="text-[22px] transition-transform duration-300">
                 {activeReaction.icon}
@@ -3706,8 +3701,7 @@ export const ReactionButton = memo(
     return (
       prev.currentUserReactions === next.currentUserReactions &&
       prev.reactionCount === next.reactionCount &&
-      prev.isGuest === next.isGuest &&
-      prev.isLoading === next.isLoading
+      prev.isGuest === next.isGuest
     );
   }
 );
@@ -4357,669 +4351,7 @@ export const RichText = ({
 
 /**
  * =========================
- * ✅ POST HEADER (extracted)
- * =========================
- */
-const PostHeader = memo(
-  ({
-    post,
-    author,
-    group,
-    currentUser,
-    onProfileClick,
-    onOpenGroup,
-    onFollow,
-    isFollowing,
-    followLoading,
-    menuItems,
-  }: {
-    post: any;
-    author?: any;
-    group?: any;
-    currentUser: User | null;
-    onProfileClick: (id: number) => void;
-    onOpenGroup?: (groupId: number) => void;
-    onFollow?: (id: number) => void;
-    isFollowing?: boolean;
-    followLoading?: boolean;
-    menuItems?: React.ReactNode;
-  }) => {
-    const isGroupPost = !!(post?.group_id || post?.group);
-    const groupId = Number(post?.group_id || post?.group?.id || 0);
-    const groupName = safeStr(post?.group_name || post?.group?.name || 'Group');
-    const groupImg = safeStr(
-      post?.group_image ||
-        post?.group?.profile_image ||
-        post?.group?.avatar ||
-        post?.group?.image ||
-        ''
-    );
-    const userName = safeStr(author?.name || author?.username || 'User');
-    const userId = safeUserId(author);
-    const userImg = avatarFrom(author);
-    const timeAgo = formatRelativeTime(post?.created_at);
-
-    if (isGroupPost) {
-      return (
-        <div className="flex items-start justify-between px-3 pt-3">
-          <div className="flex items-start gap-3 min-w-0">
-            <button
-              className="relative shrink-0"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (groupId && onOpenGroup) onOpenGroup(groupId);
-              }}
-              title={groupName}
-            >
-              <div className="w-10 h-10 rounded-full bg-[#3A3B3C] overflow-hidden flex items-center justify-center border border-[#4E4F50]">
-                {groupImg ? (
-                  <img src={groupImg} className="w-full h-full object-cover" />
-                ) : (
-                  <i className="fas fa-users text-[#B0B3B8]" />
-                )}
-              </div>
-              <div className="absolute -right-1 -bottom-1 w-5 h-5 rounded-full bg-[#3A3B3C] overflow-hidden border-2 border-[#242526] flex items-center justify-center">
-                {userImg ? (
-                  <img src={userImg} className="w-full h-full object-cover" />
-                ) : (
-                  <i className="fas fa-user text-[10px] text-[#B0B3B8]" />
-                )}
-              </div>
-            </button>
-            <div className="min-w-0">
-              <button
-                className="text-left font-extrabold text-[20px] leading-[1.1] text-[#E4E6EB] truncate hover:underline"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (groupId && onOpenGroup) onOpenGroup(groupId);
-                }}
-              >
-                {groupName}
-              </button>
-              <div className="flex items-center gap-2 text-[15px] text-[#B0B3B8] min-w-0">
-                <button
-                  className="font-semibold text-[15px] text-[#B0B3B8] hover:underline truncate"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (userId && onProfileClick) onProfileClick(userId);
-                  }}
-                >
-                  {userName}
-                </button>
-                <span>·</span>
-                <span className="truncate">{timeAgo}</span>
-                <span>·</span>
-                <i className="fas fa-users text-[14px]" />
-              </div>
-            </div>
-          </div>
-          {menuItems && <div className="shrink-0">{menuItems}</div>}
-        </div>
-      );
-    }
-
-    // Regular post header
-    return (
-      <div className="p-3 md:p-4 flex items-center justify-between">
-        <div
-          className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-          onClick={() => onProfileClick(userId)}
-        >
-          <img
-            src={userImg}
-            alt=""
-            className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-          />
-          <div className="min-w-0">
-            <div className="flex items-center gap-1 flex-wrap">
-              <h4 className="font-bold text-[#E4E6EB] text-[20px] cursor-pointer hover:underline truncate">
-                {userName}
-              </h4>
-              {author?.is_verified && (
-                <i className="fas fa-check-circle text-[#1877F2] text-[15px]"></i>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[15px]">
-              <span>{timeAgo}</span>
-              <span>•</span>
-              <i className="fas fa-globe-americas text-[14px]"></i>
-              {post.location && (
-                <>
-                  <span>•</span>
-                  <span className="truncate max-w-[160px]">
-                    {String(post.location).split(',')[0]}
-                  </span>
-                </>
-              )}
-              {post.feeling && (
-                <>
-                  <span>•</span>
-                  <span>feeling {post.feeling}</span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {onFollow && currentUser && userId !== safeUserId(currentUser) && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onFollow(userId);
-            }}
-            disabled={followLoading}
-            className={`px-3 py-1.5 text-[15px] font-bold rounded-lg transition-all duration-200 ml-2 ${
-              isFollowing
-                ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-            } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-          >
-            {followLoading ? (
-              <i className="fas fa-spinner fa-spin"></i>
-            ) : isFollowing ? (
-              'Following'
-            ) : (
-              'Follow'
-            )}
-          </button>
-        )}
-
-        {menuItems && <div className="ml-2">{menuItems}</div>}
-      </div>
-    );
-  },
-  (prev, next) => {
-    return (
-      prev.post?.id === next.post?.id &&
-      prev.author?.id === next.author?.id &&
-      prev.group?.id === next.group?.id &&
-      prev.isFollowing === next.isFollowing &&
-      prev.followLoading === next.followLoading
-    );
-  }
-);
-
-/**
- * =========================
- * ✅ POST BODY (extracted – contains all type‑specific content)
- * =========================
- */
-const PostBody = memo(
-  ({
-    post,
-    author,
-    currentUser,
-    users,
-    onProfileClick,
-    onHashtagClick,
-    onViewProduct,
-    onOpenAudio,
-    onRSVP,
-    onEventClick,
-    onOpenGallery,
-    onVideoClick,
-    onPlayAudioTrack,
-    isMarketplace,
-    productId,
-    productData,
-    mpImages,
-    price,
-    currency,
-    loc,
-    isMusic,
-    isPodcast,
-    song,
-    podcast,
-    mediaInfo,
-    mediaList,
-    imageMedia,
-    videoMedia,
-  }: {
-    post: any;
-    author?: any;
-    currentUser: User | null;
-    users?: User[];
-    onProfileClick: (id: number) => void;
-    onHashtagClick?: (tag: string) => void;
-    onViewProduct?: (productId: number) => void;
-    onOpenAudio?: (item: any) => void;
-    onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
-    onEventClick?: (eventId: number) => void;
-    onOpenGallery: (urls: string[], index: number) => void;
-    onVideoClick: (post: any) => void;
-    onPlayAudioTrack?: (track: AudioTrack) => void;
-    isMarketplace?: boolean;
-    productId?: number | null;
-    productData?: any;
-    mpImages?: string[];
-    price?: string | null;
-    currency?: string;
-    loc?: string;
-    isMusic?: boolean;
-    isPodcast?: boolean;
-    song?: any;
-    podcast?: any;
-    mediaInfo?: any;
-    mediaList?: any[];
-    imageMedia?: any[];
-    videoMedia?: any[];
-  }) => {
-    const p = post;
-    const a = author;
-
-    // Marketplace badge and location
-    if (isMarketplace) {
-      return (
-        <>
-          {mpImages && mpImages.length > 0 && (
-            <div className="w-full">
-              <div className="w-full bg-black">
-                <MediaGrid
-                  media={mpImages.map((url) => ({ url }))}
-                  onOpen={(url, index) => onOpenGallery(mpImages, index)}
-                />
-              </div>
-            </div>
-          )}
-
-          {price && (
-            <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
-              <div className="flex items-center gap-1">
-                <span className="text-[#E4E6EB] text-[19px] font-bold">
-                  {currency}
-                </span>
-                <span className="text-[#E4E6EB] text-[22px] font-bold">
-                  {price}
-                </span>
-              </div>
-              <button
-                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (productId && onViewProduct) onViewProduct(productId);
-                }}
-              >
-                View product
-              </button>
-            </div>
-          )}
-        </>
-      );
-    }
-
-    // Event post body (if it's an event, we return the event-specific UI)
-    if (p?.item_type === 'event' || p?.source === 'event' || p?.type === 'event') {
-      const event = normalizeEventFromFeed(p);
-      // We could reuse EventPost component, but that includes its own header/actions.
-      // For simplicity, we'll render the event details here.
-      return (
-        <div className="pb-4" onClick={(e) => e.stopPropagation()}>
-          <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
-            {event.cover_url ? (
-              <div className="h-48 bg-[#18191A] overflow-hidden relative">
-                <img
-                  src={event.cover_url}
-                  alt={event.title}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display = 'none';
-                    const parent = e.currentTarget.parentElement;
-                    if (parent) {
-                      const fallback = document.createElement('div');
-                      fallback.className =
-                        'h-48 bg-[#1f2a37] flex items-center justify-center';
-                      fallback.innerHTML =
-                        '<i class="fas fa-calendar text-white/30 text-5xl"></i>';
-                      parent.appendChild(fallback);
-                    }
-                  }}
-                />
-                {event.event_date && (
-                  <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                    <div className="text-[#B0B3B8] text-[13px] font-black">
-                      {new Date(event.event_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
-                    </div>
-                    <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
-                      {new Date(event.event_date).getDate()}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="h-32 bg-[#1f2a37] flex items-center justify-center relative">
-                <i className="fas fa-calendar text-white/30 text-5xl"></i>
-                {event.event_date && (
-                  <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
-                    <div className="text-[#B0B3B8] text-[13px] font-black">
-                      {new Date(event.event_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
-                    </div>
-                    <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
-                      {new Date(event.event_date).getDate()}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="p-4">
-              <div className="text-[#E4E6EB] font-black text-[22px] line-clamp-2">
-                {event.title}
-              </div>
-              {event.description && (
-                <div className="text-[#B0B3B8] text-[16px] mt-1 line-clamp-2">
-                  {event.description}
-                </div>
-              )}
-
-              <div className="mt-3 space-y-2">
-                {event.event_date && (
-                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
-                    <i className="fas fa-calendar-alt text-[#1877F2] w-4"></i>
-                    <span>
-                      {new Date(event.event_date).toLocaleDateString('en-US', {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                )}
-                {event.location && (
-                  <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
-                    <i className="fas fa-map-marker-alt text-[#F02849] w-4"></i>
-                    <span className="line-clamp-1">{event.location}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
-                  <i className="fas fa-users text-[#45BD62] w-4"></i>
-                  <span>
-                    {event.attendees_count} attending • {event.interested_count} interested
-                  </span>
-                </div>
-              </div>
-
-              {/* RSVP buttons – we can include them here if needed, but CommentsSheet may already have them */}
-              {onRSVP && (
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRSVP(event.id, 'going');
-                    }}
-                    className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${
-                      event.user_rsvp_status === 'going'
-                        ? 'bg-[#45BD62] text-white'
-                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                    }`}
-                  >
-                    {event.user_rsvp_status === 'going' ? '✓ Going' : 'Going'}
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRSVP(event.id, 'interested');
-                    }}
-                    className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${
-                      event.user_rsvp_status === 'interested'
-                        ? 'bg-[#F7B928] text-black'
-                        : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                    }`}
-                  >
-                    {event.user_rsvp_status === 'interested' ? '✓ Interested' : 'Interested'}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Music / Podcast
-    if (isMusic || isPodcast) {
-      return (
-        <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
-          <div className="flex items-center gap-3 p-3">
-            <img
-              src={
-                (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
-                ''
-              }
-              className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
-              alt=""
-            />
-            <div className="flex-1 overflow-hidden">
-              <div className="text-white font-bold text-[17px] truncate">
-                {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
-              </div>
-              <div className="text-[#B0B3B8] text-[14px] truncate">
-                {isMusic ? song?.artist_name : podcast?.description}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenAudio?.(isMusic ? song : podcast);
-              }}
-              className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
-            >
-              Play
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    // Standard post: text, link preview, background, images, video, audio
-    return (
-      <>
-        {p.content && (
-          <div className="px-3 md:px-4 pb-2">
-            <ExpandableRichText
-              text={String(p.content)}
-              users={users}
-              onProfileClick={onProfileClick}
-              onHashtagClick={onHashtagClick}
-              maxWords={14}
-              fontSizePx={23}
-            />
-          </div>
-        )}
-
-        {p.link_preview && !mediaInfo?.mediaUrl && !isMarketplace && (
-          <div
-            className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
-            onClick={() =>
-              window.open(p.link_preview.url, '_blank', 'noopener noreferrer')
-            }
-          >
-            {p.link_preview.image && (
-              <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
-                <img
-                  src={p.link_preview.image}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              </div>
-            )}
-            <div className="p-4 bg-[#3A3B3C]">
-              <div className="text-[#B0B3B8] text-[13px] uppercase font-bold mb-1">
-                {p.link_preview.domain}
-              </div>
-              <div className="text-[#E4E6EB] font-bold text-[19px] mb-1 line-clamp-2">
-                {p.link_preview.title}
-              </div>
-              <div className="text-[#B0B3B8] text-[16px] line-clamp-3">
-                {p.link_preview.description}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {p.background && !mediaInfo?.mediaUrl && !isMarketplace && (
-          <div
-            className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
-            style={{ background: p.background, backgroundSize: 'cover' }}
-          >
-            {p.content}
-          </div>
-        )}
-
-        {imageMedia && imageMedia.length > 0 && (
-          <MediaGrid
-            media={imageMedia.map((m) => ({ url: m.url }))}
-            onOpen={(url, index) => {
-              const urls = imageMedia.map((m) => m.url);
-              onOpenGallery(urls, index);
-            }}
-          />
-        )}
-
-        {videoMedia && videoMedia.length > 0 && (
-          <div
-            className="cursor-pointer relative h-[500px] bg-black"
-            onClick={() => onVideoClick(post)}
-          >
-            <video
-              src={videoMedia[0].url}
-              className="w-full h-full object-cover"
-              preload="metadata"
-              playsInline
-              muted
-              onError={(e) => {
-                console.error('Failed to load video:', videoMedia[0].url);
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <i className="fas fa-play text-white text-4xl opacity-50"></i>
-            </div>
-          </div>
-        )}
-
-        {mediaInfo?.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-          <div className="my-3">
-            {(() => {
-              const cover =
-                (p as any).song_cover_image_url ||
-                imageMedia?.[0]?.url ||
-                a?.profile_image_url;
-              const titleText = p.content || 'Audio';
-              const artistText =
-                (p as any).song_artist_name || a?.name || 'Unknown';
-              return (
-                <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
-                  {cover ? (
-                    <div className="relative">
-                      <img
-                        src={cover}
-                        alt="Cover"
-                        className="w-full h-[260px] md:h-[320px] object-cover"
-                        loading="lazy"
-                        onError={(e) => {
-                          const img = e.currentTarget as HTMLImageElement;
-                          if (a?.profile_image_url && img.src !== a.profile_image_url) {
-                            img.src = a.profile_image_url;
-                          }
-                        }}
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-                      <div className="absolute left-3 right-3 bottom-3">
-                        <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
-                          <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
-                              <img
-                                src={cover}
-                                alt="Mini cover"
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[#E4E6EB] font-bold text-[17px]">
-                                Audio Track
-                              </div>
-                              <div className="text-[#B0B3B8] text-[15px] truncate">
-                                {titleText}
-                              </div>
-                              <div className="text-[#B0B3B8] text-[14px] truncate">
-                                {artistText}
-                              </div>
-                            </div>
-                            <button
-                              onClick={() =>
-                                onPlayAudioTrack!({
-                                  id: safePostId(post),
-                                  title: titleText,
-                                  artist: artistText,
-                                  url: mediaInfo.mediaUrl,
-                                  duration: 0,
-                                  coverImage: cover || a?.profile_image_url,
-                                })
-                              }
-                              className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors flex-shrink-0"
-                            >
-                              <i className="fas fa-play mr-1"></i> Play
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-[#3A3B3C]">
-                      <div className="flex items-center gap-3">
-                        <i className="fas fa-music text-[#1877F2] text-2xl"></i>
-                        <div className="flex-1">
-                          <div className="text-[#E4E6EB] font-bold text-[17px]">
-                            Audio Track
-                          </div>
-                          <div className="text-[#B0B3B8] text-[15px]">
-                            {p.content || 'Listen to audio'}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() =>
-                            onPlayAudioTrack!({
-                              id: safePostId(post),
-                              title: titleText,
-                              artist: artistText,
-                              url: mediaInfo.mediaUrl,
-                              duration: 0,
-                              coverImage: a?.profile_image_url,
-                            })
-                          }
-                          className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors"
-                        >
-                          <i className="fas fa-play mr-1"></i> Play
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-        )}
-      </>
-    );
-  },
-  (prev, next) => {
-    // Simple shallow comparison for now
-    return prev.post?.id === next.post?.id;
-  }
-);
-
-/**
- * =========================
- * ✅ MAIN POST COMPONENT (updated with optimistic reactions)
+ * ✅ MAIN POST COMPONENT
  * =========================
  */
 export const Post = memo(
@@ -5089,15 +4421,6 @@ export const Post = memo(
     const a: any = author as any;
     const meta: any = p?.meta || {};
 
-    // Local state for optimistic updates
-    const [optimisticReaction, setOptimisticReaction] = useState<ReactionType | undefined>(
-      p.myReaction ?? p.my_reaction ?? undefined
-    );
-    const [optimisticReactionCount, setOptimisticReactionCount] = useState<number>(
-      Number(p.reactionsCount ?? p.reactions_count ?? 0)
-    );
-    const [reactionLoading, setReactionLoading] = useState(false);
-
     const isMarketplace =
       p?.type === 'marketplace' ||
       p?.post_type === 'product' ||
@@ -5119,8 +4442,6 @@ export const Post = memo(
       !!p?.event_id ||
       !!meta?.event;
 
-    // For events, we may still use EventPost component, but we'll keep it as is for now.
-    // We'll let EventPost handle its own optimistic updates (if needed).
     if (isEventPost) {
       const event = normalizeEventFromFeed(p);
       return (
@@ -5172,9 +4493,8 @@ export const Post = memo(
       p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
     const group = p?.group || groups?.find((g) => g.id === groupId);
 
-    // Derive final reaction values from props + optimistic state
-    const myReactionFromProps = p.myReaction ?? p.my_reaction ?? null;
-    const reactionsCountFromProps = Number(
+    const myReaction = p.myReaction ?? p.my_reaction ?? null;
+    const likesCount = Number(
       p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0
     );
     const reactionsArr: any[] = Array.isArray(p.reactions)
@@ -5183,10 +4503,18 @@ export const Post = memo(
       ? p.reactions_preview
       : [];
 
-    const finalMyReaction = optimisticReaction ?? myReactionFromProps;
-    const finalReactionCount = optimisticReactionCount > 0 ? optimisticReactionCount : reactionsCountFromProps;
-
     const reactorNameFromApi = String(p.reactor_name ?? p.reactorName ?? '').trim();
+
+    const finalMyReaction: ReactionType | undefined =
+      myReaction ||
+      (currentUser && reactionsArr.length
+        ? (reactionsArr.find(
+            (r: any) => Number(r.user_id) === safeUserId(currentUser)
+          )?.type as ReactionType)
+        : undefined);
+
+    const finalReactionCount = likesCount > 0 ? likesCount : reactionsArr.length;
+
     const [commentCount, setCommentCount] = useState(() => {
       if (typeof p.comments_count === 'number') return p.comments_count;
       if (Array.isArray(p.comments)) return p.comments.length;
@@ -5259,6 +4587,12 @@ export const Post = memo(
       setShowShareSheet(false);
     };
 
+    const handleFollowClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (onFollow && a.id) onFollow(safeUserId(a));
+    };
+
     const getReactionEndpoint = (item: any) => {
       if (item.source === 'group_post' || item.item_type === 'group_post')
         return `/api/groups/${item.group_id}/posts/${item.id}/react`;
@@ -5273,45 +4607,20 @@ export const Post = memo(
       else return `/api/posts/${item.id}/react`;
     };
 
-    // Optimistic reaction handler
     const handleReactClick = async (type: ReactionType) => {
       if (!currentUser) {
         alert('Please login to react.');
         return;
       }
-
-      // Determine new state
-      const wasSame = finalMyReaction === type;
-      const newReaction = wasSame ? undefined : type;
-      const newCount = wasSame
-        ? Math.max(0, finalReactionCount - 1)
-        : finalReactionCount + 1;
-
-      // Save previous for rollback
-      const prevReaction = finalMyReaction;
-      const prevCount = finalReactionCount;
-
-      // Optimistic update
-      setOptimisticReaction(newReaction);
-      setOptimisticReactionCount(newCount);
-      setReactionLoading(true);
-
+      const endpoint = getReactionEndpoint(p);
       try {
-        const endpoint = getReactionEndpoint(p);
         await apiFetch(endpoint, {
           method: 'POST',
-          body: JSON.stringify({ user_id: currentUser.id, type }),
+          body: JSON.stringify({ user_id: currentUser.id, type: type }),
         });
-        // After successful API, call parent's onReact (if needed)
         onReact(postId, type);
       } catch (error) {
-        console.error('Reaction failed:', error);
-        // Rollback
-        setOptimisticReaction(prevReaction);
-        setOptimisticReactionCount(prevCount);
-        alert('Reaction failed. Please try again.');
-      } finally {
-        setReactionLoading(false);
+        console.error('Failed to react:', error);
       }
     };
 
@@ -5337,17 +4646,76 @@ export const Post = memo(
       <>
         <div className="w-full relative">
           <div className="bg-[#242526] w-full overflow-hidden">
-            <PostHeader
-              post={p}
-              author={a}
-              group={group}
-              currentUser={currentUser}
-              onProfileClick={onProfileClick}
-              onOpenGroup={onOpenGroup}
-              onFollow={onFollow}
-              isFollowing={isFollowing}
-              followLoading={followLoading}
-              menuItems={
+            {isGroupPost ? (
+              <GroupPostHeader
+                post={p}
+                group={group}
+                author={a}
+                onOpenGroup={(id) => onOpenGroup?.(id)}
+                onOpenProfile={(id) => onProfileClick(id)}
+              />
+            ) : (
+              <div className="p-3 md:p-4 flex items-center justify-between">
+                <div
+                  className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+                  onClick={() => onProfileClick(safeUserId(a))}
+                >
+                  <img
+                    src={avatarFrom(a)}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <h4 className="font-bold text-[#E4E6EB] text-[20px] cursor-pointer hover:underline truncate">
+                        {a.name || a.username || 'User'}
+                      </h4>
+                      {a.is_verified && (
+                        <i className="fas fa-check-circle text-[#1877F2] text-[15px]"></i>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[15px]">
+                      <span>{createdAtLabel}</span>
+                      <span>•</span>
+                      <i className="fas fa-globe-americas text-[14px]"></i>
+                      {p.location && (
+                        <>
+                          <span>•</span>
+                          <span className="truncate max-w-[160px]">
+                            {String(p.location).split(',')[0]}
+                          </span>
+                        </>
+                      )}
+                      {p.feeling && (
+                        <>
+                          <span>•</span>
+                          <span>feeling {p.feeling}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
+                  <button
+                    onClick={handleFollowClick}
+                    disabled={followLoading}
+                    className={`px-3 py-1.5 text-[15px] font-bold rounded-lg transition-all duration-200 ml-2 ${
+                      isFollowing
+                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                    } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                    {followLoading ? (
+                      <i className="fas fa-spinner fa-spin"></i>
+                    ) : isFollowing ? (
+                      'Following'
+                    ) : (
+                      'Follow'
+                    )}
+                  </button>
+                )}
+
                 <PostMenu
                   item={{
                     id: postId,
@@ -5364,8 +4732,8 @@ export const Post = memo(
                   currentUser={currentUser}
                   onShare={(item) => setShowShareSheet(true)}
                 />
-              }
-            />
+              </div>
+            )}
 
             {isMarketplace && (
               <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
@@ -5381,125 +4749,455 @@ export const Post = memo(
               </div>
             )}
 
-            <PostBody
-              post={p}
-              author={a}
-              currentUser={currentUser}
-              users={users}
-              onProfileClick={onProfileClick}
-              onHashtagClick={onHashtagClick}
-              onViewProduct={onViewProductFromPost || onViewProduct}
-              onOpenAudio={onOpenAudio}
-              onRSVP={onRSVP}
-              onEventClick={onEventClick}
-              onOpenGallery={openGallery}
-              onVideoClick={onVideoClick}
-              onPlayAudioTrack={onPlayAudioTrack}
-              isMarketplace={isMarketplace}
-              productId={productId}
-              productData={productData}
-              mpImages={mpImages}
-              price={price}
-              currency={currency}
-              loc={loc}
-              isMusic={isMusic}
-              isPodcast={isPodcast}
-              song={song}
-              podcast={podcast}
-              mediaInfo={mediaInfo}
-              mediaList={mediaList}
-              imageMedia={imageMedia}
-              videoMedia={videoMedia}
-            />
+            {p.content && !isMarketplace && (
+              <div className="px-3 md:px-4 pb-2">
+                <ExpandableRichText
+                  text={String(p.content)}
+                  users={users}
+                  onProfileClick={onProfileClick}
+                  onHashtagClick={onHashtagClick}
+                  maxWords={14}
+                  fontSizePx={23}
+                />
+              </div>
+            )}
 
-            {/* Reaction summary and action bar */}
-            <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
-              <div className="flex items-center gap-2">
-                {finalReactionCount > 0 && (
-                  <div
-                    className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+            {(isMusic || isPodcast) && (
+              <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-3 p-3">
+                  <img
+                    src={
+                      (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
+                      ''
+                    }
+                    className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
+                    alt=""
+                  />
+                  <div className="flex-1 overflow-hidden">
+                    <div className="text-white font-bold text-[17px] truncate">
+                      {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
+                    </div>
+                    <div className="text-[#B0B3B8] text-[14px] truncate">
+                      {isMusic ? song?.artist_name : podcast?.description}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (onOpenReactions) {
-                        onOpenReactions(postId);
-                      } else {
-                        setShowReactionsSheet(true);
-                      }
+                      onOpenAudio?.(isMusic ? song : podcast);
                     }}
+                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
                   >
-                    <div className="flex -space-x-2">
-                      {emojiList.slice(0, 2).map((e, i) => (
-                        <span
-                          key={i}
-                          className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
-                          style={{ zIndex: 10 - i }}
-                        >
-                          {e}
-                        </span>
-                      ))}
+                    Play
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
+              <div
+                className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
+                onClick={() =>
+                  window.open(p.link_preview.url, '_blank', 'noopener noreferrer')
+                }
+              >
+                {p.link_preview.image && (
+                  <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
+                    <img
+                      src={p.link_preview.image}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="p-4 bg-[#3A3B3C]">
+                  <div className="text-[#B0B3B8] text-[13px] uppercase font-bold mb-1">
+                    {p.link_preview.domain}
+                  </div>
+                  <div className="text-[#E4E6EB] font-bold text-[19px] mb-1 line-clamp-2">
+                    {p.link_preview.title}
+                  </div>
+                  <div className="text-[#B0B3B8] text-[16px] line-clamp-3">
+                    {p.link_preview.description}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
+              <div
+                className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
+                style={{ background: p.background, backgroundSize: 'cover' }}
+              >
+                {p.content}
+              </div>
+            )}
+
+            {isMarketplace ? (
+              <>
+                {mpImages.length > 0 && (
+                  <div className="w-full">
+                    <div className="w-full bg-black">
+                      <MediaGrid
+                        media={mpImages.map((url) => ({ url }))}
+                        onOpen={(url, index) => {
+                          openGallery(mpImages, index);
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {price && (
+                  <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[#E4E6EB] text-[19px] font-bold">
+                        {currency}
+                      </span>
+                      <span className="text-[#E4E6EB] text-[22px] font-bold">
+                        {price}
+                      </span>
                     </div>
 
-                    {reactionText && (
-                      <span className="text-[17px] text-[#E4E6EB] font-bold">
-                        {reactionText}
+                    <button
+                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (productId) onViewProduct?.(productId);
+                      }}
+                    >
+                      View product
+                    </button>
+                  </div>
+                )}
+
+                <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+                  <div className="flex items-center gap-2">
+                    {finalReactionCount > 0 && (
+                      <div
+                        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onOpenReactions) {
+                            onOpenReactions(postId);
+                          } else {
+                            setShowReactionsSheet(true);
+                          }
+                        }}
+                      >
+                        <div className="flex -space-x-2">
+                          {emojiList.slice(0, 2).map((e, i) => (
+                            <span
+                              key={i}
+                              className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                              style={{ zIndex: 10 - i }}
+                            >
+                              {e}
+                            </span>
+                          ))}
+                        </div>
+
+                        {reactionText && (
+                          <span className="text-[17px] text-[#E4E6EB] font-bold">
+                            {reactionText}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-4">
+                    <span
+                      className="hover:underline cursor-pointer text-[16px]"
+                      onClick={() => handleOpenComments()}
+                    >
+                      {formatCount(commentCount)} Discussions
+                    </span>
+                    {shareCount > 0 && (
+                      <span className="hover:underline text-[16px]">
+                        {formatCount(shareCount)} Shares
                       </span>
                     )}
                   </div>
-                )}
-              </div>
+                </div>
 
-              <div className="flex gap-4">
-                <span
-                  className="hover:underline cursor-pointer text-[16px]"
-                  onClick={() => handleOpenComments()}
-                >
-                  {formatCount(commentCount)} Discussions
-                </span>
-                {shareCount > 0 && (
-                  <span className="hover:underline text-[16px]">
-                    {formatCount(shareCount)} Shares
-                  </span>
+                <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+                  <ReactionButton
+                    currentUserReactions={finalMyReaction}
+                    reactionCount={finalReactionCount}
+                    onReact={handleReactClick}
+                    isGuest={!currentUser}
+                  />
+                  <button
+                    type="button"
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleOpenComments(e);
+                    }}
+                  >
+                    <DiscussSignalIcon size={28} color="#1877F2" />
+                    <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                      Discuss
+                    </span>
+                  </button>
+                  <button
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={() => {
+                      if (!currentUser) {
+                        alert('Please login to share posts.');
+                        return;
+                      }
+                      setShowShareSheet(true);
+                    }}
+                  >
+                    <i className="fas fa-share text-[22px]"></i>
+                    <span className="text-[19px] font-bold">Share</span>
+                  </button>
+                  {pushButton && <div className="ml-2">{pushButton}</div>}
+                </div>
+              </>
+            ) : (
+              <>
+                {!p.background && imageMedia.length > 0 && (
+                  <MediaGrid
+                    media={imageMedia.map((m) => ({ url: m.url }))}
+                    onOpen={(url, index) => {
+                      const urls = imageMedia.map((m) => m.url);
+                      openGallery(urls, index);
+                    }}
+                  />
                 )}
-              </div>
-            </div>
 
-            <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-              <ReactionButton
-                currentUserReactions={finalMyReaction}
-                reactionCount={finalReactionCount}
-                onReact={handleReactClick}
-                isGuest={!currentUser}
-                isLoading={reactionLoading}
-              />
-              <button
-                type="button"
-                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleOpenComments(e);
-                }}
-              >
-                <DiscussSignalIcon size={28} color="#1877F2" />
-                <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-                  Discuss
-                </span>
-              </button>
-              <button
-                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                onClick={() => {
-                  if (!currentUser) {
-                    alert('Please login to share posts.');
-                    return;
-                  }
-                  setShowShareSheet(true);
-                }}
-              >
-                <i className="fas fa-share text-[22px]"></i>
-                <span className="text-[19px] font-bold">Share</span>
-              </button>
-              {pushButton && <div className="ml-2">{pushButton}</div>}
-            </div>
+                {!p.background && videoMedia.length > 0 && (
+                  <div
+                    className="cursor-pointer relative h-[500px] bg-black"
+                    onClick={() => onVideoClick(post)}
+                  >
+                    <video
+                      src={videoMedia[0].url}
+                      className="w-full h-full object-cover"
+                      preload="metadata"
+                      playsInline
+                      muted
+                      onError={(e) => {
+                        console.error('Failed to load video:', videoMedia[0].url);
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <i className="fas fa-play text-white text-4xl opacity-50"></i>
+                    </div>
+                  </div>
+                )}
+
+                {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+                  <div className="my-3">
+                    {(() => {
+                      const cover =
+                        (p as any).song_cover_image_url ||
+                        imageMedia?.[0]?.url ||
+                        a.profile_image_url;
+
+                      const titleText = p.content || 'Audio';
+                      const artistText =
+                        (p as any).song_artist_name || a.name || 'Unknown';
+
+                      return (
+                        <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
+                          {cover ? (
+                            <div className="relative">
+                              <img
+                                src={cover}
+                                alt="Cover"
+                                className="w-full h-[260px] md:h-[320px] object-cover"
+                                loading="lazy"
+                                onError={(e) => {
+                                  const img = e.currentTarget as HTMLImageElement;
+                                  if (
+                                    a.profile_image_url &&
+                                    img.src !== a.profile_image_url
+                                  ) {
+                                    img.src = a.profile_image_url;
+                                  }
+                                }}
+                              />
+
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+
+                              <div className="absolute left-3 right-3 bottom-3">
+                                <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
+                                      <img
+                                        src={cover}
+                                        alt="Mini cover"
+                                        className="w-full h-full object-cover"
+                                        loading="lazy"
+                                      />
+                                    </div>
+
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-[#E4E6EB] font-bold text-[17px]">
+                                        Audio Track
+                                      </div>
+                                      <div className="text-[#B0B3B8] text-[15px] truncate">
+                                        {titleText}
+                                      </div>
+                                      <div className="text-[#B0B3B8] text-[14px] truncate">
+                                        {artistText}
+                                      </div>
+                                    </div>
+
+                                    <button
+                                      onClick={() =>
+                                        onPlayAudioTrack!({
+                                          id: postId,
+                                          title: titleText,
+                                          artist: artistText,
+                                          url: mediaInfo.mediaUrl,
+                                          duration: 0,
+                                          coverImage: cover || a.profile_image_url,
+                                        })
+                                      }
+                                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors flex-shrink-0"
+                                    >
+                                      <i className="fas fa-play mr-1"></i> Play
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-4 bg-[#3A3B3C]">
+                              <div className="flex items-center gap-3">
+                                <i className="fas fa-music text-[#1877F2] text-2xl"></i>
+                                <div className="flex-1">
+                                  <div className="text-[#E4E6EB] font-bold text-[17px]">
+                                    Audio Track
+                                  </div>
+                                  <div className="text-[#B0B3B8] text-[15px]">
+                                    {p.content || 'Listen to audio'}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() =>
+                                    onPlayAudioTrack!({
+                                      id: postId,
+                                      title: titleText,
+                                      artist: artistText,
+                                      url: mediaInfo.mediaUrl,
+                                      duration: 0,
+                                      coverImage: a.profile_image_url,
+                                    })
+                                  }
+                                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors"
+                                >
+                                  <i className="fas fa-play mr-1"></i> Play
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+                  <div className="flex items-center gap-2">
+                    {finalReactionCount > 0 && (
+                      <div
+                        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onOpenReactions) {
+                            onOpenReactions(postId);
+                          } else {
+                            setShowReactionsSheet(true);
+                          }
+                        }}
+                      >
+                        <div className="flex -space-x-2">
+                          {emojiList.slice(0, 2).map((e, i) => (
+                            <span
+                              key={i}
+                              className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                              style={{ zIndex: 10 - i }}
+                            >
+                              {e}
+                            </span>
+                          ))}
+                        </div>
+
+                        {reactionText && (
+                          <span className="text-[17px] text-[#E4E6EB] font-bold">
+                            {reactionText}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-4">
+                    <span
+                      className="hover:underline cursor-pointer text-[16px]"
+                      onClick={() => handleOpenComments()}
+                    >
+                      {formatCount(commentCount)} Discussions
+                    </span>
+                    {shareCount > 0 && (
+                      <span className="hover:underline text-[16px]">
+                        {formatCount(shareCount)} Shares
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+                  <ReactionButton
+                    currentUserReactions={finalMyReaction}
+                    reactionCount={finalReactionCount}
+                    onReact={handleReactClick}
+                    isGuest={!currentUser}
+                  />
+                  <button
+                    type="button"
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleOpenComments(e);
+                    }}
+                  >
+                    <DiscussSignalIcon size={28} color="#1877F2" />
+                    <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                      Discuss
+                    </span>
+                  </button>
+                  <button
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={() => {
+                      if (!currentUser) {
+                        alert('Please login to share posts.');
+                        return;
+                      }
+                      setShowShareSheet(true);
+                    }}
+                  >
+                    <i className="fas fa-share text-[22px]"></i>
+                    <span className="text-[19px] font-bold">Share</span>
+                  </button>
+                  {pushButton && <div className="ml-2">{pushButton}</div>}
+                </div>
+              </>
+            )}
           </div>
 
           <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
@@ -5557,924 +5255,6 @@ export const Post = memo(
     );
   },
   postPropsEqual
-);
-
-// ========== END OF PART 1 ==========
-// ==================== PART 2 ====================
-// (Continue from after the Post component)
-
-/**
- * =========================
- * ✅ COMMENTS SHEET (UPDATED – now matches feed card exactly)
- * =========================
- */
-export const CommentsSheet = memo(
-  ({
-    post,
-    currentUser,
-    users,
-    onClose,
-    onComment,
-    onCommentAdded,
-    onLikeComment,
-    getCommentAuthor,
-    onProfileClick,
-    onHashtagClick,
-    onFollow,
-    checkIsFollowing,
-    onViewProductFromPost,
-    onOpenAudio,
-    onRSVP,
-    onEventClick,
-    onVideoClick,
-    onPlayAudioTrack,
-  }: {
-    post: PostType;
-    currentUser: User;
-    users: User[];
-    onClose: () => void;
-    onComment?: (postId: number, text: string) => void;
-    onCommentAdded?: () => void;
-    onLikeComment?: (commentId: number) => void;
-    getCommentAuthor?: (id: number) => User | undefined;
-    onProfileClick: (id: number) => void;
-    onHashtagClick?: (tag: string) => void;
-    onFollow?: (id: number) => void;
-    checkIsFollowing?: (id: number) => boolean;
-    onViewProductFromPost?: (productId: number) => void;
-    onOpenAudio?: (item: any) => void;
-    onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
-    onEventClick?: (eventId: number) => void;
-    onVideoClick?: (post: PostType) => void;
-    onPlayAudioTrack?: (track: AudioTrack) => void;
-  }) => {
-    const { onViewProduct, getProductData } = useContext(MarketplaceContext);
-
-    const p: any = post as any;
-    const postId = safePostId(p);
-    const a: any = p.author || p;
-    const meta: any = p?.meta || {};
-
-    // Detect post type for proper rendering
-    const isMarketplace =
-      p?.type === 'marketplace' ||
-      p?.post_type === 'product' ||
-      p?.type === 'product' ||
-      meta?.type === 'product' ||
-      !!p?.product_id ||
-      !!p?.meta?.marketplace?.id;
-
-    const isEventPost =
-      p?.item_type === 'event' ||
-      p?.source === 'event' ||
-      p?.type === 'event' ||
-      meta?.type === 'event' ||
-      !!p?.event_id;
-
-    const isMusic = meta?.kind === 'music' || meta?.type === 'music';
-    const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
-    const isGroupPost = !!(p?.group_id || p?.group);
-
-    const productId = isMarketplace ? getMarketplaceProductId(p) : null;
-    const productData = productId ? getProductData?.(productId) : null;
-    const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
-    const { price, currency, loc } = isMarketplace
-      ? getMarketplacePriceLine(productData)
-      : { price: null, currency: 'TZS', loc: 'Marketplace' };
-
-    const song = meta?.song;
-    const podcast = meta?.podcast;
-
-    const mediaInfo = getMediaTypeInfo(p);
-    const mediaList = useMemo(() => getPostMediaList(p), [p]);
-    const imageMedia = mediaList.filter((m) => m.kind === 'image');
-    const videoMedia = mediaList.filter((m) => m.kind === 'video');
-
-    // ========== REACTION STATE (for action bar) ==========
-    const [optimisticReaction, setOptimisticReaction] = useState<ReactionType | undefined>(
-      p.myReaction ?? p.my_reaction ?? undefined
-    );
-    const [optimisticReactionCount, setOptimisticReactionCount] = useState<number>(
-      Number(p.reactionsCount ?? p.reactions_count ?? 0)
-    );
-    const [reactionLoading, setReactionLoading] = useState(false);
-    const [showShareSheet, setShowShareSheet] = useState(false);
-
-    const reactionsArr: any[] = Array.isArray(p.reactions)
-      ? p.reactions
-      : Array.isArray(p.reactions_preview)
-      ? p.reactions_preview
-      : [];
-
-    const finalMyReaction = optimisticReaction;
-    const finalReactionCount = optimisticReactionCount > 0 ? optimisticReactionCount : 0;
-
-    const emojiList = useMemo(() => {
-      if (reactionsArr.length > 0) {
-        const em = topReactionEmojis(reactionsArr, 2);
-        return em.length ? em : ['👍'];
-      }
-      return finalReactionCount > 0 ? ['👍'] : [];
-    }, [reactionsArr, finalReactionCount]);
-
-    const reactorName = useMemo(() => {
-      if (!finalReactionCount) return '';
-      if (reactionsArr.length) {
-        const name = pickStableReactorName(postId, reactionsArr, users);
-        return String(name || '').trim();
-      }
-      return String(p.reactor_name ?? p.reactorName ?? '').trim();
-    }, [postId, finalReactionCount, reactionsArr, users, p.reactor_name, p.reactorName]);
-
-    const reactionText = useMemo(() => {
-      if (!finalReactionCount || !reactorName) return '';
-      return formatReactionText(finalReactionCount, reactorName);
-    }, [finalReactionCount, reactorName]);
-
-    const getReactionEndpoint = (item: any) => {
-      if (item.source === 'group_post' || item.item_type === 'group_post')
-        return `/api/groups/${item.group_id}/posts/${item.id}/react`;
-      else if (item.source === 'product' || item.item_type === 'product')
-        return `/api/products/${item.product_id || item.id}/react`;
-      else if (item.source === 'reel' || p.item_type === 'reel')
-        return `/api/reels/${item.reel_id || item.id}/react`;
-      else if (item.source === 'song' || p.item_type === 'song')
-        return `/api/songs/${item.song_id2 || item.id}/react`;
-      else if (item.source === 'podcast' || p.item_type === 'podcast')
-        return `/api/podcasts/${item.podcast_id || item.id}/react`;
-      else return `/api/posts/${item.id}/react`;
-    };
-
-    const handleReactClick = async (type: ReactionType) => {
-      if (!currentUser) {
-        alert('Please login to react.');
-        return;
-      }
-
-      const wasSame = finalMyReaction === type;
-      const newReaction = wasSame ? undefined : type;
-      const newCount = wasSame
-        ? Math.max(0, finalReactionCount - 1)
-        : finalReactionCount + 1;
-
-      const prevReaction = finalMyReaction;
-      const prevCount = finalReactionCount;
-
-      setOptimisticReaction(newReaction);
-      setOptimisticReactionCount(newCount);
-      setReactionLoading(true);
-
-      try {
-        const endpoint = getReactionEndpoint(p);
-        await apiFetch(endpoint, {
-          method: 'POST',
-          body: JSON.stringify({ user_id: currentUser.id, type }),
-        });
-        // optionally call parent onReact if needed
-      } catch (error) {
-        console.error('Reaction failed:', error);
-        setOptimisticReaction(prevReaction);
-        setOptimisticReactionCount(prevCount);
-        alert('Reaction failed. Please try again.');
-      } finally {
-        setReactionLoading(false);
-      }
-    };
-
-    // ========== COMMENT STATE (unchanged) ==========
-    const [text, setText] = useState('');
-    const [comments, setComments] = useState<any[]>([]);
-    const [replyTo, setReplyTo] = useState<any | null>(null);
-    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-    const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
-    const abortControllerRef = useRef<AbortController | null>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const discussionsTopRef = useRef<HTMLDivElement>(null);
-
-    // Helper functions for endpoints (same as original)
-    const getCommentEndpoint = () => {
-      const viewerId = safeUserId(currentUser);
-      if (p.source === 'event' || p.item_type === 'event') {
-        const eventId = p.event_id || p.id;
-        return `/api/events/${eventId}/comments?viewerId=${viewerId}`;
-      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
-        return `/api/groups/${p.group_id}/posts/${p.id}/comments?viewerId=${viewerId}`;
-      } else if (p.source === 'product' || p.item_type === 'product') {
-        const productId = p.product_id || p.id;
-        return `/api/products/${productId}/reviews?viewerId=${viewerId}`;
-      } else if (p.source === 'reel' || p.item_type === 'reel') {
-        const reelId = p.reel_id || p.id;
-        return `/api/reels/${reelId}/comments?viewerId=${viewerId}`;
-      } else if (p.source === 'song' || p.item_type === 'song') {
-        const songId = p.song_id2 || p.id;
-        return `/api/songs/${songId}/comments?viewerId=${viewerId}`;
-      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
-        const podcastId = p.podcast_id || p.id;
-        return `/api/podcasts/${podcastId}/comments?viewerId=${viewerId}`;
-      } else {
-        return `/api/posts/${p.id}/comments?viewerId=${viewerId}`;
-      }
-    };
-
-    const getAddCommentEndpoint = () => {
-      if (p.source === 'event' || p.item_type === 'event') {
-        const eventId = p.event_id || p.id;
-        return `/api/events/${eventId}/comment`;
-      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
-        return `/api/groups/${p.group_id}/posts/${p.id}/comment`;
-      } else if (p.source === 'product' || p.item_type === 'product') {
-        const productId = p.product_id || p.id;
-        return `/api/products/${productId}/review`;
-      } else if (p.source === 'reel' || p.item_type === 'reel') {
-        const reelId = p.reel_id || p.id;
-        return `/api/reels/${reelId}/comment`;
-      } else if (p.source === 'song' || p.item_type === 'song') {
-        const songId = p.song_id2 || p.id;
-        return `/api/songs/${songId}/comment`;
-      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
-        const podcastId = p.podcast_id || p.id;
-        return `/api/podcasts/${podcastId}/comment`;
-      } else {
-        return `/api/posts/${p.id}/comment`;
-      }
-    };
-
-    const getReplyEndpoint = (commentId: number) => {
-      if (p.source === 'event' || p.item_type === 'event') {
-        return `/api/event-comments/${commentId}/reply`;
-      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
-        return `/api/group-post-comments/${commentId}/reply`;
-      } else if (p.source === 'product' || p.item_type === 'product') {
-        return `/api/product-reviews/${commentId}/reply`;
-      } else if (p.source === 'reel' || p.item_type === 'reel') {
-        return `/api/reel-comments/${commentId}/reply`;
-      } else if (p.source === 'song' || p.item_type === 'song') {
-        return `/api/song-comments/${commentId}/reply`;
-      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
-        return `/api/podcast-comments/${commentId}/reply`;
-      } else {
-        return `/api/comments/${commentId}/reply`;
-      }
-    };
-
-    const getLikeEndpoint = (commentId: number) => {
-      if (p.source === 'event' || p.item_type === 'event') {
-        return `/api/event-comments/${commentId}/like`;
-      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
-        return `/api/group-post-comments/${commentId}/like`;
-      } else if (p.source === 'product' || p.item_type === 'product') {
-        return `/api/product-reviews/${commentId}/like`;
-      } else if (p.source === 'reel' || p.item_type === 'reel') {
-        return `/api/reel-comments/${commentId}/like`;
-      } else if (p.source === 'song' || p.item_type === 'song') {
-        return `/api/song-comments/${commentId}/like`;
-      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
-        return `/api/podcast-comments/${commentId}/like`;
-      } else {
-        return `/api/comments/${commentId}/like`;
-      }
-    };
-
-    // Scroll to top when opening
-    useEffect(() => {
-      const t = setTimeout(() => {
-        discussionsTopRef.current?.scrollIntoView({
-          behavior: 'auto',
-          block: 'start',
-        });
-      }, 0);
-      return () => clearTimeout(t);
-    }, [postId]);
-
-    // Fetch comments (same as original)
-    const fetchCommentsSilently = async () => {
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-      abortControllerRef.current = new AbortController();
-      try {
-        const endpoint = getCommentEndpoint();
-        const data = await apiFetch(endpoint);
-        const arr = Array.isArray(data) ? data : data?.comments || [];
-        if (arr.length > 0) {
-          setComments(arr);
-          commentsCache.set(postId, {
-            data: arr,
-            timestamp: Date.now(),
-            postId,
-          });
-        }
-      } catch (error: any) {
-        if (error.name === 'AbortError') return;
-        console.debug('Silent comment fetch failed:', error);
-      }
-    };
-
-    useEffect(() => {
-      const initializeComments = async () => {
-        const cached = commentsCache.get(postId);
-        if (cached) setComments(cached.data);
-        const postComments = Array.isArray(p.comments) ? p.comments : [];
-        if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
-          setComments(postComments);
-          commentsCache.set(postId, {
-            data: postComments,
-            timestamp: Date.now(),
-            postId,
-          });
-        }
-        fetchCommentsSilently();
-      };
-      initializeComments();
-      return () => abortControllerRef.current?.abort();
-    }, [postId, p.comments]);
-
-    // Comment rendering helpers (same as original)
-    const resolveAuthor = (c: any) => {
-      const uid = Number(c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0);
-      const u =
-        (Number.isFinite(uid) ? users.find((x: any) => Number(x?.id) === uid) : null) ||
-        (getCommentAuthor ? getCommentAuthor(uid) : null) ||
-        null;
-      const name =
-        String(c?.author_name ?? c?.authorName ?? '').trim() ||
-        String(u?.name ?? '').trim() ||
-        String(u?.username ?? '').trim() ||
-        'User';
-      const image = avatarFrom({
-        profile_image_url: c?.author_image ?? c?.authorImage ?? u?.profile_image_url,
-        name,
-        username: u?.username ?? c?.author_username ?? c?.username,
-      });
-      return { uid, name, image };
-    };
-
-    const getReplyLabel = (comment: any) => {
-      const a = resolveAuthor(comment);
-      const uid = a.uid;
-      const user = users.find((x: any) => Number(x?.id) === uid);
-      const username = String(
-        comment?.author_username ?? user?.username ?? comment?.username ?? ''
-      ).trim();
-      const display = username ? `@${username}` : a.name;
-      return { ...a, username, display };
-    };
-
-    const formatCount = (count: number): string => {
-      if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-      if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-      return count.toString();
-    };
-
-    const handleLikeComment = async (comment: any) => {
-      if (!currentUser) return;
-      const optimisticLiked = !comment.liked_by_me;
-      const optimisticCount = comment.liked_by_me
-        ? Math.max(0, (comment.likes_count || 0) - 1)
-        : (comment.likes_count || 0) + 1;
-      setComments((prev) =>
-        prev.map((c) =>
-          c.id === comment.id
-            ? { ...c, liked_by_me: optimisticLiked, likes_count: optimisticCount }
-            : c
-        )
-      );
-      if (onLikeComment) onLikeComment(comment.id);
-      try {
-        const endpoint = getLikeEndpoint(comment.id);
-        await apiFetch(endpoint, {
-          method: 'POST',
-          body: JSON.stringify({ user_id: safeUserId(currentUser) }),
-        });
-      } catch (error) {
-        console.error('Failed to like comment:', error);
-        setComments((prev) =>
-          prev.map((c) =>
-            c.id === comment.id
-              ? { ...c, liked_by_me: !optimisticLiked, likes_count: comment.likes_count || 0 }
-              : c
-          )
-        );
-      }
-    };
-
-    const handleFollowClick = (e: React.MouseEvent, userId: number) => {
-      e.stopPropagation();
-      e.preventDefault();
-      if (onFollow && userId && userId !== safeUserId(currentUser)) {
-        onFollow(userId);
-      }
-    };
-
-    const idKey = (v: any) => String(v ?? '').trim();
-
-    const buildThreads = (list: any[]) => {
-      const roots = list.filter((c) => !c.parent_comment_id);
-      const repliesByParent = new Map<string, any[]>();
-      list.forEach((c) => {
-        const pid = idKey(c.parent_comment_id);
-        if (!pid) return;
-        if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
-        repliesByParent.get(pid)!.push(c);
-      });
-      repliesByParent.forEach((arr) => {
-        arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-      });
-      return roots.map((root) => ({
-        root,
-        replies: repliesByParent.get(idKey(root.id)) || [],
-      }));
-    };
-
-    const toggleThread = (rootId: any, open: boolean) => {
-      const key = String(rootId);
-      setExpandedThreads((prev) => ({ ...prev, [key]: open }));
-    };
-
-    const threads = useMemo(() => buildThreads(comments), [comments]);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
-      const t = text.trim();
-      if (!t) return;
-
-      const replyDisplay = replyTo?._reply_author?.display;
-      const prefix = replyDisplay ? `${replyDisplay} ` : '';
-      const finalText = replyTo && !t.startsWith(prefix) ? prefix + t : t;
-
-      const optimisticComment = {
-        id: `tmp-${Date.now()}`,
-        post_id: postId,
-        user_id: safeUserId(currentUser),
-        text: finalText,
-        parent_comment_id: replyTo?.id || null,
-        created_at: new Date().toISOString(),
-        replies_count: 0,
-        likes_count: 0,
-        liked_by_me: false,
-      };
-
-      setText('');
-      setReplyTo(null);
-      setShowEmojiPicker(false);
-
-      setComments((prev) => {
-        const next = [...prev, optimisticComment];
-        const allComments = commentsCache.get(postId)?.data || [];
-        commentsCache.set(postId, {
-          data: [...allComments, optimisticComment],
-          timestamp: Date.now(),
-          postId,
-        });
-        return next;
-      });
-
-      if (onComment) onComment(postId, finalText);
-
-      try {
-        let endpoint = replyTo ? getReplyEndpoint(replyTo.id) : getAddCommentEndpoint();
-        await apiFetch(endpoint, {
-          method: 'POST',
-          body: JSON.stringify({
-            text: finalText,
-            user_id: safeUserId(currentUser),
-            parent_comment_id: replyTo?.id || null,
-          }),
-        });
-        if (onCommentAdded) onCommentAdded();
-        fetchCommentsSilently();
-      } catch (err: any) {
-        console.error('Failed to post comment:', err);
-      }
-    };
-
-    const addEmoji = (emoji: string) => {
-      setText((prev) => prev + emoji);
-      setShowEmojiPicker(false);
-      inputRef.current?.focus();
-    };
-
-    useEffect(() => {
-      const handleFocus = () => {
-        const cached = commentsCache.get(postId);
-        if (cached && Date.now() - cached.timestamp > 30000) fetchCommentsSilently();
-      };
-      window.addEventListener('focus', handleFocus);
-      return () => window.removeEventListener('focus', handleFocus);
-    }, [postId]);
-
-    const postAuthor = p.author || {
-      name: p.name,
-      username: p.username,
-      profile_image_url: p.profile_image_url,
-      id: p.user_id || p.author_id,
-    };
-
-    const renderOneComment = (comment: any, isReply: boolean = false) => {
-      const a = resolveAuthor(comment);
-      const isCurrentUserComment = a.uid === safeUserId(currentUser);
-      const isFollowing = checkIsFollowing ? checkIsFollowing(a.uid) : false;
-
-      return (
-        <div className={`flex gap-3 ${isReply ? 'mt-3' : ''}`}>
-          <img
-            src={a.image}
-            className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
-            alt=""
-            onClick={() => a.uid && onProfileClick(a.uid)}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="mb-1">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className="text-[#E4E6EB] font-bold text-[18px] cursor-pointer hover:underline"
-                    onClick={() => a.uid && onProfileClick(a.uid)}
-                  >
-                    {a.name}
-                  </span>
-                  <span className="text-[#B0B3B8] text-[14px]">
-                    •{' '}
-                    {formatRelativeTime(
-                      comment.created_at || comment.createdAt || comment.timestamp
-                    )}
-                  </span>
-                </div>
-                {onFollow && currentUser && a.uid && !isCurrentUserComment && (
-                  <button
-                    onClick={(e) => handleFollowClick(e, a.uid)}
-                    className={`px-2 py-0.5 text-[14px] font-bold rounded-lg transition-all duration-200 ml-2 ${
-                      isFollowing
-                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                    }`}
-                  >
-                    {isFollowing ? 'Following' : 'Follow'}
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="text-[#E4E6EB] text-[19px] font-bold whitespace-pre-wrap break-words mb-2">
-              <RichText
-                text={String(comment.text || '')}
-                users={users}
-                onProfileClick={onProfileClick}
-                onHashtagClick={onHashtagClick}
-              />
-            </div>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => handleLikeComment(comment)}
-                className={`text-[15px] ${
-                  comment.liked_by_me
-                    ? 'text-[#1877F2] font-bold'
-                    : 'text-[#B0B3B8] hover:text-[#E4E6EB]'
-                }`}
-              >
-                {comment.liked_by_me ? 'Liked' : 'Like'}
-              </button>
-              <button
-                onClick={() => {
-                  const target = getReplyLabel(comment);
-                  setReplyTo({ ...comment, _reply_author: target });
-                  inputRef.current?.focus();
-                  setShowEmojiPicker(false);
-                }}
-                className="text-[15px] text-[#B0B3B8] hover:text-[#E4E6EB]"
-              >
-                Reply
-              </button>
-              {comment.likes_count > 0 && (
-                <span className="text-[15px] text-[#B0B3B8]">
-                  {formatCount(comment.likes_count)} like
-                  {comment.likes_count !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
-        {/* Header */}
-        <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
-              onClick={onClose}
-              aria-label="Back"
-            >
-              <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
-            </button>
-            <div className="text-[#E4E6EB] font-bold text-[22px]">Post</div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-[#B0B3B8] text-[16px]">
-              {formatCount(comments.length)} discussions
-            </div>
-            <button
-              type="button"
-              className="text-[#1877F2] font-bold text-[17px] hover:underline"
-              onClick={onClose}
-            >
-              See less
-            </button>
-          </div>
-        </div>
-
-        {/* Scrollable content */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-smooth">
-          {/* Post preview – exactly like feed card (no outer padding) */}
-          <div className="w-full">
-            <div className="bg-[#242526] w-full overflow-hidden">
-              <PostHeader
-                post={p}
-                author={postAuthor}
-                group={p.group}
-                currentUser={currentUser}
-                onProfileClick={onProfileClick}
-                onOpenGroup={(id) => console.log('Open group', id)}
-                onFollow={onFollow}
-                isFollowing={checkIsFollowing ? checkIsFollowing(safeUserId(postAuthor)) : false}
-                followLoading={false}
-              />
-
-              <PostBody
-                post={p}
-                author={postAuthor}
-                currentUser={currentUser}
-                users={users}
-                onProfileClick={onProfileClick}
-                onHashtagClick={onHashtagClick}
-                onViewProduct={onViewProductFromPost || onViewProduct}
-                onOpenAudio={onOpenAudio}
-                onRSVP={onRSVP}
-                onEventClick={onEventClick}
-                onOpenGallery={(urls, index) => {
-                  // Optional: open gallery viewer from comments sheet
-                  console.log('Open gallery', urls, index);
-                }}
-                onVideoClick={onVideoClick || (() => {})}
-                onPlayAudioTrack={onPlayAudioTrack}
-                isMarketplace={isMarketplace}
-                productId={productId}
-                productData={productData}
-                mpImages={mpImages}
-                price={price}
-                currency={currency}
-                loc={loc}
-                isMusic={isMusic}
-                isPodcast={isPodcast}
-                song={song}
-                podcast={podcast}
-                mediaInfo={mediaInfo}
-                mediaList={mediaList}
-                imageMedia={imageMedia}
-                videoMedia={videoMedia}
-              />
-
-              {/* Reaction summary (same as feed) */}
-              <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
-                <div className="flex items-center gap-2">
-                  {finalReactionCount > 0 && (
-                    <div
-                      className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // optional: open reactions sheet
-                      }}
-                    >
-                      <div className="flex -space-x-2">
-                        {emojiList.slice(0, 2).map((e, i) => (
-                          <span
-                            key={i}
-                            className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
-                            style={{ zIndex: 10 - i }}
-                          >
-                            {e}
-                          </span>
-                        ))}
-                      </div>
-                      {reactionText && (
-                        <span className="text-[17px] text-[#E4E6EB] font-bold">
-                          {reactionText}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-4">
-                  <span className="hover:underline cursor-pointer text-[16px]">
-                    {formatCount(comments.length)} Discussions
-                  </span>
-                  {!!p.shares && (
-                    <span className="hover:underline text-[16px]">
-                      {formatCount(Number(p.shares))} Shares
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Action buttons (same as feed) */}
-              <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-                <ReactionButton
-                  currentUserReactions={finalMyReaction}
-                  reactionCount={finalReactionCount}
-                  onReact={handleReactClick}
-                  isGuest={!currentUser}
-                  isLoading={reactionLoading}
-                />
-                <button
-                  type="button"
-                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                  onClick={() => {
-                    if (!currentUser) {
-                      alert('Please login to comment');
-                    } else {
-                      inputRef.current?.focus();
-                    }
-                  }}
-                >
-                  <DiscussSignalIcon size={28} color="#1877F2" />
-                  <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-                    Discuss
-                  </span>
-                </button>
-                <button
-                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                  onClick={() => {
-                    if (!currentUser) {
-                      alert('Please login to share posts.');
-                      return;
-                    }
-                    setShowShareSheet(true);
-                  }}
-                >
-                  <i className="fas fa-share text-[22px]"></i>
-                  <span className="text-[19px] font-bold">Share</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Feed separator – exactly like after every post in feed */}
-            <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-          </div>
-
-          {/* Comments section (unchanged) */}
-          <div className="p-4">
-            <div ref={discussionsTopRef} />
-
-            {replyTo && (
-              <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-[#B0B3B8] text-[15px]">Replying to</span>
-                  <span className="text-[#1877F2] font-bold text-[15px]">
-                    {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setReplyTo(null)}
-                  className="text-[#B0B3B8] hover:text-[#E4E6EB] text-lg"
-                >
-                  <i className="fas fa-times"></i>
-                </button>
-              </div>
-            )}
-
-            {showEmojiPicker && (
-              <div className="mb-4 p-3 border border-[#3E4042] rounded-lg">
-                <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
-                  {QUICK_EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => addEmoji(emoji)}
-                      className="text-2xl hover:scale-125 transition-transform p-1"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {comments.length === 0 ? (
-              <div className="text-center py-10">
-                <div className="text-[#B0B3B8] text-[19px] mb-2">No discussions yet</div>
-                <p className="text-[#B0B3B8] text-[15px]">Be the first to start a discussion!</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {threads.map(({ root, replies }) => {
-                  const rootId = String(root.id);
-                  const isExpanded = !!expandedThreads[rootId];
-                  const MAX_PREVIEW = 1;
-                  const hiddenCount = Math.max(0, replies.length - MAX_PREVIEW);
-                  const visibleReplies = isExpanded ? replies : replies.slice(-MAX_PREVIEW);
-
-                  return (
-                    <div key={rootId} className="space-y-2">
-                      {renderOneComment(root, false)}
-
-                      {!isExpanded && hiddenCount > 0 && (
-                        <button
-                          type="button"
-                          className="ml-12 text-[#1877F2] font-bold text-[16px] hover:underline"
-                          onClick={() => toggleThread(rootId, true)}
-                        >
-                          View previous {hiddenCount} repl
-                          {hiddenCount === 1 ? 'y' : 'ies'}
-                        </button>
-                      )}
-
-                      {visibleReplies.map((reply) => (
-                        <div key={String(reply.id)} className="ml-12 relative">
-                          <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
-                          {renderOneComment(reply, true)}
-                        </div>
-                      ))}
-
-                      {isExpanded && replies.length > MAX_PREVIEW && (
-                        <button
-                          type="button"
-                          className="ml-12 text-[#B0B3B8] text-[15px] hover:text-[#E4E6EB]"
-                          onClick={() => toggleThread(rootId, false)}
-                        >
-                          Hide replies
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Comment input (unchanged) */}
-        <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
-          <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
-            <button
-              type="button"
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="text-[#B0B3B8] hover:text-[#E4E6EB] text-2xl p-1 transition-colors"
-            >
-              😀
-            </button>
-            <div className="flex-1 relative">
-              <input
-                ref={inputRef}
-                type="text"
-                className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[17px]"
-                placeholder={
-                  replyTo
-                    ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...`
-                    : 'Write a comment...'
-                }
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-              />
-            </div>
-            <button
-              type="submit"
-              className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
-              disabled={!text.trim()}
-            >
-              Post
-            </button>
-          </form>
-        </div>
-
-        {/* Share sheet (if needed) */}
-        {showShareSheet && (
-          <ShareBottomSheet
-            isOpen={showShareSheet}
-            onClose={() => setShowShareSheet(false)}
-            post={{
-              ...p,
-              source: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
-              item_type: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
-              product_id: productId,
-              group_id: p.group_id,
-            }}
-            currentUser={currentUser}
-            users={users}
-            groups={[]}
-            brands={[]}
-            chats={[]}
-            onShareComplete={(destination, data) => {
-              if (data?.success && data.shares) {
-                // optionally update shares count locally
-              }
-              setShowShareSheet(false);
-            }}
-          />
-        )}
-      </div>
-    );
-  },
-  (prev, next) => prev.post?.id === next.post?.id && prev.currentUser?.id === next.currentUser?.id
 );
 
 /**
@@ -6559,43 +5339,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * ✅ CREATE POST MODAL (FULL ORIGINAL CODE)
- * =========================
- */
-export const CreatePostModal = memo(
-  ({
-    currentUser,
-    users,
-    onClose,
-    onCreatePost,
-    onCreateEventClick,
-    onOpenRecorder,
-  }: {
-    currentUser: User;
-    users: User[];
-    onClose: () => void;
-    onCreatePost: (
-      text: string,
-      files: File[],
-      meta?: {
-        type?: 'text' | 'image' | 'video';
-        visibility?: string;
-        location?: string;
-        feeling?: string;
-        taggedUsers?: number[];
-        background?: string;
-        linkPreview?: LinkPreview | null;
-      }
-    ) => void;
-    onCreateEventClick?: () => void;
-    onOpenRecorder?: () => void;
-  }) => {
-
-
-
-  /**
- * =========================
- * ✅ CREATE POST MODAL (FULL ORIGINAL CODE)
+ * ✅ CREATE POST MODAL
  * =========================
  */
 export const CreatePostModal = memo(
@@ -7200,12 +5944,958 @@ export const CreatePostModal = memo(
       </div>
     );
   },
-  (prev, next) => prev.currentUser?.id === next.currentUser?.id
-);  
+  (prev, next) => {
+    return prev.currentUser?.id === next.currentUser?.id;
+  }
+);
+
+// ==================== COMMENTS CACHE ====================
+const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: number }>();
 
 /**
  * =========================
- * ✅ SUGGESTED PRODUCTS WIDGET (FULL ORIGINAL CODE)
+ * ✅ COMMENTS SHEET
+ * =========================
+ */
+export const CommentsSheet = memo(
+  ({
+    post,
+    currentUser,
+    users,
+    onClose,
+    onComment,
+    onCommentAdded,
+    onLikeComment,
+    getCommentAuthor,
+    onProfileClick,
+    onHashtagClick,
+    onFollow,
+    checkIsFollowing,
+    onViewProductFromPost,
+    onOpenAudio,
+  }: {
+    post: PostType;
+    currentUser: User;
+    users: User[];
+    onClose: () => void;
+    onComment?: (postId: number, text: string) => void;
+    onCommentAdded?: () => void;
+    onLikeComment?: (commentId: number) => void;
+    getCommentAuthor?: (id: number) => User | undefined;
+    onProfileClick: (id: number) => void;
+    onHashtagClick?: (tag: string) => void;
+    onFollow?: (id: number) => void;
+    checkIsFollowing?: (id: number) => boolean;
+    onViewProductFromPost?: (productId: number) => void;
+    onOpenAudio?: (item: any) => void;
+  }) => {
+    const { onViewProduct, getProductData } = useContext(MarketplaceContext);
+
+    const p: any = post as any;
+    const postId = safePostId(p);
+
+    // Detect if this is a group post
+    const isGroupPost = !!(p as any)?.group_id || !!(p as any)?.group;
+    const groupId = (p as any)?.group_id || (p as any)?.group?.id;
+
+    const discussionsTopRef = useRef<HTMLDivElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    const [text, setText] = useState('');
+    const [comments, setComments] = useState<any[]>([]);
+    const [replyTo, setReplyTo] = useState<any | null>(null);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+
+    // Helper function to get the correct comment endpoint based on post type
+    const getCommentEndpoint = () => {
+      const p = post as any;
+      const viewerId = safeUserId(currentUser);
+
+      if (p.source === 'event' || p.item_type === 'event') {
+        const eventId = p.event_id || p.id;
+        return `/api/events/${eventId}/comments?viewerId=${viewerId}`;
+      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
+        const groupId = p.group_id;
+        const postId = p.id;
+        return `/api/groups/${groupId}/posts/${postId}/comments?viewerId=${viewerId}`;
+      } else if (p.source === 'product' || p.item_type === 'product') {
+        const productId = p.product_id || p.id;
+        return `/api/products/${productId}/reviews?viewerId=${viewerId}`;
+      } else if (p.source === 'reel' || p.item_type === 'reel') {
+        const reelId = p.reel_id || p.id;
+        return `/api/reels/${reelId}/comments?viewerId=${viewerId}`;
+      } else if (p.source === 'song' || p.item_type === 'song') {
+        const songId = p.song_id2 || p.id;
+        return `/api/songs/${songId}/comments?viewerId=${viewerId}`;
+      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
+        const podcastId = p.podcast_id || p.id;
+        return `/api/podcasts/${podcastId}/comments?viewerId=${viewerId}`;
+      } else {
+        return `/api/posts/${p.id}/comments?viewerId=${viewerId}`;
+      }
+    };
+
+    // Helper function for adding new comments
+    const getAddCommentEndpoint = () => {
+      const p = post as any;
+
+      if (p.source === 'event' || p.item_type === 'event') {
+        const eventId = p.event_id || p.id;
+        return `/api/events/${eventId}/comment`;
+      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
+        const groupId = p.group_id;
+        const postId = p.id;
+        return `/api/groups/${groupId}/posts/${postId}/comment`;
+      } else if (p.source === 'product' || p.item_type === 'product') {
+        const productId = p.product_id || p.id;
+        return `/api/products/${productId}/review`;
+      } else if (p.source === 'reel' || p.item_type === 'reel') {
+        const reelId = p.reel_id || p.id;
+        return `/api/reels/${reelId}/comment`;
+      } else if (p.source === 'song' || p.item_type === 'song') {
+        const songId = p.song_id2 || p.id;
+        return `/api/songs/${songId}/comment`;
+      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
+        const podcastId = p.podcast_id || p.id;
+        return `/api/podcasts/${podcastId}/comment`;
+      } else {
+        return `/api/posts/${p.id}/comment`;
+      }
+    };
+
+    // Helper function for replies
+    const getReplyEndpoint = (commentId: number) => {
+      const p = post as any;
+
+      if (p.source === 'event' || p.item_type === 'event') {
+        return `/api/event-comments/${commentId}/reply`;
+      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
+        return `/api/group-post-comments/${commentId}/reply`;
+      } else if (p.source === 'product' || p.item_type === 'product') {
+        return `/api/product-reviews/${commentId}/reply`;
+      } else if (p.source === 'reel' || p.item_type === 'reel') {
+        return `/api/reel-comments/${commentId}/reply`;
+      } else if (p.source === 'song' || p.item_type === 'song') {
+        return `/api/song-comments/${commentId}/reply`;
+      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
+        return `/api/podcast-comments/${commentId}/reply`;
+      } else {
+        return `/api/comments/${commentId}/reply`;
+      }
+    };
+
+    // Helper function for likes
+    const getLikeEndpoint = (commentId: number) => {
+      const p = post as any;
+
+      if (p.source === 'event' || p.item_type === 'event') {
+        return `/api/event-comments/${commentId}/like`;
+      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
+        return `/api/group-post-comments/${commentId}/like`;
+      } else if (p.source === 'product' || p.item_type === 'product') {
+        return `/api/product-reviews/${commentId}/like`;
+      } else if (p.source === 'reel' || p.item_type === 'reel') {
+        return `/api/reel-comments/${commentId}/like`;
+      } else if (p.source === 'song' || p.item_type === 'song') {
+        return `/api/song-comments/${commentId}/like`;
+      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
+        return `/api/podcast-comments/${commentId}/like`;
+      } else {
+        return `/api/comments/${commentId}/like`;
+      }
+    };
+
+    useEffect(() => {
+      const t = setTimeout(() => {
+        discussionsTopRef.current?.scrollIntoView({
+          behavior: 'auto',
+          block: 'start',
+        });
+      }, 0);
+
+      return () => clearTimeout(t);
+    }, [postId]);
+
+    const meta: any = p?.meta || {};
+
+    const isMarketplace =
+      p?.type === 'marketplace' ||
+      p?.post_type === 'product' ||
+      p?.type === 'product' ||
+      p?.kind === 'product' ||
+      meta?.type === 'product' ||
+      meta?.kind === 'product' ||
+      !!p?.product_id ||
+      !!p?.meta?.marketplace?.id;
+
+    const productId = isMarketplace ? getMarketplaceProductId(p) : null;
+    const productData = productId ? getProductData?.(productId) : null;
+
+    const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
+    const { price, currency, loc } = isMarketplace
+      ? getMarketplacePriceLine(productData)
+      : { price: null, currency: 'TZS', loc: 'Marketplace' };
+
+    const isMusic = meta?.kind === 'music' || meta?.type === 'music';
+    const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
+    const song = meta?.song;
+    const podcast = meta?.podcast;
+
+    const mediaInfo = getMediaTypeInfo(p);
+    const mediaList = useMemo(() => getPostMediaList(p), [p]);
+    const imageMedia = mediaList.filter((m) => m.kind === 'image');
+    const videoMedia = mediaList.filter((m) => m.kind === 'video');
+
+    const textPreview = getPostTextPreview(p, 140);
+
+    const resolveAuthor = (c: any) => {
+      const uid = Number(
+        c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0
+      );
+
+      const u =
+        (Number.isFinite(uid) ? users.find((x: any) => Number(x?.id) === uid) : null) ||
+        (getCommentAuthor ? getCommentAuthor(uid) : null) ||
+        null;
+
+      const name =
+        String(c?.author_name ?? c?.authorName ?? '').trim() ||
+        String(u?.name ?? '').trim() ||
+        String(u?.username ?? '').trim() ||
+        'User';
+
+      const image = avatarFrom({
+        profile_image_url: c?.author_image ?? c?.authorImage ?? u?.profile_image_url,
+        name,
+        username: u?.username ?? c?.author_username ?? c?.username,
+      });
+
+      return { uid, name, image };
+    };
+
+    const getReplyLabel = (comment: any) => {
+      const a = resolveAuthor(comment);
+      const uid = a.uid;
+
+      const user = users.find((x: any) => Number(x?.id) === uid);
+      const username = String(
+        comment?.author_username ?? user?.username ?? comment?.username ?? ''
+      ).trim();
+
+      const display = username ? `@${username}` : a.name;
+      return { ...a, username, display };
+    };
+
+    const formatCount = (count: number): string => {
+      if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+      if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+      return count.toString();
+    };
+
+    const handleLikeComment = async (comment: any) => {
+      if (!currentUser) return;
+
+      const optimisticLiked = !comment.liked_by_me;
+      const optimisticCount = comment.liked_by_me
+        ? Math.max(0, (comment.likes_count || 0) - 1)
+        : (comment.likes_count || 0) + 1;
+
+      setComments((prev) =>
+        prev.map((c) =>
+          c.id === comment.id
+            ? { ...c, liked_by_me: optimisticLiked, likes_count: optimisticCount }
+            : c
+        )
+      );
+
+      if (onLikeComment) {
+        onLikeComment(comment.id);
+      }
+
+      try {
+        const endpoint = getLikeEndpoint(comment.id);
+        await apiFetch(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({ user_id: safeUserId(currentUser) }),
+        });
+      } catch (error) {
+        console.error('Failed to like comment:', error);
+        setComments((prev) =>
+          prev.map((c) =>
+            c.id === comment.id
+              ? { ...c, liked_by_me: !optimisticLiked, likes_count: comment.likes_count || 0 }
+              : c
+          )
+        );
+      }
+    };
+
+    const handleFollowClick = (e: React.MouseEvent, userId: number) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (onFollow && userId && userId !== safeUserId(currentUser)) {
+        onFollow(userId);
+      }
+    };
+
+    const fetchCommentsSilently = async () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      abortControllerRef.current = new AbortController();
+
+      try {
+        const endpoint = getCommentEndpoint();
+        const data = await apiFetch(endpoint);
+        const arr = Array.isArray(data) ? data : data?.comments || [];
+
+        if (arr.length > 0) {
+          setComments(arr);
+          commentsCache.set(postId, {
+            data: arr,
+            timestamp: Date.now(),
+            postId,
+          });
+        }
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          return;
+        }
+        console.debug('Silent comment fetch failed:', error);
+      }
+    };
+
+    useEffect(() => {
+      const initializeComments = async () => {
+        const cached = commentsCache.get(postId);
+        if (cached) {
+          setComments(cached.data);
+        }
+
+        const postComments = Array.isArray(p.comments) ? p.comments : [];
+        if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
+          setComments(postComments);
+          commentsCache.set(postId, {
+            data: postComments,
+            timestamp: Date.now(),
+            postId,
+          });
+        }
+
+        fetchCommentsSilently();
+      };
+
+      initializeComments();
+
+      return () => {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+      };
+    }, [postId, p.comments]);
+
+    const idKey = (v: any) => String(v ?? '').trim();
+
+    const buildThreads = (list: any[]) => {
+      const roots = list.filter((c) => !c.parent_comment_id);
+
+      const repliesByParent = new Map<string, any[]>();
+
+      list.forEach((c) => {
+        const pid = idKey(c.parent_comment_id);
+        if (!pid) return;
+
+        if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
+        repliesByParent.get(pid)!.push(c);
+      });
+
+      repliesByParent.forEach((arr) => {
+        arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+      });
+
+      return roots.map((root) => ({
+        root,
+        replies: repliesByParent.get(idKey(root.id)) || [],
+      }));
+    };
+
+    const toggleThread = (rootId: any, open: boolean) => {
+      const key = String(rootId);
+      setExpandedThreads((prev) => ({ ...prev, [key]: open }));
+    };
+
+    const threads = useMemo(() => buildThreads(comments), [comments]);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      const t = text.trim();
+      if (!t) return;
+
+      const replyDisplay = replyTo?._reply_author?.display;
+      const prefix = replyDisplay ? `${replyDisplay} ` : '';
+      const finalText = replyTo && !t.startsWith(prefix) ? prefix + t : t;
+
+      const optimisticComment = {
+        id: `tmp-${Date.now()}`,
+        post_id: postId,
+        user_id: safeUserId(currentUser),
+        text: finalText,
+        parent_comment_id: replyTo?.id || null,
+        created_at: new Date().toISOString(),
+        replies_count: 0,
+        likes_count: 0,
+        liked_by_me: false,
+      };
+
+      setText('');
+      setReplyTo(null);
+      setShowEmojiPicker(false);
+
+      setComments((prev) => {
+        const next = [...prev, optimisticComment];
+        const allComments = commentsCache.get(postId)?.data || [];
+        commentsCache.set(postId, {
+          data: [...allComments, optimisticComment],
+          timestamp: Date.now(),
+          postId,
+        });
+        return next;
+      });
+
+      if (onComment) {
+        onComment(postId, finalText);
+      }
+
+      try {
+        let endpoint = '';
+
+        if (replyTo) {
+          endpoint = getReplyEndpoint(replyTo.id);
+        } else {
+          endpoint = getAddCommentEndpoint();
+        }
+
+        await apiFetch(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({
+            text: finalText,
+            user_id: safeUserId(currentUser),
+            parent_comment_id: replyTo?.id || null,
+          }),
+        });
+
+        if (onCommentAdded) {
+          console.log('🔄 Calling onCommentAdded to refresh post:', postId);
+          onCommentAdded();
+        }
+
+        fetchCommentsSilently();
+      } catch (err: any) {
+        console.error('Failed to post comment:', err);
+      }
+    };
+
+    const addEmoji = (emoji: string) => {
+      setText((prev) => prev + emoji);
+      setShowEmojiPicker(false);
+      inputRef.current?.focus();
+    };
+
+    useEffect(() => {
+      const handleFocus = () => {
+        const cached = commentsCache.get(postId);
+        if (cached && Date.now() - cached.timestamp > 30000) {
+          fetchCommentsSilently();
+        }
+      };
+
+      window.addEventListener('focus', handleFocus);
+      return () => window.removeEventListener('focus', handleFocus);
+    }, [postId]);
+
+    const postAuthor = p.author || {
+      name: p.name,
+      username: p.username,
+      profile_image_url: p.profile_image_url,
+      id: p.user_id || p.author_id,
+    };
+
+    const renderOneComment = (comment: any, isReply: boolean = false) => {
+      const a = resolveAuthor(comment);
+      const isCurrentUserComment = a.uid === safeUserId(currentUser);
+      const isFollowing = checkIsFollowing ? checkIsFollowing(a.uid) : false;
+
+      return (
+        <div className={`flex gap-3 ${isReply ? 'mt-3' : ''}`}>
+          <img
+            src={a.image}
+            className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
+            alt=""
+            onClick={() => a.uid && onProfileClick(a.uid)}
+          />
+
+          <div className="flex-1 min-w-0">
+            <div className="mb-1">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className="text-[#E4E6EB] font-bold text-[18px] cursor-pointer hover:underline"
+                    onClick={() => a.uid && onProfileClick(a.uid)}
+                  >
+                    {a.name}
+                  </span>
+                  <span className="text-[#B0B3B8] text-[14px]">
+                    •{' '}
+                    {formatRelativeTime(
+                      comment.created_at || comment.createdAt || comment.timestamp
+                    )}
+                  </span>
+                </div>
+
+                {onFollow && currentUser && a.uid && !isCurrentUserComment && (
+                  <button
+                    onClick={(e) => handleFollowClick(e, a.uid)}
+                    className={`px-2 py-0.5 text-[14px] font-bold rounded-lg transition-all duration-200 ml-2 ${
+                      isFollowing
+                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                    }`}
+                  >
+                    {isFollowing ? 'Following' : 'Follow'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="text-[#E4E6EB] text-[19px] font-bold whitespace-pre-wrap break-words mb-2">
+              <RichText
+                text={String(comment.text || '')}
+                users={users}
+                onProfileClick={onProfileClick}
+                onHashtagClick={onHashtagClick}
+              />
+            </div>
+
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => handleLikeComment(comment)}
+                className={`text-[15px] ${
+                  comment.liked_by_me
+                    ? 'text-[#1877F2] font-bold'
+                    : 'text-[#B0B3B8] hover:text-[#E4E6EB]'
+                }`}
+              >
+                {comment.liked_by_me ? 'Liked' : 'Like'}
+              </button>
+              <button
+                onClick={() => {
+                  const target = getReplyLabel(comment);
+                  setReplyTo({
+                    ...comment,
+                    _reply_author: target,
+                  });
+                  inputRef.current?.focus();
+                  setShowEmojiPicker(false);
+                }}
+                className="text-[15px] text-[#B0B3B8] hover:text-[#E4E6EB]"
+              >
+                Reply
+              </button>
+              {comment.likes_count > 0 && (
+                <span className="text-[15px] text-[#B0B3B8]">
+                  {formatCount(comment.likes_count)} like
+                  {comment.likes_count !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
+        <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+              onClick={onClose}
+              aria-label="Back"
+            >
+              <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+            </button>
+            <div className="text-[#E4E6EB] font-bold text-[22px]">Post</div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="text-[#B0B3B8] text-[16px]">
+              {formatCount(comments.length)} discussions
+            </div>
+            <button
+              type="button"
+              className="text-[#1877F2] font-bold text-[17px] hover:underline"
+              onClick={onClose}
+            >
+              See less
+            </button>
+          </div>
+        </div>
+
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-smooth">
+          <div className="p-4 border-b border-[#3E4042]">
+            <div className="flex items-center gap-3 mb-4">
+              <img
+                src={avatarFrom(postAuthor)}
+                className="w-12 h-12 rounded-full object-cover border border-[#3E4042] cursor-pointer"
+                alt=""
+                onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div
+                      className="text-[#E4E6EB] font-bold text-[20px] truncate cursor-pointer hover:underline"
+                      onClick={() => postAuthor?.id && onProfileClick(postAuthor.id)}
+                    >
+                      {postAuthor?.name || postAuthor?.username || 'User'}
+                    </div>
+                    <div className="text-[#B0B3B8] text-[15px] flex items-center gap-2">
+                      <span>{formatRelativeTime(p.created_at)}</span>
+                      <span>•</span>
+                      <i className="fas fa-globe-americas text-[14px]"></i>
+                    </div>
+                  </div>
+
+                  {onFollow && currentUser && postAuthor?.id && safeUserId(postAuthor) !== safeUserId(currentUser) && (
+                    <button
+                      onClick={(e) => handleFollowClick(e, safeUserId(postAuthor))}
+                      className={`px-3 py-1 text-[15px] font-bold rounded-lg transition-all duration-200 ${
+                        checkIsFollowing && checkIsFollowing(safeUserId(postAuthor))
+                          ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                          : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                      }`}
+                    >
+                      {checkIsFollowing && checkIsFollowing(safeUserId(postAuthor))
+                        ? 'Following'
+                        : 'Follow'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {!p.background && textPreview && (
+              <div className="mb-4">
+                <ExpandableRichText
+                  text={String(p.content)}
+                  users={users}
+                  onProfileClick={onProfileClick}
+                  onHashtagClick={onHashtagClick}
+                  fontSizePx={23}
+                  forceExpanded={true}
+                />
+              </div>
+            )}
+
+            {p.background && textPreview && (
+              <div
+                className="mb-4 -mx-4 h-[320px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
+                style={{ background: p.background, backgroundSize: 'cover' }}
+              >
+                {textPreview}
+              </div>
+            )}
+
+            {isMarketplace && mpImages.length > 0 && (
+              <div className="mb-4 -mx-4">
+                <div className="w-full bg-black">
+                  <MediaGrid
+                    media={mpImages.map((url) => ({ url }))}
+                    onOpen={(url, index) => {
+                      console.log('Open marketplace image:', url, index);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {isMarketplace && price && (
+              <div className="mb-4 px-4 py-2 flex items-center justify-between bg-[#242526] border border-[#3E4042] rounded-lg">
+                <div className="flex items-center gap-1">
+                  <span className="text-[#E4E6EB] text-[19px] font-bold">{currency}</span>
+                  <span className="text-[#E4E6EB] text-[22px] font-bold">{price}</span>
+                </div>
+
+                <button
+                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (productId && onViewProductFromPost) onViewProductFromPost(productId);
+                    else if (productId) onViewProduct?.(productId);
+                  }}
+                >
+                  View product
+                </button>
+              </div>
+            )}
+
+            {(isMusic || isPodcast) && (
+              <div className="mb-4 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-3 p-3">
+                  <img
+                    src={
+                      (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
+                      ''
+                    }
+                    className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
+                    alt=""
+                  />
+                  <div className="flex-1 overflow-hidden">
+                    <div className="text-white font-bold text-[17px] truncate">
+                      {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
+                    </div>
+                    <div className="text-[#B0B3B8] text-[14px] truncate">
+                      {isMusic ? song?.artist_name : podcast?.description}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenAudio?.(isMusic ? song : podcast);
+                    }}
+                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
+                  >
+                    Play
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
+              <div
+                className="mb-4 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
+                onClick={() =>
+                  window.open(p.link_preview.url, '_blank', 'noopener noreferrer')
+                }
+              >
+                {p.link_preview.image && (
+                  <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
+                    <img
+                      src={p.link_preview.image}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="p-4 bg-[#3A3B3C]">
+                  <div className="text-[#B0B3B8] text-[13px] uppercase font-bold mb-1">
+                    {p.link_preview.domain}
+                  </div>
+                  <div className="text-[#E4E6EB] font-bold text-[19px] mb-1 line-clamp-2">
+                    {p.link_preview.title}
+                  </div>
+                  <div className="text-[#B0B3B8] text-[16px] line-clamp-3">
+                    {p.link_preview.description}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!isMarketplace && imageMedia.length > 0 && (
+              <div className="mb-4 -mx-4">
+                {imageMedia.length > 1 ? (
+                  <MediaGrid
+                    media={imageMedia.map((m) => ({ url: m.url }))}
+                    onOpen={(url, index) => {
+                      console.log('Open image:', url, index);
+                    }}
+                  />
+                ) : (
+                  <div className="w-full bg-black">
+                    <img
+                      src={imageMedia[0].url}
+                      alt=""
+                      className="w-full h-auto max-h-[70vh] object-contain"
+                      loading="lazy"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!isMarketplace && videoMedia.length > 0 && (
+              <div className="mb-4 -mx-4 w-full bg-black">
+                <video
+                  src={videoMedia[0].url}
+                  controls
+                  playsInline
+                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
+                />
+              </div>
+            )}
+
+            {!isMarketplace && mediaInfo.mediaUrl && mediaInfo.isAudio && (
+              <div className="mb-4 p-4 bg-[#242526] border border-[#3E4042] rounded-xl">
+                <div className="text-[#E4E6EB] font-bold text-[17px] mb-3">Audio Track</div>
+                <audio controls className="w-full">
+                  <source src={mediaInfo.mediaUrl} />
+                </audio>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-[#B0B3B8] text-[16px] pt-3 border-t border-[#3E4042]">
+              <div className="flex items-center gap-2">
+                {!!p.reactions_count && (
+                  <span>{formatCount(Number(p.reactions_count))} reactions</span>
+                )}
+              </div>
+              <div className="flex items-center gap-4">
+                <span>{formatCount(comments.length)} discussions</span>
+                {!!p.shares && <span>{formatCount(Number(p.shares))} shares</span>}
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4">
+            <div ref={discussionsTopRef} />
+
+            {replyTo && (
+              <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-[#B0B3B8] text-[15px]">Replying to</span>
+                  <span className="text-[#1877F2] font-bold text-[15px]">
+                    {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setReplyTo(null)}
+                  className="text-[#B0B3B8] hover:text-[#E4E6EB] text-lg"
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+              </div>
+            )}
+
+            {showEmojiPicker && (
+              <div className="mb-4 p-3 border border-[#3E4042] rounded-lg">
+                <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
+                  {QUICK_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => addEmoji(emoji)}
+                      className="text-2xl hover:scale-125 transition-transform p-1"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {comments.length === 0 ? (
+              <div className="text-center py-10">
+                <div className="text-[#B0B3B8] text-[19px] mb-2">No discussions yet</div>
+                <p className="text-[#B0B3B8] text-[15px]">Be the first to start a discussion!</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {threads.map(({ root, replies }) => {
+                  const rootId = String(root.id);
+                  const isExpanded = !!expandedThreads[rootId];
+                  const MAX_PREVIEW = 1;
+                  const hiddenCount = Math.max(0, replies.length - MAX_PREVIEW);
+                  const visibleReplies = isExpanded ? replies : replies.slice(-MAX_PREVIEW);
+
+                  return (
+                    <div key={rootId} className="space-y-2">
+                      {renderOneComment(root, false)}
+
+                      {!isExpanded && hiddenCount > 0 && (
+                        <button
+                          type="button"
+                          className="ml-12 text-[#1877F2] font-bold text-[16px] hover:underline"
+                          onClick={() => toggleThread(rootId, true)}
+                        >
+                          View previous {hiddenCount} repl
+                          {hiddenCount === 1 ? 'y' : 'ies'}
+                        </button>
+                      )}
+
+                      {visibleReplies.map((reply) => (
+                        <div key={String(reply.id)} className="ml-12 relative">
+                          <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
+                          {renderOneComment(reply, true)}
+                        </div>
+                      ))}
+
+                      {isExpanded && replies.length > MAX_PREVIEW && (
+                        <button
+                          type="button"
+                          className="ml-12 text-[#B0B3B8] text-[15px] hover:text-[#E4E6EB]"
+                          onClick={() => toggleThread(rootId, false)}
+                        >
+                          Hide replies
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
+          <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
+            <button
+              type="button"
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              className="text-[#B0B3B8] hover:text-[#E4E6EB] text-2xl p-1 transition-colors"
+            >
+              😀
+            </button>
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                type="text"
+                className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[17px]"
+                placeholder={
+                  replyTo
+                    ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...`
+                    : 'Write a comment...'
+                }
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+              />
+            </div>
+            <button
+              type="submit"
+              className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
+              disabled={!text.trim()}
+            >
+              Post
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  },
+  (prev, next) => prev.post?.id === next.post?.id && prev.currentUser?.id === next.currentUser?.id
+);
+
+/**
+ * =========================
+ * ✅ SUGGESTED PRODUCTS WIDGET
  * =========================
  */
 export const SuggestedProductsWidget = memo(
@@ -7276,11 +6966,10 @@ export const SuggestedProductsWidget = memo(
       </div>
     );
   },
-  (prev, next) => prev.products === next.products && prev.currentUser?.id === next.currentUser?.id
+  (prev, next) => {
+    return prev.products === next.products && prev.currentUser?.id === next.currentUser?.id;
+  }
 );
-
-// ==================== COMMENTS CACHE ====================
-const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: number }>();
 
 // ==================== EXPORTED HELPERS ====================
 export {
@@ -7298,5 +6987,3 @@ export {
   formatReelCount,
   getReelAuthorName,
 };
-
-// ==================== END OF FILE ====================
