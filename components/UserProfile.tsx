@@ -1,3 +1,4 @@
+
 // UserProfile.tsx - Facebook-style like Tuko.co.ke
 import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
