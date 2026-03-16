@@ -255,9 +255,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE p.media_types
         END AS media_types,
 
-        -- ✅ comments count for feed cards
+        -- ✅ comments count from post_comments table
         (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
 
+        -- ✅ reactions count from post_reactions table
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
         (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -1153,14 +1154,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 9) SPONSORED / ADS POSTS - UPDATED WITH ALL REQUIRED FIELDS
+    // 9) SPONSORED / ADS POSTS - CORRECTED WITH PROPER COUNTS
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
 
-    // Show both active and inactive ads (for when campaign ends)
-    // No status filter - show all ads, frontend will check campaign_status
-
+    // Show both active and inactive ads (frontend determines if active)
     if (cursor && cursor.trim()) {
       whereAds.push(`a.created_at < ?`);
       bindsAds.push(cursor.trim());
@@ -1211,10 +1210,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         a.media_urls AS media_urls,
         a.media_types AS media_types,
         
-        -- ✅ ORIGINAL POST METRICS (if this ad is promoting a post)
-        (SELECT reactions_count FROM posts WHERE id = a.post_id) AS original_reactions_count,
-        (SELECT comments_count FROM posts WHERE id = a.post_id) AS original_comments_count,
-        (SELECT shares FROM posts WHERE id = a.post_id) AS original_shares_count,
+        -- ✅ ORIGINAL POST METRICS from the promoted post
+        CASE 
+          WHEN a.post_id IS NOT NULL 
+          THEN (SELECT COUNT(*) FROM post_reactions WHERE post_id = a.post_id)
+          ELSE 0 
+        END AS original_reactions_count,
+        
+        CASE 
+          WHEN a.post_id IS NOT NULL 
+          THEN (SELECT COUNT(*) FROM post_comments WHERE post_id = a.post_id)
+          ELSE 0 
+        END AS original_comments_count,
+        
+        CASE 
+          WHEN a.post_id IS NOT NULL 
+          THEN (SELECT shares FROM posts WHERE id = a.post_id)
+          ELSE 0 
+        END AS original_shares_count,
         
         -- Comments count for this ad (usually 0)
         0 AS comments_count,
