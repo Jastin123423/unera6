@@ -6167,6 +6167,7 @@ export {
   safeNumber,
   safeString,
   safePostId,
+  ReactionsSheet
   safeUserId,
   avatarFrom,
   formatReelCount,
