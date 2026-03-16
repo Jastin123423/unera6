@@ -7413,8 +7413,7 @@ interface FeedProps {
   // Login
   onLoginClick?: () => void;
 }
-
-   /**
+/**
  * =========================
  * ✅ MAIN FEED COMPONENT
  * =========================
@@ -7472,7 +7471,7 @@ export const Feed = memo(({
           
           return (
             <SponsoredPostCard
-              key={item.id}
+              key={`sponsored-${item.id}`}
               ad={item}
               currentUser={currentUser}
               onProfileClick={onProfileClick}
@@ -7488,8 +7487,8 @@ export const Feed = memo(({
         if (item.type === 'reel') {
           return (
             <ReelFeedCard
-              key={item.id}
-              reel={item.reel}
+              key={`reel-${item.id}`}
+              reel={item.reel || item}
               onOpen={(reelId) => onOpenReel?.(reelId)}
               onOpenMenu={(reel) => onOpenReelMenu?.(reel)}
               onProfileClick={(userId) => onProfileClick(Number(userId))}
@@ -7506,7 +7505,7 @@ export const Feed = memo(({
         const isAdminUser = currentUser && currentUser.role === 'admin';
         const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
 
-        // Track PYMK and Groups inserts (if these props exist)
+        // Track PYMK and Groups inserts
         const showFirstPymk = peopleYouMayKnow && 
           peopleYouMayKnow.length > 0 &&
           peopleYouMayKnowInsertIndex1 >= 0 &&
@@ -7526,7 +7525,7 @@ export const Feed = memo(({
           <React.Fragment key={getStableItemKey(item, 'post')}>
             <Post
               post={item as PostType}
-              author={getPostAuthor?.(item as PostType) || item.author}
+              author={getPostAuthor?.(item as PostType) || item.author || item}
               currentUser={currentUser}
               users={users}
               onProfileClick={onProfileClick}
@@ -7611,7 +7610,8 @@ export const Feed = memo(({
   // Custom comparison for memo
   return prev.feedItems === next.feedItems && 
          prev.currentUser?.id === next.currentUser?.id;
-}); 
+});
+   
 // ==================== EXPORT ALL COMPONENTS ====================
 export {
   ReactionsSheet,
