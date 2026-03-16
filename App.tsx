@@ -11,6 +11,7 @@ import {
   GroupsYouMayJoinCard,
   ReelFeedCard,
   FeedItem,
+  SponsoredPostCard,
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -241,7 +242,7 @@ const readViewersCache = (storyId: number) => {
     const raw = localStorage.getItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (Date.now() - parsed.ts > VIEWERS_TTL) {
+    if (parsed.ts && Date.now() - parsed.ts > VIEWERS_TTL) {
       localStorage.removeItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
       return null;
     }
@@ -1419,6 +1420,9 @@ export default function App() {
   const [view, setView] = useState<View>('home');
   const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
 
+  // 🔥 NEW: Navigation history state
+  const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
+
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
@@ -2559,7 +2563,7 @@ export default function App() {
       setSelectedPostForAd(selectedPost);
       
       // Navigate to ads section and set active tab to create
-      setView('ads');
+      navigateTo('ads');
       setActiveAdTab('create');
       
       // Show toast notification
@@ -2580,6 +2584,48 @@ export default function App() {
       setTimeout(() => toast.remove(), 2000);
     }
   };
+
+  // 🔥 NEW: Navigation function with history tracking
+  const navigateTo = useCallback((target: View) => {
+    setView(prevView => {
+      // Don't add to history if it's the same view
+      if (prevView === target) return prevView;
+      
+      // Add current view to history before changing
+      setNavigationHistory(prev => [...prev, prevView]);
+      return target;
+    });
+    
+    if (['home', 'reels', 'marketplace', 'groups', 'brands', 'music', 'events'].includes(target)) {
+      setActiveTab(target as any);
+    }
+    window.scrollTo(0, 0);
+  }, []);
+
+  // 🔥 NEW: Back navigation function
+  const goBack = useCallback(() => {
+    setNavigationHistory(prev => {
+      if (prev.length === 0) {
+        // If no history, go to home
+        setView('home');
+        setActiveTab('home');
+        return ['home'];
+      }
+      
+      // Get the last view from history
+      const newHistory = [...prev];
+      const previousView = newHistory.pop() as View;
+      
+      setView(previousView);
+      if (['home', 'reels', 'marketplace', 'groups', 'brands', 'music', 'events'].includes(previousView)) {
+        setActiveTab(previousView as any);
+      }
+      
+      return newHistory;
+    });
+    
+    window.scrollTo(0, 0);
+  }, []);
 
   // 4️⃣ ADD AD API FUNCTIONS
   // ============================================================================
@@ -2896,11 +2942,12 @@ export default function App() {
     return true;
   }, [requireAuth, currentUser]);
 
+  // 🔥 UPDATED: openProfile uses navigateTo
   const openProfile = useCallback((id: number) => {
     setSelectedUserId(Number(id));
-    setView('profile');
+    navigateTo('profile');
     window.scrollTo(0, 0);
-  }, []);
+  }, [navigateTo]);
 
   const handleOpenChat = useCallback((recipient: User) => {
     if (!requireAuth('Messaging')) return;
@@ -4535,6 +4582,24 @@ export default function App() {
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
+  // 🔥 NEW: Handle physical back button (Android/device back button)
+  useEffect(() => {
+    const handleBackButton = (e: PopStateEvent) => {
+      e.preventDefault();
+      goBack();
+    };
+
+    // Listen for browser back/forward buttons
+    window.addEventListener('popstate', handleBackButton);
+    
+    // Push initial state
+    window.history.pushState(null, '', window.location.pathname);
+
+    return () => {
+      window.removeEventListener('popstate', handleBackButton);
+    };
+  }, [goBack]);
+
   // 5️⃣ ADD USE EFFECT TO LOAD ADS
   useEffect(() => {
     if (currentUser) {
@@ -4737,9 +4802,9 @@ export default function App() {
   const handleHashtagClick = useCallback((tag: string) => {
     const cleanedTag = tag.startsWith('#') ? tag.toLowerCase() : `#${tag.toLowerCase()}`;
     setActiveHashtag(cleanedTag);
-    setView('home');
+    navigateTo('home');
     window.scrollTo(0, 0);
-  }, []);
+  }, [navigateTo]);
 
   const clearHashtag = useCallback(() => {
     setActiveHashtag(null);
@@ -4824,22 +4889,43 @@ export default function App() {
       }
     }));
 
+    // Transform ads into feed items
+    const adItems = safeArray(ads).map(ad => ({
+      ...ad,
+      type: 'sponsored' as const,
+      id: `ad-${ad.id}`,
+    }));
+
     // Shuffle reels for rotation on refresh
     const shuffledReels = shuffleArray(reelItems);
     
-    // Merge posts and reels with reels injected after every 3 posts
+    // Merge posts, ads, and reels with ads prioritized
     const merged: FeedItem[] = [];
     let reelIndex = 0;
+    let adIndex = 0;
 
+    // First, insert ads at strategic positions
     for (let i = 0; i < postItems.length; i++) {
       // Add the post
       merged.push(postItems[i]);
 
-      // After every 3 posts, add a reel if available
+      // After every 5 posts, add an ad if available
+      if ((i + 1) % 5 === 0 && adIndex < adItems.length) {
+        merged.push(adItems[adIndex]);
+        adIndex++;
+      }
+
+      // After every 3 posts, add a reel if available (but after any ad that might have been added)
       if ((i + 1) % 3 === 0 && reelIndex < shuffledReels.length) {
         merged.push(shuffledReels[reelIndex]);
         reelIndex++;
       }
+    }
+
+    // If there are remaining ads after all posts, append them at the end
+    while (adIndex < adItems.length) {
+      merged.push(adItems[adIndex]);
+      adIndex++;
     }
 
     // If there are remaining reels after all posts, append them at the end
@@ -4849,7 +4935,7 @@ export default function App() {
     }
 
     return merged;
-  }, [rankedPosts, reels]);
+  }, [rankedPosts, reels, ads]);
 
   const activePost = useMemo(() => {
     if (activeCommentsPostId == null) return null;
@@ -4902,14 +4988,14 @@ export default function App() {
         sessionStorage.removeItem(FEED_SESSION_KEY);
       } catch {}
 
-      setView('home');
+      navigateTo('home');
       await fetchPostsForHome(normalized);
       await fetchReels();
 
     } catch (error: any) {
       setLoginError(error?.message || 'Registration failed');
     }
-  }, [fetchPostsForHome, fetchReels]);
+  }, [fetchPostsForHome, fetchReels, navigateTo]);
 
   const handleLogin = async (email: string, password: string) => {
     try {
@@ -4949,7 +5035,7 @@ export default function App() {
       });
 
       setSelectedUserId(Number(finalUser.id));
-      setView('home');
+      navigateTo('home');
 
       await fetchPostsForHome(finalUser);
       await fetchReels();
@@ -5123,13 +5209,15 @@ export default function App() {
     setGroupsYouMayJoin([]);
     setGymjHiddenIds([]);
     setSelectedReelId(null);
+    setNavigationHistory(['home']); // Reset navigation history
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
   };
 
-  const handleNavigate = (target: View) => {
-    if (['settings', 'memories'].includes(target) && !currentUser) {
+  // 🔥 UPDATED: handleNavigate uses navigateTo
+  const handleNavigate = useCallback((target: View) => {
+    if (['settings', 'memories', 'notifications', 'ads'].includes(target) && !currentUser) {
       setLoginError(`Please login to view ${target}.`);
       return setView('login');
     }
@@ -5143,14 +5231,8 @@ export default function App() {
       return;
     }
 
-    setView(target);
-    setSelectedReelId(null); // Clear selected reel when navigating away from reels
-
-    if (['home', 'reels', 'marketplace', 'groups'].includes(target)) {
-      setActiveTab(target as any);
-    }
-    window.scrollTo(0, 0);
-  };
+    navigateTo(target);
+  }, [currentUser, navigateTo, openProfile]);
 
   const createPost = useCallback(
     async (
@@ -5526,13 +5608,13 @@ export default function App() {
     (productId: number) => {
       const p = (products || []).find((x: any) => Number(x.id) === Number(productId));
       if (!p) {
-        setView('marketplace');
+        navigateTo('marketplace');
         return;
       }
-      setView('marketplace');
+      navigateTo('marketplace');
       setActiveProduct(p);
     },
-    [products]
+    [products, navigateTo]
   );
 
   const isLoading = false;
@@ -5556,8 +5638,8 @@ export default function App() {
     }
     
     setSelectedReelId(videoId);
-    setView('reels');
-  }, []);
+    navigateTo('reels');
+  }, [navigateTo]);
 
   // ✅ UPDATED: Handlers for Photo and Video buttons
   const handlePhotoClick = useCallback(() => {
@@ -5647,9 +5729,9 @@ export default function App() {
       <Header
         onHomeClick={() => handleNavigate('home')}
         onProfileClick={(id: number) => openProfile(id)}
-        onReelsClick={() => handleNavigate('reels')}
-        onMarketplaceClick={() => handleNavigate('marketplace')}
-        onGroupsClick={() => handleNavigate('groups')}
+        onReelsClick={() => navigateTo('reels')}
+        onMarketplaceClick={() => navigateTo('marketplace')}
+        onGroupsClick={() => navigateTo('groups')}
         // 7️⃣ ADD ADS CLICK HANDLER
         onAdsClick={() => {
           if (!currentUser) {
@@ -5657,7 +5739,7 @@ export default function App() {
             setView('login');
             return;
           }
-          setView('ads');
+          navigateTo('ads');
           setActiveAdTab('dashboard');
         }}
         currentUser={currentUser}
@@ -5670,9 +5752,12 @@ export default function App() {
         onNavigate={(v: any) => handleNavigate(v)}
         unreadNotifications={unreadNotifications}
         onNotificationClick={() => {
-          setView('notifications');
+          navigateTo('notifications');
           markNotificationsRead();
         }}
+        showBackButton={view !== 'home'}
+        onBack={goBack}
+        currentView={view}
       />
 
       <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
@@ -5681,9 +5766,9 @@ export default function App() {
             <Sidebar
               currentUser={currentUser}
               onProfileClick={(id) => openProfile(id)}
-              onReelsClick={() => handleNavigate('reels')}
-              onMarketplaceClick={() => handleNavigate('marketplace')}
-              onGroupsClick={() => handleNavigate('groups')}
+              onReelsClick={() => navigateTo('reels')}
+              onMarketplaceClick={() => navigateTo('marketplace')}
+              onGroupsClick={() => navigateTo('groups')}
             />
           </div>
         )}
@@ -5750,7 +5835,7 @@ export default function App() {
                   onViewProduct: (productId) => {
                     const product = products.find(p => Number(p.id) === Number(productId));
                     if (product) {
-                      setView('marketplace');
+                      navigateTo('marketplace');
                       setActiveProduct(product);
                     }
                   },
@@ -5758,7 +5843,30 @@ export default function App() {
                 }}>
                   {feedItems.length > 0 ? (
                     feedItems.map((item, idx) => {
-                      // Render reel cards
+                      // Check if it's a sponsored post
+                      if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
+                        // Determine if campaign is still active
+                        const isActive = item.campaign_status === 'active' || 
+                                         (item.end_date && new Date(item.end_date) > new Date());
+                        
+                        return (
+                          <SponsoredPostCard
+                            key={item.id}
+                            ad={item}
+                            currentUser={currentUser}
+                            onProfileClick={openProfile}
+                            onReact={onReactPost}
+                            onShare={(postId, newShareCount) => {
+                              // Handle share update
+                              console.log('Share:', postId, newShareCount);
+                            }}
+                            onOpenComments={onOpenComments}
+                            isActive={isActive}
+                          />
+                        );
+                      }
+
+                      // Handle reels
                       if (item.type === 'reel') {
                         return (
                           <ReelFeedCard
@@ -5766,11 +5874,10 @@ export default function App() {
                             reel={item.reel}
                             onOpen={(reelId) => {
                               setSelectedReelId(reelId);
-                              setView('reels');
+                              navigateTo('reels');
                             }}
                             onOpenMenu={(reel) => {
-                              // Handle menu options (save, hide, report, etc.)
-                              console.log('Open reel menu:', reel);
+                              // Handle menu options
                             }}
                             onProfileClick={(userId) => {
                               openProfile(Number(userId));
@@ -5779,28 +5886,26 @@ export default function App() {
                         );
                       }
 
-                      // Render regular posts
+                      // Handle regular posts
                       const postAuthorId = Number((item as any).user_id);
                       const isFollowing = checkIsFollowing(postAuthorId);
                       
-                      // 👇 Check if current user is the post owner OR admin
+                      // Check if current user is the post owner OR admin
                       const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
                       const isAdminUser = currentUser && currentUser.role === 'admin';
                       const showPushButton = isPostOwner || isAdminUser;
 
-                      // Track if we've shown the first PYMK instance
+                      // Track PYMK and Groups inserts
                       const showFirstPymk = currentUser &&
                         peopleYouMayKnow.length > 0 &&
                         peopleYouMayKnowInsertIndex1 >= 0 &&
                         idx === peopleYouMayKnowInsertIndex1;
 
-                      // Track if we've shown the second PYMK instance
                       const showSecondPymk = currentUser &&
                         peopleYouMayKnow.length > 0 &&
                         peopleYouMayKnowInsertIndex2 >= 0 &&
                         idx === peopleYouMayKnowInsertIndex2;
 
-                      // Track if we've shown the Groups You May Join instance
                       const showGroupsYouMayJoin = currentUser &&
                         groupsYouMayJoin.length > 0 &&
                         groupsYouMayJoinInsertIndex >= 0 &&
@@ -5813,7 +5918,7 @@ export default function App() {
                             author={getPostAuthor(item as PostType)}
                             currentUser={currentUser}
                             users={users}
-                            onProfileClick={(id) => openProfile(id)}
+                            onProfileClick={openProfile}
                             onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
                             onShare={() => handleOpenShareSheet(item)}
                             onViewImage={setFullScreenImage}
@@ -5854,7 +5959,7 @@ export default function App() {
                                 currentUser={currentUser}
                                 isLoading={pymkLoading && peopleYouMayKnow.length === 0}
                                 onLoginClick={() => setView('login')}
-                                onProfileClick={(id: number) => openProfile(id)}
+                                onProfileClick={openProfile}
                                 title="People You May Know"
                                 maxDisplay={8}
                               />
@@ -5880,7 +5985,7 @@ export default function App() {
                                 currentUser={currentUser}
                                 isLoading={pymkLoading && peopleYouMayKnow.length === 0}
                                 onLoginClick={() => setView('login')}
-                                onProfileClick={(id: number) => openProfile(id)}
+                                onProfileClick={openProfile}
                                 title="More People You May Know"
                                 maxDisplay={8}
                               />
@@ -5907,11 +6012,11 @@ export default function App() {
                               onLoginClick={() => setView('login')}
                               onOpenGroup={(groupId: number) => {
                                 // Navigate to groups page with selected group
-                                setView('groups');
+                                navigateTo('groups');
                                 // If you have state for selected group in GroupsPage, you'd set it here
                                 // For now, just navigate to groups
                               }}
-                              onProfileClick={(userId: number) => openProfile(userId)}
+                              onProfileClick={openProfile}
                               title="Groups You May Join"
                               maxDisplay={8}
                             />
@@ -5968,7 +6073,7 @@ export default function App() {
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
               initialReelId={selectedReelId}
-              onBack={() => setView('home')}
+              onBack={() => navigateTo('home')}
             />
           )}
 
@@ -6266,7 +6371,7 @@ export default function App() {
             <NotificationsPage
               notifications={notifications}
               users={users}
-              onBack={() => setView('home')}
+              onBack={() => navigateTo('home')}
               onProfileClick={(id)=>openProfile(id)}
             />
           )}
@@ -6387,6 +6492,17 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* Floating back button for mobile - shows on all pages except home */}
+      {view !== 'home' && (
+        <button
+          onClick={goBack}
+          className="fixed bottom-6 left-6 z-50 w-14 h-14 bg-[#1877F2] rounded-full shadow-lg flex items-center justify-center hover:bg-[#166FE5] transition-colors md:hidden"
+          aria-label="Go back"
+        >
+          <i className="fas fa-arrow-left text-white text-2xl"></i>
+        </button>
+      )}
 
       {activeProduct && (
         <ProductDetailModal
