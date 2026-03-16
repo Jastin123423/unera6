@@ -12,16 +12,17 @@ interface Props {
 }
 
 /**
- * Typography choices:
- * - Google Font: Roboto (loaded dynamically)
- * - Actor name: 25.5px, weight 800
- * - Notification message: 22px, weight 600
- * - Timestamp: 15px, weight 700, white in dark mode
- * - Section headers (New / Earlier): 28px, weight 800, subtle color
- * - Avatar: ~90px (AVATAR_SIZE)
+ * Adjustments per request:
+ * - Actor name: 25.5px, white, bold
+ * - Notification message: 22px, semi-bold (kept)
+ * - Timestamp: 15px, blue
+ * - Section headers (New / Earlier): 27px (reduced by 1px), bold, styled
+ * - Avatar: 89px (reduced by 1px)
+ * - Uses Roboto Google font (loaded once)
+ * - Designed for a dark background: primary text is white or light-gray so it is readable
  */
 
-const AVATAR_SIZE = 90; // px
+const AVATAR_SIZE = 89; // px (reduced by 1px as requested)
 
 const formatTimestamp = (iso: string) => {
   const d = new Date(iso);
@@ -44,7 +45,7 @@ export const NotificationsPage: React.FC<Props> = ({
   simulateApi = false,
   stickyHeader = false
 }) => {
-  // load Roboto from Google Fonts once
+  // Load Roboto once
   useEffect(() => {
     const id = "np-roboto-font";
     if (!document.getElementById(id)) {
@@ -124,10 +125,13 @@ export const NotificationsPage: React.FC<Props> = ({
         role="button"
         tabIndex={0}
         onClick={() => onProfileClick(actor?.id || 0)}
-        className={`flex items-start gap-4 px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2b2c2d] focus:outline-none transition-colors
-          ${!n.is_read ? "border-l-4 border-[#1877F2] pl-[12px]" : "pl-4"}
-        `}
-        style={{ fontFamily: "'Roboto', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial" }}
+        className={`flex items-start gap-4 px-4 py-3 cursor-pointer hover:bg-[#242526] focus:outline-none transition-colors`}
+        style={{
+          fontFamily: "'Roboto', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial",
+          // unread left accent
+          borderLeft: !n.is_read ? "4px solid #1877F2" : undefined,
+          paddingLeft: !n.is_read ? 12 : undefined
+        }}
       >
         {/* Avatar */}
         <img
@@ -148,12 +152,13 @@ export const NotificationsPage: React.FC<Props> = ({
                 fontSize: 25.5,
                 fontWeight: 800,
                 lineHeight: 1.05,
-                color: "var(--np-text, #111827)",
+                color: "#FFFFFF", // names white and bold
                 background: "transparent",
                 border: "none",
                 padding: 0,
                 cursor: "pointer",
-                fontFamily: "inherit"
+                fontFamily: "inherit",
+                textAlign: "left"
               }}
             >
               {actor?.name || "Someone"}
@@ -170,10 +175,10 @@ export const NotificationsPage: React.FC<Props> = ({
             <span
               className="truncate"
               style={{
-                fontSize: 22,
-                fontWeight: 600,
+                fontSize: 22,           // notification message size (kept)
+                fontWeight: 600,        // semi-bold but not as heavy as name
                 marginLeft: 8,
-                color: "var(--np-subtext, #374151)",
+                color: "#E5E7EB",       // light gray for good contrast on dark background
                 lineHeight: 1.15,
                 fontFamily: "inherit"
               }}
@@ -184,14 +189,12 @@ export const NotificationsPage: React.FC<Props> = ({
 
           <div
             style={{
-              fontSize: 15,
-              fontWeight: 700,
+              fontSize: 15,           // timestamp 15px
+              fontWeight: 700,        // bold
               marginTop: 8,
-              // white timestamp for dark backgrounds, softer for light
-              color: "var(--np-timestamp, rgba(255,255,255,0.9))",
+              color: "#1877F2",       // blue timestamp
               fontFamily: "inherit"
             }}
-            className="dark:text-white text-gray-500"
           >
             {formatTimestamp(n.created_at)}
           </div>
@@ -204,34 +207,48 @@ export const NotificationsPage: React.FC<Props> = ({
           className="ml-3 flex-shrink-0"
           style={{ background: "transparent", border: "none", cursor: "pointer" }}
         >
-          <i className="fas fa-ellipsis-h" style={{ fontSize: 20, color: "rgba(0,0,0,0.45)" }} />
+          <i className="fas fa-ellipsis-h" style={{ fontSize: 20, color: "#9CA3AF" }} />
         </button>
       </div>
     );
   };
 
   return (
-    <section className="w-full max-w-3xl mx-auto bg-transparent" style={{ fontFamily: "'Roboto', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial" }}>
+    <section
+      className="w-full max-w-3xl mx-auto"
+      style={{
+        fontFamily: "'Roboto', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial",
+        background: "transparent",
+        color: "#FFFFFF" // default text white for dark background
+      }}
+    >
       {/* Header */}
-      <div className={`${stickyHeader ? "sticky top-0" : ""} bg-white dark:bg-[#242526] px-4 py-4 border-b border-gray-200 dark:border-[#3E4042] flex items-center gap-3 z-10`}>
+      <div
+        className={`${stickyHeader ? "sticky top-0" : ""} px-4 py-4 flex items-center gap-3 z-10`}
+        style={{
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          background: "transparent"
+        }}
+      >
         {onBack && (
           <button
             onClick={onBack}
-            className="text-gray-700 dark:text-[#E4E6EB] p-2 rounded hover:bg-gray-100 dark:hover:bg-[#3A3B3C] focus:outline-none"
+            className="p-2 rounded hover:bg-[#242526] focus:outline-none"
             aria-label="Back"
-            style={{ fontFamily: "inherit" }}
+            style={{ background: "transparent", border: "none", cursor: "pointer" }}
           >
-            <i className="fas fa-arrow-left" style={{ fontSize: 22 }} />
+            <i className="fas fa-arrow-left" style={{ fontSize: 22, color: "#FFFFFF" }} />
           </button>
         )}
 
-        <div className="flex-1 flex items-center gap-3">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
           <h2
             style={{
               fontSize: 28, // slightly larger than actor name
               lineHeight: "32px",
               fontWeight: 800,
-              color: "var(--np-header, #111827)",
+              color: "#FFFFFF",
+              margin: 0,
               fontFamily: "inherit"
             }}
           >
@@ -239,32 +256,51 @@ export const NotificationsPage: React.FC<Props> = ({
           </h2>
 
           {unreadCount > 0 && (
-            <div className="inline-flex items-center justify-center bg-[#E53935] text-white text-[13px] font-semibold rounded-full px-3 py-0.5">
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "#E53935",
+                color: "#FFFFFF",
+                fontSize: 13,
+                fontWeight: 600,
+                borderRadius: 999,
+                padding: "4px 10px"
+              }}
+            >
               {unreadCount}
             </div>
           )}
         </div>
 
-        <div className="flex items-center">
+        <div style={{ display: "flex", alignItems: "center" }}>
           <button
             onClick={handleMarkAllAsRead}
             disabled={isProcessing || unreadCount === 0}
-            className="text-gray-600 dark:text-[#B0B3B8] px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-[#3A3B3C] disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+            className="px-3 py-2 rounded flex items-center"
             aria-label="Mark all as read"
             title="Mark all as read"
-            style={{ fontFamily: "inherit" }}
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.06)",
+              color: "#E5E7EB",
+              cursor: isProcessing || unreadCount === 0 ? "not-allowed" : "pointer",
+              opacity: isProcessing || unreadCount === 0 ? 0.5 : 1,
+              fontFamily: "inherit"
+            }}
           >
-            <i className="fas fa-check-double mr-2" style={{ fontSize: 18 }} />
+            <i className="fas fa-check-double mr-2" style={{ fontSize: 18, color: "#E5E7EB" }} />
             <span style={{ fontSize: 15 }}>{isProcessing ? "Marking..." : "Mark all as read"}</span>
           </button>
         </div>
       </div>
 
       {/* Content */}
-      <div className="divide-y divide-gray-100 dark:divide-[#3E4042]">
+      <div style={{ borderTop: "1px solid rgba(255,255,255,0.03)" }}>
         {newNotifications.length > 0 && (
-          <div className="py-3">
-            <div className="px-4 py-2" style={{ fontSize: 28, fontWeight: 800, color: "var(--np-section, #6B7280)", fontFamily: "inherit" }}>
+          <div style={{ paddingTop: 12, paddingBottom: 8 }}>
+            <div style={{ padding: "8px 16px", fontSize: 27, fontWeight: 800, color: "#9CA3AF", marginBottom: 4 }}>
               New
             </div>
             <div>
@@ -274,8 +310,8 @@ export const NotificationsPage: React.FC<Props> = ({
         )}
 
         {earlierNotifications.length > 0 && (
-          <div className="py-3">
-            <div className="px-4 py-2" style={{ fontSize: 28, fontWeight: 800, color: "var(--np-section, #6B7280)", fontFamily: "inherit" }}>
+          <div style={{ paddingTop: 12, paddingBottom: 8 }}>
+            <div style={{ padding: "8px 16px", fontSize: 27, fontWeight: 800, color: "#9CA3AF", marginBottom: 4 }}>
               Earlier
             </div>
             <div>
@@ -285,7 +321,7 @@ export const NotificationsPage: React.FC<Props> = ({
         )}
 
         {localNotifications.length === 0 && (
-          <div className="p-6 text-center" style={{ fontSize: 15, color: "rgba(0,0,0,0.6)", fontFamily: "inherit" }}>
+          <div style={{ padding: 24, textAlign: "center", fontSize: 15, color: "#9CA3AF" }}>
             No notifications yet
           </div>
         )}
@@ -294,8 +330,19 @@ export const NotificationsPage: React.FC<Props> = ({
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-6 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded shadow-lg ${toast.type === "error" ? "bg-[#B00020] text-white" : "bg-[#2E7D32] text-white"}`}
-          style={{ fontSize: 14, fontFamily: "inherit" }}
+          style={{
+            position: "fixed",
+            bottom: 18,
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "10px 16px",
+            borderRadius: 8,
+            boxShadow: "0 6px 18px rgba(0,0,0,0.4)",
+            background: toast.type === "error" ? "#B00020" : "#2E7D32",
+            color: "#fff",
+            fontSize: 14,
+            fontFamily: "inherit"
+          }}
         >
           {toast.text}
         </div>
