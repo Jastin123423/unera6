@@ -11,17 +11,6 @@ interface Props {
   stickyHeader?: boolean;
 }
 
-/**
- * All sizes and spacing doubled compared to the previous iteration.
- * - Header title: 44px
- * - Actor name: 38px
- * - Notification message: 36px
- * - Timestamp: 30px
- * - Section headers: 28px
- * - Avatar: w-28 h-28 (~112px)
- * - Row padding doubled (py-4, px-8)
- * - Left unread bar doubled (border-l-8)
- */
 const formatTimestamp = (iso: string) => {
   const d = new Date(iso);
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -43,7 +32,7 @@ export const NotificationsPage: React.FC<Props> = ({
   simulateApi = false,
   stickyHeader = false
 }) => {
-  const getUser = (id:number)=>users.find(u=>u.id===id);
+  const getUser = (id:number) => users.find(u => u.id === id);
 
   const [localNotifications, setLocalNotifications] = useState<Notification[]>(notifications);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -111,79 +100,81 @@ export const NotificationsPage: React.FC<Props> = ({
         role="button"
         tabIndex={0}
         onClick={() => onProfileClick(actor?.id || 0)}
-        className={`flex items-start gap-6 px-8 py-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2b2c2d] focus:outline-none transition-colors
-          ${!n.is_read ? "border-l-8 border-[#1877F2] pl-[20px]" : "pl-8"}
+        className={`flex items-start gap-4 px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2b2c2d] focus:outline-none transition-colors
+          ${!n.is_read ? "border-l-4 border-[#1877F2] pl-[12px]" : "pl-4"}
         `}
       >
-        {/* Avatar (doubled) */}
+        {/* Avatar ~90px */}
         <img
           src={actor?.profile_image_url}
           alt={actor?.name || "avatar"}
-          className="w-28 h-28 rounded-full object-cover flex-shrink-0"
+          className="flex-shrink-0 rounded-full object-cover"
+          style={{ width: 90, height: 90 }}
         />
 
         {/* Text */}
         <div className="flex-1 min-w-0">
-          <div className="leading-tight truncate text-gray-900 dark:text-[#E4E6EB]">
+          <div className="truncate" style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <button
-              onClick={(e)=>{ e.stopPropagation(); onProfileClick(actor?.id || 0); }}
-              className="font-extrabold hover:underline truncate"
+              onClick={(e) => { e.stopPropagation(); onProfileClick(actor?.id || 0); }}
+              className="truncate"
               aria-label={`Open profile of ${actor?.name || "user"}`}
-              style={{ fontSize: 38, fontWeight: 800 }}
+              style={{ fontSize: 25.5, fontWeight: 800, lineHeight: 1.1, color: "var(--tw-text-opacity, 1)" }}
             >
               {actor?.name || "Someone"}
             </button>
 
             {actor?.is_verified && (
               <i
-                className="fas fa-check-circle ml-2 align-middle"
-                style={{ color: "#1877F2", fontSize: 28, verticalAlign: "middle" }}
+                className="fas fa-check-circle"
+                style={{ color: "#1877F2", fontSize: 18, marginLeft: 6 }}
+                aria-hidden
               />
             )}
 
-            <span className="font-normal ml-4 align-middle" style={{ fontSize: 36 }}>
+            <span style={{ fontSize: 20, fontWeight: 400, marginLeft: 8, color: "inherit" }} className="truncate">
               {message}
             </span>
           </div>
 
-          <div className="mt-2" style={{ fontSize: 30, color: "rgba(0,0,0,0.6)" }}>
+          <div style={{ fontSize: 15, color: "rgba(0,0,0,0.6)", marginTop: 6 }}>
             {formatTimestamp(n.created_at)}
           </div>
         </div>
 
-        {/* menu (icon increased) */}
+        {/* menu (slightly larger icon) */}
         <button
-          onClick={(e)=>{ e.stopPropagation(); /* open menu handler */ }}
+          onClick={(e) => { e.stopPropagation(); /* open menu handler */ }}
           aria-label="Notification menu"
-          className="ml-4 flex-shrink-0"
+          className="ml-3 flex-shrink-0"
         >
-          <i className="fas fa-ellipsis-h" style={{ fontSize: 28, color: "rgba(0,0,0,0.45)" }} />
+          <i className="fas fa-ellipsis-h" style={{ fontSize: 20, color: "rgba(0,0,0,0.45)" }} />
         </button>
       </div>
     );
   };
 
   return (
-    <section className="w-full max-w-4xl mx-auto bg-transparent">
+    <section className="w-full max-w-3xl mx-auto bg-transparent">
       {/* Header */}
-      <div className={`${stickyHeader ? "sticky top-0" : ""} bg-white dark:bg-[#242526] px-8 py-6 border-b border-gray-200 dark:border-[#3E4042] flex items-center gap-6 z-10`}>
+      <div className={`${stickyHeader ? "sticky top-0" : ""} bg-white dark:bg-[#242526] px-4 py-3 border-b border-gray-200 dark:border-[#3E4042] flex items-center gap-3 z-10`}>
         {onBack && (
           <button
             onClick={onBack}
-            className="p-3 rounded hover:bg-gray-100 dark:hover:bg-[#3A3B3C] focus:outline-none"
+            className="text-gray-700 dark:text-[#E4E6EB] p-2 rounded hover:bg-gray-100 dark:hover:bg-[#3A3B3C] focus:outline-none"
             aria-label="Back"
           >
-            <i className="fas fa-arrow-left" style={{ fontSize: 28, color: "#333" }} />
+            <i className="fas fa-arrow-left" style={{ fontSize: 22 }} />
           </button>
         )}
 
-        <div className="flex-1 flex items-center gap-6">
-          <h2 style={{ fontSize: 44, lineHeight: "48px", fontWeight: 800, color: "#E4E6EB" }}>
+        <div className="flex-1 flex items-center gap-3">
+          <h2 style={{ fontSize: 22, lineHeight: "26px", fontWeight: 800, color: "var(--tw-text-opacity, 1)" }}>
             Notifications
           </h2>
 
           {unreadCount > 0 && (
-            <div className="inline-flex items-center justify-center bg-[#E53935] text-white font-semibold rounded-full px-4 py-1.5" style={{ fontSize: 18 }}>
+            <div className="inline-flex items-center justify-center bg-[#E53935] text-white text-[12px] font-semibold rounded-full px-2 py-0.5">
               {unreadCount}
             </div>
           )}
@@ -193,13 +184,12 @@ export const NotificationsPage: React.FC<Props> = ({
           <button
             onClick={handleMarkAllAsRead}
             disabled={isProcessing || unreadCount === 0}
-            className="px-4 py-3 rounded hover:bg-gray-100 dark:hover:bg-[#3A3B3C] disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+            className="text-gray-600 dark:text-[#B0B3B8] px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-[#3A3B3C] disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             aria-label="Mark all as read"
             title="Mark all as read"
-            style={{ color: "rgba(0,0,0,0.65)" }}
           >
-            <i className="fas fa-check-double mr-3" style={{ fontSize: 28 }} />
-            <span style={{ fontSize: 30 }}>{isProcessing ? "Marking..." : "Mark all as read"}</span>
+            <i className="fas fa-check-double mr-2" style={{ fontSize: 18 }} />
+            <span style={{ fontSize: 15 }}>{isProcessing ? "Marking..." : "Mark all as read"}</span>
           </button>
         </div>
       </div>
@@ -207,8 +197,8 @@ export const NotificationsPage: React.FC<Props> = ({
       {/* Content */}
       <div className="divide-y divide-gray-100 dark:divide-[#3E4042]">
         {newNotifications.length > 0 && (
-          <div className="py-4">
-            <div className="px-8 py-3" style={{ fontSize: 28, fontWeight: 800, color: "rgba(0,0,0,0.65)" }}>
+          <div className="py-2">
+            <div className="px-4 py-2" style={{ fontSize: 14, fontWeight: 700, color: "rgba(0,0,0,0.65)" }}>
               New
             </div>
             <div>
@@ -218,8 +208,8 @@ export const NotificationsPage: React.FC<Props> = ({
         )}
 
         {earlierNotifications.length > 0 && (
-          <div className="py-4">
-            <div className="px-8 py-3" style={{ fontSize: 28, fontWeight: 800, color: "rgba(0,0,0,0.65)" }}>
+          <div className="py-2">
+            <div className="px-4 py-2" style={{ fontSize: 14, fontWeight: 700, color: "rgba(0,0,0,0.65)" }}>
               Earlier
             </div>
             <div>
@@ -229,7 +219,7 @@ export const NotificationsPage: React.FC<Props> = ({
         )}
 
         {localNotifications.length === 0 && (
-          <div className="p-12 text-center" style={{ fontSize: 30, color: "rgba(0,0,0,0.6)" }}>
+          <div className="p-6 text-center" style={{ fontSize: 15, color: "rgba(0,0,0,0.6)" }}>
             No notifications yet
           </div>
         )}
@@ -237,7 +227,7 @@ export const NotificationsPage: React.FC<Props> = ({
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-8 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded shadow-lg ${toast.type === "error" ? "bg-[#B00020] text-white" : "bg-[#2E7D32] text-white"}`} style={{ fontSize: 18 }}>
+        <div className={`fixed bottom-6 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded shadow-lg ${toast.type === "error" ? "bg-[#B00020] text-white" : "bg-[#2E7D32] text-white"}`} style={{ fontSize: 14 }}>
           {toast.text}
         </div>
       )}
