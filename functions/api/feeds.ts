@@ -167,7 +167,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const exploreCount = Math.max(0, limit - freshCount);
 
     // ============================================================
-    // 1) POSTS - (unchanged)
+    // 1) POSTS - KEEP EXACTLY AS FOUND
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -243,7 +243,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) REELS - (unchanged)
+    // 2) REELS - KEEP EXACTLY AS FOUND
     // ============================================================
     const whereReels: string[] = [];
     const bindsReels: any[] = [];
@@ -296,7 +296,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 3) SONGS - (unchanged)
+    // 3) SONGS - KEEP EXACTLY AS FOUND
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -345,7 +345,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) PODCASTS - (unchanged)
+    // 4) PODCASTS - KEEP EXACTLY AS FOUND
     // ============================================================
     const wherePodcasts: string[] = [];
     const bindsPodcasts: any[] = [];
@@ -394,7 +394,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS - (unchanged)
+    // 5) EVENTS - KEEP EXACTLY AS FOUND
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -456,7 +456,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 6) GROUP POSTS - (unchanged)
+    // 6) GROUP POSTS - KEEP EXACTLY AS FOUND
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -537,7 +537,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS - (unchanged)
+    // 7) PRODUCTS - RESTORE EXACTLY AS FOUND (NO CHANGES)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -594,7 +594,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) SPONSORED / ADS POSTS - FIXED TO USE SIMPLE SHAPE
+    // 8) ADS / SPONSORED POSTS - MODIFIED ONLY
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
@@ -613,7 +613,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const whereAdsSql = whereAds.length ? `WHERE ${whereAds.join(" AND ")}` : "";
 
-    // ✅ FIXED: Using the same simple shape as other queries
     const selectAds = `
       SELECT
         a.id,
@@ -634,7 +633,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'business') AS role,
         
-        -- Original post metrics from the promoted post
+        -- Original post metrics
         CASE 
           WHEN a.post_id IS NOT NULL 
           THEN (SELECT COUNT(*) FROM post_reactions WHERE post_id = a.post_id)
@@ -656,7 +655,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS my_reaction,
         NULL AS reactions_preview,
         
-        -- Ad-specific fields for the frontend
+        -- Ad-specific fields
         a.description,
         a.cta_button AS cta_text,
         a.destination_url AS cta_url,
@@ -665,7 +664,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         a.status AS campaign_status,
         a.start_date,
         a.end_date,
-        1 AS is_sponsored,  -- Flag to identify sponsored posts
+        1 AS is_sponsored,
         a.target_location,
         a.target_country,
         a.target_city
@@ -678,7 +677,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // RUN QUERIES (Fresh)
+    // RUN QUERIES - KEEP EXACTLY AS FOUND
     // ============================================================
     const runQueries = async (count: number, orderBy: 'DESC' | 'RANDOM()') => {
       const postsQuery = selectPosts.replace('ORDER BY p.created_at DESC', `ORDER BY p.created_at ${orderBy === 'RANDOM()' ? 'RANDOM()' : 'DESC'}`);
@@ -717,7 +716,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const explore = exploreCount > 0 ? await runQueries(exploreCount, 'RANDOM()') : null;
 
     // ============================================================
-    // Merge all items - SIMPLE SHAPE (no source, item_type, feed_key)
+    // Merge all items - KEEP EXACTLY AS FOUND
     // ============================================================
     const allItems = [
       ...fresh.posts,
