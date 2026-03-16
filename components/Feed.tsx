@@ -2386,9 +2386,6 @@ export const Post = memo(
   },
   postPropsEqual
 );
-
-// ========== END OF PART 1 ==========
-/**
  * =========================
  * ✅ COMMENTS SHEET (UPDATED)
  * =========================
