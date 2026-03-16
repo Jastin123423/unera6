@@ -7344,7 +7344,81 @@ interface FeedProps {
  * =========================
  * ✅ MAIN FEED COMPONENT
  * =========================
+// ==================== EXPORTED HELPERS ====================
+export {
+  getMediaTypeInfo,
+  getMarketplaceImages,
+  getMarketplacePriceLine,
+  normalizeEventFromFeed,
+  topReactionEmojis,
+  safeArray,
+  safeNumber,
+  safeString,
+  safePostId,
+  safeUserId,
+  avatarFrom,
+  formatReelCount,
+  getReelAuthorName,
+};
+
+/**
+ * =========================
+ * ✅ FEED PROPS INTERFACE
+ * =========================
  */
+interface FeedProps {
+  feedItems: any[];
+  currentUser: User | null;
+  users: User[];
+  onProfileClick: (id: number) => void;
+  onReact: (id: number, type: ReactionType) => void;
+  onShare: (id: number, newShareCount: number) => void;
+  onOpenComments: (id: number) => void;
+  onViewImage: (url: string) => void;
+  onVideoClick: (post: PostType) => void;
+  onPlayAudioTrack?: (track: AudioTrack) => void;
+  onHashtagClick?: (tag: string) => void;
+  onFollow?: (id: number) => void;
+  followLoading?: { [key: number]: boolean };
+  checkIsFollowing?: (id: number) => boolean;
+  groups?: Group[];
+  brands?: Brand[];
+  chats?: any[];
+  onViewProductFromPost?: (productId: number) => void;
+  onRSVPEvent?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+  getPostAuthor?: (post: PostType) => User;
+  
+  // Push More button props
+  onPushMore?: (postId: number) => void;
+  pushedPosts?: Record<number, boolean>;
+  
+  // Reel props
+  onOpenReel?: (reelId: number | string) => void;
+  onOpenReelMenu?: (reel: any) => void;
+  
+  // People You May Know props
+  peopleYouMayKnow?: any[];
+  peopleYouMayKnowInsertIndex1?: number;
+  peopleYouMayKnowInsertIndex2?: number;
+  onFollowFromPymk?: (id: number) => void;
+  pymkLoading?: boolean;
+  
+  // Groups You May Join props
+  groupsYouMayJoin?: any[];
+  groupsYouMayJoinInsertIndex?: number;
+  onJoinGroupSuggestion?: (groupId: number) => void;
+  gymjLoading?: boolean;
+  onOpenGroup?: (groupId: number) => void;
+  
+  // Login
+  onLoginClick?: () => void;
+}
+
+/**
+ * =========================
+ * ✅ MAIN FEED COMPONENT
+ * =========================
+ 
 export const Feed = memo(({
   feedItems,
   currentUser,
@@ -7537,25 +7611,5 @@ export const Feed = memo(({
   // Custom comparison for memo
   return prev.feedItems === next.feedItems && 
          prev.currentUser?.id === next.currentUser?.id;
-});
-
-// ==================== EXPORT ALL COMPONENTS ====================
-export {
-  ReactionsSheet,
-  GalleryViewer,
-  ShareBottomSheet,
-  PeopleYouMayKnowGrid,
-  ReelFeedCard,
-  GroupsYouMayJoinCard,
-  EventPost,
-  EventFeedCard,
-  ReactionButton,
-  RichText,
-  SponsoredPostCard,
-  Post,
-  CreatePost,
-  CreatePostModal,
-  CommentsSheet,
-  SuggestedProductsWidget,
-  Feed as default,
-};
+}); 
+          
