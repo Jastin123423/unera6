@@ -799,6 +799,31 @@ const reelCardPropsEqual = (prev: any, next: any) => {
   );
 };
 
+// ==================== ITEM TYPE DETECTION HELPER ====================
+const getItemType = (item: any): string => {
+  // Check for sponsored first
+  if (item.is_sponsored === 1 || item.is_sponsored === true) return 'sponsored';
+  
+  // Check by source or item_type if present (from API)
+  if (item.source) return item.source;
+  if (item.item_type) return item.item_type;
+  
+  // Check by specific fields
+  if (item.video_url && item.caption) return 'reel';
+  if (item.group_id) return 'group_post';
+  if (item.event_date) return 'event';
+  if (item.product_id) return 'product';
+  if (item.audio_url && item.song_title) return 'song';
+  if (item.podcast_audio_url) return 'podcast';
+  if (item.type === 'marketplace') return 'product';
+  
+  // Check media type for reels
+  if (item.media_type === 'video' && item.content?.length < 200) return 'reel';
+  
+  // Default to post
+  return 'post';
+};
+
 // ==================== EXPORTED COMPONENTS (Memoized) ====================
 
 /**
@@ -7339,10 +7364,6 @@ interface FeedProps {
   onLoginClick?: () => void;
 }
 
-/**
- * =========================
- * ✅ MAIN FEED COMPONENT
- * =========================
 // ==================== EXPORTED HELPERS ====================
 export {
   getMediaTypeInfo,
@@ -7360,58 +7381,6 @@ export {
   getReelAuthorName,
 };
 
-/**
- * =========================
- * ✅ FEED PROPS INTERFACE
- * =========================
- */
-interface FeedProps {
-  feedItems: any[];
-  currentUser: User | null;
-  users: User[];
-  onProfileClick: (id: number) => void;
-  onReact: (id: number, type: ReactionType) => void;
-  onShare: (id: number, newShareCount: number) => void;
-  onOpenComments: (id: number) => void;
-  onViewImage: (url: string) => void;
-  onVideoClick: (post: PostType) => void;
-  onPlayAudioTrack?: (track: AudioTrack) => void;
-  onHashtagClick?: (tag: string) => void;
-  onFollow?: (id: number) => void;
-  followLoading?: { [key: number]: boolean };
-  checkIsFollowing?: (id: number) => boolean;
-  groups?: Group[];
-  brands?: Brand[];
-  chats?: any[];
-  onViewProductFromPost?: (productId: number) => void;
-  onRSVPEvent?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
-  getPostAuthor?: (post: PostType) => User;
-  
-  // Push More button props
-  onPushMore?: (postId: number) => void;
-  pushedPosts?: Record<number, boolean>;
-  
-  // Reel props
-  onOpenReel?: (reelId: number | string) => void;
-  onOpenReelMenu?: (reel: any) => void;
-  
-  // People You May Know props
-  peopleYouMayKnow?: any[];
-  peopleYouMayKnowInsertIndex1?: number;
-  peopleYouMayKnowInsertIndex2?: number;
-  onFollowFromPymk?: (id: number) => void;
-  pymkLoading?: boolean;
-  
-  // Groups You May Join props
-  groupsYouMayJoin?: any[];
-  groupsYouMayJoinInsertIndex?: number;
-  onJoinGroupSuggestion?: (groupId: number) => void;
-  gymjLoading?: boolean;
-  onOpenGroup?: (groupId: number) => void;
-  
-  // Login
-  onLoginClick?: () => void;
-}
 /**
  * =========================
  * ✅ MAIN FEED COMPONENT
@@ -7455,6 +7424,31 @@ export const Feed = memo(({
   onLoginClick,
 }: FeedProps) => {
   
+  // Helper function to determine item type
+  const getItemType = (item: any): string => {
+    // Check for sponsored first
+    if (item.is_sponsored === 1 || item.is_sponsored === true) return 'sponsored';
+    
+    // Check by source or item_type if present (from API)
+    if (item.source) return item.source;
+    if (item.item_type) return item.item_type;
+    
+    // Check by specific fields
+    if (item.video_url && item.caption) return 'reel';
+    if (item.group_id) return 'group_post';
+    if (item.event_date) return 'event';
+    if (item.product_id) return 'product';
+    if (item.audio_url && item.song_title) return 'song';
+    if (item.podcast_audio_url) return 'podcast';
+    if (item.type === 'marketplace') return 'product';
+    
+    // Check media type for reels
+    if (item.media_type === 'video' && item.content?.length < 200) return 'reel';
+    
+    // Default to post
+    return 'post';
+  };
+
   const getStableItemKey = (item: any, prefix: string) => {
     return `${prefix}-${item.id}-${item.feed_key || ''}`;
   };
@@ -7462,8 +7456,11 @@ export const Feed = memo(({
   return (
     <div className="space-y-2">
       {feedItems.map((item, idx) => {
-        // Check if it's a sponsored post
-        if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
+        // Determine item type
+        const itemType = getItemType(item);
+        
+        // Handle sponsored posts
+        if (itemType === 'sponsored') {
           // Determine if campaign is still active
           const isActive = item.campaign_status === 'active' || 
                          (item.end_date && new Date(item.end_date) > new Date());
@@ -7483,11 +7480,34 @@ export const Feed = memo(({
         }
 
         // Handle reel cards
-        if (item.type === 'reel') {
+        if (itemType === 'reel') {
+          // Transform reel data to match ReelFeedData shape
+          const reelData = {
+            id: item.id,
+            user_id: item.user_id,
+            author: item.name || item.author || 'User',
+            avatar: item.profile_image_url || item.avatar,
+            verified: item.is_verified || false,
+            video: item.video_url || item.media_url,
+            thumbnail: item.thumbnail_url || item.cover_url,
+            caption: item.caption || item.description,
+            views: item.views || item.views_count || 0,
+            likes: item.reactions_count || item.likes || 0,
+            comments: item.comments_count || 0,
+            shares: item.shares || 0,
+            created_at: item.created_at,
+            audioUrl: item.audio_url,
+            audioStart: item.audio_start || 0,
+            audioEnd: item.audio_end || 0,
+            songName: item.song_name,
+            songId: item.song_id,
+            soundKey: item.sound_key,
+          };
+          
           return (
             <ReelFeedCard
               key={`reel-${item.id}`}
-              reel={item.reel || item}
+              reel={reelData}
               onOpen={(reelId) => onOpenReel?.(reelId)}
               onOpenMenu={(reel) => onOpenReelMenu?.(reel)}
               onProfileClick={(userId) => onProfileClick(Number(userId))}
@@ -7495,14 +7515,15 @@ export const Feed = memo(({
           );
         }
 
-        // Handle regular posts
-        const postAuthorId = Number((item as any).user_id);
+        // Handle regular posts (including group posts, songs, podcasts, events, products)
+        const postAuthorId = Number(item.user_id);
         const isFollowing = checkIsFollowing?.(postAuthorId) || false;
         
         // Check if current user is the post owner OR admin
         const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
         const isAdminUser = currentUser && currentUser.role === 'admin';
-        const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
+        const showPushButton = (isPostOwner || isAdminUser) && onPushMore && 
+                              !item.is_sponsored; // Don't show push button on sponsored posts
 
         // Track PYMK and Groups inserts
         const showFirstPymk = peopleYouMayKnow && 
@@ -7524,7 +7545,14 @@ export const Feed = memo(({
           <React.Fragment key={getStableItemKey(item, 'post')}>
             <Post
               post={item as PostType}
-              author={getPostAuthor?.(item as PostType) || item.author || item}
+              author={{
+                id: item.user_id,
+                name: item.name || 'User',
+                username: item.username || 'user',
+                profile_image_url: item.profile_image_url,
+                is_verified: item.is_verified || false,
+                role: item.role || 'user',
+              }}
               currentUser={currentUser}
               users={users}
               onProfileClick={onProfileClick}
@@ -7610,4 +7638,3 @@ export const Feed = memo(({
   return prev.feedItems === next.feedItems && 
          prev.currentUser?.id === next.currentUser?.id;
 });
-   
