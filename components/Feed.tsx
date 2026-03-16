@@ -5401,6 +5401,8 @@ export const CreatePostModal = memo(
 );
 
 // ==================== COMMENTS SHEET (Updated with PostPreview) ====================
+
+   // ==================== COMMENTS SHEET (Updated with PostPreview) ====================
 export const CommentsSheet = memo(
   ({
     post,
@@ -6067,8 +6069,8 @@ export const CommentsSheet = memo(
     );
   },
   (prev, next) => prev.post?.id === next.post?.id && prev.currentUser?.id === next.currentUser?.id
-);
-
+);   
+                      
 // ==================== MAIN POST COMPONENT ====================
 export const Post = memo(
   ({
