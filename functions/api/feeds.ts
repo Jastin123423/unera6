@@ -167,7 +167,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const exploreCount = Math.max(0, limit - freshCount);
 
     // ============================================================
-    // 1) POSTS
+    // 1) POSTS - SIMPLE SHAPE
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -175,13 +175,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     wherePosts.push(
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
-
-    wherePosts.push(`(p.content IS NULL OR (
-      p.content NOT LIKE '%"post_type":"product"%'
-      AND p.content NOT LIKE '%"kind":"product"%'
-      AND p.content NOT LIKE '%"product_id"%'
-      AND p.content NOT LIKE '%marketplace%'
-    ))`);
 
     if (cursor && cursor.trim()) {
       wherePosts.push(`p.created_at < ?`);
@@ -250,7 +243,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) REELS
+    // 2) REELS - SIMPLE SHAPE
     // ============================================================
     const whereReels: string[] = [];
     const bindsReels: any[] = [];
@@ -303,7 +296,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 3) SONGS
+    // 3) SONGS - SIMPLE SHAPE
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -352,7 +345,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) PODCASTS
+    // 4) PODCASTS - SIMPLE SHAPE
     // ============================================================
     const wherePodcasts: string[] = [];
     const bindsPodcasts: any[] = [];
@@ -401,7 +394,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS
+    // 5) EVENTS - SIMPLE SHAPE
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -463,7 +456,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 6) GROUP POSTS
+    // 6) GROUP POSTS - SIMPLE SHAPE
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -544,7 +537,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS
+    // 7) PRODUCTS - SIMPLE SHAPE
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -601,10 +594,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) ADS / SPONSORED POSTS
+    // 8) ADS / SPONSORED POSTS - SIMPLE SHAPE
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
+
+    // Only show active ads
+    whereAds.push(`a.status = 'active'`);
 
     if (cursor && cursor.trim()) {
       whereAds.push(`a.created_at < ?`);
@@ -660,7 +656,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS my_reaction,
         NULL AS reactions_preview,
         
-        -- Ad-specific fields
+        -- Ad-specific fields (your Feed.tsx will ignore these)
         a.cta_button AS cta_text,
         a.destination_url AS cta_url,
         a.contact_type AS cta_type,
@@ -668,7 +664,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         a.status AS campaign_status,
         a.start_date,
         a.end_date,
-        1 AS is_sponsored
+        1 AS is_sponsored,
+        a.target_location,
+        a.target_country,
+        a.target_city
         
       FROM ads a
       LEFT JOIN users u ON u.id = a.advertiser_id
@@ -717,7 +716,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const explore = exploreCount > 0 ? await runQueries(exploreCount, 'RANDOM()') : null;
 
     // ============================================================
-    // Merge all items
+    // Merge all items - SIMPLE SHAPE (no source, item_type, feed_key)
     // ============================================================
     const allItems = [
       ...fresh.posts,
@@ -778,6 +777,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       nextCursor,
       hasMore,
       feed,
+      products: fresh.products, // Separate products list if needed
     };
 
     if (debug) {
