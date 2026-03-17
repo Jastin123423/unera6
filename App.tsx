@@ -45,7 +45,7 @@ import AdsManager from './components/AdsManager';
 // 📸 SEAMLESS IMAGE SYSTEM IMPORTS
 import { imagePreloader } from './utils/imagePreloader';
 import { useViewportPreloader } from './hooks/useViewportPreloader';
-import '../styles/seamless-images.css';
+import './styles/seamless-images.css';
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
