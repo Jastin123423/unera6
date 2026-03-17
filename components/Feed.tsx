@@ -7677,19 +7677,3 @@ export const Feed = memo(({
          prev.currentUser?.id === next.currentUser?.id;
 });
 
-// KEEP ONLY THIS ONE EXPORT BLOCK AT THE VERY END
-export {
-  getMediaTypeInfo,
-  getMarketplaceImages,
-  getMarketplacePriceLine,
-  normalizeEventFromFeed,
-  topReactionEmojis,
-  safeArray,
-  safeNumber,
-  safeString,
-  safePostId,
-  safeUserId,
-  avatarFrom,
-  formatReelCount,
-  getReelAuthorName,
-};
