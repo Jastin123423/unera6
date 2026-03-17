@@ -1152,183 +1152,149 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-     // ============================================================
-// 9) SPONSORED / ADS POSTS - WITH ORIGINAL POST DATA
-// ============================================================
-const whereAds: string[] = [];
-const bindsAds: any[] = [];
+    // ============================================================
+    // 9) SPONSORED / ADS POSTS - WITH is_sponsored FLAG
+    // ============================================================
+    const whereAds: string[] = [];
+    const bindsAds: any[] = [];
 
-// Only show active ads
-whereAds.push(`a.status = 'active'`);
+    // Only show active ads
+    whereAds.push(`a.status = 'active'`);
 
-if (cursor && cursor.trim()) {
-  whereAds.push(`a.created_at < ?`);
-  bindsAds.push(cursor.trim());
-}
-if (seen.length > 0) {
-  whereAds.push(`a.id NOT IN (${seen.map(() => "?").join(",")})`);
-  bindsAds.push(...seen);
-}
+    if (cursor && cursor.trim()) {
+      whereAds.push(`a.created_at < ?`);
+      bindsAds.push(cursor.trim());
+    }
+    if (seen.length > 0) {
+      whereAds.push(`a.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsAds.push(...seen);
+    }
 
-const whereAdsSql = whereAds.length ? `WHERE ${whereAds.join(" AND ")}` : "";
+    const whereAdsSql = whereAds.length ? `WHERE ${whereAds.join(" AND ")}` : "";
 
-const baseSelectAds = `
-  SELECT
-    'sponsored' AS source,
-    'sponsored' AS item_type,
-    1 AS is_sponsored,
+    const baseSelectAds = `
+      SELECT
+        'sponsored' AS source,
+        'sponsored' AS item_type,
+        1 AS is_sponsored,  -- ✅ Flag for frontend to identify sponsored posts
 
-    a.id AS id,
-    ('ad:' || CAST(a.id AS TEXT)) AS feed_key,
+        a.id AS id,
+        ('ad:' || CAST(a.id AS TEXT)) AS feed_key,
 
-    a.created_at AS created_at,
-    a.advertiser_id AS user_id,
-    
-    COALESCE(u.username, 'advertiser') AS username,
-    COALESCE(u.name, u.username, 'Sponsored') AS name,
-    CASE
-      WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-      WHEN length(u.profile_image_url) > 300 THEN NULL
-      ELSE u.profile_image_url
-    END AS profile_image_url,
-    COALESCE(u.is_verified, 0) AS is_verified,
-    COALESCE(u.role, 'business') AS role,
+        a.created_at AS created_at,
 
-    -- Use original post content if available, otherwise use ad title
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT content FROM posts WHERE id = a.post_id)
-      ELSE a.title
-    END AS content,
+        NULL AS post_id,
+        NULL AS reel_id,
+        NULL AS song_id2,
+        NULL AS podcast_id,
+        NULL AS event_id,
+        NULL AS group_post_id,
+        NULL AS product_id2,
 
-    -- Use original post description if available
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT description FROM posts WHERE id = a.post_id)
-      ELSE a.description
-    END AS description,
+        a.advertiser_id AS user_id,
+        COALESCE(u.username, 'advertiser') AS username,
+        COALESCE(u.name, u.username, 'Sponsored') AS name,
+        CASE
+          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
+          WHEN length(u.profile_image_url) > 300 THEN NULL
+          ELSE u.profile_image_url
+        END AS profile_image_url,
+        COALESCE(u.is_verified, 0) AS is_verified,
+        COALESCE(u.role, 'business') AS role,
 
-    -- Original post media
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT media_url FROM posts WHERE id = a.post_id)
-      ELSE a.media_url
-    END AS media_url,
+        -- Ad content using your schema's column names
+        a.title AS headline,
+        a.title AS content,
+        a.description AS description,
+        a.cta_button AS cta_text,
+        a.destination_url AS cta_url,
+        a.contact_type AS cta_type,
 
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT media_type FROM posts WHERE id = a.post_id)
-      ELSE a.media_type
-    END AS media_type,
+        'public' AS visibility,
+        a.impressions AS views,
+        0 AS shares,
 
-    -- Original post multiple media
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT media_urls FROM posts WHERE id = a.post_id)
-      ELSE a.media_urls
-    END AS media_urls,
+        a.media_url AS media_url,
+        a.media_type AS media_type,
 
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT media_types FROM posts WHERE id = a.post_id)
-      ELSE a.media_types
-    END AS media_types,
+        a.media_urls AS media_urls,
+        a.media_types AS media_types,
 
-    -- Original post metrics
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT COUNT(*) FROM post_reactions WHERE post_id = a.post_id)
-      ELSE 0 
-    END AS reactions_count,
-    
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT COUNT(*) FROM post_comments WHERE post_id = a.post_id)
-      ELSE 0 
-    END AS comments_count,
-    
-    CASE 
-      WHEN a.post_id IS NOT NULL 
-      THEN (SELECT shares FROM posts WHERE id = a.post_id)
-      ELSE 0 
-    END AS shares,
+        -- Original post metrics
+        CASE 
+          WHEN a.post_id IS NOT NULL 
+          THEN (SELECT COUNT(*) FROM post_reactions WHERE post_id = a.post_id)
+          ELSE 0 
+        END AS reactions_count,
+        
+        CASE 
+          WHEN a.post_id IS NOT NULL 
+          THEN (SELECT COUNT(*) FROM post_comments WHERE post_id = a.post_id)
+          ELSE 0 
+        END AS comments_count,
+        
+        CASE 
+          WHEN a.post_id IS NOT NULL 
+          THEN (SELECT shares FROM posts WHERE id = a.post_id)
+          ELSE 0 
+        END AS shares,
 
-    NULL AS my_reaction,
-    NULL AS reactor_name,
-    NULL AS reactions_preview,
-    NULL AS reactions_by_type,
+        NULL AS my_reaction,
+        NULL AS reactor_name,
+        NULL AS reactions_preview,
+        NULL AS reactions_by_type,
 
-    -- Ad-specific fields for CTA
-    a.cta_button AS cta_text,
-    a.destination_url AS cta_url,
-    a.contact_type AS cta_type,
-    a.campaign_name,
-    a.status AS campaign_status,
-    a.start_date,
-    a.end_date,
-    a.target_location,
-    a.target_country,
-    a.target_city,
+        CASE WHEN a.media_type LIKE '%video%' THEN a.media_url ELSE NULL END AS video_url,
+        a.description AS caption,
+        NULL AS song_name,
+        NULL AS audio_url,
+        0 AS audio_start,
+        0 AS audio_end,
+        a.target_location AS location,
+        NULL AS sound_key,
+        NULL AS sound_id,
 
-    'public' AS visibility,
-    a.impressions AS views,
+        NULL AS song_title,
+        NULL AS song_artist_name,
+        NULL AS song_album_name,
+        NULL AS song_cover_image_url,
+        NULL AS song_duration_seconds,
+        NULL AS song_genre,
+        NULL AS song_likes_count,
+        NULL AS song_plays_count,
 
-    NULL AS post_id,
-    NULL AS reel_id,
-    NULL AS song_id2,
-    NULL AS podcast_id,
-    NULL AS event_id,
-    NULL AS group_post_id,
-    NULL AS product_id2,
-    
-    NULL AS video_url,
-    NULL AS caption,
-    NULL AS song_name,
-    NULL AS audio_url,
-    0 AS audio_start,
-    0 AS audio_end,
-    NULL AS location,
-    NULL AS sound_key,
-    NULL AS sound_id,
+        NULL AS podcast_title,
+        NULL AS podcast_description,
+        NULL AS podcast_audio_url,
+        NULL AS podcast_cover_url,
+        NULL AS podcast_plays_count,
 
-    NULL AS song_title,
-    NULL AS song_artist_name,
-    NULL AS song_album_name,
-    NULL AS song_cover_image_url,
-    NULL AS song_duration_seconds,
-    NULL AS song_genre,
-    NULL AS song_likes_count,
-    NULL AS song_plays_count,
+        'sponsored' AS type,
+        'ad' AS post_type,
+        'ad' AS kind,
 
-    NULL AS podcast_title,
-    NULL AS podcast_description,
-    NULL AS podcast_audio_url,
-    NULL AS podcast_cover_url,
-    NULL AS podcast_plays_count,
+        json_object(
+          'kind','ad',
+          'type','sponsored',
+          'ad_id', a.id,
+          'advertiser_id', a.advertiser_id,
+          'campaign_name', a.campaign_name
+        ) AS meta,
 
-    'sponsored' AS type,
-    'ad' AS post_type,
-    'ad' AS kind,
+        'Sponsored' AS reason,
+        a.campaign_name AS campaign_name,
 
-    json_object(
-      'kind','ad',
-      'type','sponsored',
-      'ad_id', a.id,
-      'advertiser_id', a.advertiser_id,
-      'campaign_name', a.campaign_name
-    ) AS meta,
+        a.target_location AS target_location,
+        a.target_country AS target_country,
+        a.target_city AS target_city,
 
-    'Sponsored' AS reason,
+        NULL AS group_id,
+        NULL AS group_name,
+        NULL AS group_image
+      FROM ads a
+      LEFT JOIN users u ON u.id = a.advertiser_id
+    `;
 
-    NULL AS group_id,
-    NULL AS group_name,
-    NULL AS group_image
-  FROM ads a
-  LEFT JOIN users u ON u.id = a.advertiser_id
-  ${whereAdsSql}
-  ORDER BY a.created_at DESC
-`;
-    
     // ============================================================
     // RUN QUERIES (Fresh)
     // ============================================================
@@ -1381,31 +1347,21 @@ const baseSelectAds = `
       .all();
     const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results) ? freshProductsFeedRes.results : [];
 
-  // ✅ FRESH ADS QUERY - FIXED
-let freshAdsQuery = baseSelectAds;
-if (whereAdsSql) {
-  freshAdsQuery += ` ${whereAdsSql}`;
-}
-freshAdsQuery += ` ORDER BY RANDOM() LIMIT ?`;
-
-const freshAdsRes = await env.DB.prepare(freshAdsQuery)
-  .bind(...bindsAds, Math.min(3, freshCount))
-  .all();
-const freshAds = Array.isArray(freshAdsRes?.results) ? freshAdsRes.results : [];
-
-// ✅ EXPLORE ADS QUERY - FIXED
-let exploreAdsQuery = baseSelectAds;
-if (whereAdsSql) {
-  exploreAdsQuery += ` ${whereAdsSql}`;
-}
-exploreAdsQuery += ` ORDER BY RANDOM() LIMIT ?`;
-
-const exploreAdsRes = await env.DB.prepare(exploreAdsQuery)
-  .bind(...bindsAds, Math.min(2, exploreCount))
-  .all();
-const exploreAds = Array.isArray(exploreAdsRes?.results) ? exploreAdsRes.results : [];
+    // ✅ FRESH ADS QUERY - FIXED
+    let freshAdsQuery = baseSelectAds;
+    if (whereAdsSql) {
+      freshAdsQuery += ` ${whereAdsSql}`;
+    }
+    freshAdsQuery += ` ORDER BY RANDOM() LIMIT ?`;
     
-    
+    const freshAdsRes = await env.DB.prepare(freshAdsQuery)
+      .bind(...bindsAds, Math.min(3, freshCount))
+      .all();
+    const freshAds = Array.isArray(freshAdsRes?.results) ? freshAdsRes.results : [];
+
+    const freshProductsRes = await env.DB.prepare(selectProducts).bind(...bindsProducts, freshCount).all();
+    const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
+
     // ============================================================
     // RUN QUERIES (Explore)
     // ============================================================
@@ -1469,10 +1425,14 @@ const exploreAds = Array.isArray(exploreAdsRes?.results) ? exploreAdsRes.results
         .all();
       exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results) ? exploreProductsFeedRes.results : [];
 
-      // ✅ EXPLORE ADS QUERY
-      const exploreAdsRes = await env.DB.prepare(
-        `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
-      )
+      // ✅ EXPLORE ADS QUERY - FIXED
+      let exploreAdsQuery = baseSelectAds;
+      if (whereAdsSql) {
+        exploreAdsQuery += ` ${whereAdsSql}`;
+      }
+      exploreAdsQuery += ` ORDER BY RANDOM() LIMIT ?`;
+      
+      const exploreAdsRes = await env.DB.prepare(exploreAdsQuery)
         .bind(...bindsAds, Math.min(2, exploreCount))
         .all();
       exploreAds = Array.isArray(exploreAdsRes?.results) ? exploreAdsRes.results : [];
