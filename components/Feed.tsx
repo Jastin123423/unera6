@@ -7435,6 +7435,7 @@ interface FeedProps {
 }
 
 /**
+/**
  * =========================
  * ✅ MAIN FEED COMPONENT
  * =========================
@@ -7691,3 +7692,21 @@ export const Feed = memo(({
   return prev.feedItems === next.feedItems && 
          prev.currentUser?.id === next.currentUser?.id;
 });
+
+// ==================== EXPORTED HELPERS ====================
+// KEEP ONLY THIS ONE EXPORT BLOCK AT THE VERY END
+export {
+  getMediaTypeInfo,
+  getMarketplaceImages,
+  getMarketplacePriceLine,
+  normalizeEventFromFeed,
+  topReactionEmojis,
+  safeArray,
+  safeNumber,
+  safeString,
+  safePostId,
+  safeUserId,
+  avatarFrom,
+  formatReelCount,
+  getReelAuthorName,
+};
