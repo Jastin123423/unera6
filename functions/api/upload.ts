@@ -148,8 +148,99 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const file_type = fileTypeFromMimeOrExt(mime_type, ext);
 
-      const key = safeKey(ext);
+      // Get the file bytes
       const bytes = new Uint8Array(await file.arrayBuffer());
+
+      // ✅ IMAGE PROCESSING BLOCK
+      if (file_type === "image" || file_type === "gif") {
+        const baseKey = `uploads/${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const originalBuffer = bytes;
+
+        // ✅ FEED IMAGE (720px)
+        const feedRes = await fetch("https://dummy", {
+          method: "POST",
+          body: originalBuffer,
+          // @ts-ignore - Cloudflare Workers image resizing
+          cf: {
+            image: {
+              width: 720,
+              fit: "cover",
+              quality: 75,
+            },
+          },
+        });
+
+        const feedBuffer = new Uint8Array(await feedRes.arrayBuffer());
+
+        // ✅ THUMBNAIL (150px)
+        const thumbRes = await fetch("https://dummy", {
+          method: "POST",
+          body: originalBuffer,
+          // @ts-ignore - Cloudflare Workers image resizing
+          cf: {
+            image: {
+              width: 150,
+              fit: "cover",
+              quality: 60,
+            },
+          },
+        });
+
+        const thumbBuffer = new Uint8Array(await thumbRes.arrayBuffer());
+
+        const originalKey = `${baseKey}_full.${ext}`;
+        const feedKey = `${baseKey}_feed.${ext}`;
+        const thumbKey = `${baseKey}_thumb.${ext}`;
+
+        // ✅ Upload all versions
+        await env.R2.put(originalKey, originalBuffer, {
+          httpMetadata: { contentType: mime_type },
+          customMetadata: {
+            filename: filename || "upload." + ext,
+            mime_type,
+            file_type,
+          },
+        });
+
+        await env.R2.put(feedKey, feedBuffer, {
+          httpMetadata: { contentType: mime_type },
+          customMetadata: {
+            filename: filename || "upload." + ext,
+            mime_type,
+            file_type,
+          },
+        });
+
+        await env.R2.put(thumbKey, thumbBuffer, {
+          httpMetadata: { contentType: mime_type },
+          customMetadata: {
+            filename: filename || "upload." + ext,
+            mime_type,
+            file_type,
+          },
+        });
+
+        return toJson({
+          success: true,
+          media_type: "image",
+          media_urls: JSON.stringify({
+            thumb: `${PUBLIC_BASE}/${thumbKey}`,
+            feed: `${PUBLIC_BASE}/${feedKey}`,
+            full: `${PUBLIC_BASE}/${originalKey}`,
+          }),
+          // Keep original fields for backward compatibility
+          key: originalKey,
+          url: `${PUBLIC_BASE}/${originalKey}`,
+          filename: filename || null,
+          size_bytes: bytes.byteLength,
+          mime_type,
+          file_type,
+          metadata: {},
+        });
+      }
+
+      // ✅ Non-image upload (video, audio, document)
+      const key = safeKey(ext);
 
       await env.R2.put(key, bytes, {
         httpMetadata: { contentType: mime_type },
@@ -205,6 +296,95 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const file_type = fileTypeFromMimeOrExt(mime_type, ext);
 
+    // ✅ IMAGE PROCESSING BLOCK for base64 uploads
+    if (file_type === "image" || file_type === "gif") {
+      const baseKey = `uploads/${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const originalBuffer = bytes;
+
+      // ✅ FEED IMAGE (720px)
+      const feedRes = await fetch("https://dummy", {
+        method: "POST",
+        body: originalBuffer,
+        // @ts-ignore - Cloudflare Workers image resizing
+        cf: {
+          image: {
+            width: 720,
+            fit: "cover",
+            quality: 75,
+          },
+        },
+      });
+
+      const feedBuffer = new Uint8Array(await feedRes.arrayBuffer());
+
+      // ✅ THUMBNAIL (150px)
+      const thumbRes = await fetch("https://dummy", {
+        method: "POST",
+        body: originalBuffer,
+        // @ts-ignore - Cloudflare Workers image resizing
+        cf: {
+          image: {
+            width: 150,
+            fit: "cover",
+            quality: 60,
+          },
+        },
+      });
+
+      const thumbBuffer = new Uint8Array(await thumbRes.arrayBuffer());
+
+      const originalKey = `${baseKey}_full.${ext}`;
+      const feedKey = `${baseKey}_feed.${ext}`;
+      const thumbKey = `${baseKey}_thumb.${ext}`;
+
+      // ✅ Upload all versions
+      await env.R2.put(originalKey, originalBuffer, {
+        httpMetadata: { contentType: mime_type },
+        customMetadata: {
+          filename: filename || "upload." + ext,
+          mime_type,
+          file_type,
+        },
+      });
+
+      await env.R2.put(feedKey, feedBuffer, {
+        httpMetadata: { contentType: mime_type },
+        customMetadata: {
+          filename: filename || "upload." + ext,
+          mime_type,
+          file_type,
+        },
+      });
+
+      await env.R2.put(thumbKey, thumbBuffer, {
+        httpMetadata: { contentType: mime_type },
+        customMetadata: {
+          filename: filename || "upload." + ext,
+          mime_type,
+          file_type,
+        },
+      });
+
+      return toJson({
+        success: true,
+        media_type: "image",
+        media_urls: JSON.stringify({
+          thumb: `${PUBLIC_BASE}/${thumbKey}`,
+          feed: `${PUBLIC_BASE}/${feedKey}`,
+          full: `${PUBLIC_BASE}/${originalKey}`,
+        }),
+        // Keep original fields for backward compatibility
+        key: originalKey,
+        url: `${PUBLIC_BASE}/${originalKey}`,
+        filename: filename || null,
+        size_bytes: bytes.byteLength,
+        mime_type,
+        file_type,
+        metadata: {},
+      });
+    }
+
+    // ✅ Non-image upload for base64
     const key = safeKey(ext);
 
     await env.R2.put(key, bytes, {
