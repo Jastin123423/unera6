@@ -445,62 +445,63 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ORDER BY e.created_at DESC
       LIMIT ?
     `;
-
     // ============================================================
-    // 5) PRODUCTS - SIMPLE FLAT STRUCTURE
-    // ============================================================
-    const whereProducts: string[] = [];
-    const bindsProducts: any[] = [];
+// 5) PRODUCTS - SIMPLE FLAT STRUCTURE (FIXED)
+// ============================================================
+const whereProducts: string[] = [];
+const bindsProducts: any[] = [];
 
-    if (cursor && cursor.trim()) {
-      whereProducts.push(`pr.created_at < ?`);
-      bindsProducts.push(cursor.trim());
-    }
-    if (seen.length > 0) {
-      whereProducts.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsProducts.push(...seen);
-    }
+if (cursor && cursor.trim()) {
+  whereProducts.push(`pr.created_at < ?`);
+  bindsProducts.push(cursor.trim());
+}
+if (seen.length > 0) {
+  whereProducts.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
+  bindsProducts.push(...seen);
+}
 
-    const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(" AND ")}` : "";
+const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(" AND ")}` : "";
 
-    const selectProducts = `
-      SELECT
-        pr.id,
-        pr.seller_id AS user_id,
-        pr.title AS content,
-        'public' AS visibility,
-        0 AS views,
-        0 AS shares,
-        NULL AS media_url,
-        NULL AS media_type,
-        pr.images AS media_urls,
-        NULL AS media_types,
-        pr.created_at,
-        
-        u.username,
-        u.name,
-        u.profile_image_url,
-        u.is_verified,
-        u.role,
-        
-        0 AS reactions_count,
-        NULL AS my_reaction,
-        0 AS comments_count,
-        NULL AS reactions_preview,
-        
-        'marketplace' AS type,
-        pr.id AS product_id,
-        pr.main_price,
-        pr.discount_price,
-        pr.currency_symbol,
-        pr.address AS location
-        
-      FROM products pr
-      LEFT JOIN users u ON u.id = pr.seller_id
-      ${whereProductsSql}
-      ORDER BY pr.created_at DESC
-      LIMIT ?
-    `;
+const selectProducts = `
+  SELECT
+    pr.id,
+    pr.seller_id AS user_id,
+    pr.title AS content,
+    'public' AS visibility,
+    0 AS views,
+    0 AS shares,
+    NULL AS media_url,
+    NULL AS media_type,
+    pr.images AS media_urls,
+    NULL AS media_types,
+    pr.created_at,
+    
+    u.username,
+    u.name,
+    u.profile_image_url,
+    u.is_verified,
+    u.role,
+    
+    0 AS reactions_count,
+    NULL AS my_reaction,
+    0 AS comments_count,
+    NULL AS reactions_preview,
+    
+    'marketplace' AS type,
+    pr.id AS product_id,
+    pr.main_price,
+    pr.discount_price,
+    pr.address AS location,
+    pr.country,
+    pr.category,
+    pr.phone_number
+    
+  FROM products pr
+  LEFT JOIN users u ON u.id = pr.seller_id
+  ${whereProductsSql}
+  ORDER BY pr.created_at DESC
+  LIMIT ?
+`;
 
     // ============================================================
     // 6) ADS / SPONSORED POSTS - SIMPLE FLAT STRUCTURE
