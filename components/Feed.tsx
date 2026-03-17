@@ -7693,7 +7693,6 @@ export const Feed = memo(({
          prev.currentUser?.id === next.currentUser?.id;
 });
 
-// ==================== EXPORTED HELPERS ====================
 // KEEP ONLY THIS ONE EXPORT BLOCK AT THE VERY END
 export {
   getMediaTypeInfo,
