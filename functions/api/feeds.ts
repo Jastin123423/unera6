@@ -243,68 +243,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) REELS - SIMPLE FLAT STRUCTURE
-    // ============================================================
-    const whereReels: string[] = [];
-    const bindsReels: any[] = [];
-
-    whereReels.push(
-      `(r.visibility IS NULL OR r.visibility = 'public' OR r.visibility = '' OR r.visibility = 'Public')`
-    );
-
-    if (cursor && cursor.trim()) {
-      whereReels.push(`r.created_at < ?`);
-      bindsReels.push(cursor.trim());
-    }
-    if (seen.length > 0) {
-      whereReels.push(`r.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsReels.push(...seen);
-    }
-
-    const whereReelsSql = whereReels.length ? `WHERE ${whereReels.join(" AND ")}` : "";
-
-    const selectReels = `
-      SELECT
-        r.id,
-        r.user_id,
-        r.caption AS content,
-        r.visibility,
-        r.views,
-        r.shares,
-        r.video_url AS media_url,
-        'video' AS media_type,
-        NULL AS media_urls,
-        NULL AS media_types,
-        r.created_at,
-        
-        u.username,
-        u.name,
-        u.profile_image_url,
-        u.is_verified,
-        u.role,
-        
-        (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
-        (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
-        0 AS comments_count,
-        NULL AS reactions_preview,
-        
-        r.caption,
-        r.song_name,
-        r.audio_url,
-        r.audio_start,
-        r.audio_end,
-        r.location,
-        r.sound_key
-        
-      FROM reels r
-      LEFT JOIN users u ON u.id = r.user_id
-      ${whereReelsSql}
-      ORDER BY r.created_at DESC
-      LIMIT ?
-    `;
-
-    // ============================================================
-    // 3) GROUP POSTS - SIMPLE FLAT STRUCTURE
+    // 2) GROUP POSTS - SIMPLE FLAT STRUCTURE
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
@@ -385,7 +324,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) EVENTS - SIMPLE FLAT STRUCTURE
+    // 3) EVENTS - SIMPLE FLAT STRUCTURE
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -445,66 +384,67 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ORDER BY e.created_at DESC
       LIMIT ?
     `;
-    // ============================================================
-// 5) PRODUCTS - SIMPLE FLAT STRUCTURE (FIXED)
-// ============================================================
-const whereProducts: string[] = [];
-const bindsProducts: any[] = [];
-
-if (cursor && cursor.trim()) {
-  whereProducts.push(`pr.created_at < ?`);
-  bindsProducts.push(cursor.trim());
-}
-if (seen.length > 0) {
-  whereProducts.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
-  bindsProducts.push(...seen);
-}
-
-const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(" AND ")}` : "";
-
-const selectProducts = `
-  SELECT
-    pr.id,
-    pr.seller_id AS user_id,
-    pr.title AS content,
-    'public' AS visibility,
-    0 AS views,
-    0 AS shares,
-    NULL AS media_url,
-    NULL AS media_type,
-    pr.images AS media_urls,
-    NULL AS media_types,
-    pr.created_at,
-    
-    u.username,
-    u.name,
-    u.profile_image_url,
-    u.is_verified,
-    u.role,
-    
-    0 AS reactions_count,
-    NULL AS my_reaction,
-    0 AS comments_count,
-    NULL AS reactions_preview,
-    
-    'marketplace' AS type,
-    pr.id AS product_id,
-    pr.main_price,
-    pr.discount_price,
-    pr.address AS location,
-    pr.country,
-    pr.category,
-    pr.phone_number
-    
-  FROM products pr
-  LEFT JOIN users u ON u.id = pr.seller_id
-  ${whereProductsSql}
-  ORDER BY pr.created_at DESC
-  LIMIT ?
-`;
 
     // ============================================================
-    // 6) ADS / SPONSORED POSTS - SIMPLE FLAT STRUCTURE
+    // 4) PRODUCTS - SIMPLE FLAT STRUCTURE
+    // ============================================================
+    const whereProducts: string[] = [];
+    const bindsProducts: any[] = [];
+
+    if (cursor && cursor.trim()) {
+      whereProducts.push(`pr.created_at < ?`);
+      bindsProducts.push(cursor.trim());
+    }
+    if (seen.length > 0) {
+      whereProducts.push(`pr.id NOT IN (${seen.map(() => "?").join(",")})`);
+      bindsProducts.push(...seen);
+    }
+
+    const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(" AND ")}` : "";
+
+    const selectProducts = `
+      SELECT
+        pr.id,
+        pr.seller_id AS user_id,
+        pr.title AS content,
+        'public' AS visibility,
+        0 AS views,
+        0 AS shares,
+        NULL AS media_url,
+        NULL AS media_type,
+        pr.images AS media_urls,
+        NULL AS media_types,
+        pr.created_at,
+        
+        u.username,
+        u.name,
+        u.profile_image_url,
+        u.is_verified,
+        u.role,
+        
+        0 AS reactions_count,
+        NULL AS my_reaction,
+        0 AS comments_count,
+        NULL AS reactions_preview,
+        
+        'marketplace' AS type,
+        pr.id AS product_id,
+        pr.main_price,
+        pr.discount_price,
+        pr.address AS location,
+        pr.country,
+        pr.category,
+        pr.phone_number
+        
+      FROM products pr
+      LEFT JOIN users u ON u.id = pr.seller_id
+      ${whereProductsSql}
+      ORDER BY pr.created_at DESC
+      LIMIT ?
+    `;
+
+    // ============================================================
+    // 5) ADS / SPONSORED POSTS - SIMPLE FLAT STRUCTURE
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
@@ -591,15 +531,13 @@ const selectProducts = `
     // ============================================================
     const runQueries = async (count: number, orderBy: 'DESC' | 'RANDOM()') => {
       const postsQuery = selectPosts.replace('ORDER BY p.created_at DESC', `ORDER BY p.created_at ${orderBy === 'RANDOM()' ? 'RANDOM()' : 'DESC'}`);
-      const reelsQuery = selectReels.replace('ORDER BY r.created_at DESC', `ORDER BY r.created_at ${orderBy === 'RANDOM()' ? 'RANDOM()' : 'DESC'}`);
       const groupPostsQuery = selectGroupPosts.replace('ORDER BY gp.created_at DESC', `ORDER BY gp.created_at ${orderBy === 'RANDOM()' ? 'RANDOM()' : 'DESC'}`);
       const eventsQuery = selectEvents.replace('ORDER BY e.created_at DESC', `ORDER BY e.created_at ${orderBy === 'RANDOM()' ? 'RANDOM()' : 'DESC'}`);
       const productsQuery = selectProducts.replace('ORDER BY pr.created_at DESC', `ORDER BY pr.created_at ${orderBy === 'RANDOM()' ? 'RANDOM()' : 'DESC'}`);
       const adsQuery = selectAds.replace('ORDER BY a.created_at DESC', `ORDER BY a.created_at ${orderBy === 'RANDOM()' ? 'RANDOM()' : 'DESC'}`);
 
-      const [posts, reels, groupPosts, events, products, ads] = await Promise.all([
+      const [posts, groupPosts, events, products, ads] = await Promise.all([
         env.DB.prepare(postsQuery).bind(reactionUserId, ...bindsPosts, count).all(),
-        env.DB.prepare(reelsQuery).bind(reactionUserId, ...bindsReels, count).all(),
         env.DB.prepare(groupPostsQuery).bind(reactionUserId, ...bindsGroupPosts, count).all(),
         env.DB.prepare(eventsQuery).bind(reactionUserId, reactionUserId, ...bindsEvents, count).all(),
         env.DB.prepare(productsQuery).bind(...bindsProducts, count).all(),
@@ -608,7 +546,6 @@ const selectProducts = `
 
       return {
         posts: Array.isArray(posts?.results) ? posts.results : [],
-        reels: Array.isArray(reels?.results) ? reels.results : [],
         groupPosts: Array.isArray(groupPosts?.results) ? groupPosts.results : [],
         events: Array.isArray(events?.results) ? events.results : [],
         products: Array.isArray(products?.results) ? products.results : [],
@@ -624,13 +561,11 @@ const selectProducts = `
     // ============================================================
     const allItems = [
       ...fresh.posts,
-      ...fresh.reels,
       ...fresh.groupPosts,
       ...fresh.events,
       ...fresh.products,
       ...fresh.ads,
       ...(explore?.posts || []),
-      ...(explore?.reels || []),
       ...(explore?.groupPosts || []),
       ...(explore?.events || []),
       ...(explore?.products || []),
@@ -687,7 +622,6 @@ const selectProducts = `
           returnedCount: feed.length,
           fresh: {
             posts: fresh.posts.length,
-            reels: fresh.reels.length,
             groupPosts: fresh.groupPosts.length,
             events: fresh.events.length,
             products: fresh.products.length,
@@ -695,7 +629,6 @@ const selectProducts = `
           },
           explore: explore ? {
             posts: explore.posts.length,
-            reels: explore.reels.length,
             groupPosts: explore.groupPosts.length,
             events: explore.events.length,
             products: explore.products.length,
