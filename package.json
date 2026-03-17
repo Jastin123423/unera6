@@ -1,3 +1,4 @@
+
 {
   "name": "copy-of-copy-of-copy-of-unera-social-network-1",
   "private": true,
@@ -11,6 +12,7 @@
   "dependencies": {
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
+    "react-router-dom": "^6.22.0",
     "hono": "^4.11.3",
     "@hono/zod-validator": "^0.7.6",
     "zod": "^4.2.1",
