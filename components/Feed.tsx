@@ -1201,3 +1201,1157 @@ export const GalleryViewer = memo(
     );
   }
 );
+
+  /**
+ * =========================
+ * ✅ SHARE BOTTOM SHEET
+ * =========================
+ */
+export const ShareBottomSheet = memo(
+  ({
+    isOpen,
+    onClose,
+    post,
+    currentUser,
+    users = [],
+    groups = [],
+    brands = [],
+    chats = [],
+    onShareComplete,
+  }: {
+    isOpen: boolean;
+    onClose: () => void;
+    post: any;
+    currentUser: User | null;
+    users?: User[];
+    groups?: Group[];
+    brands?: Brand[];
+    chats?: any[];
+    onShareComplete?: (destination: string, data?: any) => void;
+  }) => {
+    const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>(
+      'sheet'
+    );
+    const [isAnimating, setIsAnimating] = useState(false);
+    const sheetRef = useRef<HTMLDivElement>(null);
+    const backdropRef = useRef<HTMLDivElement>(null);
+
+    const getShareEndpoint = () => {
+      const p = post as any;
+      if (p.source === 'event' || p.item_type === 'event')
+        return '/api/events/share';
+      else if (p.source === 'group_post' || p.item_type === 'group_post')
+        return '/api/groups/posts/share';
+      else if (p.source === 'product' || p.item_type === 'product')
+        return '/api/products/share';
+      else if (p.source === 'reel' || p.item_type === 'reel')
+        return '/api/reels/share';
+      else if (p.source === 'song' || p.item_type === 'song')
+        return '/api/songs/share';
+      else if (p.source === 'podcast' || p.item_type === 'podcast')
+        return '/api/podcasts/share';
+      else return '/api/posts/share';
+    };
+
+    const getSharePayload = (destination: string) => {
+      const p = post as any;
+      const base = {
+        user_id: currentUser?.id,
+        destination: destination,
+        shared_at: new Date().toISOString(),
+      };
+      if (p.source === 'event' || p.item_type === 'event')
+        return { ...base, event_id: p.event_id || p.id };
+      else if (p.source === 'group_post' || p.item_type === 'group_post')
+        return { ...base, post_id: p.id, group_id: p.group_id };
+      else if (p.source === 'product' || p.item_type === 'product')
+        return { ...base, product_id: p.product_id || p.id };
+      else if (p.source === 'reel' || p.item_type === 'reel')
+        return { ...base, reel_id: p.reel_id || p.id };
+      else if (p.source === 'song' || p.item_type === 'song')
+        return { ...base, song_id: p.song_id2 || p.id };
+      else if (p.source === 'podcast' || p.item_type === 'podcast')
+        return { ...base, podcast_id: p.podcast_id || p.id };
+      else return { ...base, post_id: p.id };
+    };
+
+    useEffect(() => {
+      const handleBackdropClick = (e: MouseEvent) => {
+        if (backdropRef.current && e.target === backdropRef.current) closeSheet();
+      };
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && isOpen) closeSheet();
+      };
+      if (isOpen) {
+        setActiveFlow('sheet');
+        setIsAnimating(true);
+        setTimeout(() => setIsAnimating(false), 300);
+        document.body.style.overflow = 'hidden';
+        document.addEventListener('click', handleBackdropClick);
+        document.addEventListener('keydown', handleEscape);
+      }
+      return () => {
+        document.body.style.overflow = '';
+        document.removeEventListener('click', handleBackdropClick);
+        document.removeEventListener('keydown', handleEscape);
+      };
+    }, [isOpen]);
+
+    const closeSheet = () => {
+      setIsAnimating(true);
+      setTimeout(() => {
+        onClose();
+        setActiveFlow('sheet');
+        setIsAnimating(false);
+      }, 200);
+    };
+
+    const handleShareAction = async (destination: string) => {
+      if (!currentUser) {
+        alert('Please login to share.');
+        return;
+      }
+      try {
+        const endpoint = getShareEndpoint();
+        const payload = getSharePayload(destination);
+        const response = await apiFetch(endpoint, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        if (onShareComplete) {
+          const nextShares = safeNumber(
+            response?.shares ?? response?.share_count,
+            safeNumber(post.shares || 0, 0) + 1
+          );
+          onShareComplete(destination, {
+            success: true,
+            data: response,
+            shares: nextShares,
+          });
+        }
+        closeSheet();
+      } catch (error: any) {
+        console.error('Share failed:', error);
+        if (onShareComplete)
+          onShareComplete(destination, { success: false, error: error.message });
+      }
+    };
+
+    const textPreview = getPostTextPreview(post, 100);
+    const previewUrl = useMemo(() => {
+      return (
+        (Array.isArray(post?.media_urls) && post.media_urls[0]) ||
+        (Array.isArray(post?.images) && post.images[0]) ||
+        post?.media_url ||
+        ''
+      );
+    }, [post]);
+
+    if (!isOpen) return null;
+
+    if (activeFlow === 'feed' && currentUser) {
+      return (
+        <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+          <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+            <div className="flex items-center gap-4">
+              <i
+                className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+                onClick={() => setActiveFlow('sheet')}
+              ></i>
+              <h3 className="text-[#E4E6EB] text-[22px] font-medium">
+                Share to UNERA Feed
+              </h3>
+            </div>
+            <button
+              onClick={() => handleShareAction('feed')}
+              className="text-[#1877F2] font-bold text-[19px]"
+            >
+              POST
+            </button>
+          </div>
+          <div className="flex-1 p-4">
+            <div className="flex items-center gap-3 mb-4">
+              <img
+                src={avatarFrom(currentUser)}
+                alt=""
+                className="w-12 h-12 rounded-full object-cover"
+              />
+              <div>
+                <div className="text-[#E4E6EB] font-bold text-[17px]">
+                  {currentUser.name}
+                </div>
+                <select className="bg-[#3A3B3C] text-[#E4E6EB] text-[15px] px-3 py-1 rounded-lg mt-1">
+                  <option>🌍 Public</option>
+                  <option>👥 Friends</option>
+                  <option>🔒 Only me</option>
+                </select>
+              </div>
+            </div>
+            <textarea
+              className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[22px] outline-none resize-none min-h-[200px]"
+              placeholder="Write something..."
+            ></textarea>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeFlow === 'groups' && currentUser) {
+      return (
+        <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+          <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+            <div className="flex items-center gap-4">
+              <i
+                className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+                onClick={() => setActiveFlow('sheet')}
+              ></i>
+              <h3 className="text-[#E4E6EB] text-[22px] font-medium">
+                Share to Groups & Brands
+              </h3>
+            </div>
+            <button
+              onClick={() => handleShareAction('group')}
+              className="text-[#1877F2] font-bold text-[19px]"
+            >
+              SHARE
+            </button>
+          </div>
+          <div className="p-4 border-b border-[#3E4042]">
+            <div className="text-[#B0B3B8] text-[15px] mb-2">
+              Share with up to 10 groups you're in
+            </div>
+            <input
+              type="text"
+              placeholder="Search groups..."
+              className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg text-[15px]"
+            />
+          </div>
+          <div className="flex-1 p-4 overflow-y-auto">
+            {groups.length === 0 ? (
+              <div className="text-center py-10">
+                <i className="fas fa-users text-4xl text-[#3A3B3C] mb-3"></i>
+                <div className="text-[#E4E6EB] text-[17px]">No groups available</div>
+              </div>
+            ) : (
+              groups.slice(0, 5).map((group) => (
+                <div
+                  key={group.id}
+                  className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2"
+                >
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={group.image || avatarFrom(group)}
+                      alt=""
+                      className="w-10 h-10 rounded-full"
+                    />
+                    <div>
+                      <div className="text-[#E4E6EB] font-medium text-[15px]">
+                        {group.name}
+                      </div>
+                      <div className="text-[#B0B3B8] text-[13px]">
+                        {group.members_count} members
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleShareAction('group')}
+                    className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-[15px]"
+                  >
+                    Share
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeFlow === 'messages' && currentUser) {
+      return (
+        <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col animate-slide-up">
+          <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
+            <div className="flex items-center gap-4">
+              <i
+                className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
+                onClick={() => setActiveFlow('sheet')}
+              ></i>
+              <h3 className="text-[#E4E6EB] text-[22px] font-medium">
+                Share to Messages
+              </h3>
+            </div>
+          </div>
+          <div className="p-4 border-b border-[#3E4042]">
+            <textarea
+              className="w-full bg-[#3A3B3C] text-[#E4E6EB] rounded-xl p-3 min-h-[80px] text-[15px]"
+              placeholder="Write a message..."
+            />
+          </div>
+          <div className="p-4 border-b border-[#3E4042]">
+            <input
+              type="text"
+              placeholder="Search friends..."
+              className="w-full bg-[#3A3B3C] text-[#E4E6EB] px-4 py-2 rounded-lg text-[15px]"
+            />
+          </div>
+          <div className="flex-1 p-4 overflow-y-auto">
+            {users
+              .filter((u) => u.id !== currentUser.id)
+              .slice(0, 10)
+              .map((user) => (
+                <div
+                  key={user.id}
+                  className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2"
+                >
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={avatarFrom(user)}
+                      alt=""
+                      className="w-10 h-10 rounded-full"
+                    />
+                    <div>
+                      <div className="text-[#E4E6EB] font-medium text-[15px]">
+                        {user.name}
+                      </div>
+                      <div className="text-[#B0B3B8] text-[13px]">@{user.username}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleShareAction('message')}
+                    className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-[15px]"
+                  >
+                    Send
+                  </button>
+                </div>
+              ))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div
+          ref={backdropRef}
+          className={`fixed inset-0 bg-black/60 z-[300] transition-opacity duration-300 ${
+            isAnimating ? 'opacity-0' : 'opacity-100'
+          }`}
+        />
+        <div
+          ref={sheetRef}
+          className={`fixed bottom-0 left-0 right-0 z-[301] bg-[#242526] rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col transition-transform duration-300 ease-out ${
+            isAnimating ? 'translate-y-full' : 'translate-y-0'
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-4 pb-2">
+            <div className="flex justify-center mb-3">
+              <div className="w-10 h-1 bg-[#3E4042] rounded-full"></div>
+            </div>
+            {post && (
+              <div className="flex items-start gap-3 mb-4 p-3 bg-[#3A3B3C] rounded-xl">
+                {previewUrl ? (
+                  <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
+                    <img
+                      src={previewUrl}
+                      alt="Post"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : textPreview ? (
+                  <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-[#1877F2]/10 flex items-center justify-center">
+                    <i className="fas fa-file-alt text-[#1877F2] text-xl"></i>
+                  </div>
+                ) : null}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[#E4E6EB] font-semibold text-[15px]">
+                      {post.author?.name || 'Original Author'}
+                    </span>
+                    <span className="text-[#B0B3B8] text-[13px]">•</span>
+                    <span className="text-[#B0B3B8] text-[13px]">
+                      {formatRelativeTime(post.created_at)}
+                    </span>
+                  </div>
+                  <p className="text-[#B0B3B8] text-[15px] line-clamp-2">
+                    {textPreview || 'Shared post'}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <div className="space-y-1">
+              <button
+                onClick={() => {
+                  if (!currentUser) alert('Please login to share to feed');
+                  else setActiveFlow('feed');
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#1877F215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fas fa-newspaper text-[#1877F2] text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Share to UNERA Feed
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Share to your profile feed
+                  </div>
+                </div>
+                <i className="fas fa-chevron-right text-[#B0B3B8] text-[15px]"></i>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (!currentUser) alert('Please login to share to groups/brands');
+                  else setActiveFlow('groups');
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#45BD6215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fas fa-users text-[#45BD62] text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Share to Groups & Brands
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Share with up to 10 groups/brands
+                  </div>
+                </div>
+                <i className="fas fa-chevron-right text-[#B0B3B8] text-[15px]"></i>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (!currentUser) alert('Please login to send messages');
+                  else setActiveFlow('messages');
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#1877F215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fas fa-comment-alt text-[#1877F2] text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Send as a Message
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Share via direct message
+                  </div>
+                </div>
+                <i className="fas fa-chevron-right text-[#B0B3B8] text-[15px]"></i>
+              </button>
+
+              <button
+                onClick={() => {
+                  const text = `Check out this post on UNERA: ${window.location.origin}/post/${post.id}`;
+                  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                  closeSheet();
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#25D36615] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fab fa-whatsapp text-[#25D366] text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Send via WhatsApp
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Share to WhatsApp
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/post/${post.id}`;
+                  navigator.clipboard.writeText(url);
+                  alert('Link copied to clipboard!');
+                  closeSheet();
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#1877F215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fas fa-link text-[#1877F2] text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Copy Post Link
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Copy link to clipboard
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {currentUser && users.length > 0 && (
+              <div className="mt-6">
+                <div className="text-[#B0B3B8] text-[13px] font-semibold uppercase tracking-wider mb-3 px-1">
+                  Share with recent contacts
+                </div>
+                <div className="flex gap-3">
+                  {users
+                    .filter((u) => u.id !== currentUser.id)
+                    .slice(0, 3)
+                    .map((user) => (
+                      <button
+                        key={user.id}
+                        onClick={() => setActiveFlow('messages')}
+                        className="flex flex-col items-center gap-2"
+                      >
+                        <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#1877F2] p-0.5">
+                          <img
+                            src={avatarFrom(user)}
+                            alt={user.name}
+                            className="w-full h-full rounded-full object-cover"
+                          />
+                        </div>
+                        <span className="text-[#E4E6EB] text-[13px] font-medium max-w-[60px] truncate">
+                          {user.name.split(' ')[0]}
+                        </span>
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="p-4 pt-3 border-t border-[#3E4042]">
+            <button
+              onClick={closeSheet}
+              className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold rounded-xl transition-colors text-[17px]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.isOpen === next.isOpen &&
+      prev.post?.id === next.post?.id &&
+      prev.currentUser?.id === next.currentUser?.id
+    );
+  }
+);
+
+/**
+ * =========================
+ * ✅ PEOPLE YOU MAY KNOW
+ * =========================
+ */
+interface PeopleSuggestion {
+  id: number;
+  username: string;
+  name: string;
+  profile_image_url: string | null;
+  is_verified: boolean;
+  role: string;
+  mutual_count: number;
+  is_following: boolean;
+  score: number;
+}
+
+export const PeopleYouMayKnowGrid = memo(
+  ({
+    users = [],
+    onFollow,
+    currentUser,
+    isLoading = false,
+    onLoginClick,
+    onProfileClick,
+    title = 'People You May Know',
+    maxDisplay = 8,
+  }: {
+    users: PeopleSuggestion[];
+    onFollow: (userId: number) => void;
+    currentUser: User | null;
+    isLoading?: boolean;
+    onLoginClick?: () => void;
+    onProfileClick?: (userId: number) => void;
+    title?: string;
+    maxDisplay?: number;
+  }) => {
+    const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>(
+      {}
+    );
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [canScrollLeft, setCanScrollLeft] = useState(false);
+    const [canScrollRight, setCanScrollRight] = useState(false);
+
+    const displayUsers = users.slice(0, maxDisplay);
+
+    const checkScroll = useCallback(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      setCanScrollLeft(el.scrollLeft > 0);
+      setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 5);
+    }, []);
+
+    useEffect(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      checkScroll();
+      el.addEventListener('scroll', checkScroll);
+      window.addEventListener('resize', checkScroll);
+      return () => {
+        el.removeEventListener('scroll', checkScroll);
+        window.removeEventListener('resize', checkScroll);
+      };
+    }, [checkScroll, displayUsers.length]);
+
+    const scroll = (direction: 'left' | 'right') => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const scrollAmount = 350;
+      el.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth',
+      });
+    };
+
+    const handleFollow = async (userId: number) => {
+      setFollowLoading((prev) => ({ ...prev, [userId]: true }));
+      try {
+        await onFollow(userId);
+      } finally {
+        setFollowLoading((prev) => ({ ...prev, [userId]: false }));
+      }
+    };
+
+    const handleProfileClick = (userId: number) => {
+      if (onProfileClick) onProfileClick(userId);
+    };
+
+    if (isLoading) {
+      return (
+        <div className="w-full">
+          <div className="bg-[#242526] w-full p-4">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
+            </div>
+            <div className="flex gap-4 overflow-x-hidden py-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex-shrink-0 w-[180px] animate-pulse">
+                  <div className="w-24 h-24 mx-auto mb-3 bg-[#3A3B3C] rounded-full"></div>
+                  <div className="h-5 bg-[#3A3B3C] rounded w-32 mx-auto mb-2"></div>
+                  <div className="h-4 bg-[#3A3B3C] rounded w-20 mx-auto mb-4"></div>
+                  <div className="h-10 bg-[#3A3B3C] rounded-lg w-full"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+        </div>
+      );
+    }
+
+    if (displayUsers.length === 0) return null;
+
+    return (
+      <div className="w-full">
+        <div className="bg-[#242526] w-full p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
+            <div className="flex items-center gap-2">
+              {canScrollLeft && (
+                <button
+                  onClick={() => scroll('left')}
+                  className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-chevron-left text-[#E4E6EB] text-base"></i>
+                </button>
+              )}
+              {canScrollRight && (
+                <button
+                  onClick={() => scroll('right')}
+                  className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-chevron-right text-[#E4E6EB] text-base"></i>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div
+            ref={scrollRef}
+            className="flex gap-4 overflow-x-auto scrollbar-hide pb-1"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {displayUsers.map((user) => (
+              <div
+                key={user.id}
+                className="flex-shrink-0 w-[180px] bg-[#3A3B3C] rounded-xl p-4 hover:bg-[#4E4F50] transition-colors group"
+              >
+                <div
+                  className="relative w-24 h-24 mx-auto mb-3 cursor-pointer"
+                  onClick={() => handleProfileClick(user.id)}
+                >
+                  <div className="w-full h-full rounded-full overflow-hidden border-3 border-[#1877F2] group-hover:border-[#166FE5] transition-colors">
+                    <img
+                      src={
+                        user.profile_image_url ||
+                        `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          user.name
+                        )}&background=1877F2&color=fff&bold=true&size=128`
+                      }
+                      alt={user.name}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          user.name
+                        )}&background=1877F2&color=fff&bold=true&size=128`;
+                      }}
+                    />
+                  </div>
+                  {user.is_verified && (
+                    <i className="fas fa-check-circle absolute bottom-1 right-1 text-[#1877F2] text-base bg-[#242526] rounded-full p-0.5 border border-[#3A3B3C]"></i>
+                  )}
+                </div>
+
+                <div className="text-center mb-2">
+                  <button
+                    type="button"
+                    onClick={() => handleProfileClick(user.id)}
+                    className="text-[#E4E6EB] font-bold text-[17px] truncate block w-full hover:underline"
+                  >
+                    {user.name}
+                  </button>
+                  {user.role && (
+                    <div className="text-[#B0B3B8] text-[13px] mt-1">{user.role}</div>
+                  )}
+                </div>
+
+                {user.mutual_count > 0 && (
+                  <div className="text-center mb-3">
+                    <span className="text-[#B0B3B8] text-[13px]">
+                      {user.mutual_count} mutual friend
+                      {user.mutual_count !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                )}
+
+                {!currentUser ? (
+                  <button
+                    onClick={onLoginClick}
+                    className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[15px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+                  >
+                    <i className="fas fa-sign-in-alt text-[13px]"></i>
+                    <span>Sign in</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleFollow(user.id)}
+                    disabled={followLoading[user.id]}
+                    className={`w-full py-2.5 text-[15px] font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                      user.is_following
+                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                    } disabled:opacity-70 disabled:cursor-not-allowed`}
+                  >
+                    {followLoading[user.id] ? (
+                      <i className="fas fa-spinner fa-spin text-[13px]"></i>
+                    ) : (
+                      <>
+                        <i
+                          className={`fas ${
+                            user.is_following ? 'fa-check' : 'fa-user-plus'
+                          } text-[13px]`}
+                        ></i>
+                        <span>{user.is_following ? 'Following' : 'Follow'}</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.users === next.users &&
+      prev.currentUser?.id === next.currentUser?.id &&
+      prev.isLoading === next.isLoading
+    );
+  }
+);
+
+/**
+ * =========================
+ * ✅ REEL PREVIEW CARD
+ * =========================
+ */
+export type ReelFeedData = {
+  id: number | string;
+  user_id: number | string;
+  author: string;
+  avatar?: string;
+  verified?: boolean;
+  video: string;
+  thumbnail?: string;
+  caption?: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  created_at?: string;
+  audioUrl?: string;
+  audioStart?: number;
+  audioEnd?: number;
+  songName?: string;
+  songId?: string | number;
+  soundKey?: string;
+};
+
+const formatReelCount = (n?: number): string => {
+  const v = Number(n || 0);
+  if (v >= 1_000_000_000)
+    return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (v >= 1_000_000)
+    return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(v);
+};
+
+const getReelAuthorName = (reel: any): string => {
+  return (
+    reel?.author_name ||
+    reel?.full_name ||
+    reel?.username ||
+    reel?.user_name ||
+    reel?.name ||
+    (reel?.user &&
+      (reel.user.full_name || reel.user.username || reel.user.name)) ||
+    (reel?.author &&
+      (typeof reel.author === 'string'
+        ? reel.author
+        : reel.author.full_name || reel.author.username || reel.author.name)) ||
+    'User'
+  );
+};
+
+export const normalizeReelFromFeed = (item: any): ReelFeedData => {
+  const reelData = item?.reel || item;
+  return {
+    id: reelData?.id || item?.id || 0,
+    user_id: reelData?.user_id ?? reelData?.userId ?? item?.user_id ?? 0,
+    author: getReelAuthorName(reelData) || getReelAuthorName(item),
+    avatar:
+      reelData?.avatar ||
+      reelData?.profile_image_url ||
+      reelData?.user?.profile_image_url ||
+      item?.avatar ||
+      '',
+    verified: Boolean(reelData?.verified || reelData?.is_verified || false),
+    views: Number(
+      reelData?.views_count ??
+        reelData?.view_count ??
+        reelData?.views ??
+        reelData?.total_views ??
+        item?.views_count ??
+        item?.views ??
+        0
+    ),
+    likes: Number(
+      reelData?.likes_count ?? reelData?.likes ?? reelData?.reactions_count ?? 0
+    ),
+    comments: Number(reelData?.comments_count ?? reelData?.comments ?? 0),
+    shares: Number(reelData?.shares_count ?? reelData?.shares ?? 0),
+    video:
+      reelData?.video_url || reelData?.video || reelData?.media_url || item?.video_url || '',
+    thumbnail: reelData?.thumbnail_url || reelData?.thumbnail || reelData?.cover_url || '',
+    caption: reelData?.caption || reelData?.description || '',
+    created_at: reelData?.created_at || reelData?.createdAt || item?.created_at || '',
+    audioUrl: reelData?.audio_url || reelData?.audioUrl || reelData?.song?.audio_url,
+    audioStart: Number(reelData?.audio_start || reelData?.audioStart || 0),
+    audioEnd: Number(reelData?.audio_end || reelData?.audioEnd || 0),
+    songName: reelData?.song_name || reelData?.songName || reelData?.song?.title,
+    songId: reelData?.song_id || reelData?.songId || reelData?.song?.id,
+    soundKey: reelData?.sound_key || reelData?.soundKey || `reel:${reelData?.id || 0}`,
+  };
+};
+
+export const isReelPost = (item: any): boolean => {
+  return (
+    item?.type === 'reel' ||
+    item?.post_type === 'reel' ||
+    item?.kind === 'reel' ||
+    item?.feed_type === 'reel' ||
+    item?.item_type === 'reel' ||
+    item?.is_reel === true ||
+    item?.format === 'reel' ||
+    (item?.video && (item?.audio_url || item?.song_name))
+  );
+};
+
+export const ReelFeedCard = memo(
+  ({
+    reel,
+    onOpen,
+    onOpenMenu,
+    onProfileClick,
+  }: {
+    reel: ReelFeedData;
+    onOpen?: (reelId: number | string) => void;
+    onOpenMenu?: (reel: ReelFeedData) => void;
+    onProfileClick?: (userId: number | string) => void;
+  }) => {
+    const openReel = () => {
+      onOpen?.(reel.id);
+    };
+    const handleProfileClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onProfileClick?.(reel.user_id);
+    };
+
+    return (
+      <div
+        className="w-full"
+        style={{
+          background: '#1c1e21',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          marginBottom: 10,
+          padding: '12px 0 14px',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 14px 12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Film size={22} color="#1877f2" />
+            <span style={{ fontSize: 24, fontWeight: 700, color: '#e4e6eb' }}>
+              Reels
+            </span>
+          </div>
+          <PostMenu
+            item={{
+              id: reel.id,
+              user_id: reel.user_id,
+              type: 'reel',
+              content: reel.caption,
+              caption: reel.caption,
+              author: reel.author,
+            }}
+            currentUser={{ id: Number(localStorage.getItem('user_id')) }}
+            onShare={(item) => {
+              console.log('Share reel:', item);
+            }}
+          />
+        </div>
+        <div
+          onClick={openReel}
+          style={{
+            position: 'relative',
+            width: 'calc(100% - 28px)',
+            margin: '0 14px',
+            aspectRatio: '9 / 16',
+            maxHeight: '75vh',
+            borderRadius: 24,
+            overflow: 'hidden',
+            background: '#111',
+            cursor: 'pointer',
+          }}
+        >
+          {reel.thumbnail ? (
+            <img
+              src={reel.thumbnail}
+              alt={reel.caption || 'Reel preview'}
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+                objectFit: 'cover',
+              }}
+            />
+          ) : (
+            <video
+              src={reel.video}
+              muted
+              playsInline
+              preload="metadata"
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+                objectFit: 'cover',
+              }}
+            />
+          )}
+
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background:
+                'linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0.10), rgba(0,0,0,0.25))',
+            }}
+          />
+
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+            }}
+          >
+            <div
+              style={{
+                width: 74,
+                height: 74,
+                borderRadius: '50%',
+                border: '3px solid rgba(255,255,255,0.95)',
+                background: 'rgba(255,255,255,0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Play size={36} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
+            </div>
+          </div>
+
+          <div
+            style={{
+              position: 'absolute',
+              left: 14,
+              right: 14,
+              bottom: 12,
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  color: '#fff',
+                  fontSize: 17,
+                  fontWeight: 700,
+                  marginBottom: 6,
+                  textShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                }}
+              >
+                {reel.author}
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  color: '#fff',
+                  fontSize: 16,
+                  fontWeight: 700,
+                  textShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                }}
+              >
+                <Eye size={20} />
+                <span>{formatReelCount(reel.views)}</span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: '50%',
+                overflow: 'hidden',
+                border: '2px solid #fff',
+                background: '#1877f2',
+                flexShrink: 0,
+              }}
+            >
+              {reel.avatar ? (
+                <img
+                  src={reel.avatar}
+                  alt={reel.author}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    display: 'block',
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 18,
+                  }}
+                >
+                  {(reel.author || 'U').charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {reel.songName && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 12,
+                right: 12,
+                background: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(4px)',
+                padding: '4px 8px',
+                borderRadius: 20,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                border: '1px solid rgba(255,255,255,0.2)',
+              }}
+            >
+              <i
+                className="fas fa-music"
+                style={{ color: '#1877F2', fontSize: 12 }}
+              ></i>
+              <span
+                style={{
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 'bold',
+                  maxWidth: 80,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {reel.songName}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  },
+  reelCardPropsEqual
+);
