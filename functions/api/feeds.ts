@@ -1153,7 +1153,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 9) SPONSORED / ADS POSTS - WITH is_sponsored FLAG
+    // 9) SPONSORED / ADS POSTS - MODIFIED WITH is_sponsored FLAG
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
@@ -1176,7 +1176,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       SELECT
         'sponsored' AS source,
         'sponsored' AS item_type,
-        1 AS is_sponsored,  -- ✅ Flag for frontend to identify sponsored posts
+        1 AS is_sponsored,  -- ✅ ADDED: Flag for frontend to identify sponsored posts
 
         a.id AS id,
         ('ad:' || CAST(a.id AS TEXT)) AS feed_key,
@@ -1220,25 +1220,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         a.media_urls AS media_urls,
         a.media_types AS media_types,
 
-        -- Original post metrics
-        CASE 
-          WHEN a.post_id IS NOT NULL 
-          THEN (SELECT COUNT(*) FROM post_reactions WHERE post_id = a.post_id)
-          ELSE 0 
-        END AS reactions_count,
-        
-        CASE 
-          WHEN a.post_id IS NOT NULL 
-          THEN (SELECT COUNT(*) FROM post_comments WHERE post_id = a.post_id)
-          ELSE 0 
-        END AS comments_count,
-        
-        CASE 
-          WHEN a.post_id IS NOT NULL 
-          THEN (SELECT shares FROM posts WHERE id = a.post_id)
-          ELSE 0 
-        END AS shares,
-
+        0 AS comments_count,
+        0 AS reactions_count,
         NULL AS my_reaction,
         NULL AS reactor_name,
         NULL AS reactions_preview,
@@ -1347,14 +1330,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       .all();
     const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results) ? freshProductsFeedRes.results : [];
 
-    // ✅ FRESH ADS QUERY - FIXED
-    let freshAdsQuery = baseSelectAds;
-    if (whereAdsSql) {
-      freshAdsQuery += ` ${whereAdsSql}`;
-    }
-    freshAdsQuery += ` ORDER BY RANDOM() LIMIT ?`;
-    
-    const freshAdsRes = await env.DB.prepare(freshAdsQuery)
+    // ✅ FRESH ADS QUERY
+    const freshAdsRes = await env.DB.prepare(
+      `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
+    )
       .bind(...bindsAds, Math.min(3, freshCount))
       .all();
     const freshAds = Array.isArray(freshAdsRes?.results) ? freshAdsRes.results : [];
@@ -1425,14 +1404,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         .all();
       exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results) ? exploreProductsFeedRes.results : [];
 
-      // ✅ EXPLORE ADS QUERY - FIXED
-      let exploreAdsQuery = baseSelectAds;
-      if (whereAdsSql) {
-        exploreAdsQuery += ` ${whereAdsSql}`;
-      }
-      exploreAdsQuery += ` ORDER BY RANDOM() LIMIT ?`;
-      
-      const exploreAdsRes = await env.DB.prepare(exploreAdsQuery)
+      // ✅ EXPLORE ADS QUERY
+      const exploreAdsRes = await env.DB.prepare(
+        `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
+      )
         .bind(...bindsAds, Math.min(2, exploreCount))
         .all();
       exploreAds = Array.isArray(exploreAdsRes?.results) ? exploreAdsRes.results : [];
