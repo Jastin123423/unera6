@@ -7364,22 +7364,6 @@ interface FeedProps {
   onLoginClick?: () => void;
 }
 
-// ==================== EXPORTED HELPERS ====================
-export {
-  getMediaTypeInfo,
-  getMarketplaceImages,
-  getMarketplacePriceLine,
-  normalizeEventFromFeed,
-  topReactionEmojis,
-  safeArray,
-  safeNumber,
-  safeString,
-  safePostId,
-  safeUserId,
-  avatarFrom,
-  formatReelCount,
-  getReelAuthorName,
-};
 
 /**
  * =========================
