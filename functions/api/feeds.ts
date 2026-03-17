@@ -1381,17 +1381,31 @@ const baseSelectAds = `
       .all();
     const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results) ? freshProductsFeedRes.results : [];
 
-    // ✅ FRESH ADS QUERY
-    const freshAdsRes = await env.DB.prepare(
-      `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
-    )
-      .bind(...bindsAds, Math.min(3, freshCount))
-      .all();
-    const freshAds = Array.isArray(freshAdsRes?.results) ? freshAdsRes.results : [];
+  // ✅ FRESH ADS QUERY - FIXED
+let freshAdsQuery = baseSelectAds;
+if (whereAdsSql) {
+  freshAdsQuery += ` ${whereAdsSql}`;
+}
+freshAdsQuery += ` ORDER BY RANDOM() LIMIT ?`;
 
-    const freshProductsRes = await env.DB.prepare(selectProducts).bind(...bindsProducts, freshCount).all();
-    const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
+const freshAdsRes = await env.DB.prepare(freshAdsQuery)
+  .bind(...bindsAds, Math.min(3, freshCount))
+  .all();
+const freshAds = Array.isArray(freshAdsRes?.results) ? freshAdsRes.results : [];
 
+// ✅ EXPLORE ADS QUERY - FIXED
+let exploreAdsQuery = baseSelectAds;
+if (whereAdsSql) {
+  exploreAdsQuery += ` ${whereAdsSql}`;
+}
+exploreAdsQuery += ` ORDER BY RANDOM() LIMIT ?`;
+
+const exploreAdsRes = await env.DB.prepare(exploreAdsQuery)
+  .bind(...bindsAds, Math.min(2, exploreCount))
+  .all();
+const exploreAds = Array.isArray(exploreAdsRes?.results) ? exploreAdsRes.results : [];
+    
+    
     // ============================================================
     // RUN QUERIES (Explore)
     // ============================================================
