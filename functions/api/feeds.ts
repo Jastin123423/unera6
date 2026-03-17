@@ -1152,8 +1152,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-      // ============================================================
-// 9) SPONSORED / ADS POSTS - WITH is_sponsored FLAG
+     // ============================================================
+// 9) SPONSORED / ADS POSTS - WITH is_sponsored FLAG (FIXED)
 // ============================================================
 const whereAds: string[] = [];
 const bindsAds: any[] = [];
@@ -1176,7 +1176,7 @@ const baseSelectAds = `
   SELECT
     'sponsored' AS source,
     'sponsored' AS item_type,
-    1 AS is_sponsored,  -- ✅ ADDED: Flag for frontend to identify sponsored posts
+    1 AS is_sponsored,
 
     a.id AS id,
     ('ad:' || CAST(a.id AS TEXT)) AS feed_key,
@@ -1202,7 +1202,6 @@ const baseSelectAds = `
     COALESCE(u.is_verified, 0) AS is_verified,
     COALESCE(u.role, 'business') AS role,
 
-    -- Ad content using your schema's column names
     a.title AS headline,
     a.title AS content,
     a.description AS description,
@@ -1216,11 +1215,9 @@ const baseSelectAds = `
 
     a.media_url AS media_url,
     a.media_type AS media_type,
-
     a.media_urls AS media_urls,
     a.media_types AS media_types,
 
-    -- Original post metrics from the promoted post
     CASE 
       WHEN a.post_id IS NOT NULL 
       THEN (SELECT COUNT(*) FROM post_reactions WHERE post_id = a.post_id)
@@ -1283,11 +1280,9 @@ const baseSelectAds = `
 
     'Sponsored' AS reason,
     a.campaign_name AS campaign_name,
-
     a.target_location AS target_location,
     a.target_country AS target_country,
     a.target_city AS target_city,
-
     a.status AS campaign_status,
     a.start_date AS start_date,
     a.end_date AS end_date,
@@ -1303,6 +1298,24 @@ const baseSelectAds = `
   ${whereAdsSql}
   ORDER BY a.created_at DESC
 `;
+
+// Then when you run the query, use it like this:
+const freshAdsRes = await env.DB.prepare(
+  `${baseSelectAds} LIMIT ?`
+)
+  .bind(...bindsAds, Math.min(3, freshCount))
+  .all();
+const freshAds = Array.isArray(freshAdsRes?.results) ? freshAdsRes.results : [];
+
+// And for explore ads:
+const exploreAdsRes = await env.DB.prepare(
+  `${baseSelectAds} ORDER BY RANDOM() LIMIT ?`
+)
+  .bind(...bindsAds, Math.min(2, exploreCount))
+  .all();
+const exploreAds = Array.isArray(exploreAdsRes?.results) ? exploreAdsRes.results : [];
+  
+    
 
     // ============================================================
     // RUN QUERIES (Fresh)
