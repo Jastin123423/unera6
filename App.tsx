@@ -38,15 +38,11 @@ import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
 import Recorder from './components/Recorder';
 import { NotificationsPage } from './components/NotificationsPage';
+// 1️⃣ ADD AD DASHBOARD IMPORTS
 import Dashboard from './components/Dashboard';
 import AdCreator from './components/AdCreator';
 import AdsManager from './components/AdsManager';
-
-// 📸 SEAMLESS IMAGE SYSTEM IMPORTS
-import { imagePreloader } from './utils/imagePreloader';
-import { useViewportPreloader } from './hooks/useViewportPreloader';
-import './styles/seamless-images.css';
-
+// 2️⃣ ADD FONT AWESOME IMPORTS FOR ICONS
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faChartLine, 
@@ -537,17 +533,6 @@ const normalizePost = (p: any): PostType => {
     typeof p?.mediaUrls === "string" ? (() => { try { return JSON.parse(p.mediaUrls); } catch { return []; } })() :
     [];
 
-  // 📸 NEW: Extract image versions from meta
-  const imageVersions = p?.meta?.image_versions || [];
-  
-  // 📸 Create enhanced media URLs with versions if available
-  const enhancedMediaUrls = imageVersions.length ? imageVersions : 
-    mediaUrls.map(url => ({
-      full: url,
-      feed: url, // Fallback to same URL
-      thumb: url  // Fallback to same URL
-    }));
-
   const mediaTypes =
     Array.isArray(p?.media_types) ? p.media_types :
     typeof p?.media_types === "string" ? (() => { try { return JSON.parse(p.media_types); } catch { return []; } })() :
@@ -600,9 +585,6 @@ const normalizePost = (p: any): PostType => {
 
     media_urls: mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : []),
     media_types: mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : []),
-    
-    // 📸 NEW: Add enhanced media URLs with versions
-    enhanced_media_urls: enhancedMediaUrls,
 
     reactions: safeArray(p?.reactions),
     comments: safeArray(p?.comments),
@@ -1153,15 +1135,7 @@ const fetchUserFollowData = async (userId: number): Promise<{ followers: number[
   }
 };
 
-// 📸 UPDATED: uploadToCloudflareR2 with 3 image sizes support
-const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ 
-  url: string; 
-  type: string; 
-  filename: string;
-  thumb?: string;
-  feed?: string;
-  full?: string;
-}> => {
+const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{ url: string; type: string; filename: string }> => {
   try {
     const formData = new FormData();
     formData.append('file', file);
@@ -1181,26 +1155,9 @@ const uploadToCloudflareR2 = async (file: File, folder = 'posts'): Promise<{
     }
 
     const result = await response.json();
-    
-    // 📸 Handle the new response format with multiple URLs
-    if (result.media_type === 'image' && result.media_urls) {
-      const urls = JSON.parse(result.media_urls);
-      return { 
-        url: urls.full, // For backward compatibility
-        thumb: urls.thumb,
-        feed: urls.feed,
-        full: urls.full,
-        type: file.type, 
-        filename: file.name 
-      };
-    }
-    
-    // Fallback for non-image uploads
-    return { 
-      url: result.url, 
-      type: file.type, 
-      filename: file.name 
-    };
+    if (!result.url) throw new Error('No URL returned from upload');
+
+    return { url: result.url, type: file.type, filename: file.name };
   } catch (error) {
     console.error('Upload failed:', error);
     throw error;
@@ -1294,7 +1251,7 @@ export type View =
   | 'register'
   | 'recorder'
   | 'notifications'
-  | 'ads';
+  | 'ads';  // 👈 ADD THIS
 
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -1767,6 +1724,7 @@ export default function App() {
     
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
+
   // ✅ ADDED: Incoming call polling effect
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -3872,7 +3830,6 @@ export default function App() {
     return onRSVPEvent(eventId, 'interested');
   }, [onRSVPEvent]);
 
-  // 📸 UPDATED: createEvent with image versions support
   const createEvent = useCallback(async (eventData: any) => {
     if (!requireAuth('Creating events')) return;
     if (!currentUser) return;
@@ -3886,23 +3843,8 @@ export default function App() {
     const t = apiTime || uiTime || '12:00';
     const eventDateISO = new Date(`${d}T${t}:00`).toISOString();
 
-    let cover = safeString(eventData?.cover_url ?? eventData?.image ?? eventData?.cover ?? eventData?.cover_image, '') || DEFAULT_EVENT_COVER;
-    let imageVersions = null;
-
-    // Handle file upload if provided
-    if (eventData.cover_file instanceof File) {
-      try {
-        const uploadResult = await uploadToCloudflareR2(eventData.cover_file, 'events');
-        cover = uploadResult.url;
-        imageVersions = {
-          thumb: uploadResult.thumb,
-          feed: uploadResult.feed,
-          full: uploadResult.full
-        };
-      } catch (error) {
-        console.error('Failed to upload event cover:', error);
-      }
-    }
+    const cover =
+      safeString(eventData?.cover_url ?? eventData?.image ?? eventData?.cover ?? eventData?.cover_image, '') || DEFAULT_EVENT_COVER;
 
     const payload = {
       title: safeString(eventData?.title).trim(),
@@ -3913,7 +3855,6 @@ export default function App() {
       visibility: safeString(eventData?.visibility, 'worldwide'),
       cover_url: cover,
       image: cover,
-      image_versions: imageVersions,
       creator_id: Number(currentUser.id),
       creator_name: safeString(currentUser.name),
       creator_avatar: safeString(currentUser.profile_image_url),
@@ -3943,7 +3884,6 @@ export default function App() {
             time: newEvent.time,
             location: newEvent.location,
             cover_url: newEvent.cover_url,
-            image_versions: imageVersions,
             attendees: newEvent.attendees || [],
             interested: newEvent.interestedIds || [],
           }
@@ -4304,7 +4244,6 @@ export default function App() {
     let media_url: string | null = null;
     let media_urls: string[] = [];
     let media_types: string[] = [];
-    let image_versions: any[] = [];
 
     if (files) {
       const fileArray = Array.isArray(files) ? files : (files ? [files] : []);
@@ -4319,14 +4258,6 @@ export default function App() {
           
           media_urls = uploadResults.map(r => r.url);
           media_types = uploadResults.map(r => r.type);
-          
-          // Store image versions for images
-          image_versions = uploadResults.map(r => ({
-            thumb: r.thumb,
-            feed: r.feed,
-            full: r.full,
-            url: r.url
-          })).filter(v => v.thumb); // Only include images
           
           media_url = media_urls[0] || null;
         } catch (error) {
@@ -4349,14 +4280,29 @@ export default function App() {
         payload.media_types = media_types;
       }
 
-      // Add image versions to metadata if available
-      if (image_versions.length > 0) {
-        payload.meta = {
-          ...(metadata || {}),
-          image_versions
-        };
-      } else if (metadata) {
-        payload.meta = metadata;
+      if (metadata) {
+        if (metadata.job_title) payload.job_title = metadata.job_title;
+        if (metadata.company) payload.company = metadata.company;
+        if (metadata.street) payload.street = metadata.street;
+        if (metadata.district) payload.district = metadata.district;
+        if (metadata.region) payload.region = metadata.region;
+        if (metadata.country) payload.country = metadata.country;
+        if (metadata.location) payload.location = metadata.location;
+        if (metadata.salary) payload.salary = metadata.salary;
+        if (metadata.job_type) payload.job_type = metadata.job_type;
+        if (metadata.application_type) payload.application_type = metadata.application_type;
+        if (metadata.application_value) payload.application_value = metadata.application_value;
+        if (metadata.expiry_date) payload.expiry_date = metadata.expiry_date;
+
+        if (metadata.price) payload.price = metadata.price;
+        if (metadata.currency) payload.currency = metadata.currency;
+        if (metadata.condition) payload.condition = metadata.condition;
+        if (metadata.status) payload.status = metadata.status;
+
+        if (metadata.artist) payload.artist = metadata.artist;
+        if (metadata.series) payload.series = metadata.series;
+        if (metadata.episode) payload.episode = metadata.episode;
+        if (metadata.duration) payload.duration = metadata.duration;
       }
 
       console.log('Creating group post with payload:', payload);
@@ -4468,29 +4414,12 @@ export default function App() {
     
     const location = String(eventData.location || "").trim();
     
-    let cover_url = String(
+    const cover_url = String(
       eventData.cover_url || 
       eventData.cover_image || 
       eventData.image || 
       DEFAULT_EVENT_COVER
     ).trim();
-
-    let imageVersions = null;
-
-    // Handle file upload if provided
-    if (eventData.cover_file instanceof File) {
-      try {
-        const uploadResult = await uploadToCloudflareR2(eventData.cover_file, 'group-events');
-        cover_url = uploadResult.url;
-        imageVersions = {
-          thumb: uploadResult.thumb,
-          feed: uploadResult.feed,
-          full: uploadResult.full
-        };
-      } catch (error) {
-        console.error('Failed to upload group event cover:', error);
-      }
-    }
 
     if (!title) throw new Error('Event title is required');
     if (!event_date) throw new Error('Event date is required');
@@ -4505,7 +4434,6 @@ export default function App() {
       event_date,
       location,
       cover_url,
-      image_versions: imageVersions,
       visibility: String(eventData.visibility || "worldwide"),
     };
 
@@ -4591,7 +4519,6 @@ export default function App() {
     }
   }, [requireAdmin]);
 
-  // 📸 UPDATED: updateGroupImage with image versions
   const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
     if (!requireAuth("Updating group image")) return;
 
@@ -4600,21 +4527,7 @@ export default function App() {
       const imageUrl = uploadResult.url;
 
       const field = type === 'cover' ? 'cover_image' : 'profile_image';
-      
-      // Store image versions in meta
-      const imageVersions = {
-        thumb: uploadResult.thumb,
-        feed: uploadResult.feed,
-        full: uploadResult.full
-      };
-      
-      await updateGroupSettings(groupId, { 
-        [field]: imageUrl,
-        meta: {
-          [`${type}_image_versions`]: imageVersions
-        }
-      } as any);
-      
+      await updateGroupSettings(groupId, { [field]: imageUrl } as any);
       return imageUrl;
     } catch (error) {
       console.error('Failed to update group image:', error);
@@ -4686,76 +4599,6 @@ export default function App() {
       window.removeEventListener('popstate', handleBackButton);
     };
   }, [goBack]);
-
-  // ============================================================================
-  // ✅ SERVICE WORKER REGISTRATION FOR SEAMLESS IMAGES
-  // ============================================================================
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', async () => {
-        try {
-          const registration = await navigator.serviceWorker.register('/sw.js', {
-            scope: '/',
-            updateViaCache: 'none'
-          });
-          
-          console.log('✅ ServiceWorker registered:', registration.scope);
-
-          // Check for updates every hour
-          setInterval(() => {
-            registration.update();
-          }, 60 * 60 * 1000);
-
-        } catch (error) {
-          console.error('❌ ServiceWorker registration failed:', error);
-        }
-      });
-    }
-  }, []);
-
-  // ============================================================================
-  // ✅ NETWORK QUALITY DETECTION
-  // ============================================================================
-  useEffect(() => {
-    if ('connection' in navigator) {
-      const connection = (navigator as any).connection;
-      
-      const updateNetworkQuality = () => {
-        const effectiveType = connection.effectiveType; // '4g', '3g', '2g'
-        const saveData = connection.saveData; // true if data saver on
-        
-        // Store in localStorage for components to use
-        localStorage.setItem('network-quality', effectiveType);
-        localStorage.setItem('save-data', saveData ? 'true' : 'false');
-      };
-      
-      updateNetworkQuality();
-      connection.addEventListener('change', updateNetworkQuality);
-      
-      return () => connection.removeEventListener('change', updateNetworkQuality);
-    }
-  }, []);
-
-  // ============================================================================
-  // ✅ OFFLINE DETECTION
-  // ============================================================================
-  useEffect(() => {
-    const handleOnline = () => {
-      document.body.classList.remove('offline');
-    };
-    
-    const handleOffline = () => {
-      document.body.classList.add('offline');
-    };
-    
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
 
   // 5️⃣ ADD USE EFFECT TO LOAD ADS
   useEffect(() => {
@@ -5391,7 +5234,6 @@ export default function App() {
     navigateTo(target);
   }, [currentUser, navigateTo, openProfile]);
 
-  // 📸 UPDATED: createPost with image versions support
   const createPost = useCallback(
     async (
       text: string,
@@ -5415,20 +5257,10 @@ export default function App() {
 
       let media_urls: string[] = [];
       let media_types: string[] = [];
-      let image_versions: any[] = [];
 
       if (list.length) {
         try {
           const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
-          
-          // 📸 Store all versions for images
-          image_versions = ups.map(u => ({
-            thumb: u.thumb,
-            feed: u.feed,
-            full: u.full,
-            url: u.url
-          })).filter(v => v.thumb); // Only include images
-          
           media_urls = ups.map((u) => u.url).filter(Boolean);
           media_types = ups.map((u) => u.type).filter(Boolean);
         } catch (error: any) {
@@ -5449,12 +5281,6 @@ export default function App() {
 
         media_urls: media_urls.length ? media_urls : undefined,
         media_types: media_types.length ? media_types : undefined,
-        
-        // 📸 NEW: Store all image versions in meta
-        meta: {
-          ...(meta || {}),
-          image_versions: image_versions.length ? image_versions : undefined
-        },
 
         visibility: meta?.visibility ?? 'public',
         location: meta?.location,
@@ -5476,11 +5302,6 @@ export default function App() {
 
       const newPostRaw =
         data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
-
-      // 📸 Store image versions in the post for later use
-      if (image_versions.length) {
-        (newPostRaw as any).image_versions = image_versions;
-      }
 
       (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
       (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
@@ -5719,7 +5540,6 @@ export default function App() {
     [requireAuth, currentUser]
   );
 
-  // 📸 UPDATED: updateProfileImage with image versions
   const updateProfileImage = useCallback(
     async (file: File) => {
       if (!requireAuth('Updating profile')) return;
@@ -5732,18 +5552,7 @@ export default function App() {
 
       try {
         const uploadResult = await uploadToCloudflareR2(file, 'profiles');
-        
-        // Store image versions in user meta
-        const imageVersions = {
-          thumb: uploadResult.thumb,
-          feed: uploadResult.feed,
-          full: uploadResult.full
-        };
-        
-        await updateUserDetails({ 
-          profile_image_url: uploadResult.url,
-          profile_image_versions: imageVersions
-        } as any);
+        await updateUserDetails({ profile_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload profile image: ${error.message}`);
       }
@@ -5751,7 +5560,6 @@ export default function App() {
     [requireAuth, currentUser, updateUserDetails]
   );
 
-  // 📸 UPDATED: updateCoverImage with image versions
   const updateCoverImage = useCallback(
     async (file: File) => {
       if (!requireAuth('Updating profile')) return;
@@ -5764,18 +5572,7 @@ export default function App() {
 
       try {
         const uploadResult = await uploadToCloudflareR2(file, 'covers');
-        
-        // Store image versions in user meta
-        const imageVersions = {
-          thumb: uploadResult.thumb,
-          feed: uploadResult.feed,
-          full: uploadResult.full
-        };
-        
-        await updateUserDetails({ 
-          cover_image_url: uploadResult.url,
-          cover_image_versions: imageVersions
-        } as any);
+        await updateUserDetails({ cover_image_url: uploadResult.url } as any);
       } catch (error: any) {
         setLoginError(`Failed to upload cover image: ${error.message}`);
       }
@@ -5927,9 +5724,6 @@ export default function App() {
     );
   }, [events, onRSVPEvent]);
 
-  // ============================================================================
-  // ✅ RENDER METHOD
-  // ============================================================================
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
       <Header
@@ -5938,6 +5732,7 @@ export default function App() {
         onReelsClick={() => navigateTo('reels')}
         onMarketplaceClick={() => navigateTo('marketplace')}
         onGroupsClick={() => navigateTo('groups')}
+        // 7️⃣ ADD ADS CLICK HANDLER
         onAdsClick={() => {
           if (!currentUser) {
             setLoginError('Please login to access ads dashboard.');
@@ -5981,9 +5776,6 @@ export default function App() {
         <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
           {view === 'home' && (
             <div className="w-full pt-4 md:px-8 pb-10">
-              {/* 📸 Add viewport preloader hook */}
-              {useViewportPreloader(feedItems)}
-              
               {activeHashtag && (
                 <div className="mb-3 px-4">
                   <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
@@ -6142,6 +5934,7 @@ export default function App() {
                             followLoading={followLoading[postAuthorId] || false}
                             onViewProductFromPost={openProductFromPost}
                             onRSVPEvent={onRSVPEvent}
+                            // 👇 ONLY SHOW PUSH BUTTON IF USER IS POST OWNER OR ADMIN
                             pushButton={showPushButton ? (
                               <button
                                 onClick={() => pushMore(item.id)}
@@ -6736,7 +6529,6 @@ export default function App() {
       {showCreateEventModal && currentUser && (
         <CreateEventModal
           currentUser={currentUser}
-          songs={songs}
           onClose={() => setShowCreateEventModal(false)}
           onCreate={async (eventData) => {
             try {
@@ -7001,4 +6793,3 @@ export default function App() {
       )}
     </div>
   );
-}
