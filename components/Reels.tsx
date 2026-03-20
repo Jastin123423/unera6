@@ -73,11 +73,68 @@ interface Sound {
   originalUrl?: string;
 }
 
+type NetworkLevel = 'low' | 'medium' | 'high';
+
+type ReelVideoSources = {
+  low?: string;
+  medium?: string;
+  hd?: string;
+};
+
+// ==================== NETWORK / QUALITY HELPERS ====================
+const getNetworkLevel = (): NetworkLevel => {
+  const nav = navigator as any;
+  const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+
+  if (!conn) return 'medium';
+
+  const effectiveType = String(conn.effectiveType || '').toLowerCase();
+  const downlink = Number(conn.downlink || 0);
+  const saveData = Boolean(conn.saveData);
+
+  if (saveData) return 'low';
+  if (effectiveType.includes('2g') || effectiveType === 'slow-2g') return 'low';
+  if (effectiveType === '3g') return 'medium';
+  if (downlink >= 8) return 'high';
+  if (downlink >= 2) return 'medium';
+
+  return 'low';
+};
+
+const getReelVideoSources = (reel: Reel): ReelVideoSources => ({
+  low:
+    (reel as any).videoUrlLow ||
+    (reel as any).video_url_low ||
+    (reel as any).video_low ||
+    '',
+  medium:
+    (reel as any).videoUrlMedium ||
+    (reel as any).video_url_medium ||
+    reel.videoUrl ||
+    (reel as any).video_url ||
+    '',
+  hd:
+    (reel as any).videoUrlHd ||
+    (reel as any).video_url_hd ||
+    (reel as any).video_hd ||
+    '',
+});
+
+const pickBestVideoUrl = (sources: ReelVideoSources, networkLevel: NetworkLevel): string => {
+  if (networkLevel === 'low') {
+    return sources.low || sources.medium || sources.hd || '';
+  }
+  if (networkLevel === 'medium') {
+    return sources.medium || sources.low || sources.hd || '';
+  }
+  return sources.hd || sources.medium || sources.low || '';
+};
+
 // ==================== REACTION EMOJIS ====================
 const REACTION_EMOJIS = [
   '❤️', '🙏', '👍', '💪', '👀', '😊', '😍', '🤣', '😭', '😂', '😟', '🤑',
   '😝', '😋', '🤧', '😪', '👏', '🤘', '✌️', '🤛', '🤝', '🖕', '🖐', '🙆‍♂️',
-  '🤦', '🤷‍♂️', '🫂'
+  '🤦', '🤷‍♂️', '🫂',
 ];
 
 // ==================== FORMAT VIEW COUNT HELPER ====================
@@ -167,7 +224,6 @@ const ReelCommentsSheet: React.FC<{
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!isDragging || !sheetRef.current) return;
-
     const deltaY = e.touches[0].clientY - startYRef.current;
     if (deltaY > 0) setTranslateY(deltaY);
   };
@@ -464,12 +520,10 @@ const ReelCommentsSheet: React.FC<{
                               <img
                                 src={
                                   users.find(
-                                    (u: any) =>
-                                      Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
+                                    (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
                                   )?.profile_image_url ||
                                   users.find(
-                                    (u: any) =>
-                                      Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
+                                    (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
                                   )?.profileImage ||
                                   'https://via.placeholder.com/40'
                                 }
@@ -480,8 +534,7 @@ const ReelCommentsSheet: React.FC<{
                               <div className="flex-1 min-w-0">
                                 <p className="text-white font-black text-[22px] leading-none mb-2">
                                   {users.find(
-                                    (u: any) =>
-                                      Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
+                                    (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
                                   )?.name || 'User'}
                                 </p>
 
@@ -1040,13 +1093,17 @@ const ReelThumbnail: React.FC<{
   reel: Reel;
   onClick: () => void;
 }> = ({ reel, onClick }) => {
+  const sources = getReelVideoSources(reel);
+  const videoSrc = sources.low || sources.medium || sources.hd || reel.videoUrl || (reel as any).video_url || '';
+
   return (
     <div onClick={onClick} className="aspect-[9/16] bg-white/5 relative cursor-pointer group overflow-hidden">
       <video
-        src={reel.videoUrl || (reel as any).video_url}
+        src={videoSrc}
         className="w-full h-full object-cover group-hover:scale-110 transition-transform"
         muted
         playsInline
+        preload="metadata"
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       <div className="absolute bottom-2 left-2 flex items-center gap-1.5 text-white text-[10px] font-black bg-black/40 px-2 py-1 rounded-lg backdrop-blur-md">
@@ -1193,7 +1250,7 @@ const EditReelModal: React.FC<{
   );
 };
 
-// ==================== ENHANCED REELS FEED ====================
+// ==================== REELS FEED ====================
 interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
@@ -1270,10 +1327,12 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [savingReelEdit, setSavingReelEdit] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
 
+  const [networkLevel, setNetworkLevel] = useState<NetworkLevel>(getNetworkLevel());
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
   const [resolvedAudioUrls, setResolvedAudioUrls] = useState<Record<number, string>>({});
 
   const viewedReelsRef = useRef<Set<number>>(new Set());
+  const preloadLinksRef = useRef<Map<string, HTMLLinkElement>>(new Map());
 
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -1290,15 +1349,60 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [reels, activeReelId]
   );
 
+  // React to network changes
+  useEffect(() => {
+    const nav = navigator as any;
+    const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+    if (!conn?.addEventListener) return;
+
+    const handleChange = () => {
+      const next = getNetworkLevel();
+      setNetworkLevel(next);
+      setResolvedVideoUrls({});
+    };
+
+    conn.addEventListener('change', handleChange);
+    return () => conn.removeEventListener('change', handleChange);
+  }, []);
+
+  // Cleanup preload links on unmount
+  useEffect(() => {
+    return () => {
+      preloadLinksRef.current.forEach((link) => link.remove());
+      preloadLinksRef.current.clear();
+    };
+  }, []);
+
+  const addPreloadLink = useCallback((href: string) => {
+    if (!href || preloadLinksRef.current.has(href)) return;
+
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'video';
+    link.href = href;
+    document.head.appendChild(link);
+    preloadLinksRef.current.set(href, link);
+
+    setTimeout(() => {
+      const existing = preloadLinksRef.current.get(href);
+      if (existing) {
+        existing.remove();
+        preloadLinksRef.current.delete(href);
+      }
+    }, 5000);
+  }, []);
+
   const resolveReelMedia = useCallback(
     async (reel: Reel) => {
       const id = reel.id;
-      const videoUrl = reel.videoUrl || (reel as any).video_url || '';
       const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
 
       try {
-        if (videoUrl && !resolvedVideoUrls[id]) {
-          setResolvedVideoUrls((prev) => (prev[id] ? prev : { ...prev, [id]: videoUrl }));
+        const videoSources = getReelVideoSources(reel);
+        const pickedVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
+
+        if (pickedVideoUrl && !resolvedVideoUrls[id]) {
+          setResolvedVideoUrls((prev) => (prev[id] ? prev : { ...prev, [id]: pickedVideoUrl }));
         }
 
         if (audioUrl && !resolvedAudioUrls[id]) {
@@ -1314,28 +1418,58 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         console.warn('Failed to resolve reel media', err);
       }
     },
-    [resolvedVideoUrls, resolvedAudioUrls]
+    [networkLevel, resolvedVideoUrls, resolvedAudioUrls]
   );
 
-  const warmReelMedia = useCallback(async (reel: Reel) => {
-    try {
-      const videoUrl = reel.videoUrl || (reel as any).video_url;
-      const audioUrl = reel.audioUrl || (reel as any).audio_url;
+  const warmReelMedia = useCallback(
+    async (reel: Reel) => {
+      try {
+        const videoSources = getReelVideoSources(reel);
+        const pickedVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
+        const audioUrl = reel.audioUrl || (reel as any).audio_url;
 
-      if (videoUrl) {
-        const link = document.createElement('link');
-        link.rel = 'preload';
-        link.as = 'video';
-        link.href = videoUrl;
-        document.head.appendChild(link);
-        setTimeout(() => link.remove(), 5000);
+        if (pickedVideoUrl) {
+          addPreloadLink(pickedVideoUrl);
+        }
+
+        if (audioUrl) {
+          await fetchAsBlobUrl(audioUrl, 'audio');
+        }
+      } catch (err) {
+        console.warn('Failed to warm reel media', err);
       }
+    },
+    [networkLevel, addPreloadLink]
+  );
 
-      if (audioUrl) await fetchAsBlobUrl(audioUrl, 'audio');
-    } catch (err) {
-      console.warn('Failed to warm reel media', err);
-    }
-  }, []);
+  const unloadFarVideos = useCallback(
+    (activeId: number) => {
+      const currentIndex = reels.findIndex((r) => r.id === activeId);
+      if (currentIndex === -1) return;
+
+      reels.forEach((reel, index) => {
+        const video = videoRefs.current[reel.id];
+        if (!video) return;
+
+        const distance = Math.abs(index - currentIndex);
+
+        if (distance > 1) {
+          try {
+            video.pause();
+            video.muted = true;
+
+            if (video.getAttribute('src')) {
+              video.removeAttribute('src');
+              video.load();
+            }
+          } catch (err) {
+            console.warn('Failed to unload video', err);
+          }
+        }
+      });
+    },
+    [reels]
+  );
 
   useEffect(() => {
     if (!activeReelId || reels.length === 0) return;
@@ -1349,7 +1483,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const targets = [
         reels[currentIndex],
         reels[currentIndex + 1],
-        reels[currentIndex + 2],
         reels[currentIndex - 1],
       ].filter(Boolean) as Reel[];
 
@@ -1357,7 +1490,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         warmReelMedia(reel);
         resolveReelMedia(reel);
       });
-    }, 300);
+    }, 200);
 
     return () => {
       if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
@@ -1369,13 +1502,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     const reel = reels.find((r) => r.id === activeReelId);
     if (reel) resolveReelMedia(reel);
   }, [activeReelId, reels, resolveReelMedia]);
-
-  useEffect(() => {
-    if (!activeReelId || activeIndex === -1) return;
-    [reels[activeIndex + 1], reels[activeIndex + 2]]
-      .filter(Boolean)
-      .forEach((r) => resolveReelMedia(r as Reel));
-  }, [activeReelId, activeIndex, reels, resolveReelMedia]);
 
   useEffect(() => {
     activeIdRef.current = playingReelId;
@@ -1443,7 +1569,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const url = resolvedAudioUrls[id] || originalAudioUrl;
       if (!url) return;
 
-      if (audio.src !== url) audio.src = url;
+      if (audio.src !== url) {
+        audio.src = url;
+      }
 
       const start = reel.audioStart || (reel as any).audio_start || 0;
       const end = reel.audioEnd || (reel as any).audio_end || Infinity;
@@ -1460,7 +1588,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           audio.currentTime = expectedTime;
         }
 
-        if (audio.paused) audio.play().catch(() => {});
+        if (audio.paused) {
+          audio.play().catch(() => {});
+        }
       };
 
       video.addEventListener('timeupdate', syncAudio);
@@ -1492,7 +1622,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       Object.entries(videoRefs.current).forEach(([key, video]) => {
         if (!video) return;
         const rid = Number(key);
-
         if (rid !== id) {
           video.pause();
           video.currentTime = 0;
@@ -1507,8 +1636,17 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       if (!video || !reel) return;
 
       await resolveReelMedia(reel);
-
       if (playRequestRef.current !== requestId) return;
+
+      const chosenUrl =
+        resolvedVideoUrls[id] || pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
+
+      if (chosenUrl && video.getAttribute('src') !== chosenUrl) {
+        video.src = chosenUrl;
+        video.load();
+      }
+
+      unloadFarVideos(id);
 
       setActiveReelId(id);
       setPlayingReelId(id);
@@ -1521,13 +1659,26 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
         await video.play();
 
-        if (userInteractedRef.current) startAudioForReel(id);
+        if (userInteractedRef.current) {
+          startAudioForReel(id);
+        }
+
         incrementViewCount(id);
       } catch (err) {
         console.warn('Autoplay/play failed', err);
       }
     },
-    [stopAudio, reels, resolveReelMedia, waitUntilPlayable, startAudioForReel, incrementViewCount]
+    [
+      stopAudio,
+      reels,
+      resolveReelMedia,
+      resolvedVideoUrls,
+      networkLevel,
+      unloadFarVideos,
+      waitUntilPlayable,
+      startAudioForReel,
+      incrementViewCount,
+    ]
   );
 
   useEffect(() => {
@@ -1552,7 +1703,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const video = videoRefs.current[id];
       if (video) {
         video.muted = false;
-        if (video.paused) video.play().catch(() => {});
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
       }
 
       startAudioForReel(id);
@@ -1610,7 +1763,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     (reel: Reel): Sound => {
       const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
       const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
-
       const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
       const songName = reel.songName || (reel as any).song_name || 'Original Sound';
       const audioStart = reel.audioStart || (reel as any).audio_start || 0;
@@ -1626,7 +1778,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         creator: author,
         creationCount: 0,
         isOriginal: String(soundKey).startsWith('original:'),
-        soundKey: soundKey,
+        soundKey,
       };
     },
     [users]
@@ -1648,7 +1800,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       if (activeIdRef.current === reelId) {
         if (video.paused) {
           video.play().catch(() => {});
-          if (userInteractedRef.current) startAudioForReel(reelId);
+          if (userInteractedRef.current) {
+            startAudioForReel(reelId);
+          }
         } else {
           video.pause();
           stopAudio();
@@ -1679,7 +1833,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
     try {
       setSavingReelEdit(true);
-
       await Promise.resolve(
         onEditReel(editingReel.id, {
           caption: editingReelCaption,
@@ -1687,7 +1840,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           visibility: editingReelVisibility,
         })
       );
-
       setEditingReel(null);
     } catch (e: any) {
       alert(e?.message || 'Failed to update reel');
@@ -1721,7 +1873,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <audio ref={globalAudioRef} hidden playsInline />
+      <audio ref={globalAudioRef} hidden playsInline preload="metadata" />
 
       <div
         className="absolute top-0 left-0 right-0 z-30 px-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pointer-events-none"
@@ -1755,6 +1907,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         </button>
       </div>
 
+      <div className="absolute top-[66px] right-4 z-30 bg-black/45 border border-white/10 text-white/80 text-[10px] px-2 py-1 rounded-full backdrop-blur-sm">
+        Quality: {networkLevel.toUpperCase()}
+      </div>
+
       <div className="w-full h-full">
         <div
           ref={scrollerRef}
@@ -1766,9 +1922,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                 <i className="fas fa-video text-3xl text-[#1877F2]"></i>
               </div>
               <h3 className="text-xl font-black mb-2">No Reels Yet</h3>
-              <p className="text-[#B0B3B8] text-sm mb-8 text-center">
-                No reels available right now.
-              </p>
+              <p className="text-[#B0B3B8] text-sm mb-8 text-center">No reels available right now.</p>
             </div>
           ) : (
             reels.map((reel: Reel, reelIndex) => {
@@ -1781,8 +1935,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                 (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
               );
 
-              const originalVideoUrl = reel.videoUrl || (reel as any).video_url || '';
-              const videoUrl = resolvedVideoUrls[reel.id] || originalVideoUrl;
+              const videoSources = getReelVideoSources(reel);
+              const fallbackVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
+              const videoUrl = resolvedVideoUrls[reel.id] || fallbackVideoUrl;
               const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
 
               return (
@@ -1798,7 +1953,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       ref={(el) => {
                         if (el) videoRefs.current[reel.id] = el;
                       }}
-                      src={videoUrl}
+                      src={isNearActive ? videoUrl : undefined}
                       poster={(reel as any).thumbnail_url || (reel as any).thumbnail || ''}
                       preload={isNearActive ? 'auto' : 'metadata'}
                       playsInline
@@ -2025,14 +2180,6 @@ const styles = `
   animation: fade-in 0.3s ease-out;
 }
 
-@keyframes scale-in {
-  0% { transform: scale(0.9); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
-}
-.animate-scale-in {
-  animation: scale-in 0.3s ease-out;
-}
-
 @keyframes spin-slow {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -2079,8 +2226,11 @@ export {
   fetchAsBlobUrl,
   useAudioFocus,
   formatViewCount,
+  getNetworkLevel,
+  getReelVideoSources,
+  pickBestVideoUrl,
 };
 
-export type { Sound };
+export type { Sound, NetworkLevel, ReelVideoSources };
 
 export default ReelsFeed;
