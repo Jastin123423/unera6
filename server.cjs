@@ -34,7 +34,9 @@ function runFfmpeg(args) {
 
 function safeUnlink(filePath) {
   try {
-    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
   } catch {}
 }
 
@@ -46,10 +48,21 @@ function safeStat(filePath) {
   }
 }
 
+app.use(express.json());
+
 app.get('/', (_req, res) => {
   res.json({
     success: true,
     message: 'UNERA transcoder running',
+  });
+});
+
+app.get('/health', (_req, res) => {
+  res.json({
+    success: true,
+    ffmpeg: true,
+    tmp_dir: TMP_DIR,
+    output_dir: OUTPUT_DIR,
   });
 });
 
@@ -139,6 +152,7 @@ app.post('/transcode', upload.single('file'), async (req, res) => {
       success: true,
       input: {
         original_name: input.originalname,
+        mime_type: input.mimetype,
         temp_path: inputPath,
         size_bytes: input.size,
       },
@@ -180,6 +194,6 @@ app.post('/transcode', upload.single('file'), async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`UNERA transcoder listening on http://0.0.0.0:${PORT}`);
 });
