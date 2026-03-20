@@ -1,5 +1,4 @@
 // Feed.tsx – Fully optimized with React.memo, no duplicate exports
-// UPDATED WITH SEAMLESS IMAGE LOADING
 
 import React, {
   useEffect,
@@ -27,11 +26,6 @@ import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from '../postActionRegistry';
 import { PostMenu } from './Post/PostMenu';
-
-// ========== ADDED IMPORTS FOR SEAMLESS IMAGES ==========
-import { SeamlessImage } from './SeamlessImage';
-import { imagePreloader } from '../utils/imagePreloader';
-// =======================================================
 
 // ==================== ICON COMPONENTS ====================
 const Film: React.FC<{ size?: number; color?: string }> = ({
@@ -1200,7 +1194,6 @@ export const GalleryViewer = memo(
     );
   }
 );
-
 /**
  * =========================
  * ✅ SHARE BOTTOM SHEET
@@ -2354,6 +2347,7 @@ export const ReelFeedCard = memo(
   },
   reelCardPropsEqual
 );
+
 /**
  * =========================
  * ✅ GROUPS YOU MAY JOIN
@@ -3516,6 +3510,198 @@ export const EventFeedCard = memo(
     );
   }
 );
+/**
+ * =========================
+ * ✅ REACTION BUTTON
+ * =========================
+ */
+export const ReactionButton = memo(
+  ({
+    currentUserReactions,
+    reactionCount,
+    onReact,
+    isGuest,
+  }: {
+    currentUserReactions: ReactionType | undefined;
+    reactionCount: number;
+    onReact: (type: ReactionType) => void;
+    isGuest?: boolean;
+  }) => {
+    const [showDock, setShowDock] = useState(false);
+    const [isAnimating, setIsAnimating] = useState(false);
+    const [showPreview, setShowPreview] = useState(false);
+    const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
+    const timerRef = useRef<any>(null);
+    const longPressTimerRef = useRef<any>(null);
+    const dockRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      ensureReactionStyles();
+    }, []);
+
+    const reactionConfig = [
+      { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
+      { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
+      { type: 'haha', icon: '😂', color: '#F7B928', label: 'Haha' },
+      { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
+      { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
+      { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
+      { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
+      { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
+      { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
+      { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
+      { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
+      { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
+      { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
+      { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
+      { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
+      { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
+      { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
+      { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
+      { type: 'unicorn', icon: '🦄', color: '#E040FB', label: 'Unicorn' },
+      { type: 'rainbow', icon: '🌈', color: '#00E676', label: 'Rainbow' },
+      { type: 'money', icon: '💰', color: '#4CAF50', label: 'Money' },
+      { type: 'muscle', icon: '💪', color: '#FF5722', label: 'Muscle' },
+      { type: 'brain', icon: '🧠', color: '#9C27B0', label: 'Brain' },
+      { type: 'lightning', icon: '⚡', color: '#FFEB3B', label: 'Lightning' },
+      { type: 'gem', icon: '💎', color: '#00BCD4', label: 'Gem' },
+    ] as const;
+
+    const handleMouseEnter = () => {
+      if (isGuest) return;
+      timerRef.current = setTimeout(() => setShowDock(true), 500);
+    };
+
+    const handleMouseLeave = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      setTimeout(() => setShowDock(false), 250);
+      setShowPreview(false);
+    };
+
+    const handleTouchStart = () => {
+      if (isGuest) return;
+      longPressTimerRef.current = setTimeout(() => {
+        setShowDock(true);
+        setShowPreview(true);
+        setPreviewEmoji('👍');
+      }, 600);
+    };
+
+    const handleTouchEnd = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+      setTimeout(() => setShowPreview(false), 300);
+    };
+
+    const handleClick = () => {
+      if (isGuest) return alert('Please login to react.');
+      if (currentUserReactions) {
+        setIsAnimating(true);
+        onReact(currentUserReactions);
+        setTimeout(() => setIsAnimating(false), 300);
+      } else {
+        setShowDock(!showDock);
+      }
+    };
+
+    const handleDockReact = (type: ReactionType) => {
+      setIsAnimating(true);
+      onReact(type);
+      setShowDock(false);
+      setShowPreview(false);
+      setTimeout(() => setIsAnimating(false), 300);
+    };
+
+    const handleEmojiHover = (emoji: string) => {
+      if (showPreview) {
+        setPreviewEmoji(emoji);
+      }
+    };
+
+    const activeReaction = currentUserReactions
+      ? reactionConfig.find((r) => r.type === currentUserReactions)
+      : null;
+
+    return (
+      <div
+        className="flex-1 relative group"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      >
+        {showPreview && (
+          <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
+            <div className="text-4xl">{previewEmoji}</div>
+          </div>
+        )}
+
+        {showDock && (
+          <div
+            ref={dockRef}
+            className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
+          >
+            <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
+              {reactionConfig.map((r) => (
+                <div
+                  key={r.type}
+                  className="text-3xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDockReact(r.type as ReactionType);
+                  }}
+                  onMouseEnter={() => handleEmojiHover(r.icon)}
+                  title={r.label}
+                >
+                  {r.icon}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={handleClick}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
+            isAnimating ? 'scale-110' : ''
+          }`}
+        >
+          {activeReaction ? (
+            <>
+              <span className="text-[22px] transition-transform duration-300">
+                {activeReaction.icon}
+              </span>
+              <span
+                className="text-[19px] font-bold transition-colors duration-300"
+                style={{ color: activeReaction.color }}
+              >
+                React
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="flex items-center justify-center -mt-[1px]">
+                <SparkReactIcon size={28} />
+              </span>
+              <span className="text-[19px] font-bold text-[#B0B3B8]">React</span>
+            </>
+          )}
+        </button>
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.currentUserReactions === next.currentUserReactions &&
+      prev.reactionCount === next.reactionCount &&
+      prev.isGuest === next.isGuest
+    );
+  }
+);
 
 // ==================== MEDIA HELPERS ====================
 const getMediaTypeInfo = (post: any) => {
@@ -3562,31 +3748,8 @@ type NormalizedMedia = {
   height?: number;
 };
 
-// ========== UPDATED FUNCTION: getPostMediaList ==========
-const getPostMediaList = (post: any): any[] => {
-  const out: any[] = [];
-
-  // Check if we have enhanced media URLs with versions
-  if (post?.enhanced_media_urls && Array.isArray(post.enhanced_media_urls)) {
-    return post.enhanced_media_urls.map((item: any) => {
-      if (typeof item === 'string') {
-        return {
-          url: item,
-          thumb: item,
-          feed: item,
-          full: item,
-          kind: 'image'
-        };
-      }
-      return {
-        ...item,
-        thumb: item.thumb || item.url,
-        feed: item.feed || item.url,
-        full: item.full || item.url,
-        kind: item.kind || 'image'
-      };
-    });
-  }
+const getPostMediaList = (post: any): NormalizedMedia[] => {
+  const out: NormalizedMedia[] = [];
 
   const arrUrls: any[] = Array.isArray(post?.media_urls)
     ? post.media_urls
@@ -3599,9 +3762,6 @@ const getPostMediaList = (post: any): any[] => {
     if (!url) continue;
     out.push({
       url,
-      thumb: url,
-      feed: url,
-      full: url,
       kind: 'image',
       width: typeof u === 'object' ? u?.width : undefined,
       height: typeof u === 'object' ? u?.height : undefined,
@@ -3623,9 +3783,6 @@ const getPostMediaList = (post: any): any[] => {
 
     out.push({
       url,
-      thumb: m?.thumb || url,
-      feed: m?.feed || url,
-      full: m?.full || url,
       kind: isVideo ? 'video' : 'image',
       width: m?.width,
       height: m?.height,
@@ -3636,8 +3793,8 @@ const getPostMediaList = (post: any): any[] => {
     const single = String(post?.media_url || '').trim();
     if (single) {
       const info = getMediaTypeInfo(post);
-      if (info.isVideo) out.push({ url: single, thumb: single, feed: single, full: single, kind: 'video' });
-      else if (info.isImage) out.push({ url: single, thumb: single, feed: single, full: single, kind: 'image' });
+      if (info.isVideo) out.push({ url: single, kind: 'video' });
+      else if (info.isImage) out.push({ url: single, kind: 'image' });
     }
   }
 
@@ -3670,13 +3827,6 @@ const classifyOrientations = (
 const MediaGrid = memo(
   ({ media, onOpen }: { media: { url: string }[]; onOpen: (url: string, index: number) => void }) => {
     const total = Array.isArray(media) ? media.length : 0;
-
-    // ========== ADDED REF FOR MEDIA ==========
-    const mediaRef = useRef(media);
-    useEffect(() => {
-      mediaRef.current = media;
-    }, [media]);
-    // =========================================
 
     const [measuredMedia, setMeasuredMedia] = useState(media);
 
@@ -3733,7 +3883,6 @@ const MediaGrid = memo(
 
     const orientations = classifyOrientations(visible);
 
-    // ========== UPDATED TILE COMPONENT ==========
     const Tile = ({
       url,
       index,
@@ -3744,55 +3893,35 @@ const MediaGrid = memo(
       index: number;
       className: string;
       showOverlay?: boolean;
-    }) => {
-      // Check if we have multiple versions using the ref
-      const hasVersions = mediaRef.current[index]?.thumb && 
-                          mediaRef.current[index]?.feed && 
-                          mediaRef.current[index]?.full;
-      
-      return (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(hasVersions ? mediaRef.current[index].full : url, index);
+    }) => (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(url, index);
+        }}
+        className={`relative overflow-hidden ${className}`}
+        style={{ borderRadius: 0 }}
+      >
+        <img
+          src={url}
+          alt=""
+          loading="lazy"
+          className="absolute inset-0 w-full h-full object-cover"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
           }}
-          className={`relative overflow-hidden ${className}`}
-          style={{ borderRadius: 0 }}
-        >
-          {hasVersions ? (
-            <SeamlessImage
-              urls={{
-                placeholder: mediaRef.current[index].thumb,
-                low: mediaRef.current[index].feed,
-                high: mediaRef.current[index].full
-              }}
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-          ) : (
-            <img
-              src={url}
-              alt=""
-              loading="lazy"
-              className="absolute inset-0 w-full h-full object-cover"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          )}
+        />
 
-          {showOverlay && extra > 0 && (
-            <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-              <span className="text-white font-bold text-[34px] leading-none">
-                +{extra}
-              </span>
-            </div>
-          )}
-        </button>
-      );
-    };
-    // =========================================
+        {showOverlay && extra > 0 && (
+          <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+            <span className="text-white font-bold text-[34px] leading-none">
+              +{extra}
+            </span>
+          </div>
+        )}
+      </button>
+    );
 
     if (total === 0) return null;
 
@@ -4514,195 +4643,6 @@ export const SponsoredPostCard = memo(
       prev.ad?.id === next.ad?.id &&
       prev.currentUser?.id === next.currentUser?.id &&
       prev.isActive === next.isActive
-    );
-  }
-);
-
-// ==================== REACTION BUTTON (exported) ====================
-export const ReactionButton = memo(
-  ({
-    currentUserReactions,
-    reactionCount,
-    onReact,
-    isGuest,
-  }: {
-    currentUserReactions: ReactionType | undefined;
-    reactionCount: number;
-    onReact: (type: ReactionType) => void;
-    isGuest?: boolean;
-  }) => {
-    const [showDock, setShowDock] = useState(false);
-    const [isAnimating, setIsAnimating] = useState(false);
-    const [showPreview, setShowPreview] = useState(false);
-    const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
-    const timerRef = useRef<any>(null);
-    const longPressTimerRef = useRef<any>(null);
-    const dockRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-      ensureReactionStyles();
-    }, []);
-
-    const reactionConfig = [
-      { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
-      { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
-      { type: 'haha', icon: '😂', color: '#F7B928', label: 'Haha' },
-      { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
-      { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
-      { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
-      { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
-      { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
-      { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
-      { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
-      { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
-      { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
-      { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
-      { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
-      { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
-      { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
-      { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
-      { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
-      { type: 'unicorn', icon: '🦄', color: '#E040FB', label: 'Unicorn' },
-      { type: 'rainbow', icon: '🌈', color: '#00E676', label: 'Rainbow' },
-      { type: 'money', icon: '💰', color: '#4CAF50', label: 'Money' },
-      { type: 'muscle', icon: '💪', color: '#FF5722', label: 'Muscle' },
-      { type: 'brain', icon: '🧠', color: '#9C27B0', label: 'Brain' },
-      { type: 'lightning', icon: '⚡', color: '#FFEB3B', label: 'Lightning' },
-      { type: 'gem', icon: '💎', color: '#00BCD4', label: 'Gem' },
-    ] as const;
-
-    const handleMouseEnter = () => {
-      if (isGuest) return;
-      timerRef.current = setTimeout(() => setShowDock(true), 500);
-    };
-
-    const handleMouseLeave = () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      setTimeout(() => setShowDock(false), 250);
-      setShowPreview(false);
-    };
-
-    const handleTouchStart = () => {
-      if (isGuest) return;
-      longPressTimerRef.current = setTimeout(() => {
-        setShowDock(true);
-        setShowPreview(true);
-        setPreviewEmoji('👍');
-      }, 600);
-    };
-
-    const handleTouchEnd = () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-      }
-      setTimeout(() => setShowPreview(false), 300);
-    };
-
-    const handleClick = () => {
-      if (isGuest) return alert('Please login to react.');
-      if (currentUserReactions) {
-        setIsAnimating(true);
-        onReact(currentUserReactions);
-        setTimeout(() => setIsAnimating(false), 300);
-      } else {
-        setShowDock(!showDock);
-      }
-    };
-
-    const handleDockReact = (type: ReactionType) => {
-      setIsAnimating(true);
-      onReact(type);
-      setShowDock(false);
-      setShowPreview(false);
-      setTimeout(() => setIsAnimating(false), 300);
-    };
-
-    const handleEmojiHover = (emoji: string) => {
-      if (showPreview) {
-        setPreviewEmoji(emoji);
-      }
-    };
-
-    const activeReaction = currentUserReactions
-      ? reactionConfig.find((r) => r.type === currentUserReactions)
-      : null;
-
-    return (
-      <div
-        className="flex-1 relative group"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchEnd}
-      >
-        {showPreview && (
-          <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
-            <div className="text-4xl">{previewEmoji}</div>
-          </div>
-        )}
-
-        {showDock && (
-          <div
-            ref={dockRef}
-            className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
-          >
-            <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
-              {reactionConfig.map((r) => (
-                <div
-                  key={r.type}
-                  className="text-3xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDockReact(r.type as ReactionType);
-                  }}
-                  onMouseEnter={() => handleEmojiHover(r.icon)}
-                  title={r.label}
-                >
-                  {r.icon}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <button
-          onClick={handleClick}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
-            isAnimating ? 'scale-110' : ''
-          }`}
-        >
-          {activeReaction ? (
-            <>
-              <span className="text-[22px] transition-transform duration-300">
-                {activeReaction.icon}
-              </span>
-              <span
-                className="text-[19px] font-bold transition-colors duration-300"
-                style={{ color: activeReaction.color }}
-              >
-                React
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="flex items-center justify-center -mt-[1px]">
-                <SparkReactIcon size={28} />
-              </span>
-              <span className="text-[19px] font-bold text-[#B0B3B8]">React</span>
-            </>
-          )}
-        </button>
-      </div>
-    );
-  },
-  (prev, next) => {
-    return (
-      prev.currentUserReactions === next.currentUserReactions &&
-      prev.reactionCount === next.reactionCount &&
-      prev.isGuest === next.isGuest
     );
   }
 );
@@ -7403,6 +7343,79 @@ interface FeedProps {
  * =========================
  * ✅ MAIN FEED COMPONENT
  * =========================
+// ==================== EXPORTED HELPERS ====================
+export {
+  getMediaTypeInfo,
+  getMarketplaceImages,
+  getMarketplacePriceLine,
+  normalizeEventFromFeed,
+  topReactionEmojis,
+  safeArray,
+  safeNumber,
+  safeString,
+  safePostId,
+  safeUserId,
+  avatarFrom,
+  formatReelCount,
+  getReelAuthorName,
+};
+
+/**
+ * =========================
+ * ✅ FEED PROPS INTERFACE
+ * =========================
+ */
+interface FeedProps {
+  feedItems: any[];
+  currentUser: User | null;
+  users: User[];
+  onProfileClick: (id: number) => void;
+  onReact: (id: number, type: ReactionType) => void;
+  onShare: (id: number, newShareCount: number) => void;
+  onOpenComments: (id: number) => void;
+  onViewImage: (url: string) => void;
+  onVideoClick: (post: PostType) => void;
+  onPlayAudioTrack?: (track: AudioTrack) => void;
+  onHashtagClick?: (tag: string) => void;
+  onFollow?: (id: number) => void;
+  followLoading?: { [key: number]: boolean };
+  checkIsFollowing?: (id: number) => boolean;
+  groups?: Group[];
+  brands?: Brand[];
+  chats?: any[];
+  onViewProductFromPost?: (productId: number) => void;
+  onRSVPEvent?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+  getPostAuthor?: (post: PostType) => User;
+  
+  // Push More button props
+  onPushMore?: (postId: number) => void;
+  pushedPosts?: Record<number, boolean>;
+  
+  // Reel props
+  onOpenReel?: (reelId: number | string) => void;
+  onOpenReelMenu?: (reel: any) => void;
+  
+  // People You May Know props
+  peopleYouMayKnow?: any[];
+  peopleYouMayKnowInsertIndex1?: number;
+  peopleYouMayKnowInsertIndex2?: number;
+  onFollowFromPymk?: (id: number) => void;
+  pymkLoading?: boolean;
+  
+  // Groups You May Join props
+  groupsYouMayJoin?: any[];
+  groupsYouMayJoinInsertIndex?: number;
+  onJoinGroupSuggestion?: (groupId: number) => void;
+  gymjLoading?: boolean;
+  onOpenGroup?: (groupId: number) => void;
+  
+  // Login
+  onLoginClick?: () => void;
+}
+/**
+ * =========================
+ * ✅ MAIN FEED COMPONENT
+ * =========================
  */
 export const Feed = memo(({
   feedItems,
@@ -7597,3 +7610,4 @@ export const Feed = memo(({
   return prev.feedItems === next.feedItems && 
          prev.currentUser?.id === next.currentUser?.id;
 });
+   
