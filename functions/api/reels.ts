@@ -63,7 +63,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const bodyUserId = toNum(body.user_id, 0);
     const user_id = headerUserId || bodyUserId || 0;
 
-    const video_url = String(body.video_url ?? '').trim();
+    // Backward compatible video URL handling
+    const video_url_low = toText(body.video_url_low);
+    const video_url_medium =
+      toText(body.video_url_medium) ||
+      toText(body.video_url);
+    const video_url_hd = toText(body.video_url_hd);
+
+    // Keep legacy field populated for compatibility
+    const video_url =
+      video_url_medium ||
+      video_url_hd ||
+      video_url_low ||
+      '';
+
     const thumbnail_url = toText(body.thumbnail_url);
     const caption = toText(body.caption);
     const song_name = toText(body.song_name) ?? 'Original Sound';
@@ -86,7 +99,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const location = toText(body.location);
 
     if (!user_id || !video_url) {
-      return json({ success: false, error: 'user_id and video_url are required' }, 400);
+      return json({ success: false, error: 'user_id and at least one video URL are required' }, 400);
     }
 
     const user = await env.DB
@@ -103,6 +116,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       INSERT INTO reels (
         user_id,
         video_url,
+        video_url_low,
+        video_url_medium,
+        video_url_hd,
         thumbnail_url,
         caption,
         song_name,
@@ -117,12 +133,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         sound_id,
         shares
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)
       `
     )
       .bind(
         user_id,
         video_url,
+        video_url_low,
+        video_url_medium,
+        video_url_hd,
         thumbnail_url,
         caption,
         song_name,
@@ -145,6 +164,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         r.id,
         r.user_id,
         r.video_url,
+        r.video_url_low,
+        r.video_url_medium,
+        r.video_url_hd,
         r.thumbnail_url,
         r.caption,
         r.song_name,
@@ -179,7 +201,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const reel = {
       id: toNum((row as any).id, 0),
       user_id: toNum((row as any).user_id, 0),
+
+      // legacy + adaptive fields
       video_url: String((row as any).video_url || ''),
+      video_url_low: pickFirst((row as any).video_url_low),
+      video_url_medium: pickFirst((row as any).video_url_medium, (row as any).video_url),
+      video_url_hd: pickFirst((row as any).video_url_hd),
+
       thumbnail_url: pickFirst((row as any).thumbnail_url),
       caption: pickFirst((row as any).caption),
       song_name: pickFirst((row as any).song_name, 'Original Sound'),
@@ -227,6 +255,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         r.id,
         r.user_id,
         r.video_url,
+        r.video_url_low,
+        r.video_url_medium,
+        r.video_url_hd,
         r.thumbnail_url,
         r.caption,
         r.song_name,
@@ -357,7 +388,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       return {
         id: rid,
         user_id: toNum(r.user_id, 0),
+
+        // legacy + adaptive fields
         video_url: String(r.video_url || ''),
+        video_url_low: pickFirst(r.video_url_low),
+        video_url_medium: pickFirst(r.video_url_medium, r.video_url),
+        video_url_hd: pickFirst(r.video_url_hd),
+
         thumbnail_url: pickFirst(r.thumbnail_url),
         caption: pickFirst(r.caption),
         song_name: pickFirst(r.song_name, 'Original Sound'),
