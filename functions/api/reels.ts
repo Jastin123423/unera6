@@ -62,21 +62,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const bodyUserId = toNum(body.user_id, 0);
     const user_id = headerUserId || bodyUserId || 0;
 
-    // New professional 2-video system
-    const video_feed_url =
-      toText(body.video_feed_url) ||
-      toText(body.video_url_low);
-
-    const video_play_url =
-      toText(body.video_play_url) ||
+    // Use the columns your DB already has
+    const video_url_low = toText(body.video_url_low);
+    const video_url_medium =
       toText(body.video_url_medium) ||
-      toText(body.video_url_hd) ||
       toText(body.video_url);
+    const video_url_hd = toText(body.video_url_hd);
 
-    // Keep legacy video_url populated for old frontend compatibility
+    // Keep legacy field populated
     const video_url =
-      video_play_url ||
-      video_feed_url ||
+      video_url_medium ||
+      video_url_hd ||
+      video_url_low ||
       '';
 
     const thumbnail_url = toText(body.thumbnail_url);
@@ -118,8 +115,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       INSERT INTO reels (
         user_id,
         video_url,
-        video_feed_url,
-        video_play_url,
+        video_url_low,
+        video_url_medium,
+        video_url_hd,
         thumbnail_url,
         caption,
         song_name,
@@ -134,14 +132,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         sound_id,
         shares
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)
       `
     )
       .bind(
         user_id,
         video_url,
-        video_feed_url,
-        video_play_url,
+        video_url_low,
+        video_url_medium,
+        video_url_hd,
         thumbnail_url,
         caption,
         song_name,
@@ -164,8 +163,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         r.id,
         r.user_id,
         r.video_url,
-        r.video_feed_url,
-        r.video_play_url,
+        r.video_url_low,
+        r.video_url_medium,
+        r.video_url_hd,
         r.thumbnail_url,
         r.caption,
         r.song_name,
@@ -201,15 +201,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       id: toNum((row as any).id, 0),
       user_id: toNum((row as any).user_id, 0),
 
-      // legacy + new professional fields
+      // legacy + adaptive fields
       video_url: String((row as any).video_url || ''),
-      video_feed_url: pickFirst((row as any).video_feed_url),
-      video_play_url: pickFirst((row as any).video_play_url, (row as any).video_url),
-
-      // backward compatibility aliases
-      video_url_low: pickFirst((row as any).video_feed_url),
-      video_url_medium: pickFirst((row as any).video_play_url, (row as any).video_url),
-      video_url_hd: '',
+      video_url_low: pickFirst((row as any).video_url_low),
+      video_url_medium: pickFirst((row as any).video_url_medium, (row as any).video_url),
+      video_url_hd: pickFirst((row as any).video_url_hd),
 
       thumbnail_url: pickFirst((row as any).thumbnail_url),
       caption: pickFirst((row as any).caption),
@@ -258,8 +254,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         r.id,
         r.user_id,
         r.video_url,
-        r.video_feed_url,
-        r.video_play_url,
+        r.video_url_low,
+        r.video_url_medium,
+        r.video_url_hd,
         r.thumbnail_url,
         r.caption,
         r.song_name,
@@ -391,15 +388,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         id: rid,
         user_id: toNum(r.user_id, 0),
 
-        // legacy + new professional fields
+        // legacy + adaptive fields
         video_url: String(r.video_url || ''),
-        video_feed_url: pickFirst(r.video_feed_url),
-        video_play_url: pickFirst(r.video_play_url, r.video_url),
-
-        // backward compatibility aliases
-        video_url_low: pickFirst(r.video_feed_url),
-        video_url_medium: pickFirst(r.video_play_url, r.video_url),
-        video_url_hd: '',
+        video_url_low: pickFirst(r.video_url_low),
+        video_url_medium: pickFirst(r.video_url_medium, r.video_url),
+        video_url_hd: pickFirst(r.video_url_hd),
 
         thumbnail_url: pickFirst(r.thumbnail_url),
         caption: pickFirst(r.caption),
