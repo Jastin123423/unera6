@@ -81,6 +81,11 @@ type ReelVideoSources = {
   hd?: string;
 };
 
+// ==================== HELPER: Get reel user ID (handles both userId and user_id) ====================
+const getReelUserId = (reel: any): number => {
+  return Number(reel.userId ?? reel.user_id ?? 0);
+};
+
 // ==================== NETWORK / QUALITY HELPERS ====================
 const getNetworkLevel = (): NetworkLevel => {
   const nav = navigator as any;
@@ -99,15 +104,26 @@ const getNetworkLevel = (): NetworkLevel => {
   return 'medium';
 };
 
-// ✅ FIX: Updated video sources mapping to match backend API fields
+// ✅ FIX: Updated video sources mapping to match backend DB fields
 const getReelVideoSources = (reel: Reel): ReelVideoSources => ({
   // Map backend fields correctly:
-  // video_feed_url → low quality (360p)
-  // video_play_url → medium quality (720p)
-  // HD is completely disabled for feed
-  low: (reel as any).video_feed_url || (reel as any).videoUrlLow || (reel as any).video_url_low || '',
-  medium: (reel as any).video_play_url || (reel as any).videoUrlMedium || (reel as any).video_url_medium || reel.videoUrl || (reel as any).video_url || '',
-  hd: '', // 🚫 Completely disable HD in feed to save data and ensure smooth playback
+  // video_url_low → low quality (360p)
+  // video_url_medium → medium quality (720p)
+  // HD is disabled for feed
+  low:
+    (reel as any).video_url_low ||
+    (reel as any).videoUrlLow ||
+    '',
+  medium:
+    (reel as any).video_url_medium ||
+    (reel as any).videoUrlMedium ||
+    (reel as any).video_url ||
+    (reel as any).videoUrl ||
+    '',
+  hd:
+    (reel as any).video_url_hd ||
+    (reel as any).videoUrlHd ||
+    '',
 });
 
 // ✅ FIX: Force medium quality even on high networks
@@ -1085,7 +1101,14 @@ const ReelThumbnail: React.FC<{
   onClick: () => void;
 }> = ({ reel, onClick }) => {
   const sources = getReelVideoSources(reel);
-  const videoSrc = sources.low || sources.medium || sources.hd || '';
+  // ✅ FIX: Add fallback to video_url/videoUrl
+  const videoSrc =
+    sources.low ||
+    sources.medium ||
+    sources.hd ||
+    (reel as any).video_url ||
+    (reel as any).videoUrl ||
+    '';
 
   return (
     <div onClick={onClick} className="aspect-[9/16] bg-white/5 relative cursor-pointer group overflow-hidden">
@@ -1406,7 +1429,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           }
         }
 
-        // ✅ DEBUG: Log video quality being used (optional but helpful)
+        // DEBUG: Log video quality being used
         console.log('VIDEO USED:', {
           id: reel.id,
           network: networkLevel,
@@ -1760,7 +1783,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
   const extractSoundFromReel = useCallback(
     (reel: Reel): Sound => {
-      const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
+      // ✅ FIX: Use getReelUserId helper
+      const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
       const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
       const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
       const songName = reel.songName || (reel as any).song_name || 'Original Sound';
@@ -1925,7 +1949,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             </div>
           ) : (
             reels.map((reel: Reel, reelIndex) => {
-              const author = users.find((u: User) => Number(u.id) === Number(reel.userId));
+              // ✅ FIX: Use getReelUserId helper to get author
+              const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
               if (!author) return null;
 
               const isFollowing = checkIsFollowing(Number(author.id));
