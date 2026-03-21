@@ -7,6 +7,14 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 const TMP_DIR = path.join(__dirname, 'tmp');
 const OUTPUT_DIR = path.join(__dirname, 'outputs');
 
@@ -16,17 +24,14 @@ fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 const upload = multer({
   dest: TMP_DIR,
   limits: {
-    fileSize: 300 * 1024 * 1024, // 300MB
+    fileSize: 800 * 1024 * 1024,
   },
 });
 
 function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
     execFile('ffmpeg', args, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr || error.message));
-        return;
-      }
+      if (error) return reject(new Error(stderr || error.message));
       resolve(stdout);
     });
   });
@@ -34,26 +39,23 @@ function runFfmpeg(args) {
 
 function safeUnlink(filePath) {
   try {
-    if (filePath && fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
   } catch {}
 }
 
-function safeStat(filePath) {
-  try {
-    return fs.statSync(filePath);
-  } catch {
-    return null;
-  }
-}
-
-app.use(express.json());
+app.use(
+  '/videos',
+  express.static(OUTPUT_DIR, {
+    maxAge: '30d',
+    etag: true,
+    lastModified: true,
+  })
+);
 
 app.get('/', (_req, res) => {
   res.json({
     success: true,
-    message: 'UNERA transcoder running',
+    message: 'UNERA video service running',
   });
 });
 
@@ -66,128 +68,80 @@ app.get('/health', (_req, res) => {
   });
 });
 
-app.post('/transcode', upload.single('file'), async (req, res) => {
-  const input = req.file;
+app.post('/prepare-video', upload.single('file'), async (req, res) => {
+  const inputFile = req.file;
 
-  if (!input) {
+  if (!inputFile) {
     return res.status(400).json({
       success: false,
       error: 'file is required',
     });
   }
 
-  const inputPath = input.path;
-  const baseId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const inputPath = inputFile.path;
+  const id = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
-  const lowPath = path.join(OUTPUT_DIR, `${baseId}-low.mp4`);
-  const mediumPath = path.join(OUTPUT_DIR, `${baseId}-medium.mp4`);
-  const hdPath = path.join(OUTPUT_DIR, `${baseId}-hd.mp4`);
-  const thumbPath = path.join(OUTPUT_DIR, `${baseId}-thumb.jpg`);
+  const feedPath = path.join(OUTPUT_DIR, `${id}-feed.mp4`);
+  const playPath = path.join(OUTPUT_DIR, `${id}-play.mp4`);
+  const thumbPath = path.join(OUTPUT_DIR, `${id}-thumb.jpg`);
 
   try {
-    // Low - 480p
-    await runFfmpeg([
-      '-y',
-      '-i', inputPath,
-      '-vf', 'scale=-2:480',
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '30',
-      '-maxrate', '800k',
-      '-bufsize', '1600k',
-      '-c:a', 'aac',
-      '-b:a', '96k',
-      '-movflags', '+faststart',
-      lowPath,
+    // Run feed + play versions in parallel for faster total time
+    await Promise.all([
+      runFfmpeg([
+        '-y',
+        '-i', inputPath,
+        '-vf', 'scale=-2:480,fps=24',
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '31',
+        '-maxrate', '700k',
+        '-bufsize', '1400k',
+        '-c:a', 'aac',
+        '-b:a', '96k',
+        '-movflags', '+faststart',
+        feedPath,
+      ]),
+      runFfmpeg([
+        '-y',
+        '-i', inputPath,
+        '-vf', 'scale=-2:720,fps=30',
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '27',
+        '-maxrate', '1800k',
+        '-bufsize', '3600k',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-movflags', '+faststart',
+        playPath,
+      ]),
+      runFfmpeg([
+        '-y',
+        '-i', inputPath,
+        '-ss', '00:00:01',
+        '-vframes', '1',
+        '-vf', 'scale=-2:720',
+        thumbPath,
+      ]),
     ]);
-
-    // Medium - 720p
-    await runFfmpeg([
-      '-y',
-      '-i', inputPath,
-      '-vf', 'scale=-2:720',
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '27',
-      '-maxrate', '1800k',
-      '-bufsize', '3600k',
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-movflags', '+faststart',
-      mediumPath,
-    ]);
-
-    // HD - 1080p
-    await runFfmpeg([
-      '-y',
-      '-i', inputPath,
-      '-vf', 'scale=-2:1080',
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '24',
-      '-maxrate', '3500k',
-      '-bufsize', '7000k',
-      '-c:a', 'aac',
-      '-b:a', '160k',
-      '-movflags', '+faststart',
-      hdPath,
-    ]);
-
-    // Thumbnail
-    await runFfmpeg([
-      '-y',
-      '-i', inputPath,
-      '-ss', '00:00:01',
-      '-vframes', '1',
-      '-vf', 'scale=-2:720',
-      thumbPath,
-    ]);
-
-    const lowStat = safeStat(lowPath);
-    const mediumStat = safeStat(mediumPath);
-    const hdStat = safeStat(hdPath);
-    const thumbStat = safeStat(thumbPath);
 
     return res.json({
       success: true,
-      input: {
-        original_name: input.originalname,
-        mime_type: input.mimetype,
-        temp_path: inputPath,
-        size_bytes: input.size,
-      },
-      outputs: {
-        low: {
-          path: lowPath,
-          filename: path.basename(lowPath),
-          size_bytes: lowStat ? lowStat.size : 0,
-        },
-        medium: {
-          path: mediumPath,
-          filename: path.basename(mediumPath),
-          size_bytes: mediumStat ? mediumStat.size : 0,
-        },
-        hd: {
-          path: hdPath,
-          filename: path.basename(hdPath),
-          size_bytes: hdStat ? hdStat.size : 0,
-        },
-        thumbnail: {
-          path: thumbPath,
-          filename: path.basename(thumbPath),
-          size_bytes: thumbStat ? thumbStat.size : 0,
-        },
+      video: {
+        feed: `/videos/${path.basename(feedPath)}`,
+        play: `/videos/${path.basename(playPath)}`,
+        thumbnail: `/videos/${path.basename(thumbPath)}`,
       },
     });
-  } catch (error) {
-    safeUnlink(lowPath);
-    safeUnlink(mediumPath);
-    safeUnlink(hdPath);
+  } catch (err) {
+    safeUnlink(feedPath);
+    safeUnlink(playPath);
     safeUnlink(thumbPath);
 
     return res.status(500).json({
       success: false,
-      error: error.message || 'Transcoding failed',
+      error: err?.message || 'Video preparation failed',
     });
   } finally {
     safeUnlink(inputPath);
@@ -195,5 +149,5 @@ app.post('/transcode', upload.single('file'), async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`UNERA transcoder listening on http://0.0.0.0:${PORT}`);
+  console.log(`UNERA video service listening on http://0.0.0.0:${PORT}`);
 });
