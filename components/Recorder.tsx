@@ -1,3 +1,4 @@
+// Recorder.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '../types';
 
@@ -284,6 +285,390 @@ async function trimAudioUrlToWavBlob(audioUrl: string, startSec: number, endSec:
   try { await ctx.close(); } catch {}
   return { blob: wavBlob };
 }
+
+// ==================== VIDEO COMPRESSION SYSTEM ====================
+type PreparedVideoAssets = {
+  feedFile: File;
+  playFile: File;
+  thumbnailFile: File;
+  feedPreviewUrl: string;
+  playPreviewUrl: string;
+  thumbnailPreviewUrl: string;
+};
+
+type VideoPrepareProgress = {
+  stage: 'analyzing' | 'preparing_feed' | 'preparing_play' | 'thumbnail' | 'done';
+  percent: number;
+  message: string;
+};
+
+const clampEven = (n: number) => {
+  const v = Math.max(2, Math.round(n));
+  return v % 2 === 0 ? v : v - 1;
+};
+
+const calculateContainSize = (
+  srcW: number,
+  srcH: number,
+  maxW: number,
+  maxH: number
+) => {
+  if (!srcW || !srcH) {
+    return { width: maxW, height: maxH };
+  }
+
+  const ratio = Math.min(maxW / srcW, maxH / srcH);
+  const width = clampEven(srcW * ratio);
+  const height = clampEven(srcH * ratio);
+
+  return { width, height };
+};
+
+const blobToFile = (blob: Blob, name: string, fallbackType: string) => {
+  const type = blob.type || fallbackType;
+  const ext =
+    type.includes('mp4') ? 'mp4' :
+    type.includes('webm') ? 'webm' :
+    type.includes('jpeg') ? 'jpg' :
+    type.includes('png') ? 'png' :
+    'bin';
+
+  return new File([blob], `${name}.${ext}`, { type });
+};
+
+const createVideoElementFromFile = (file: File): Promise<{
+  video: HTMLVideoElement;
+  url: string;
+  width: number;
+  height: number;
+  duration: number;
+}> => {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    video.src = url;
+
+    const cleanup = () => {
+      video.onloadedmetadata = null;
+      video.onerror = null;
+    };
+
+    video.onloadedmetadata = () => {
+      cleanup();
+      resolve({
+        video,
+        url,
+        width: video.videoWidth,
+        height: video.videoHeight,
+        duration: video.duration || 0,
+      });
+    };
+
+    video.onerror = () => {
+      cleanup();
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to read selected video.'));
+    };
+  });
+};
+
+const canvasToBlob = (
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number
+): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('Failed to create thumbnail.'));
+        return;
+      }
+      resolve(blob);
+    }, type, quality);
+  });
+};
+
+const getRecorderMime = () => {
+  if (typeof MediaRecorder === 'undefined') return 'video/webm;codecs=vp8,opus';
+  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) return 'video/webm;codecs=vp9,opus';
+  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) return 'video/webm;codecs=vp8,opus';
+  if (MediaRecorder.isTypeSupported('video/webm')) return 'video/webm';
+  if (MediaRecorder.isTypeSupported('video/mp4')) return 'video/mp4';
+  return 'video/webm';
+};
+
+const transcodeInBrowser = async ({
+  file,
+  targetMaxWidth,
+  targetMaxHeight,
+  fps,
+  videoBitsPerSecond,
+  audioBitsPerSecond,
+  onProgress,
+  progressStart,
+  progressEnd,
+  progressLabel,
+}: {
+  file: File;
+  targetMaxWidth: number;
+  targetMaxHeight: number;
+  fps: number;
+  videoBitsPerSecond: number;
+  audioBitsPerSecond: number;
+  onProgress?: (p: VideoPrepareProgress) => void;
+  progressStart: number;
+  progressEnd: number;
+  progressLabel: VideoPrepareProgress['stage'];
+}): Promise<{ file: File; previewUrl: string }> => {
+  const { video, url, width, height, duration } = await createVideoElementFromFile(file);
+
+  const { width: outW, height: outH } = calculateContainSize(
+    width,
+    height,
+    targetMaxWidth,
+    targetMaxHeight
+  );
+
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+
+  const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) {
+    URL.revokeObjectURL(url);
+    throw new Error('Canvas is not supported on this device.');
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  const stream = canvas.captureStream(fps);
+  const mimeType = getRecorderMime();
+
+  let audioTrack: MediaStreamTrack | null = null;
+  try {
+    const mediaStream = (video as any).captureStream?.();
+    const tracks = mediaStream?.getAudioTracks?.() || [];
+    if (tracks.length > 0) {
+      audioTrack = tracks[0];
+      stream.addTrack(audioTrack);
+    }
+  } catch {}
+
+  const recorder = new MediaRecorder(stream, {
+    mimeType,
+    videoBitsPerSecond,
+    audioBitsPerSecond,
+  });
+
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) chunks.push(e.data);
+  };
+
+  const done = new Promise<Blob>((resolve, reject) => {
+    recorder.onerror = () => reject(new Error('Failed while preparing video.'));
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: mimeType.includes('mp4') ? 'video/mp4' : 'video/webm' });
+      resolve(blob);
+    };
+  });
+
+  const renderFrame = () => {
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, outW, outH);
+    ctx.drawImage(video, 0, 0, outW, outH);
+  };
+
+  recorder.start(1000 / Math.max(1, fps));
+
+  await video.play().catch(() => {
+    throw new Error('Could not start video preparation.');
+  });
+
+  const hasRVFC = typeof (video as any).requestVideoFrameCallback === 'function';
+
+  if (hasRVFC) {
+    await new Promise<void>((resolve) => {
+      const tick = () => {
+        renderFrame();
+
+        if (duration > 0) {
+          const localProgress = Math.min(1, video.currentTime / duration);
+          const percent = Math.round(progressStart + (progressEnd - progressStart) * localProgress);
+          onProgress?.({
+            stage: progressLabel,
+            percent,
+            message: progressLabel === 'preparing_feed' ? 'Preparing feed video...' : 'Preparing playback video...',
+          });
+        }
+
+        if (video.ended || (duration > 0 && video.currentTime >= duration - 0.05)) {
+          resolve();
+          return;
+        }
+
+        (video as any).requestVideoFrameCallback(tick);
+      };
+
+      (video as any).requestVideoFrameCallback(tick);
+    });
+  } else {
+    await new Promise<void>((resolve) => {
+      const interval = window.setInterval(() => {
+        renderFrame();
+
+        if (duration > 0) {
+          const localProgress = Math.min(1, video.currentTime / duration);
+          const percent = Math.round(progressStart + (progressEnd - progressStart) * localProgress);
+          onProgress?.({
+            stage: progressLabel,
+            percent,
+            message: progressLabel === 'preparing_feed' ? 'Preparing feed video...' : 'Preparing playback video...',
+          });
+        }
+
+        if (video.ended || (duration > 0 && video.currentTime >= duration - 0.05)) {
+          window.clearInterval(interval);
+          resolve();
+        }
+      }, Math.max(16, Math.floor(1000 / fps)));
+    });
+  }
+
+  video.pause();
+  recorder.stop();
+
+  const blob = await done;
+
+  try {
+    stream.getTracks().forEach((t) => t.stop());
+  } catch {}
+
+  URL.revokeObjectURL(url);
+
+  const outFile = blobToFile(
+    blob,
+    progressLabel === 'preparing_feed' ? `feed-${Date.now()}` : `play-${Date.now()}`,
+    mimeType.includes('mp4') ? 'video/mp4' : 'video/webm'
+  );
+
+  const previewUrl = URL.createObjectURL(outFile);
+
+  return { file: outFile, previewUrl };
+};
+
+const createThumbnailFromVideo = async (
+  file: File,
+  maxWidth = 720
+): Promise<{ file: File; previewUrl: string }> => {
+  const { video, url, width, height, duration } = await createVideoElementFromFile(file);
+  const { width: outW, height: outH } = calculateContainSize(width, height, maxWidth, maxWidth * 1.8);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+
+  const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) {
+    URL.revokeObjectURL(url);
+    throw new Error('Canvas is not supported for thumbnail generation.');
+  }
+
+  const captureAt = Math.max(0.2, Math.min(duration * 0.2 || 0.2, 2));
+  video.currentTime = captureAt;
+
+  await new Promise<void>((resolve, reject) => {
+    const onSeeked = () => {
+      video.removeEventListener('seeked', onSeeked);
+      resolve();
+    };
+    const onError = () => {
+      video.removeEventListener('seeked', onSeeked);
+      reject(new Error('Failed to prepare thumbnail.'));
+    };
+    video.addEventListener('seeked', onSeeked, { once: true });
+    video.addEventListener('error', onError, { once: true });
+  });
+
+  ctx.fillStyle = 'black';
+  ctx.fillRect(0, 0, outW, outH);
+  ctx.drawImage(video, 0, 0, outW, outH);
+
+  const blob = await canvasToBlob(canvas, 'image/webp', 0.78);
+  URL.revokeObjectURL(url);
+
+  const outFile = blobToFile(blob, `thumb-${Date.now()}`, 'image/webp');
+  const previewUrl = URL.createObjectURL(outFile);
+
+  return { file: outFile, previewUrl };
+};
+
+const prepareDualVideoAssets = async ({
+  file,
+  onProgress,
+}: {
+  file: File;
+  onProgress?: (p: VideoPrepareProgress) => void;
+}): Promise<PreparedVideoAssets> => {
+  onProgress?.({
+    stage: 'analyzing',
+    percent: 5,
+    message: 'Preparing video...',
+  });
+
+  const feed = await transcodeInBrowser({
+    file,
+    targetMaxWidth: 360,
+    targetMaxHeight: 640,
+    fps: 24,
+    videoBitsPerSecond: 550_000,
+    audioBitsPerSecond: 64_000,
+    onProgress,
+    progressStart: 10,
+    progressEnd: 45,
+    progressLabel: 'preparing_feed',
+  });
+
+  const play = await transcodeInBrowser({
+    file,
+    targetMaxWidth: 720,
+    targetMaxHeight: 1280,
+    fps: 30,
+    videoBitsPerSecond: 1_600_000,
+    audioBitsPerSecond: 96_000,
+    onProgress,
+    progressStart: 46,
+    progressEnd: 88,
+    progressLabel: 'preparing_play',
+  });
+
+  onProgress?.({
+    stage: 'thumbnail',
+    percent: 92,
+    message: 'Finalizing video...',
+  });
+
+  const thumbnail = await createThumbnailFromVideo(file, 720);
+
+  onProgress?.({
+    stage: 'done',
+    percent: 100,
+    message: 'Video ready',
+  });
+
+  return {
+    feedFile: feed.file,
+    playFile: play.file,
+    thumbnailFile: thumbnail.file,
+    feedPreviewUrl: feed.previewUrl,
+    playPreviewUrl: play.previewUrl,
+    thumbnailPreviewUrl: thumbnail.previewUrl,
+  };
+};
 
 // ==================== AUDIO FOCUS MANAGER ====================
 const useAudioFocus = () => {
@@ -686,6 +1071,11 @@ export interface RecorderSubmitPayload {
   lyricsEnabled?: boolean;
   filterId?: string;
   filterIntensity?: number;
+  preparedVideoAssets?: {
+    feedFile: File;
+    playFile: File;
+    thumbnailFile: File;
+  };
 }
 
 interface RecorderProps {
@@ -1159,6 +1549,10 @@ const Recorder: React.FC<RecorderProps> = ({
   const [localSaveNotice, setLocalSaveNotice] = useState('');
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
 
+  // Video compression state
+  const [preparedVideoAssets, setPreparedVideoAssets] = useState<PreparedVideoAssets | null>(null);
+  const [videoPrepareMessage, setVideoPrepareMessage] = useState('');
+
   const [caption, setCaption] = useState('');
   const [location, setLocation] = useState('');
   const [visibility, setVisibility] = useState<Visibility>('public');
@@ -1215,12 +1609,12 @@ const Recorder: React.FC<RecorderProps> = ({
 
   const [availableSounds, setAvailableSounds] = useState<RecorderSoundOption[]>(sounds);
   const [popularSounds, setPopularSounds] = useState<RecorderSoundOption[]>([]);
-  const [localUploadedSounds, setLocalUploadedSounds] = useState<Sound[]>([]); // Match Reels.tsx Sound type
+  const [localUploadedSounds, setLocalUploadedSounds] = useState<Sound[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(false);
   const [loadingPopularSounds, setLoadingPopularSounds] = useState(false);
 
   const [trimmedAudioFile, setTrimmedAudioFile] = useState<File | null>(null);
-  const [selectedUploadedSound, setSelectedUploadedSound] = useState<Sound | null>(null); // Store the selected uploaded sound
+  const [selectedUploadedSound, setSelectedUploadedSound] = useState<Sound | null>(null);
 
   // Refs for file inputs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1257,6 +1651,17 @@ const Recorder: React.FC<RecorderProps> = ({
       getDrafts().then(setDrafts).catch(console.error);
     }
   }, [mode]);
+
+  // Cleanup preview URLs when component unmounts or assets change
+  useEffect(() => {
+    return () => {
+      if (preparedVideoAssets) {
+        safeRevoke(preparedVideoAssets.feedPreviewUrl);
+        safeRevoke(preparedVideoAssets.playPreviewUrl);
+        safeRevoke(preparedVideoAssets.thumbnailPreviewUrl);
+      }
+    };
+  }, [preparedVideoAssets]);
 
   // Fetch popular sounds - but not during recording/camera mode
   useEffect(() => {
@@ -1370,7 +1775,6 @@ const Recorder: React.FC<RecorderProps> = ({
   const filteredSounds = useMemo(() => {
     const q = soundSearch.trim().toLowerCase();
     
-    // Convert local uploaded sounds to display format
     const localSounds = localUploadedSounds.map(sound => ({
       id: sound.id,
       name: sound.name,
@@ -1434,8 +1838,6 @@ const Recorder: React.FC<RecorderProps> = ({
 
     audio.pause();
     
-    // For local files, we can use the URL directly (it's already a blob URL)
-    // For remote files, fetch and cache
     let playableUrl = sound.url;
     if (!sound.isOriginal && !sound.url.startsWith('blob:')) {
       playableUrl = await fetchAsBlobUrl(sound.url, 'audio').catch(() => sound.url);
@@ -1565,7 +1967,6 @@ const Recorder: React.FC<RecorderProps> = ({
       return;
     }
 
-    // Use visualViewport for true fullscreen on mobile
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const viewportWidth = window.visualViewport?.width || window.innerWidth;
     const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -1609,7 +2010,6 @@ const Recorder: React.FC<RecorderProps> = ({
         throw new Error('Camera is not supported on this device/browser.');
       }
 
-      // Remove aspectRatio constraint - let canvas handle the cropping
       const rawStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode,
@@ -1633,7 +2033,6 @@ const Recorder: React.FC<RecorderProps> = ({
       await videoElRef.current.play();
       cameraReadyRef.current = true;
 
-      // Start frame rendering
       animationFrameRef.current = requestAnimationFrame(renderCameraFrame);
 
       const canvasStream = canvasRef.current.captureStream(30);
@@ -1652,7 +2051,6 @@ const Recorder: React.FC<RecorderProps> = ({
     }
   }, [cleanupCamera, facingMode, renderCameraFrame]);
 
-  // Separate effect for frame rendering to avoid camera restarts
   useEffect(() => {
     if (mode !== 'camera' || !cameraReadyRef.current) return;
 
@@ -1718,7 +2116,6 @@ const Recorder: React.FC<RecorderProps> = ({
         setNextPreviewUrl(URL.createObjectURL(file));
         setMode('preview');
 
-        // Delete previous draft if exists, then save new one
         try {
           if (currentDraftId) {
             await deleteDraft(currentDraftId).catch(() => {});
@@ -1749,7 +2146,6 @@ const Recorder: React.FC<RecorderProps> = ({
       setIsRecording(true);
       setRecordingSec(0);
 
-      // Play selected sound during recording - exactly like Reels.tsx does
       if ((currentSelectedSound?.audioUrl || selectedUploadedSound?.url) && soundPreviewEnabled) {
         if (!soundAudioRef.current) {
           soundAudioRef.current = new Audio();
@@ -1794,7 +2190,6 @@ const Recorder: React.FC<RecorderProps> = ({
     event.target.value = '';
   }, [setNextPreviewUrl]);
 
-  // Handle local music file upload - exactly like Reels.tsx
   const handlePickMusic = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1806,30 +2201,25 @@ const Recorder: React.FC<RecorderProps> = ({
     
     const url = URL.createObjectURL(file);
     
-    // Create Sound object matching Reels.tsx exactly
     const newSound: Sound = {
       id: `upload-${Date.now()}`,
-      name: file.name.replace(/\.[^/.]+$/, ""), // Remove extension
+      name: file.name.replace(/\.[^/.]+$/, ""),
       url: url,
-      duration: 0, // Will be updated when metadata loads
+      duration: 0,
       start: 0,
-      end: 60, // Default to 60 seconds
+      end: 60,
       isOriginal: true,
       creator: currentUser,
       soundKey: `original:upload-${Date.now()}`,
       originalUrl: url,
-      file: file // Store the file for later use
+      file: file
     };
     
-    // Add to local uploaded sounds
     setLocalUploadedSounds(prev => [newSound, ...prev]);
-    
-    // Auto-select the uploaded sound - exactly like Reels.tsx does
     setSelectedUploadedSound(newSound);
     setTrimStart(0);
     setTrimEnd(60);
     
-    // Create ReelSound from the uploaded file
     const reelSound: ReelSound = {
       songName: newSound.name,
       audioUrl: url,
@@ -1844,7 +2234,6 @@ const Recorder: React.FC<RecorderProps> = ({
     onSelectSound?.(reelSound);
     setIsSoundPickerOpen(false);
     
-    // Open trimmer immediately - exactly like Reels.tsx
     setTrimmingSound({
       id: newSound.id,
       name: newSound.name,
@@ -1878,7 +2267,16 @@ const Recorder: React.FC<RecorderProps> = ({
     setSelectedFilterId('none');
     setFilterIntensity(0.75);
     setCurrentDraftId(null);
-  }, [cleanupCamera, setNextPreviewUrl, stopSoundPreview]);
+    
+    // Cleanup prepared video assets
+    if (preparedVideoAssets) {
+      safeRevoke(preparedVideoAssets.feedPreviewUrl);
+      safeRevoke(preparedVideoAssets.playPreviewUrl);
+      safeRevoke(preparedVideoAssets.thumbnailPreviewUrl);
+    }
+    setPreparedVideoAssets(null);
+    setVideoPrepareMessage('');
+  }, [cleanupCamera, setNextPreviewUrl, stopSoundPreview, preparedVideoAssets]);
 
   const generateSoundKey = useCallback((): string => {
     if (trimmedAudioFile) return `trimmed:${Date.now()}`;
@@ -1950,15 +2348,28 @@ const Recorder: React.FC<RecorderProps> = ({
       const audioStart = isTrimmedAudio ? 0 : (trimStart || 0);
       const audioEnd = isTrimmedAudio ? 0 : (trimEnd || 0);
 
-      setSubmitProgress(25);
-
-      // Determine which audio file to send
       let audioFileToSend = trimmedAudioFile || undefined;
-      
-      // If we have a selected uploaded sound with a file, use that
+
       if (!audioFileToSend && selectedUploadedSound?.file) {
         audioFileToSend = selectedUploadedSound.file;
       }
+
+      setSubmitProgress(12);
+      setVideoPrepareMessage('Preparing video...');
+
+      // Prepare video assets (feed, play, thumbnail)
+      const prepared = await prepareDualVideoAssets({
+        file: videoFile,
+        onProgress: (p) => {
+          setSubmitProgress(Math.min(95, p.percent));
+          setVideoPrepareMessage(p.message);
+        },
+      });
+
+      setPreparedVideoAssets(prepared);
+
+      setSubmitProgress(96);
+      setVideoPrepareMessage('Publishing...');
 
       await onSubmit({
         caption: caption.trim(),
@@ -1978,9 +2389,15 @@ const Recorder: React.FC<RecorderProps> = ({
         lyricsEnabled,
         filterId: selectedFilterId,
         filterIntensity,
+        preparedVideoAssets: {
+          feedFile: prepared.feedFile,
+          playFile: prepared.playFile,
+          thumbnailFile: prepared.thumbnailFile,
+        },
       });
 
       setSubmitProgress(100);
+      setVideoPrepareMessage('Done');
       setSubmitState('success');
       window.removeEventListener('beforeunload', beforeUnloadHandler);
 
@@ -2064,8 +2481,6 @@ const Recorder: React.FC<RecorderProps> = ({
       
       setNextPreviewUrl(URL.createObjectURL(draft.file));
       setMode('preview');
-      
-      // Don't delete draft here - wait until successful publish
     } catch (error) {
       console.error('Failed to load draft:', error);
     }
@@ -2081,7 +2496,6 @@ const Recorder: React.FC<RecorderProps> = ({
       cleanupCamera();
       cleanupPreviewUrl();
       stopSoundPreview();
-      // Clean up local uploaded sound URLs
       localUploadedSounds.forEach(sound => {
         if (sound.url.startsWith('blob:')) {
           URL.revokeObjectURL(sound.url);
@@ -2093,8 +2507,13 @@ const Recorder: React.FC<RecorderProps> = ({
         } catch {}
         soundAudioRef.current = null;
       }
+      if (preparedVideoAssets) {
+        safeRevoke(preparedVideoAssets.feedPreviewUrl);
+        safeRevoke(preparedVideoAssets.playPreviewUrl);
+        safeRevoke(preparedVideoAssets.thumbnailPreviewUrl);
+      }
     };
-  }, [cleanupCamera, cleanupPreviewUrl, stopSoundPreview, localUploadedSounds]);
+  }, [cleanupCamera, cleanupPreviewUrl, stopSoundPreview, localUploadedSounds, preparedVideoAssets]);
 
   useEffect(() => {
     if (mode !== 'preview' || !previewVideoRef.current || !videoPreviewUrl) return;
@@ -2102,7 +2521,6 @@ const Recorder: React.FC<RecorderProps> = ({
     video.play().catch(() => {});
   }, [mode, videoPreviewUrl]);
 
-  // Camera start effect - only depends on mode and facingMode
   useEffect(() => {
     if (mode !== 'camera') return;
     startCamera();
@@ -2125,7 +2543,6 @@ const Recorder: React.FC<RecorderProps> = ({
     }
 
     if (selectedUploadedSound) {
-      // Update the uploaded sound with trim info
       const updatedSound: ReelSound = {
         songName: selectedUploadedSound.name,
         audioUrl: selectedUploadedSound.url,
@@ -2148,7 +2565,6 @@ const Recorder: React.FC<RecorderProps> = ({
   }, [currentSelectedSound, selectedUploadedSound, onSelectSound]);
 
   const handleSoundSelect = useCallback((sound: RecorderSoundOption) => {
-    // Check if this is a local uploaded sound
     if (sound.isOriginal && sound.file) {
       const uploadedSound: Sound = {
         id: sound.id,
@@ -2252,14 +2668,18 @@ const Recorder: React.FC<RecorderProps> = ({
               </div>
               
               <div className="text-center">
-                <h3 className="text-xl font-bold text-white mb-2 animate-fade-in">Uploading your reel...</h3>
+                <h3 className="text-xl font-bold text-white mb-2 animate-fade-in">
+                  {videoPrepareMessage || 'Preparing video...'}
+                </h3>
                 <p className="text-[#B0B3B8] text-sm">
-                  Please wait while we upload your video ({Math.round(submitProgress)}%)
+                  {submitProgress < 40
+                    ? `Getting your video ready (${Math.round(submitProgress)}%)`
+                    : submitProgress < 96
+                    ? `Uploading your video (${Math.round(submitProgress)}%)`
+                    : `Publishing your post (${Math.round(submitProgress)}%)`}
                 </p>
                 
                 <div className="space-y-3 mt-4">
-                  <p className="text-white font-bold text-lg animate-pulse">{Math.round(submitProgress)}%</p>
-                  
                   <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
                     <div 
                       className="h-full bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] rounded-full transition-all duration-500 ease-out"
@@ -2268,8 +2688,8 @@ const Recorder: React.FC<RecorderProps> = ({
                   </div>
                   
                   <div className="flex justify-between text-xs text-[#B0B3B8]">
-                    <span>Uploading</span>
-                    <span>≈ {submitProgress < 50 ? '30s' : '15s'}</span>
+                    <span>{submitProgress < 40 ? 'Processing' : submitProgress < 96 ? 'Uploading' : 'Publishing'}</span>
+                    <span>≈ {submitProgress < 40 ? 'Please wait' : submitProgress < 96 ? 'Almost there' : 'Finalizing'}</span>
                   </div>
                 </div>
               </div>
@@ -2374,7 +2794,6 @@ const Recorder: React.FC<RecorderProps> = ({
           </div>
 
           <div className="w-full max-w-[420px] space-y-4">
-            {/* Upload Video Button */}
             <button
               onClick={() => fileInputRef.current?.click()}
               className="w-full rounded-[32px] bg-white/5 border border-white/10 p-6 text-left active:scale-[0.98] transition"
@@ -2390,7 +2809,6 @@ const Recorder: React.FC<RecorderProps> = ({
               </div>
             </button>
 
-            {/* Sound Button - Opens Sound Picker with Upload inside */}
             <button
               onClick={() => setIsSoundPickerOpen(true)}
               className="w-full rounded-[32px] bg-white/5 border border-white/10 p-5 text-left active:scale-[0.98] transition"
@@ -2407,7 +2825,6 @@ const Recorder: React.FC<RecorderProps> = ({
               </div>
             </button>
 
-            {/* Drafts Button - Removed description text as requested */}
             <button
               onClick={() => setMode('drafts')}
               className="w-full rounded-[32px] bg-white/5 border border-white/10 p-5 text-left active:scale-[0.98] transition"
@@ -3075,7 +3492,6 @@ const Recorder: React.FC<RecorderProps> = ({
             </div>
 
             <div className="overflow-y-auto max-h-[calc(84vh-132px)] p-4 space-y-3">
-              {/* Upload Music Button - Inside Sound Picker at the top */}
               <div 
                 onClick={() => musicFileInputRef.current?.click()}
                 className="bg-gradient-to-br from-[#1877F2]/30 to-[#1877F2]/10 border border-[#1877F2]/40 p-6 rounded-[32px] flex items-center gap-4 cursor-pointer hover:from-[#1877F2]/40 transition-all active:scale-95 shadow-2xl mb-4"
@@ -3089,7 +3505,6 @@ const Recorder: React.FC<RecorderProps> = ({
                 </div>
               </div>
 
-              {/* Popular Sounds Section */}
               {popularSounds.length > 0 && (
                 <div className="mb-4">
                   <div className="text-xs font-black uppercase tracking-[0.2em] text-[#7fb6ff] mb-2 px-2">
@@ -3111,7 +3526,6 @@ const Recorder: React.FC<RecorderProps> = ({
                 </div>
               )}
 
-              {/* Unera Music Section */}
               {availableSounds.length > 0 && (
                 <div className="mb-4">
                   <div className="text-xs font-black uppercase tracking-[0.2em] text-purple-400 mb-2 px-2">
@@ -3133,7 +3547,6 @@ const Recorder: React.FC<RecorderProps> = ({
                 </div>
               )}
 
-              {/* Loading States */}
               {loadingPopularSounds || loadingSongs ? (
                 <div className="flex justify-center py-12">
                   <div className="w-8 h-8 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
