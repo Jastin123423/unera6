@@ -38,11 +38,9 @@ import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
 import Recorder from './components/Recorder';
 import { NotificationsPage } from './components/NotificationsPage';
-// 1️⃣ ADD AD DASHBOARD IMPORTS
 import Dashboard from './components/Dashboard';
 import AdCreator from './components/AdCreator';
 import AdsManager from './components/AdsManager';
-// 2️⃣ ADD FONT AWESOME IMPORTS FOR ICONS
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faChartLine, 
@@ -50,7 +48,6 @@ import {
   faBullhorn, 
   faChartBar 
 } from '@fortawesome/free-solid-svg-icons';
-import { TrendingUp } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
 import {
   User,
@@ -545,7 +542,6 @@ const normalizePost = (p: any): PostType => {
 
   const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
 
-  // Handle event posts specifically
   if (p?.type === 'event' || p?.meta?.kind === 'event') {
     return {
       ...p,
@@ -614,7 +610,7 @@ const normalizePost = (p: any): PostType => {
   } as any;
 };
 
-/** Event normalization helpers from App.tsx 1 */
+/** Event normalization helpers */
 const toISO = (d: any) => {
   const dt = new Date(d);
   return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
@@ -799,7 +795,6 @@ const normalizeReel = (r: any): Reel => {
   const audioUrl = r?.audio_url ?? r?.audioUrl ?? '';
   const legacyIsTrimmed = audioStart === 0 && audioEnd === 0 && audioUrl !== '';
 
-  // Find author from users if available (will be populated later)
   const author = r?.author || r?.author_name;
 
   return {
@@ -807,6 +802,10 @@ const normalizeReel = (r: any): Reel => {
     id: resolvedId,
     userId: userId,
     videoUrl: r?.video_url ?? r?.videoUrl ?? '',
+    video_url_low: r?.video_url_low ?? '',
+    video_url_medium: r?.video_url_medium ?? '',
+    video_url_hd: r?.video_url_hd ?? '',
+    thumbnail_url: r?.thumbnail_url ?? '',
     caption: r?.caption ?? '',
     songName: r?.song_name ?? r?.songName ?? '',
     audioUrl: audioUrl,
@@ -1251,7 +1250,7 @@ export type View =
   | 'register'
   | 'recorder'
   | 'notifications'
-  | 'ads';  // 👈 ADD THIS
+  | 'ads';
 
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -2552,21 +2551,17 @@ export default function App() {
     if (!currentUser) return;
 
     try {
-      // Find the post from posts array
       const selectedPost = posts.find(p => p.id === postId);
       
       if (!selectedPost) {
         throw new Error('Post not found');
       }
 
-      // Set the selected post in state
       setSelectedPostForAd(selectedPost);
       
-      // Navigate to ads section and set active tab to create
       navigateTo('ads');
       setActiveAdTab('create');
       
-      // Show toast notification
       const toast = document.createElement('div');
       toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
       toast.innerText = 'Opening ad creator...';
@@ -2576,7 +2571,6 @@ export default function App() {
     } catch (err) {
       console.error('Push more failed', err);
       
-      // Show error message
       const toast = document.createElement('div');
       toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
       toast.innerText = 'Failed to open ad creator';
@@ -2588,10 +2582,8 @@ export default function App() {
   // 🔥 NEW: Navigation function with history tracking
   const navigateTo = useCallback((target: View) => {
     setView(prevView => {
-      // Don't add to history if it's the same view
       if (prevView === target) return prevView;
       
-      // Add current view to history before changing
       setNavigationHistory(prev => [...prev, prevView]);
       return target;
     });
@@ -2606,13 +2598,11 @@ export default function App() {
   const goBack = useCallback(() => {
     setNavigationHistory(prev => {
       if (prev.length === 0) {
-        // If no history, go to home
         setView('home');
         setActiveTab('home');
         return ['home'];
       }
       
-      // Get the last view from history
       const newHistory = [...prev];
       const previousView = newHistory.pop() as View;
       
@@ -2645,7 +2635,6 @@ export default function App() {
       });
       const data = await response.json();
       
-      // Transform backend ads to AdCampaign format
       const campaigns = (data.ads || []).map((ad: any) => ({
         id: ad.id,
         advertiser_id: ad.advertiser_id,
@@ -2679,7 +2668,7 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Create new ad campaign - UPDATED to match AdCreator props
+  // Create new ad campaign
   const createAdCampaign = useCallback(async (
     postId: number,
     campaignData: {
@@ -2712,10 +2701,8 @@ export default function App() {
       const data = await response.json();
       
       if (data.success) {
-        // Refresh ads list
         await fetchMyAds();
         
-        // Show success message
         const toast = document.createElement('div');
         toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
         toast.innerText = 'Campaign created successfully!';
@@ -2729,7 +2716,6 @@ export default function App() {
     } catch (error) {
       console.error('Failed to create campaign:', error);
       
-      // Show error message
       const toast = document.createElement('div');
       toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
       toast.innerText = 'Failed to create campaign';
@@ -3041,7 +3027,6 @@ export default function App() {
       
       const normalizedReels = reelsList.map(reel => {
         const normalized = normalizeReel(reel);
-        // Find author from users list
         const author = users.find(u => Number(u.id) === Number(normalized.userId));
         return {
           ...normalized,
@@ -3080,37 +3065,102 @@ export default function App() {
   }, [currentUser]);
 
   // ============================================================================
-  // ✅ UPDATED: createReel with feed injection and error rethrow
+  // ✅ UPDATED: createReel with multi-asset support (feed/play/thumbnail)
   // ============================================================================
-  const createReel = useCallback(async (reelData: Partial<Reel> & { 
-    videoFile?: File | Blob; 
-    audioFile?: File | Blob;
-    originalSoundId?: string | number;
-  }) => {
+  const createReel = useCallback(async (
+    reelData: Partial<Reel> & { 
+      videoFile?: File | Blob; 
+      audioFile?: File | Blob;
+      originalSoundId?: string | number;
+      preparedVideoAssets?: {
+        feedFile: File;
+        playFile: File;
+        thumbnailFile: File;
+      };
+    }
+  ) => {
     if (!requireAuth('Creating reels')) return;
     if (!currentUser) return;
 
-    console.log("createReel input:", reelData);
-    
+    console.log('createReel input:', reelData);
+
     setIsFeedRefreshing(true);
-    
+
     try {
       const videoFile = reelData.videoFile;
       const audioFile = reelData.audioFile;
-      
-      if (!videoFile) {
+      const prepared = reelData.preparedVideoAssets;
+
+      if (!videoFile && !prepared) {
         throw new Error('Video was not uploaded. Please select a video [video file missing]');
       }
 
-      // Upload video to R2
-      const videoUrl = await ensureR2Url(
-        videoFile,
-        'reels',
-        `reel-${Date.now()}.mp4`
-      );
+      let videoUrlLow = '';
+      let videoUrlMedium = '';
+      let videoUrlHd = '';
+      let thumbnailUrl = '';
 
-      // Upload audio if provided
+      // =========================
+      // NEW PROFESSIONAL MULTI-ASSET FLOW
+      // =========================
+      if (prepared?.feedFile && prepared?.playFile && prepared?.thumbnailFile) {
+        const form = new FormData();
+        form.append('feed', prepared.feedFile);
+        form.append('play', prepared.playFile);
+        form.append('thumbnail', prepared.thumbnailFile);
+
+        if (audioFile) {
+          form.append('audio', audioFile);
+        }
+
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          body: form,
+        });
+
+        const uploadData = await uploadRes.json().catch(() => ({}));
+
+        if (!uploadRes.ok || !uploadData?.success) {
+          throw new Error(uploadData?.error || 'Failed to upload reel media bundle');
+        }
+
+        videoUrlLow = uploadData?.uploaded?.feed?.url || '';
+        videoUrlMedium = uploadData?.uploaded?.play?.url || '';
+        thumbnailUrl = uploadData?.uploaded?.thumbnail?.url || '';
+        videoUrlHd = '';
+
+        if (!videoUrlLow || !videoUrlMedium) {
+          throw new Error('Prepared reel videos uploaded incorrectly');
+        }
+      } else {
+        // =========================
+        // FALLBACK OLD FLOW
+        // =========================
+        if (!videoFile) {
+          throw new Error('Video file missing');
+        }
+
+        const uploadedVideoUrl = await ensureR2Url(
+          videoFile,
+          'reels',
+          `reel-${Date.now()}.mp4`
+        );
+
+        if (!uploadedVideoUrl || !uploadedVideoUrl.startsWith('http')) {
+          throw new Error('Reel video upload failed (no valid R2 URL).');
+        }
+
+        videoUrlMedium = uploadedVideoUrl;
+        videoUrlLow = uploadedVideoUrl;
+        videoUrlHd = '';
+        thumbnailUrl = '';
+      }
+
+      // =========================
+      // AUDIO UPLOAD
+      // =========================
       let audioUrl = null;
+
       if (audioFile) {
         audioUrl = await ensureR2Url(
           audioFile,
@@ -3121,20 +3171,18 @@ export default function App() {
         audioUrl = reelData.audioUrl;
       }
 
-      // Validate video upload
-      if (!videoUrl || !videoUrl.startsWith('http')) {
-        throw new Error('Reel video upload failed (no valid R2 URL).');
+      const finalVideoUrl = videoUrlMedium || videoUrlLow || videoUrlHd || '';
+
+      if (!finalVideoUrl || !finalVideoUrl.startsWith('http')) {
+        throw new Error('Reel video upload failed (no valid playback URL).');
       }
 
-      // Generate sound key for tracking
       const soundKey = generateSoundKey(reelData, selectedReelSound);
       const isTrimmedAudio = soundKey.startsWith('trimmed:');
-      
-      // Set audio trim points
+
       const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
       const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
-      
-      // Prepare sound payload
+
       const soundPayload = selectedReelSound || {
         songName: reelData.songName || 'Original Sound',
         audioUrl: audioUrl || '',
@@ -3143,90 +3191,62 @@ export default function App() {
         songId: reelData.originalSoundId,
       };
 
-      // Prepare API payload
       const payload = {
         user_id: currentUser.id,
         caption: reelData.caption || '',
-        video_url: videoUrl,
+
+        // legacy main video
+        video_url: finalVideoUrl,
+
+        // adaptive fields using your REAL DB schema
+        video_url_low: videoUrlLow || finalVideoUrl,
+        video_url_medium: videoUrlMedium || finalVideoUrl,
+        video_url_hd: videoUrlHd || '',
+
+        thumbnail_url: thumbnailUrl || '',
+
         song_name: soundPayload.songName,
         audio_url: audioUrl,
         audio_start: audioStart,
         audio_end: audioEnd,
         song_id: soundPayload.songId || null,
+        sound_id: reelData.originalSoundId || null,
         sound_key: soundKey,
         visibility: reelData.visibility || 'public',
         location: reelData.location || '',
         views: 0,
         shares: 0,
       };
-      
-      console.log("Sending to API:", payload);
-      
-      // Create reel via API
+
+      console.log('Sending to API:', payload);
+
       const data = await apiFetch('/api/reels', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      
-      // Normalize the response
+
       const newReel = normalizeReel(data.reel || data);
-      
-      // Add author info from current user
+
       newReel.author = currentUser.name;
       newReel.author_name = currentUser.name;
       newReel.avatar = currentUser.profile_image_url;
       newReel.verified = currentUser.is_verified;
-      
-      // Add to reels state (optimistic update)
-      setReels(prev => [newReel, ...safeArray(prev)]);
-      
-      // Fetch updated reels list to ensure consistency
+
+      setReels((prev) => [newReel, ...safeArray(prev)]);
+
       fetchReels().catch(() => {});
-      
-      // Show success message
+
       setLoginError('Reel posted successfully!');
-      
-      // Clear selected sound
       setSelectedReelSound(null);
-      
     } catch (error: any) {
       console.error('Failed to create reel:', error);
       setLoginError(error?.message || 'Failed to create reel');
-      // Rethrow the error so Recorder knows upload failed
       throw error;
     } finally {
       setIsFeedRefreshing(false);
       setShowCreateReelModal(false);
     }
   }, [currentUser, requireAuth, fetchReels, selectedReelSound, generateSoundKey]);
-
-  const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
-    if (!requireAuth('Reacting to reels')) return;
-    if (!currentUser) return;
-
-    const reactionType = type || 'love';
-    
-    setReels(prev => 
-      safeArray(prev).map(reel => 
-        reel.id === reelId 
-          ? applyOptimisticReelReaction(reel, reelId, reactionType, currentUser.id)
-          : reel
-      )
-    );
-
-    try {
-      await apiFetch(`/api/reels/${reelId}/react`, {
-        method: 'POST',
-        body: JSON.stringify({ type: reactionType, user_id: currentUser.id }),
-      });
-      
-      fetchReels().catch(() => {});
-      
-    } catch (error) {
-      console.error('Failed to react to reel:', error);
-      fetchReels().catch(() => {});
-    }
-  }, [currentUser, requireAuth, fetchReels]);
 
   // ============================================================================
   // ✅ ENHANCED: commentOnReel with full support for replies, images, and nested structure
@@ -3718,7 +3738,7 @@ export default function App() {
     }, 8000);
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
-  /** ---------- Event Functions from App.tsx 1 ---------- */
+  /** ---------- Event Functions ---------- */
   const fetchEvents = useCallback(async (): Promise<Event[]> => {
     try {
       const data = await apiFetch('/api/events');
@@ -4589,10 +4609,8 @@ export default function App() {
       goBack();
     };
 
-    // Listen for browser back/forward buttons
     window.addEventListener('popstate', handleBackButton);
     
-    // Push initial state
     window.history.pushState(null, '', window.location.pathname);
 
     return () => {
@@ -4859,7 +4877,6 @@ export default function App() {
   // ✅ NEW: Transform feed items with reels - ONLY THIS SECTION CHANGED
   // ============================================================================
   const feedItems = useMemo<FeedItem[]>(() => {
-    // Transform regular posts
     const postItems = safeArray(rankedPosts).map(post => ({
       ...post,
       type: 'post' as const,
@@ -4867,7 +4884,6 @@ export default function App() {
       created_at: post.created_at,
     }));
 
-    // Transform reels into feed items
     const reelItems = safeArray(reels).map(reel => ({
       id: `reel-${reel.id}`,
       type: 'reel' as const,
@@ -4889,46 +4905,37 @@ export default function App() {
       }
     }));
 
-    // Transform ads into feed items
     const adItems = safeArray(ads).map(ad => ({
       ...ad,
       type: 'sponsored' as const,
       id: `ad-${ad.id}`,
     }));
 
-    // Shuffle reels for rotation on refresh
     const shuffledReels = shuffleArray(reelItems);
     
-    // Merge posts, ads, and reels with ads prioritized
     const merged: FeedItem[] = [];
     let reelIndex = 0;
     let adIndex = 0;
 
-    // First, insert ads at strategic positions
     for (let i = 0; i < postItems.length; i++) {
-      // Add the post
       merged.push(postItems[i]);
 
-      // After every 5 posts, add an ad if available
       if ((i + 1) % 5 === 0 && adIndex < adItems.length) {
         merged.push(adItems[adIndex]);
         adIndex++;
       }
 
-      // After every 3 posts, add a reel if available (but after any ad that might have been added)
       if ((i + 1) % 3 === 0 && reelIndex < shuffledReels.length) {
         merged.push(shuffledReels[reelIndex]);
         reelIndex++;
       }
     }
 
-    // If there are remaining ads after all posts, append them at the end
     while (adIndex < adItems.length) {
       merged.push(adItems[adIndex]);
       adIndex++;
     }
 
-    // If there are remaining reels after all posts, append them at the end
     while (reelIndex < shuffledReels.length) {
       merged.push(shuffledReels[reelIndex]);
       reelIndex++;
@@ -5209,7 +5216,7 @@ export default function App() {
     setGroupsYouMayJoin([]);
     setGymjHiddenIds([]);
     setSelectedReelId(null);
-    setNavigationHistory(['home']); // Reset navigation history
+    setNavigationHistory(['home']);
     setView('home');
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
@@ -5732,7 +5739,6 @@ export default function App() {
         onReelsClick={() => navigateTo('reels')}
         onMarketplaceClick={() => navigateTo('marketplace')}
         onGroupsClick={() => navigateTo('groups')}
-        // 7️⃣ ADD ADS CLICK HANDLER
         onAdsClick={() => {
           if (!currentUser) {
             setLoginError('Please login to access ads dashboard.');
@@ -5843,9 +5849,7 @@ export default function App() {
                 }}>
                   {feedItems.length > 0 ? (
                     feedItems.map((item, idx) => {
-                      // Check if it's a sponsored post
                       if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
-                        // Determine if campaign is still active
                         const isActive = item.campaign_status === 'active' || 
                                          (item.end_date && new Date(item.end_date) > new Date());
                         
@@ -5857,7 +5861,6 @@ export default function App() {
                             onProfileClick={openProfile}
                             onReact={onReactPost}
                             onShare={(postId, newShareCount) => {
-                              // Handle share update
                               console.log('Share:', postId, newShareCount);
                             }}
                             onOpenComments={onOpenComments}
@@ -5866,7 +5869,6 @@ export default function App() {
                         );
                       }
 
-                      // Handle reels
                       if (item.type === 'reel') {
                         return (
                           <ReelFeedCard
@@ -5877,7 +5879,6 @@ export default function App() {
                               navigateTo('reels');
                             }}
                             onOpenMenu={(reel) => {
-                              // Handle menu options
                             }}
                             onProfileClick={(userId) => {
                               openProfile(Number(userId));
@@ -5886,16 +5887,13 @@ export default function App() {
                         );
                       }
 
-                      // Handle regular posts
                       const postAuthorId = Number((item as any).user_id);
                       const isFollowing = checkIsFollowing(postAuthorId);
                       
-                      // Check if current user is the post owner OR admin
                       const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
                       const isAdminUser = currentUser && currentUser.role === 'admin';
                       const showPushButton = isPostOwner || isAdminUser;
 
-                      // Track PYMK and Groups inserts
                       const showFirstPymk = currentUser &&
                         peopleYouMayKnow.length > 0 &&
                         peopleYouMayKnowInsertIndex1 >= 0 &&
@@ -5934,7 +5932,6 @@ export default function App() {
                             followLoading={followLoading[postAuthorId] || false}
                             onViewProductFromPost={openProductFromPost}
                             onRSVPEvent={onRSVPEvent}
-                            // 👇 ONLY SHOW PUSH BUTTON IF USER IS POST OWNER OR ADMIN
                             pushButton={showPushButton ? (
                               <button
                                 onClick={() => pushMore(item.id)}
@@ -5950,7 +5947,6 @@ export default function App() {
                             ) : undefined}
                           />
 
-                          {/* ✅ People You May Know Grid - FIRST APPEARANCE */}
                           {showFirstPymk && (
                             <div className="relative">
                               <PeopleYouMayKnowGrid
@@ -5976,7 +5972,6 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* ✅ People You May Know Grid - SECOND APPEARANCE */}
                           {showSecondPymk && (
                             <div className="relative">
                               <PeopleYouMayKnowGrid
@@ -6002,7 +5997,6 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* ✅ Groups You May Join Card */}
                           {showGroupsYouMayJoin && (
                             <GroupsYouMayJoinCard
                               groups={groupsYouMayJoin}
@@ -6011,10 +6005,7 @@ export default function App() {
                               onJoin={(groupId: number) => joinFromSuggestion(groupId)}
                               onLoginClick={() => setView('login')}
                               onOpenGroup={(groupId: number) => {
-                                // Navigate to groups page with selected group
                                 navigateTo('groups');
-                                // If you have state for selected group in GroupsPage, you'd set it here
-                                // For now, just navigate to groups
                               }}
                               onProfileClick={openProfile}
                               title="Groups You May Join"
@@ -6052,15 +6043,7 @@ export default function App() {
               reels={reels}
               users={users}
               currentUser={currentUser}
-              songs={songs}
-              selectedSound={selectedReelSound}
-              onPickSound={(sound: ReelSound | null) => setSelectedReelSound(sound)}
               onProfileClick={(id) => openProfile(id)}
-              onCreateReelClick={() => {
-                if (!requireAuth('Creating reels')) return;
-                setSelectedReelSound(null);
-                setShowCreateReelModal(true);
-              }}
               onReact={reactToReel}
               onComment={commentOnReel}
               onEditComment={editCommentOnReel}
@@ -6069,7 +6052,6 @@ export default function App() {
               onDeleteReel={deleteReel}
               onShare={shareReel}
               onFollow={followUser}
-              onUseSound={useSoundFromReel}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
               initialReelId={selectedReelId}
@@ -6348,7 +6330,10 @@ export default function App() {
                 soundKey: `song:${song.id}`,
               }))}
               onSelectSound={setSelectedReelSound}
-              onBack={() => setView('home')}
+              onBack={() => {
+                setShowRecorder(false);
+                setSelectedReelSound(null);
+              }}
               onSubmit={async (reelData) => {
                 await createReel({
                   ...reelData,
@@ -6363,6 +6348,8 @@ export default function App() {
                   audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
                   audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
                 });
+
+                setShowRecorder(false);
               }}
             />
           )}
@@ -6376,10 +6363,8 @@ export default function App() {
             />
           )}
 
-          {/* 8️⃣ ADD ADS VIEW HERE - COMPLETE UPDATED VERSION */}
           {view === 'ads' && currentUser && (
             <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
-              {/* Tab navigation for ads */}
               <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2 overflow-x-auto">
                 <button
                   onClick={() => setActiveAdTab('dashboard')}
@@ -6427,20 +6412,16 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Dashboard Tab */}
               {activeAdTab === 'dashboard' && (
                 <Dashboard campaigns={adCampaigns} loading={adsLoading} />
               )}
               
-              {/* Create Campaign Tab - UPDATED WITH BACK FUNCTION AND INITIAL POST */}
               {activeAdTab === 'create' && (
                 <AdCreator 
                   onSuccess={() => {
                     setActiveAdTab('ads');
                     fetchMyAds();
-                    // Clear the selected post after success
                     setSelectedPostForAd(null);
-                    // Mark the post as pushed
                     if (selectedPostForAd) {
                       setPushedPosts(prev => ({
                         ...prev,
@@ -6450,17 +6431,15 @@ export default function App() {
                   }}
                   onBack={() => {
                     setActiveAdTab('dashboard');
-                    // Clear selected post when going back
                     setSelectedPostForAd(null);
                   }}
                   userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser?.id))}
                   onCreateCampaign={createAdCampaign}
                   currentUser={currentUser}
-                  initialPost={selectedPostForAd} // Pass the pre-selected post
+                  initialPost={selectedPostForAd}
                 />
               )}
               
-              {/* My Campaigns Tab */}
               {activeAdTab === 'ads' && (
                 <AdsManager 
                   campaigns={adCampaigns} 
@@ -6472,7 +6451,6 @@ export default function App() {
                 />
               )}
               
-              {/* Analytics Tab */}
               {activeAdTab === 'analytics' && (
                 <Dashboard campaigns={adCampaigns} loading={adsLoading} />
               )}
@@ -6493,7 +6471,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Floating back button for mobile - shows on all pages except home */}
       {view !== 'home' && (
         <button
           onClick={goBack}
@@ -6558,7 +6535,6 @@ export default function App() {
         />
       )}
 
-      {/* ✅ UPDATED: Recorder Modal with new props */}
       {showRecorder && currentUser && (
         <Recorder
           currentUser={currentUser}
@@ -6579,7 +6555,10 @@ export default function App() {
             soundKey: `song:${song.id}`,
           }))}
           onSelectSound={setSelectedReelSound}
-          onBack={() => setShowRecorder(false)}
+          onBack={() => {
+            setShowRecorder(false);
+            setSelectedReelSound(null);
+          }}
           onSubmit={async (reelData) => {
             await createReel({
               ...reelData,
@@ -6699,7 +6678,6 @@ export default function App() {
 
       {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
-      {/* Incoming Call Screen */}
       {incomingCall && currentUser && (
         <CallScreen
           open={true}
@@ -6749,7 +6727,6 @@ export default function App() {
         />
       )}
 
-      {/* Chat Window */}
       {isChatOpen && activeChatUser && currentUser && (
         <ChatWindow
           currentUser={currentUser}
@@ -6759,7 +6736,6 @@ export default function App() {
         />
       )}
 
-      {/* Chats List */}
       {isChatsListOpen && currentUser && (
         <ChatsList
           currentUser={currentUser}
@@ -6773,7 +6749,6 @@ export default function App() {
         />
       )}
 
-      {/* Ad Analytics Modal */}
       {showAdAnalytics && adAnalyticsId && (
         <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
           <div className="bg-[#242526] rounded-xl max-w-2xl w-full p-6">
@@ -6787,7 +6762,6 @@ export default function App() {
               </button>
             </div>
             <p className="text-[#B0B3B8]">Analytics for ad #{adAnalyticsId}</p>
-            {/* Add your analytics content here */}
           </div>
         </div>
       )}
