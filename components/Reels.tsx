@@ -27,7 +27,7 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
 
   const p = fetch(url, {
     cache: 'force-cache',
-    headers: { Accept: 'audio/mpeg,*/*' },
+    headers: { Accept: 'audio/mpeg,/*' },
   })
     .then(async (res) => {
       if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
@@ -95,39 +95,30 @@ const getNetworkLevel = (): NetworkLevel => {
   if (saveData) return 'low';
   if (effectiveType.includes('2g') || effectiveType === 'slow-2g') return 'low';
   if (effectiveType === '3g') return 'medium';
-  if (downlink >= 8) return 'high';
-  if (downlink >= 2) return 'medium';
-
-  return 'low';
+  // Force medium even on high networks to prevent HD in feed
+  return 'medium';
 };
 
+// ✅ FIX: Updated video sources mapping to match backend API fields
 const getReelVideoSources = (reel: Reel): ReelVideoSources => ({
-  low:
-    (reel as any).videoUrlLow ||
-    (reel as any).video_url_low ||
-    (reel as any).video_low ||
-    '',
-  medium:
-    (reel as any).videoUrlMedium ||
-    (reel as any).video_url_medium ||
-    reel.videoUrl ||
-    (reel as any).video_url ||
-    '',
-  hd:
-    (reel as any).videoUrlHd ||
-    (reel as any).video_url_hd ||
-    (reel as any).video_hd ||
-    '',
+  // Map backend fields correctly:
+  // video_feed_url → low quality (360p)
+  // video_play_url → medium quality (720p)
+  // HD is completely disabled for feed
+  low: (reel as any).video_feed_url || (reel as any).videoUrlLow || (reel as any).video_url_low || '',
+  medium: (reel as any).video_play_url || (reel as any).videoUrlMedium || (reel as any).video_url_medium || reel.videoUrl || (reel as any).video_url || '',
+  hd: '', // 🚫 Completely disable HD in feed to save data and ensure smooth playback
 });
 
+// ✅ FIX: Force medium quality even on high networks
 const pickBestVideoUrl = (sources: ReelVideoSources, networkLevel: NetworkLevel): string => {
   if (networkLevel === 'low') {
     return sources.low || sources.medium || sources.hd || '';
   }
-  if (networkLevel === 'medium') {
-    return sources.medium || sources.low || sources.hd || '';
-  }
-  return sources.hd || sources.medium || sources.low || '';
+
+  // Force medium even on high network to prevent HD
+  // This ensures consistent performance and saves data
+  return sources.medium || sources.low || sources.hd || '';
 };
 
 // ==================== REACTION EMOJIS ====================
@@ -141,9 +132,9 @@ const REACTION_EMOJIS = [
 const formatViewCount = (num?: number): string => {
   const v = Number(num || 0);
 
-  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/.0$/, '') + 'B';
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/.0$/, '') + 'M';
+  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/.0$/, '') + 'K';
   return String(v);
 };
 
@@ -1094,7 +1085,7 @@ const ReelThumbnail: React.FC<{
   onClick: () => void;
 }> = ({ reel, onClick }) => {
   const sources = getReelVideoSources(reel);
-  const videoSrc = sources.low || sources.medium || sources.hd || reel.videoUrl || (reel as any).video_url || '';
+  const videoSrc = sources.low || sources.medium || sources.hd || '';
 
   return (
     <div onClick={onClick} className="aspect-[9/16] bg-white/5 relative cursor-pointer group overflow-hidden">
@@ -1414,6 +1405,14 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             setResolvedAudioUrls((prev) => (prev[id] ? prev : { ...prev, [id]: blobUrl }));
           }
         }
+
+        // ✅ DEBUG: Log video quality being used (optional but helpful)
+        console.log('VIDEO USED:', {
+          id: reel.id,
+          network: networkLevel,
+          chosen: pickedVideoUrl,
+          sources: videoSources,
+        });
       } catch (err) {
         console.warn('Failed to resolve reel media', err);
       }
@@ -1908,7 +1907,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       </div>
 
       <div className="absolute top-[66px] right-4 z-30 bg-black/45 border border-white/10 text-white/80 text-[10px] px-2 py-1 rounded-full backdrop-blur-sm">
-        Quality: {networkLevel.toUpperCase()}
+        Quality: {networkLevel.toUpperCase()} (Medium only)
       </div>
 
       <div className="w-full h-full">
