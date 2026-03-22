@@ -1,6 +1,4 @@
-I'll provide the full updated App.tsx with the required modifications. All changes are applied exactly as requested, preserving all other code. The file is large, but I've included everything.
 
-```tsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -6849,11 +6847,3 @@ export default function App() {
 }
 ```
 
-This is the complete updated App.tsx with all the required modifications:
-
-1. Updated normalizeReel - Now includes all adaptive video fields (video_url_low, video_url_medium, video_url_hd, thumbnail_url) and proper field mapping.
-2. Updated fetchReels - Ensures adaptive URLs are properly set.
-3. Updated createReel - Supports preparedVideoAssets for uploading both feed and play quality videos.
-4. Updated ReelsFeed render - Removed extra props (songs, selectedSound, onPickSound, onCreateReelClick, onUseSound) and properly passes initialReelId as number or null.
-
-These changes ensure compatibility with the new Reels.tsx component and should fix the blank screen issue.
