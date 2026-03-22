@@ -628,6 +628,7 @@ const createThumbnailFromVideo = async (
 };
 
 // UPDATED: Enhanced video preparation with better bitrates
+// CRITICAL FIX: Use original file for playFile (no browser transcoding)
 const prepareDualVideoAssets = async ({
   file,
   onProgress,
@@ -641,35 +642,37 @@ const prepareDualVideoAssets = async ({
     message: 'Preparing video...',
   });
 
+  // Only compress the feed version
   const feed = await transcodeInBrowser({
     file,
-    targetMaxWidth: 480,  // Increased from 360 for better quality
-    targetMaxHeight: 854,  // Increased for better aspect ratio
+    targetMaxWidth: 480,
+    targetMaxHeight: 854,
     fps: 24,
-    videoBitsPerSecond: 900_000,  // Increased from 550_000
-    audioBitsPerSecond: 96_000,   // Increased from 64_000
+    videoBitsPerSecond: 900_000,
+    audioBitsPerSecond: 96_000,
     onProgress,
     progressStart: 10,
-    progressEnd: 45,
+    progressEnd: 55,
     progressLabel: 'preparing_feed',
   });
 
-  const play = await transcodeInBrowser({
-    file,
-    targetMaxWidth: 720,
-    targetMaxHeight: 1280,
-    fps: 30,
-    videoBitsPerSecond: 2_400_000,  // Increased from 1_600_000
-    audioBitsPerSecond: 128_000,    // Increased from 96_000
-    onProgress,
-    progressStart: 46,
-    progressEnd: 88,
-    progressLabel: 'preparing_play',
+  onProgress?.({
+    stage: 'preparing_play',
+    percent: 70,
+    message: 'Keeping playback video smooth...',
   });
+
+  // Use the original file as the playFile (no browser re-encoding)
+  const playFile = new File(
+    [file],
+    file.name || `play-${Date.now()}.mp4`,
+    { type: file.type || 'video/mp4' }
+  );
+  const playPreviewUrl = URL.createObjectURL(playFile);
 
   onProgress?.({
     stage: 'thumbnail',
-    percent: 92,
+    percent: 88,
     message: 'Finalizing video...',
   });
 
@@ -683,10 +686,10 @@ const prepareDualVideoAssets = async ({
 
   return {
     feedFile: feed.file,
-    playFile: play.file,
+    playFile,
     thumbnailFile: thumbnail.file,
     feedPreviewUrl: feed.previewUrl,
-    playPreviewUrl: play.previewUrl,
+    playPreviewUrl,
     thumbnailPreviewUrl: thumbnail.previewUrl,
   };
 };
@@ -2154,7 +2157,7 @@ const Recorder: React.FC<RecorderProps> = ({
         }
       };
 
-      recorder.start(250);
+      recorder.start(); // No timeslice for smoother recording
       setIsRecording(true);
       setRecordingSec(0);
 
@@ -3895,4 +3898,4 @@ input[type=range]::-moz-range-track {
 `;
 
 export default Recorder;
-  
+```
