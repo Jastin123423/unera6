@@ -3898,4 +3898,3 @@ input[type=range]::-moz-range-track {
 `;
 
 export default Recorder;
-```
