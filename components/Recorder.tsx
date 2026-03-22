@@ -1,3 +1,4 @@
+
 // Recorder.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '../types';
@@ -391,15 +392,22 @@ const canvasToBlob = (
   });
 };
 
+// UPDATED: Better mime type selection - prefer VP8 over VP9 for performance
 const getRecorderMime = () => {
-  if (typeof MediaRecorder === 'undefined') return 'video/webm;codecs=vp8,opus';
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) return 'video/webm;codecs=vp9,opus';
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) return 'video/webm;codecs=vp8,opus';
-  if (MediaRecorder.isTypeSupported('video/webm')) return 'video/webm';
-  if (MediaRecorder.isTypeSupported('video/mp4')) return 'video/mp4';
-  return 'video/webm';
+  if (typeof MediaRecorder === 'undefined') return '';
+  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) {
+    return 'video/webm;codecs=vp8,opus';
+  }
+  if (MediaRecorder.isTypeSupported('video/webm')) {
+    return 'video/webm';
+  }
+  if (MediaRecorder.isTypeSupported('video/mp4')) {
+    return 'video/mp4';
+  }
+  return '';
 };
 
+// UPDATED: Fixed transcodeInBrowser with better performance
 const transcodeInBrowser = async ({
   file,
   targetMaxWidth,
@@ -444,6 +452,11 @@ const transcodeInBrowser = async ({
 
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
+  
+  // Ensure video is properly configured for smooth playback
+  video.playsInline = true;
+  video.muted = true;
+  video.preload = 'auto';
 
   const stream = canvas.captureStream(fps);
   const mimeType = getRecorderMime();
@@ -459,7 +472,7 @@ const transcodeInBrowser = async ({
   } catch {}
 
   const recorder = new MediaRecorder(stream, {
-    mimeType,
+    ...(mimeType ? { mimeType } : {}),
     videoBitsPerSecond,
     audioBitsPerSecond,
   });
@@ -472,8 +485,8 @@ const transcodeInBrowser = async ({
   const done = new Promise<Blob>((resolve, reject) => {
     recorder.onerror = () => reject(new Error('Failed while preparing video.'));
     recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: mimeType.includes('mp4') ? 'video/mp4' : 'video/webm' });
-      resolve(blob);
+      const outType = mimeType && mimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
+      resolve(new Blob(chunks, { type: outType }));
     };
   });
 
@@ -483,7 +496,8 @@ const transcodeInBrowser = async ({
     ctx.drawImage(video, 0, 0, outW, outH);
   };
 
-  recorder.start(1000 / Math.max(1, fps));
+  // FIX: Remove aggressive timeslice - start without interval
+  recorder.start();
 
   await video.play().catch(() => {
     throw new Error('Could not start video preparation.');
@@ -540,8 +554,14 @@ const transcodeInBrowser = async ({
   }
 
   video.pause();
-  recorder.stop();
-
+  
+  // FIX: Wait for recorder to flush final frames
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  
+  if (recorder.state !== 'inactive') {
+    recorder.stop();
+  }
+  
   const blob = await done;
 
   try {
@@ -553,7 +573,7 @@ const transcodeInBrowser = async ({
   const outFile = blobToFile(
     blob,
     progressLabel === 'preparing_feed' ? `feed-${Date.now()}` : `play-${Date.now()}`,
-    mimeType.includes('mp4') ? 'video/mp4' : 'video/webm'
+    mimeType && mimeType.includes('mp4') ? 'video/mp4' : 'video/webm'
   );
 
   const previewUrl = URL.createObjectURL(outFile);
@@ -607,6 +627,7 @@ const createThumbnailFromVideo = async (
   return { file: outFile, previewUrl };
 };
 
+// UPDATED: Enhanced video preparation with better bitrates
 const prepareDualVideoAssets = async ({
   file,
   onProgress,
@@ -622,11 +643,11 @@ const prepareDualVideoAssets = async ({
 
   const feed = await transcodeInBrowser({
     file,
-    targetMaxWidth: 360,
-    targetMaxHeight: 640,
+    targetMaxWidth: 480,  // Increased from 360 for better quality
+    targetMaxHeight: 854,  // Increased for better aspect ratio
     fps: 24,
-    videoBitsPerSecond: 550_000,
-    audioBitsPerSecond: 64_000,
+    videoBitsPerSecond: 900_000,  // Increased from 550_000
+    audioBitsPerSecond: 96_000,   // Increased from 64_000
     onProgress,
     progressStart: 10,
     progressEnd: 45,
@@ -638,8 +659,8 @@ const prepareDualVideoAssets = async ({
     targetMaxWidth: 720,
     targetMaxHeight: 1280,
     fps: 30,
-    videoBitsPerSecond: 1_600_000,
-    audioBitsPerSecond: 96_000,
+    videoBitsPerSecond: 2_400_000,  // Increased from 1_600_000
+    audioBitsPerSecond: 128_000,    // Increased from 96_000
     onProgress,
     progressStart: 46,
     progressEnd: 88,
@@ -769,15 +790,6 @@ const safeRevoke = (url?: string | null) => {
       URL.revokeObjectURL(url);
     } catch {}
   }
-};
-
-const inferVideoMimeType = () => {
-  if (typeof MediaRecorder === 'undefined') return 'video/webm';
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) return 'video/webm;codecs=vp9,opus';
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) return 'video/webm;codecs=vp8,opus';
-  if (MediaRecorder.isTypeSupported('video/webm')) return 'video/webm';
-  if (MediaRecorder.isTypeSupported('video/mp4')) return 'video/mp4';
-  return 'video/webm';
 };
 
 // =========================
@@ -2097,7 +2109,7 @@ const Recorder: React.FC<RecorderProps> = ({
     recordedChunksRef.current = [];
 
     try {
-      const mimeType = inferVideoMimeType();
+      const mimeType = getRecorderMime();
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
 
@@ -2357,7 +2369,7 @@ const Recorder: React.FC<RecorderProps> = ({
       setSubmitProgress(12);
       setVideoPrepareMessage('Preparing video...');
 
-      // Prepare video assets (feed, play, thumbnail)
+      // Prepare video assets (feed, play, thumbnail) - using updated bitrates
       const prepared = await prepareDualVideoAssets({
         file: videoFile,
         onProgress: (p) => {
@@ -3883,3 +3895,4 @@ input[type=range]::-moz-range-track {
 `;
 
 export default Recorder;
+  
