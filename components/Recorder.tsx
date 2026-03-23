@@ -1,5 +1,5 @@
 
-// Recorder.tsx
+// Recorder.tsx - Upload-only Reel Creator
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '../types';
 
@@ -287,54 +287,11 @@ async function trimAudioUrlToWavBlob(audioUrl: string, startSec: number, endSec:
   return { blob: wavBlob };
 }
 
-// ==================== VIDEO COMPRESSION SYSTEM ====================
-type PreparedVideoAssets = {
-  feedFile: File;
-  playFile: File;
-  thumbnailFile: File;
-  feedPreviewUrl: string;
-  playPreviewUrl: string;
-  thumbnailPreviewUrl: string;
-};
-
+// ==================== VIDEO UTILITIES ====================
 type VideoPrepareProgress = {
-  stage: 'analyzing' | 'preparing_feed' | 'preparing_play' | 'thumbnail' | 'done';
+  stage: 'analyzing' | 'thumbnail' | 'done';
   percent: number;
   message: string;
-};
-
-const clampEven = (n: number) => {
-  const v = Math.max(2, Math.round(n));
-  return v % 2 === 0 ? v : v - 1;
-};
-
-const calculateContainSize = (
-  srcW: number,
-  srcH: number,
-  maxW: number,
-  maxH: number
-) => {
-  if (!srcW || !srcH) {
-    return { width: maxW, height: maxH };
-  }
-
-  const ratio = Math.min(maxW / srcW, maxH / srcH);
-  const width = clampEven(srcW * ratio);
-  const height = clampEven(srcH * ratio);
-
-  return { width, height };
-};
-
-const blobToFile = (blob: Blob, name: string, fallbackType: string) => {
-  const type = blob.type || fallbackType;
-  const ext =
-    type.includes('mp4') ? 'mp4' :
-    type.includes('webm') ? 'webm' :
-    type.includes('jpeg') ? 'jpg' :
-    type.includes('png') ? 'png' :
-    'bin';
-
-  return new File([blob], `${name}.${ext}`, { type });
 };
 
 const createVideoElementFromFile = (file: File): Promise<{
@@ -392,200 +349,20 @@ const canvasToBlob = (
   });
 };
 
-// UPDATED: Better mime type selection - prefer VP8 over VP9 for performance
-const getRecorderMime = () => {
-  if (typeof MediaRecorder === 'undefined') return '';
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) {
-    return 'video/webm;codecs=vp8,opus';
-  }
-  if (MediaRecorder.isTypeSupported('video/webm')) {
-    return 'video/webm';
-  }
-  if (MediaRecorder.isTypeSupported('video/mp4')) {
-    return 'video/mp4';
-  }
-  return '';
-};
-
-// UPDATED: Fixed transcodeInBrowser with better performance
-const transcodeInBrowser = async ({
-  file,
-  targetMaxWidth,
-  targetMaxHeight,
-  fps,
-  videoBitsPerSecond,
-  audioBitsPerSecond,
-  onProgress,
-  progressStart,
-  progressEnd,
-  progressLabel,
-}: {
-  file: File;
-  targetMaxWidth: number;
-  targetMaxHeight: number;
-  fps: number;
-  videoBitsPerSecond: number;
-  audioBitsPerSecond: number;
-  onProgress?: (p: VideoPrepareProgress) => void;
-  progressStart: number;
-  progressEnd: number;
-  progressLabel: VideoPrepareProgress['stage'];
-}): Promise<{ file: File; previewUrl: string }> => {
-  const { video, url, width, height, duration } = await createVideoElementFromFile(file);
-
-  const { width: outW, height: outH } = calculateContainSize(
-    width,
-    height,
-    targetMaxWidth,
-    targetMaxHeight
-  );
-
-  const canvas = document.createElement('canvas');
-  canvas.width = outW;
-  canvas.height = outH;
-
-  const ctx = canvas.getContext('2d', { alpha: false });
-  if (!ctx) {
-    URL.revokeObjectURL(url);
-    throw new Error('Canvas is not supported on this device.');
-  }
-
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  
-  // Ensure video is properly configured for smooth playback
-  video.playsInline = true;
-  video.muted = true;
-  video.preload = 'auto';
-
-  const stream = canvas.captureStream(fps);
-  const mimeType = getRecorderMime();
-
-  let audioTrack: MediaStreamTrack | null = null;
-  try {
-    const mediaStream = (video as any).captureStream?.();
-    const tracks = mediaStream?.getAudioTracks?.() || [];
-    if (tracks.length > 0) {
-      audioTrack = tracks[0];
-      stream.addTrack(audioTrack);
-    }
-  } catch {}
-
-  const recorder = new MediaRecorder(stream, {
-    ...(mimeType ? { mimeType } : {}),
-    videoBitsPerSecond,
-    audioBitsPerSecond,
-  });
-
-  const chunks: Blob[] = [];
-  recorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) chunks.push(e.data);
-  };
-
-  const done = new Promise<Blob>((resolve, reject) => {
-    recorder.onerror = () => reject(new Error('Failed while preparing video.'));
-    recorder.onstop = () => {
-      const outType = mimeType && mimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
-      resolve(new Blob(chunks, { type: outType }));
-    };
-  });
-
-  const renderFrame = () => {
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, outW, outH);
-    ctx.drawImage(video, 0, 0, outW, outH);
-  };
-
-  // FIX: Remove aggressive timeslice - start without interval
-  recorder.start();
-
-  await video.play().catch(() => {
-    throw new Error('Could not start video preparation.');
-  });
-
-  const hasRVFC = typeof (video as any).requestVideoFrameCallback === 'function';
-
-  if (hasRVFC) {
-    await new Promise<void>((resolve) => {
-      const tick = () => {
-        renderFrame();
-
-        if (duration > 0) {
-          const localProgress = Math.min(1, video.currentTime / duration);
-          const percent = Math.round(progressStart + (progressEnd - progressStart) * localProgress);
-          onProgress?.({
-            stage: progressLabel,
-            percent,
-            message: progressLabel === 'preparing_feed' ? 'Preparing feed video...' : 'Preparing playback video...',
-          });
-        }
-
-        if (video.ended || (duration > 0 && video.currentTime >= duration - 0.05)) {
-          resolve();
-          return;
-        }
-
-        (video as any).requestVideoFrameCallback(tick);
-      };
-
-      (video as any).requestVideoFrameCallback(tick);
-    });
-  } else {
-    await new Promise<void>((resolve) => {
-      const interval = window.setInterval(() => {
-        renderFrame();
-
-        if (duration > 0) {
-          const localProgress = Math.min(1, video.currentTime / duration);
-          const percent = Math.round(progressStart + (progressEnd - progressStart) * localProgress);
-          onProgress?.({
-            stage: progressLabel,
-            percent,
-            message: progressLabel === 'preparing_feed' ? 'Preparing feed video...' : 'Preparing playback video...',
-          });
-        }
-
-        if (video.ended || (duration > 0 && video.currentTime >= duration - 0.05)) {
-          window.clearInterval(interval);
-          resolve();
-        }
-      }, Math.max(16, Math.floor(1000 / fps)));
-    });
-  }
-
-  video.pause();
-  
-  // FIX: Wait for recorder to flush final frames
-  await new Promise((resolve) => setTimeout(resolve, 180));
-  
-  if (recorder.state !== 'inactive') {
-    recorder.stop();
-  }
-  
-  const blob = await done;
-
-  try {
-    stream.getTracks().forEach((t) => t.stop());
-  } catch {}
-
-  URL.revokeObjectURL(url);
-
-  const outFile = blobToFile(
-    blob,
-    progressLabel === 'preparing_feed' ? `feed-${Date.now()}` : `play-${Date.now()}`,
-    mimeType && mimeType.includes('mp4') ? 'video/mp4' : 'video/webm'
-  );
-
-  const previewUrl = URL.createObjectURL(outFile);
-
-  return { file: outFile, previewUrl };
-};
-
 const createThumbnailFromVideo = async (
   file: File,
   maxWidth = 720
 ): Promise<{ file: File; previewUrl: string }> => {
   const { video, url, width, height, duration } = await createVideoElementFromFile(file);
+  
+  const calculateContainSize = (srcW: number, srcH: number, maxW: number, maxH: number) => {
+    if (!srcW || !srcH) {
+      return { width: maxW, height: maxH };
+    }
+    const ratio = Math.min(maxW / srcW, maxH / srcH);
+    return { width: Math.round(srcW * ratio), height: Math.round(srcH * ratio) };
+  };
+  
   const { width: outW, height: outH } = calculateContainSize(width, height, maxWidth, maxWidth * 1.8);
 
   const canvas = document.createElement('canvas');
@@ -621,77 +398,16 @@ const createThumbnailFromVideo = async (
   const blob = await canvasToBlob(canvas, 'image/webp', 0.78);
   URL.revokeObjectURL(url);
 
+  const blobToFile = (blob: Blob, name: string, fallbackType: string) => {
+    const type = blob.type || fallbackType;
+    const ext = type.includes('jpeg') ? 'jpg' : type.includes('png') ? 'png' : 'webp';
+    return new File([blob], `${name}.${ext}`, { type });
+  };
+
   const outFile = blobToFile(blob, `thumb-${Date.now()}`, 'image/webp');
   const previewUrl = URL.createObjectURL(outFile);
 
   return { file: outFile, previewUrl };
-};
-
-// UPDATED: Enhanced video preparation with better bitrates
-// CRITICAL FIX: Use original file for playFile (no browser transcoding)
-const prepareDualVideoAssets = async ({
-  file,
-  onProgress,
-}: {
-  file: File;
-  onProgress?: (p: VideoPrepareProgress) => void;
-}): Promise<PreparedVideoAssets> => {
-  onProgress?.({
-    stage: 'analyzing',
-    percent: 5,
-    message: 'Preparing video...',
-  });
-
-  // Only compress the feed version
-  const feed = await transcodeInBrowser({
-    file,
-    targetMaxWidth: 480,
-    targetMaxHeight: 854,
-    fps: 24,
-    videoBitsPerSecond: 900_000,
-    audioBitsPerSecond: 96_000,
-    onProgress,
-    progressStart: 10,
-    progressEnd: 55,
-    progressLabel: 'preparing_feed',
-  });
-
-  onProgress?.({
-    stage: 'preparing_play',
-    percent: 70,
-    message: 'Keeping playback video smooth...',
-  });
-
-  // Use the original file as the playFile (no browser re-encoding)
-  const playFile = new File(
-    [file],
-    file.name || `play-${Date.now()}.mp4`,
-    { type: file.type || 'video/mp4' }
-  );
-  const playPreviewUrl = URL.createObjectURL(playFile);
-
-  onProgress?.({
-    stage: 'thumbnail',
-    percent: 88,
-    message: 'Finalizing video...',
-  });
-
-  const thumbnail = await createThumbnailFromVideo(file, 720);
-
-  onProgress?.({
-    stage: 'done',
-    percent: 100,
-    message: 'Video ready',
-  });
-
-  return {
-    feedFile: feed.file,
-    playFile,
-    thumbnailFile: thumbnail.file,
-    feedPreviewUrl: feed.previewUrl,
-    playPreviewUrl,
-    thumbnailPreviewUrl: thumbnail.previewUrl,
-  };
 };
 
 // ==================== AUDIO FOCUS MANAGER ====================
@@ -768,15 +484,6 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
 };
 
 // ==================== FORMAT HELPERS ====================
-const formatViewCount = (num?: number): string => {
-  const v = Number(num || 0);
-  
-  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(v);
-};
-
 const formatClock = (secs: number) => {
   const safe = Math.max(0, Math.floor(secs || 0));
   const m = Math.floor(safe / 60);
@@ -1029,7 +736,7 @@ type LyricPreset = {
   className: string;
 };
 
-type EditorMode = 'choose' | 'camera' | 'preview' | 'drafts';
+type EditorMode = 'choose' | 'preview' | 'drafts';
 
 // Sound type matching Reels.tsx exactly
 export type Sound = {
@@ -1073,6 +780,7 @@ export interface RecorderSubmitPayload {
   location?: string;
   visibility: Visibility;
   videoFile: File;
+  thumbnailFile?: File;
   audioFile?: File;
   songName?: string;
   audioUrl?: string;
@@ -1086,11 +794,6 @@ export interface RecorderSubmitPayload {
   lyricsEnabled?: boolean;
   filterId?: string;
   filterIntensity?: number;
-  preparedVideoAssets?: {
-    feedFile: File;
-    playFile: File;
-    thumbnailFile: File;
-  };
 }
 
 interface RecorderProps {
@@ -1563,10 +1266,8 @@ const Recorder: React.FC<RecorderProps> = ({
   const [drafts, setDrafts] = useState<DraftMeta[]>([]);
   const [localSaveNotice, setLocalSaveNotice] = useState('');
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
-
-  // Video compression state
-  const [preparedVideoAssets, setPreparedVideoAssets] = useState<PreparedVideoAssets | null>(null);
   const [videoPrepareMessage, setVideoPrepareMessage] = useState('');
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
 
   const [caption, setCaption] = useState('');
   const [location, setLocation] = useState('');
@@ -1604,12 +1305,6 @@ const Recorder: React.FC<RecorderProps> = ({
     return original ? [original, ...categoryFilters] : categoryFilters;
   }, [filterCategory]);
 
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
-  const [cameraError, setCameraError] = useState('');
-  const [isPreparingCamera, setIsPreparingCamera] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingSec, setRecordingSec] = useState(0);
-
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [soundPreviewEnabled, setSoundPreviewEnabled] = useState(true);
@@ -1631,11 +1326,12 @@ const Recorder: React.FC<RecorderProps> = ({
   const [trimmedAudioFile, setTrimmedAudioFile] = useState<File | null>(null);
   const [selectedUploadedSound, setSelectedUploadedSound] = useState<Sound | null>(null);
 
-  // Refs for file inputs
+  // Refs for file inputs and video preview
   const fileInputRef = useRef<HTMLInputElement>(null);
   const musicFileInputRef = useRef<HTMLInputElement>(null);
-
-  const isRecordingOrCameraMode = mode === 'camera' || isRecording;
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  const soundAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const resolvePlayableSoundUrl = useCallback(async (sound?: ReelSound | null) => {
     if (!sound?.audioUrl) return '';
@@ -1667,21 +1363,17 @@ const Recorder: React.FC<RecorderProps> = ({
     }
   }, [mode]);
 
-  // Cleanup preview URLs when component unmounts or assets change
+  // Cleanup preview URLs when component unmounts
   useEffect(() => {
     return () => {
-      if (preparedVideoAssets) {
-        safeRevoke(preparedVideoAssets.feedPreviewUrl);
-        safeRevoke(preparedVideoAssets.playPreviewUrl);
-        safeRevoke(preparedVideoAssets.thumbnailPreviewUrl);
+      if (previewUrlRef.current) {
+        safeRevoke(previewUrlRef.current);
       }
     };
-  }, [preparedVideoAssets]);
+  }, []);
 
-  // Fetch popular sounds - but not during recording/camera mode
+  // Fetch popular sounds
   useEffect(() => {
-    if (isRecordingOrCameraMode) return;
-
     const fetchPopularSounds = async () => {
       setLoadingPopularSounds(true);
       try {
@@ -1704,16 +1396,14 @@ const Recorder: React.FC<RecorderProps> = ({
           }));
           setPopularSounds(sounds);
           
-          if (!isRecordingOrCameraMode) {
-            sounds.slice(0, 5).forEach((sound: any) => {
-              if (sound.url) {
-                fetchAsBlobUrl(sound.url, 'audio').catch(() => {});
-              }
-              if (sound.coverImage) {
-                fetch(sound.coverImage, { cache: 'force-cache' }).catch(() => {});
-              }
-            });
-          }
+          sounds.slice(0, 5).forEach((sound: any) => {
+            if (sound.url) {
+              fetchAsBlobUrl(sound.url, 'audio').catch(() => {});
+            }
+            if (sound.coverImage) {
+              fetch(sound.coverImage, { cache: 'force-cache' }).catch(() => {});
+            }
+          });
         }
       } catch (error) {
         console.error('Failed to fetch popular sounds:', error);
@@ -1723,12 +1413,10 @@ const Recorder: React.FC<RecorderProps> = ({
     };
 
     fetchPopularSounds();
-  }, [isRecordingOrCameraMode]);
+  }, []);
 
-  // Fetch songs from library - but not during recording/camera mode
+  // Fetch songs from library
   useEffect(() => {
-    if (isRecordingOrCameraMode) return;
-
     const fetchSongs = async () => {
       setLoadingSongs(true);
       try {
@@ -1758,23 +1446,10 @@ const Recorder: React.FC<RecorderProps> = ({
     };
 
     fetchSongs();
-  }, [isRecordingOrCameraMode]);
+  }, []);
 
   const [isTrimmerOpen, setIsTrimmerOpen] = useState(false);
   const [trimmingSound, setTrimmingSound] = useState<RecorderSoundOption | null>(null);
-
-  const videoElRef = useRef<HTMLVideoElement>(null);
-  const previewVideoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const recordingStreamRef = useRef<MediaStream | null>(null);
-  const rawStreamRef = useRef<MediaStream | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
-  const animationFrameRef = useRef<number | null>(null);
-  const recordTimerRef = useRef<number | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
-  const soundAudioRef = useRef<HTMLAudioElement | null>(null);
-  const cameraReadyRef = useRef(false);
 
   const currentSelectedSound = selectedSound || null;
   const soundLabel = currentSelectedSound?.songName || (selectedUploadedSound?.name || 'Original Sound');
@@ -1885,310 +1560,25 @@ const Recorder: React.FC<RecorderProps> = ({
     [cleanupPreviewUrl]
   );
 
-  const cleanupCamera = useCallback(() => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
-    if (recordTimerRef.current) {
-      window.clearInterval(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {}
-    }
-
-    if (recordingStreamRef.current) {
-      recordingStreamRef.current.getTracks().forEach((track) => track.stop());
-      recordingStreamRef.current = null;
-    }
-
-    if (rawStreamRef.current) {
-      rawStreamRef.current.getTracks().forEach((track) => track.stop());
-      rawStreamRef.current = null;
-    }
-
-    if (videoElRef.current) {
-      videoElRef.current.pause();
-      videoElRef.current.srcObject = null;
-    }
-
-    cameraReadyRef.current = false;
-    setIsRecording(false);
-    setRecordingSec(0);
-  }, []);
-
-  const drawVideoSmartCover = useCallback((
-    ctx: CanvasRenderingContext2D,
-    video: HTMLVideoElement,
-    canvas: HTMLCanvasElement
-  ) => {
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    const cw = canvas.width;
-    const ch = canvas.height;
-
-    if (!vw || !vh || !cw || !ch) return;
-
-    const videoRatio = vw / vh;
-    const canvasRatio = cw / ch;
-
-    let sx = 0;
-    let sy = 0;
-    let sw = vw;
-    let sh = vh;
-
-    if (videoRatio > canvasRatio) {
-      sw = vh * canvasRatio;
-      sx = (vw - sw) / 2;
-    } else {
-      sh = vw / canvasRatio;
-      sy = (vh - sh) / 2;
-    }
-
-    const keptAreaRatio = (sw * sh) / (vw * vh);
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    if (keptAreaRatio < 0.72) {
-      const scale = Math.min(cw / vw, ch / vh);
-      const dw = vw * scale;
-      const dh = vh * scale;
-      const dx = (cw - dw) / 2;
-      const dy = (ch - dh) / 2;
-      ctx.drawImage(video, dx, dy, dw, dh);
-      return;
-    }
-
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
-  }, []);
-
-  const renderCameraFrame = useCallback(() => {
-    const video = videoElRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const { videoWidth, videoHeight } = video;
-    if (!videoWidth || !videoHeight) {
-      animationFrameRef.current = requestAnimationFrame(renderCameraFrame);
-      return;
-    }
-
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const viewportWidth = window.visualViewport?.width || window.innerWidth;
-    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-    
-    const displayWidth = Math.max(canvas.clientWidth, viewportWidth);
-    const displayHeight = Math.max(canvas.clientHeight, viewportHeight);
-
-    const targetWidth = Math.floor(displayWidth * dpr);
-    const targetHeight = Math.floor(displayHeight * dpr);
-
-    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-    }
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
-    
-    ctx.filter = activeFilterString;
-
-    if (facingMode === 'user') {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-    }
-
-    drawVideoSmartCover(ctx, video, canvas);
-    ctx.restore();
-
-    animationFrameRef.current = requestAnimationFrame(renderCameraFrame);
-  }, [activeFilterString, facingMode, drawVideoSmartCover]);
-
-  const startCamera = useCallback(async () => {
-    cleanupCamera();
-    setIsPreparingCamera(true);
-    setCameraError('');
-
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Camera is not supported on this device/browser.');
-      }
-
-      const rawStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode,
-          width: { ideal: 1080 },
-          height: { ideal: 1920 },
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      rawStreamRef.current = rawStream;
-
-      if (!videoElRef.current || !canvasRef.current) {
-        throw new Error('Camera elements are not ready.');
-      }
-
-      videoElRef.current.srcObject = rawStream;
-      await videoElRef.current.play();
-      cameraReadyRef.current = true;
-
-      animationFrameRef.current = requestAnimationFrame(renderCameraFrame);
-
-      const canvasStream = canvasRef.current.captureStream(30);
-      const micTrack = rawStream.getAudioTracks()[0];
-      const composedStream = new MediaStream([
-        ...canvasStream.getVideoTracks(),
-        ...(micTrack ? [micTrack] : []),
-      ]);
-
-      recordingStreamRef.current = composedStream;
-      setMode('camera');
-    } catch (error: any) {
-      setCameraError(error?.message || 'Unable to access camera.');
-    } finally {
-      setIsPreparingCamera(false);
-    }
-  }, [cleanupCamera, facingMode, renderCameraFrame]);
-
-  useEffect(() => {
-    if (mode !== 'camera' || !cameraReadyRef.current) return;
-
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-
-    animationFrameRef.current = requestAnimationFrame(renderCameraFrame);
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-    };
-  }, [mode, renderCameraFrame]);
-
-  const stopRecording = useCallback(() => {
-    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
-    try {
-      mediaRecorderRef.current.stop();
-    } catch {}
-    setIsRecording(false);
-    if (recordTimerRef.current) {
-      window.clearInterval(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
-    if (soundAudioRef.current) {
-      try {
-        soundAudioRef.current.pause();
-        soundAudioRef.current.currentTime = soundStart;
-      } catch {}
-    }
-  }, [soundStart]);
-
-  const startRecording = useCallback(async () => {
-    const stream = recordingStreamRef.current;
-    if (!stream || !cameraReadyRef.current) {
-      setCameraError('Camera is still getting ready.');
-      return;
-    }
-
-    setCameraError('');
-    recordedChunksRef.current = [];
-
-    try {
-      const mimeType = getRecorderMime();
-      const recorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          recordedChunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
-        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-        const file = new File([blob], `reel-${Date.now()}.${ext}`, { type: blob.type || mimeType });
-
-        setVideoFile(file);
-        setNextPreviewUrl(URL.createObjectURL(file));
-        setMode('preview');
-
-        try {
-          if (currentDraftId) {
-            await deleteDraft(currentDraftId).catch(() => {});
-          }
-          
-          const draftId = await saveDraft(file, {
-            caption,
-            location,
-            visibility,
-            soundId: currentSelectedSound?.songId || selectedUploadedSound?.id,
-            soundName: currentSelectedSound?.songName || selectedUploadedSound?.name,
-            trimStart,
-            trimEnd,
-            lyricsText,
-            lyricsTheme,
-            lyricsEnabled,
-            filterId: selectedFilterId,
-            filterIntensity,
-          });
-          setCurrentDraftId(draftId);
-          showLocalSavedNotice(setLocalSaveNotice);
-        } catch (e) {
-          console.warn('Auto-draft save failed:', e);
-        }
-      };
-
-      recorder.start(); // No timeslice for smoother recording
-      setIsRecording(true);
-      setRecordingSec(0);
-
-      if ((currentSelectedSound?.audioUrl || selectedUploadedSound?.url) && soundPreviewEnabled) {
-        if (!soundAudioRef.current) {
-          soundAudioRef.current = new Audio();
-        }
-        
-        const audioUrl = currentSelectedSound?.audioUrl || selectedUploadedSound?.url || '';
-        const playableUrl = currentSelectedSound ? await resolvePlayableSoundUrl(currentSelectedSound) : audioUrl;
-        
-        soundAudioRef.current.pause();
-        soundAudioRef.current.src = playableUrl;
-        soundAudioRef.current.currentTime = soundStart;
-        soundAudioRef.current.volume = 1;
-        soundAudioRef.current.play().catch(() => {});
-      }
-
-      recordTimerRef.current = window.setInterval(() => {
-        setRecordingSec((prev) => {
-          if (prev + 1 >= maxDurationSec) {
-            stopRecording();
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    } catch (error: any) {
-      setCameraError(error?.message || 'Could not start recording.');
-      setIsRecording(false);
-    }
-  }, [currentSelectedSound, selectedUploadedSound, maxDurationSec, setNextPreviewUrl, soundPreviewEnabled, soundStart, stopRecording, caption, location, visibility, trimStart, trimEnd, lyricsText, lyricsTheme, lyricsEnabled, selectedFilterId, filterIntensity, resolvePlayableSoundUrl, currentDraftId]);
+  const resetAll = useCallback(() => {
+    stopSoundPreview();
+    setVideoFile(null);
+    setThumbnailFile(null);
+    setTrimmedAudioFile(null);
+    setSelectedUploadedSound(null);
+    setNextPreviewUrl(null);
+    setMode('choose');
+    setCaption('');
+    setLocation('');
+    setSubmitState('idle');
+    setSubmitError('');
+    setSubmitProgress(0);
+    setPlayPreview(true);
+    setSelectedFilterId('none');
+    setFilterIntensity(0.75);
+    setCurrentDraftId(null);
+    setVideoPrepareMessage('');
+  }, [setNextPreviewUrl, stopSoundPreview]);
 
   const handlePickVideo = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -2265,34 +1655,6 @@ const Recorder: React.FC<RecorderProps> = ({
     event.target.value = '';
   }, [currentUser, onSelectSound]);
 
-  const resetAll = useCallback(() => {
-    cleanupCamera();
-    stopSoundPreview();
-    setVideoFile(null);
-    setTrimmedAudioFile(null);
-    setSelectedUploadedSound(null);
-    setNextPreviewUrl(null);
-    setMode('choose');
-    setCaption('');
-    setLocation('');
-    setSubmitState('idle');
-    setSubmitError('');
-    setSubmitProgress(0);
-    setPlayPreview(true);
-    setSelectedFilterId('none');
-    setFilterIntensity(0.75);
-    setCurrentDraftId(null);
-    
-    // Cleanup prepared video assets
-    if (preparedVideoAssets) {
-      safeRevoke(preparedVideoAssets.feedPreviewUrl);
-      safeRevoke(preparedVideoAssets.playPreviewUrl);
-      safeRevoke(preparedVideoAssets.thumbnailPreviewUrl);
-    }
-    setPreparedVideoAssets(null);
-    setVideoPrepareMessage('');
-  }, [cleanupCamera, setNextPreviewUrl, stopSoundPreview, preparedVideoAssets]);
-
   const generateSoundKey = useCallback((): string => {
     if (trimmedAudioFile) return `trimmed:${Date.now()}`;
     if (selectedUploadedSound?.soundKey) return selectedUploadedSound.soundKey;
@@ -2304,7 +1666,7 @@ const Recorder: React.FC<RecorderProps> = ({
   const handleSubmit = useCallback(async () => {
     if (!videoFile) {
       setSubmitState('error');
-      setSubmitError('Please record or upload a video first.');
+      setSubmitError('Please select a video first.');
       return;
     }
 
@@ -2369,21 +1731,14 @@ const Recorder: React.FC<RecorderProps> = ({
         audioFileToSend = selectedUploadedSound.file;
       }
 
-      setSubmitProgress(12);
-      setVideoPrepareMessage('Preparing video...');
+      setSubmitProgress(20);
+      setVideoPrepareMessage('Preparing thumbnail...');
 
-      // Prepare video assets (feed, play, thumbnail) - using updated bitrates
-      const prepared = await prepareDualVideoAssets({
-        file: videoFile,
-        onProgress: (p) => {
-          setSubmitProgress(Math.min(95, p.percent));
-          setVideoPrepareMessage(p.message);
-        },
-      });
+      // Generate thumbnail only
+      const thumbnail = await createThumbnailFromVideo(videoFile, 720);
+      setThumbnailFile(thumbnail.file);
 
-      setPreparedVideoAssets(prepared);
-
-      setSubmitProgress(96);
+      setSubmitProgress(70);
       setVideoPrepareMessage('Publishing...');
 
       await onSubmit({
@@ -2391,6 +1746,7 @@ const Recorder: React.FC<RecorderProps> = ({
         location: location.trim(),
         visibility,
         videoFile,
+        thumbnailFile: thumbnail.file,
         audioFile: audioFileToSend,
         songName: currentSelectedSound?.songName || selectedUploadedSound?.name || 'Original Sound',
         audioUrl: currentSelectedSound?.originalUrl || currentSelectedSound?.audioUrl || selectedUploadedSound?.originalUrl || selectedUploadedSound?.url || '',
@@ -2404,11 +1760,6 @@ const Recorder: React.FC<RecorderProps> = ({
         lyricsEnabled,
         filterId: selectedFilterId,
         filterIntensity,
-        preparedVideoAssets: {
-          feedFile: prepared.feedFile,
-          playFile: prepared.playFile,
-          thumbnailFile: prepared.thumbnailFile,
-        },
       });
 
       setSubmitProgress(100);
@@ -2508,7 +1859,6 @@ const Recorder: React.FC<RecorderProps> = ({
 
   useEffect(() => {
     return () => {
-      cleanupCamera();
       cleanupPreviewUrl();
       stopSoundPreview();
       localUploadedSounds.forEach(sound => {
@@ -2522,24 +1872,17 @@ const Recorder: React.FC<RecorderProps> = ({
         } catch {}
         soundAudioRef.current = null;
       }
-      if (preparedVideoAssets) {
-        safeRevoke(preparedVideoAssets.feedPreviewUrl);
-        safeRevoke(preparedVideoAssets.playPreviewUrl);
-        safeRevoke(preparedVideoAssets.thumbnailPreviewUrl);
+      if (thumbnailFile) {
+        safeRevoke(URL.createObjectURL(thumbnailFile));
       }
     };
-  }, [cleanupCamera, cleanupPreviewUrl, stopSoundPreview, localUploadedSounds, preparedVideoAssets]);
+  }, [cleanupPreviewUrl, stopSoundPreview, localUploadedSounds, thumbnailFile]);
 
   useEffect(() => {
     if (mode !== 'preview' || !previewVideoRef.current || !videoPreviewUrl) return;
     const video = previewVideoRef.current;
     video.play().catch(() => {});
   }, [mode, videoPreviewUrl]);
-
-  useEffect(() => {
-    if (mode !== 'camera') return;
-    startCamera();
-  }, [mode, facingMode]);
 
   const lyricStyle = useMemo<React.CSSProperties>(() => ({
     transform: `translateX(-50%) scale(${lyricsScale})`,
@@ -2761,11 +2104,6 @@ const Recorder: React.FC<RecorderProps> = ({
       <div className="absolute top-0 left-0 right-0 z-40 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-3 bg-gradient-to-b from-black/85 to-transparent flex items-center justify-between">
         <button
           onClick={() => {
-            if (mode === 'camera') {
-              cleanupCamera();
-              setMode('choose');
-              return;
-            }
             if (mode === 'preview') {
               setMode('choose');
               return;
@@ -2784,9 +2122,7 @@ const Recorder: React.FC<RecorderProps> = ({
         <div className="text-center">
           <div className="text-[10px] tracking-[0.35em] uppercase text-[#7fb6ff] font-black">{brandName} Studio</div>
           <div className="text-[12px] font-black tracking-[0.2em] uppercase">
-            {mode === 'choose' ? 'Create Reel' : 
-             mode === 'camera' ? 'Record' : 
-             mode === 'preview' ? 'Preview' : 'Drafts'}
+            {mode === 'choose' ? 'Create Reel' : mode === 'preview' ? 'Preview' : 'Drafts'}
           </div>
         </div>
 
@@ -2955,7 +2291,7 @@ const Recorder: React.FC<RecorderProps> = ({
               <div className="text-center py-12 text-white/50">
                 <i className="fas fa-inbox text-4xl mb-4 opacity-50"></i>
                 <p>No drafts saved yet</p>
-                <p className="text-sm mt-2">Record when offline to save here</p>
+                <p className="text-sm mt-2">Select a video when offline to save here</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -3006,117 +2342,6 @@ const Recorder: React.FC<RecorderProps> = ({
                 ))}
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {mode === 'camera' && (
-        <div
-          className="absolute inset-0 bg-black overflow-hidden"
-          style={{ width: '100vw', height: '100dvh' }}
-        >
-          <video
-            ref={videoElRef}
-            autoPlay
-            playsInline
-            muted
-            className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none"
-          />
-
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full block"
-          />
-
-          {isBeautyEffect && (
-            <div
-              className="absolute inset-0 pointer-events-none z-[15]"
-              style={{
-                backdropFilter: 'blur(1.2px)',
-                background: 'rgba(255, 240, 240, 0.02)',
-                mixBlendMode: 'soft-light',
-              }}
-            />
-          )}
-
-          {lyricsEnabled && (
-            <div className="absolute inset-0 pointer-events-none z-20">
-              <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
-                {lyricsText.split('\n').map((line, idx) => (
-                  <div key={idx}>{line || '\u00A0'}</div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="absolute top-16 left-4 right-4 z-30 flex items-center justify-between">
-            <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
-              {isPreparingCamera ? 'Preparing...' : isRecording ? `REC ${formatClock(recordingSec)}` : 'Ready'}
-            </div>
-            <div className="rounded-full bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 text-xs font-black tracking-[0.14em] uppercase">
-              {maxDurationSec}s
-            </div>
-          </div>
-
-          <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-3">
-            <IconPillButton
-              icon="fa-rotate"
-              label="Flip"
-              onClick={() => setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))}
-            />
-            <IconPillButton
-              icon="fa-music"
-              label="Sound"
-              active={soundPreviewEnabled}
-              onClick={() => setSoundPreviewEnabled((prev) => !prev)}
-            />
-            <IconPillButton
-              icon="fa-sliders"
-              label="Audio"
-              active={!!(currentSelectedSound || selectedUploadedSound)}
-              onClick={() => setIsSoundPickerOpen(true)}
-            />
-            <IconPillButton
-              icon="fa-closed-captioning"
-              label="Lyrics"
-              active={lyricsEnabled}
-              onClick={() => setLyricsEnabled((prev) => !prev)}
-            />
-            <IconPillButton
-              icon="fa-wand-magic-sparkles"
-              label="Effects"
-              active={selectedFilterId !== 'none'}
-              onClick={() => setIsEffectsOpen(true)}
-            />
-          </div>
-
-          <div className="absolute bottom-8 left-0 right-0 z-30 px-8 flex items-center justify-between">
-            <button
-              onClick={() => setMode('choose')}
-              className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
-            >
-              <i className="fas fa-xmark text-white" />
-            </button>
-
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              className="relative"
-            >
-              <div className={`w-20 h-20 rounded-full border-4 ${isRecording ? 'border-red-500' : 'border-white'} flex items-center justify-center transition-all`}>
-                {isRecording ? (
-                  <div className="w-10 h-10 rounded-xl bg-red-600" />
-                ) : (
-                  <div className="w-16 h-16 rounded-full bg-red-600 shadow-[0_0_30px_rgba(220,38,38,0.6)]" />
-                )}
-              </div>
-            </button>
-
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center active:scale-95 backdrop-blur-sm"
-            >
-              <i className="fas fa-image text-white" />
-            </button>
           </div>
         </div>
       )}
@@ -3681,27 +2906,6 @@ const SectionCard: React.FC<{ title: string; children: React.ReactNode }> = ({ t
   );
 };
 
-const IconPillButton: React.FC<{
-  icon: string;
-  label: string;
-  onClick: () => void;
-  active?: boolean;
-}> = ({ icon, label, onClick, active }) => {
-  return (
-    <button
-      onClick={onClick}
-      className={`w-12 rounded-2xl px-2 py-3 backdrop-blur-md border text-center active:scale-95 transition ${
-        active 
-          ? 'bg-[#1877F2]/40 border-[#1877F2]/60 text-white' 
-          : 'bg-black/60 border-white/15 text-white/90 hover:bg-black/70'
-      }`}
-    >
-      <i className={`fas ${icon} text-base mb-1`} />
-      <div className="text-[8px] font-black uppercase tracking-[0.1em] leading-tight">{label}</div>
-    </button>
-  );
-};
-
 const RangeRow: React.FC<{
   label: string;
   value: number;
@@ -3765,22 +2969,6 @@ const RECORDER_STYLES = `
 }
 .animate-scale-in {
   animation: scale-in 0.3s ease-out;
-}
-
-@keyframes spin-slow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-.animate-spin-slow {
-  animation: spin-slow 20s linear infinite;
-}
-
-@keyframes equalizer {
-  0%, 100% { height: 4px; }
-  50% { height: 16px; }
-}
-.animate-equalizer {
-  animation: equalizer 0.5s ease-in-out infinite;
 }
 
 .lyric-overlay {
