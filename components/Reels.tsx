@@ -1505,6 +1505,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const targets = [
         reels[currentIndex],
         reels[currentIndex + 1],
+        reels[currentIndex + 2],
         reels[currentIndex - 1],
       ].filter(Boolean) as Reel[];
 
@@ -1891,6 +1892,107 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     setShowReactionPicker(null);
   };
 
+  // ==================== NEW EFFECTS (ADDITIONS) ====================
+
+  // 4. Stop video and audio when comments open
+  useEffect(() => {
+    if (!showComments) return;
+    const activeId = activeIdRef.current;
+    if (activeId) {
+      const video = videoRefs.current[activeId];
+      if (video) {
+        try {
+          video.pause();
+        } catch {}
+      }
+    }
+    stopAudio();
+  }, [showComments, stopAudio]);
+
+  // 5. Resume active reel when comments close
+  useEffect(() => {
+    if (showComments) return;
+    const activeId = activeIdRef.current;
+    if (!activeId) return;
+    const video = videoRefs.current[activeId];
+    if (!video) return;
+    video.play().catch(() => {});
+    if (userInteractedRef.current) {
+      startAudioForReel(activeId);
+    }
+  }, [showComments, startAudioForReel]);
+
+  // 6. Stop everything when app/tab is hidden or user leaves app
+  useEffect(() => {
+    const stopPlayback = () => {
+      Object.values(videoRefs.current).forEach((video) => {
+        if (!video) return;
+        try {
+          video.pause();
+        } catch {}
+      });
+      stopAudio();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPlayback();
+      } else if (!showComments && activeIdRef.current) {
+        const id = activeIdRef.current;
+        const video = videoRefs.current[id];
+        if (video) {
+          video.play().catch(() => {});
+        }
+        if (userInteractedRef.current) {
+          startAudioForReel(id);
+        }
+      }
+    };
+
+    const handlePageHide = () => {
+      stopPlayback();
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [showComments, startAudioForReel, stopAudio]);
+
+  // 9. Stop audio when sound details open
+  useEffect(() => {
+    if (selectedSoundData) {
+      stopAudio();
+      const activeId = activeIdRef.current;
+      if (activeId) {
+        const video = videoRefs.current[activeId];
+        if (video) {
+          try {
+            video.pause();
+          } catch {}
+        }
+      }
+    }
+  }, [selectedSoundData, stopAudio]);
+
+  // 10. Stop audio when opening owner menu or edit modal
+  useEffect(() => {
+    if (!showReelMenu && !editingReel) return;
+    stopAudio();
+    const activeId = activeIdRef.current;
+    if (activeId) {
+      const video = videoRefs.current[activeId];
+      if (video) {
+        try {
+          video.pause();
+        } catch {}
+      }
+    }
+  }, [showReelMenu, editingReel, stopAudio]);
+
   return (
     <div
       className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
@@ -1909,9 +2011,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           <i className="fas fa-arrow-left text-white text-sm" />
         </button>
 
-        <div className="text-white font-black text-[12px] tracking-widest uppercase pointer-events-auto">
-          Reels
-        </div>
+        {/* 3. Delete the word Reels – replaced with empty spacer */}
+        <div className="w-10 h-10 pointer-events-none" />
 
         <button
           onClick={() => {
@@ -1930,9 +2031,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         </button>
       </div>
 
-      <div className="absolute top-[66px] right-4 z-30 bg-black/45 border border-white/10 text-white/80 text-[10px] px-2 py-1 rounded-full backdrop-blur-sm">
-        Quality: {networkLevel.toUpperCase()} (Medium only)
-      </div>
+      {/* 1. Quality text removed */}
 
       <div className="w-full h-full">
         <div
@@ -2111,7 +2210,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       </div>
                     </div>
 
-                    <div className="absolute top-4 left-4 z-20 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20">
+                    {/* 2. Move eye/views badge to top‑20 right‑4 */}
+                    <div className="absolute top-20 right-4 z-20 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20">
                       <div className="flex items-center gap-2 text-white text-xs font-bold">
                         <i className="fas fa-eye text-[#1877F2]"></i>
                         <span>{formatViewCount(reel.views)}</span>
