@@ -78,9 +78,12 @@ const contentTypeFromExt = (ext: string) => {
   if (e === "pdf") return "application/pdf";
   if (e === "txt") return "text/plain; charset=utf-8";
   if (e === "doc") return "application/msword";
-  if (e === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  if (e === "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  if (e === "pptx") return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  if (e === "docx")
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (e === "xlsx")
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (e === "pptx")
+    return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
   if (e === "zip") return "application/zip";
 
@@ -94,7 +97,13 @@ const fileTypeFromMimeOrExt = (mime: string, ext: string) => {
   if (m.startsWith("image/") || ["jpg", "jpeg", "png", "webp", "avif"].includes(e)) return "image";
   if (m.includes("gif") || e === "gif") return "gif";
   if (m.startsWith("video/") || ["mp4", "webm", "mov"].includes(e)) return "video";
-  if (m.startsWith("audio/") || m.includes("opus") || ["mp3", "wav", "ogg", "aac", "m4a", "webm"].includes(e)) return "audio";
+  if (
+    m.startsWith("audio/") ||
+    m.includes("opus") ||
+    ["mp3", "wav", "ogg", "aac", "m4a", "webm"].includes(e)
+  ) {
+    return "audio";
+  }
 
   if (m === "application/pdf" || e === "pdf") return "document";
 
@@ -181,7 +190,7 @@ const putObject = async (
   return publicUrl(key);
 };
 
-const cfImageTransform = async (
+const tryCfImageTransform = async (
   originalBuffer: Uint8Array,
   opts: {
     width: number;
@@ -189,26 +198,30 @@ const cfImageTransform = async (
     quality?: number;
     format?: "webp" | "avif" | "jpeg" | "png";
   }
-) => {
-  const res = await fetch("https://dummy", {
-    method: "POST",
-    body: originalBuffer,
-    // @ts-ignore
-    cf: {
-      image: {
-        width: opts.width,
-        fit: opts.fit || "cover",
-        quality: opts.quality ?? 78,
-        format: opts.format || "webp",
+): Promise<Uint8Array | null> => {
+  try {
+    const res = await fetch("https://dummy", {
+      method: "POST",
+      body: originalBuffer,
+      // @ts-ignore
+      cf: {
+        image: {
+          width: opts.width,
+          fit: opts.fit || "cover",
+          quality: opts.quality ?? 78,
+          format: opts.format || "webp",
+        },
       },
-    },
-  });
+    });
 
-  if (!res.ok) {
-    throw new Error(`Image transform failed: ${res.status}`);
+    if (!res.ok) {
+      return null;
+    }
+
+    return new Uint8Array(await res.arrayBuffer());
+  } catch {
+    return null;
   }
-
-  return new Uint8Array(await res.arrayBuffer());
 };
 
 const processImageVariants = async (
@@ -216,14 +229,13 @@ const processImageVariants = async (
   file: File,
   baseFolder = "uploads/images"
 ) => {
-  const { filename, bytes, file_type } = await getFileInfo(file);
+  const originalInfo = await getFileInfo(file);
+  const { filename, bytes, file_type } = originalInfo;
 
   const baseKey = `${baseFolder}/${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-  // Store full/original as uploaded
-  const originalInfo = await getFileInfo(file);
+  // original
   const originalKey = safeVariantKey(baseKey, "full", originalInfo.ext);
-
   const originalUrl = await putObject(env, {
     key: originalKey,
     bytes: originalInfo.bytes,
@@ -232,37 +244,37 @@ const processImageVariants = async (
     file_type: originalInfo.file_type,
   });
 
-  // Feed variant
-  const feedBuffer = await cfImageTransform(bytes, {
+  // Try Cloudflare image resizing, but fall back safely if it fails
+  const transformedFeed = await tryCfImageTransform(bytes, {
     width: 1080,
     fit: "cover",
     quality: 80,
     format: "webp",
   });
 
-  const feedKey = safeVariantKey(baseKey, "feed", "webp");
-  const feedUrl = await putObject(env, {
-    key: feedKey,
-    bytes: feedBuffer,
-    mime_type: "image/webp",
-    filename: filename || "feed.webp",
-    file_type,
-  });
-
-  // Thumbnail variant
-  const thumbBuffer = await cfImageTransform(bytes, {
+  const transformedThumb = await tryCfImageTransform(bytes, {
     width: 320,
     fit: "cover",
     quality: 70,
     format: "webp",
   });
 
-  const thumbKey = safeVariantKey(baseKey, "thumb", "webp");
+  const feedKey = safeVariantKey(baseKey, "feed", transformedFeed ? "webp" : originalInfo.ext);
+  const thumbKey = safeVariantKey(baseKey, "thumb", transformedThumb ? "webp" : originalInfo.ext);
+
+  const feedUrl = await putObject(env, {
+    key: feedKey,
+    bytes: transformedFeed || originalInfo.bytes,
+    mime_type: transformedFeed ? "image/webp" : originalInfo.mime_type,
+    filename: filename || (transformedFeed ? "feed.webp" : `feed.${originalInfo.ext}`),
+    file_type,
+  });
+
   const thumbUrl = await putObject(env, {
     key: thumbKey,
-    bytes: thumbBuffer,
-    mime_type: "image/webp",
-    filename: filename || "thumb.webp",
+    bytes: transformedThumb || originalInfo.bytes,
+    mime_type: transformedThumb ? "image/webp" : originalInfo.mime_type,
+    filename: filename || (transformedThumb ? "thumb.webp" : `thumb.${originalInfo.ext}`),
     file_type,
   });
 
@@ -282,6 +294,7 @@ const processImageVariants = async (
     file_type: originalInfo.file_type,
     metadata: {
       cache_control: LONG_CACHE_CONTROL,
+      transform_used: Boolean(transformedFeed || transformedThumb),
     },
   };
 };
@@ -329,7 +342,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const singleFile = form.get("file");
 
-      // bundle fields
       const originalFile = form.get("original");
       const feedFile = form.get("feed");
       const playFile = form.get("play");
@@ -392,7 +404,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const { filename, ext, mime_type, file_type, bytes } = await getFileInfo(singleFile);
 
-      // Image: generate 3 URLs
+      // Image: return 3 URLs
       if (file_type === "image" || file_type === "gif") {
         const imageResult = await processImageVariants(env, singleFile);
         return toJson({
@@ -406,10 +418,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         file_type === "video"
           ? "uploads/videos"
           : file_type === "audio"
-          ? "uploads/audio"
-          : file_type === "document"
-          ? "uploads/documents"
-          : "uploads/files";
+            ? "uploads/audio"
+            : file_type === "document"
+              ? "uploads/documents"
+              : "uploads/files";
 
       const key = safeKey(ext, folder);
       const url = await putObject(env, {
@@ -485,10 +497,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       file_type === "video"
         ? "uploads/videos"
         : file_type === "audio"
-        ? "uploads/audio"
-        : file_type === "document"
-        ? "uploads/documents"
-        : "uploads/files";
+          ? "uploads/audio"
+          : file_type === "document"
+            ? "uploads/documents"
+            : "uploads/files";
 
     const key = safeKey(ext, folder);
     const url = await putObject(env, {
