@@ -1,4 +1,3 @@
-
 import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { R2: R2Bucket };
@@ -10,19 +9,10 @@ const cors = {
 };
 
 const PUBLIC_BASE = "https://media.unera.social";
+const LONG_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
-
-const toJson = (data: any, status = 200) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      ...cors,
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    },
-  });
 
 const safeExtFromType = (ct: string) => {
   const t = (ct || "").toLowerCase();
@@ -32,21 +22,22 @@ const safeExtFromType = (ct: string) => {
   if (t.includes("png")) return "png";
   if (t.includes("webp")) return "webp";
   if (t.includes("gif")) return "gif";
+  if (t.includes("avif")) return "avif";
 
-  // videos
+  // video
   if (t.includes("mp4")) return "mp4";
   if (t.includes("webm")) return "webm";
   if (t.includes("quicktime")) return "mov";
-  if (t.includes("ogg")) return "ogv";
 
   // audio
+  if (t.includes("opus")) return "webm";
+  if (t.includes("audio/webm")) return "webm";
   if (t === "audio/mpeg" || t.includes("mpeg")) return "mp3";
   if (t.includes("wav")) return "wav";
+  if (t.includes("ogg")) return "ogg";
   if (t.includes("aac")) return "aac";
   if (t.includes("m4a")) return "m4a";
   if (t.includes("audio/mp4")) return "m4a";
-  if (t.includes("audio/ogg")) return "ogg";
-  if (t.includes("opus")) return "opus";
 
   // docs
   if (t.includes("pdf")) return "pdf";
@@ -55,6 +46,7 @@ const safeExtFromType = (ct: string) => {
   if (t.includes("officedocument.spreadsheetml")) return "xlsx";
   if (t.includes("officedocument.presentationml")) return "pptx";
   if (t.includes("text/plain")) return "txt";
+
   if (t.includes("zip")) return "zip";
 
   return "bin";
@@ -68,12 +60,12 @@ const contentTypeFromExt = (ext: string) => {
   if (e === "png") return "image/png";
   if (e === "webp") return "image/webp";
   if (e === "gif") return "image/gif";
+  if (e === "avif") return "image/avif";
 
   // video
   if (e === "mp4") return "video/mp4";
   if (e === "webm") return "video/webm";
   if (e === "mov") return "video/quicktime";
-  if (e === "ogv") return "video/ogg";
 
   // audio
   if (e === "mp3") return "audio/mpeg";
@@ -81,7 +73,6 @@ const contentTypeFromExt = (ext: string) => {
   if (e === "ogg") return "audio/ogg";
   if (e === "aac") return "audio/aac";
   if (e === "m4a") return "audio/mp4";
-  if (e === "opus") return "audio/opus";
 
   // docs
   if (e === "pdf") return "application/pdf";
@@ -90,6 +81,7 @@ const contentTypeFromExt = (ext: string) => {
   if (e === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   if (e === "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   if (e === "pptx") return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
   if (e === "zip") return "application/zip";
 
   return "application/octet-stream";
@@ -99,10 +91,10 @@ const fileTypeFromMimeOrExt = (mime: string, ext: string) => {
   const m = (mime || "").toLowerCase();
   const e = (ext || "").toLowerCase();
 
-  if (m.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(e)) return "image";
+  if (m.startsWith("image/") || ["jpg", "jpeg", "png", "webp", "avif"].includes(e)) return "image";
   if (m.includes("gif") || e === "gif") return "gif";
-  if (m.startsWith("video/") || ["mp4", "webm", "mov", "ogv"].includes(e)) return "video";
-  if (m.startsWith("audio/") || ["mp3", "wav", "ogg", "aac", "m4a", "opus"].includes(e)) return "audio";
+  if (m.startsWith("video/") || ["mp4", "webm", "mov"].includes(e)) return "video";
+  if (m.startsWith("audio/") || m.includes("opus") || ["mp3", "wav", "ogg", "aac", "m4a", "webm"].includes(e)) return "audio";
 
   if (m === "application/pdf" || e === "pdf") return "document";
 
@@ -117,27 +109,27 @@ const fileTypeFromMimeOrExt = (mime: string, ext: string) => {
   return "other";
 };
 
-const sanitizeFolder = (input: string | null | undefined) => {
-  const raw = String(input || "uploads").trim();
-  const cleaned = raw
-    .replace(/^\/+|\/+$/g, "")
-    .replace(/[^a-zA-Z0-9/_-]/g, "")
-    .replace(/\/{2,}/g, "/");
-
-  return cleaned || "uploads";
-};
-
-const randomId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-const safeKey = (ext: string, folder = "uploads") =>
-  `${sanitizeFolder(folder)}/${randomId()}.${(ext || "bin").toLowerCase()}`;
+const safeKey = (ext: string, prefix = "uploads") =>
+  `${prefix}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext || "bin"}`;
 
 const safeVariantKey = (base: string, variant: string, ext: string) =>
-  `${base}_${variant}.${(ext || "bin").toLowerCase()}`;
+  `${base}_${variant}.${ext || "bin"}`;
+
+const publicUrl = (key: string) => `${PUBLIC_BASE}/${key}`;
+
+const toJson = (data: any, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      ...cors,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
 
 const getFileInfo = async (file: File) => {
   const filename = String(file.name || "").trim();
-  const nameExt = filename.includes(".") ? filename.split(".").pop() || "" : "";
+  const nameExt = filename && filename.includes(".") ? filename.split(".").pop() || "" : "";
   const fallbackExt = safeExtFromType(file.type || "");
   const ext = String(nameExt || fallbackExt || "bin").toLowerCase();
 
@@ -158,7 +150,7 @@ const getFileInfo = async (file: File) => {
   };
 };
 
-const uploadSingleBlob = async (
+const putObject = async (
   env: Env,
   {
     key,
@@ -177,7 +169,7 @@ const uploadSingleBlob = async (
   await env.R2.put(key, bytes, {
     httpMetadata: {
       contentType: mime_type,
-      cacheControl: "public, max-age=31536000, immutable",
+      cacheControl: LONG_CACHE_CONTROL,
     },
     customMetadata: {
       filename: filename || "upload",
@@ -186,104 +178,138 @@ const uploadSingleBlob = async (
     },
   });
 
-  return `${PUBLIC_BASE}/${key}`;
+  return publicUrl(key);
+};
+
+const cfImageTransform = async (
+  originalBuffer: Uint8Array,
+  opts: {
+    width: number;
+    fit?: "cover" | "contain" | "scale-down";
+    quality?: number;
+    format?: "webp" | "avif" | "jpeg" | "png";
+  }
+) => {
+  const res = await fetch("https://dummy", {
+    method: "POST",
+    body: originalBuffer,
+    // @ts-ignore
+    cf: {
+      image: {
+        width: opts.width,
+        fit: opts.fit || "cover",
+        quality: opts.quality ?? 78,
+        format: opts.format || "webp",
+      },
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Image transform failed: ${res.status}`);
+  }
+
+  return new Uint8Array(await res.arrayBuffer());
 };
 
 const processImageVariants = async (
   env: Env,
   file: File,
-  baseFolder = "uploads"
+  baseFolder = "uploads/images"
 ) => {
-  const folder = sanitizeFolder(baseFolder);
-  const { filename, ext, mime_type, file_type, bytes } = await getFileInfo(file);
-  const baseKey = `${folder}/${randomId()}`;
-  const originalBuffer = bytes;
+  const { filename, bytes, file_type } = await getFileInfo(file);
 
-  const feedRes = await fetch("https://dummy", {
-    method: "POST",
-    body: originalBuffer,
-    // @ts-ignore
-    cf: {
-      image: {
-        width: 1080,
-        fit: "cover",
-        quality: 78,
-      },
-    },
+  const baseKey = `${baseFolder}/${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  // Store full/original as uploaded
+  const originalInfo = await getFileInfo(file);
+  const originalKey = safeVariantKey(baseKey, "full", originalInfo.ext);
+
+  const originalUrl = await putObject(env, {
+    key: originalKey,
+    bytes: originalInfo.bytes,
+    mime_type: originalInfo.mime_type,
+    filename: originalInfo.filename || `upload.${originalInfo.ext}`,
+    file_type: originalInfo.file_type,
   });
 
-  const feedBuffer = new Uint8Array(await feedRes.arrayBuffer());
-
-  const thumbRes = await fetch("https://dummy", {
-    method: "POST",
-    body: originalBuffer,
-    // @ts-ignore
-    cf: {
-      image: {
-        width: 320,
-        fit: "cover",
-        quality: 68,
-      },
-    },
+  // Feed variant
+  const feedBuffer = await cfImageTransform(bytes, {
+    width: 1080,
+    fit: "cover",
+    quality: 80,
+    format: "webp",
   });
 
-  const thumbBuffer = new Uint8Array(await thumbRes.arrayBuffer());
-
-  const originalKey = safeVariantKey(baseKey, "full", ext);
-  const feedKey = safeVariantKey(baseKey, "feed", ext);
-  const thumbKey = safeVariantKey(baseKey, "thumb", ext);
-
-  await env.R2.put(originalKey, originalBuffer, {
-    httpMetadata: {
-      contentType: mime_type,
-      cacheControl: "public, max-age=31536000, immutable",
-    },
-    customMetadata: {
-      filename: filename || `upload.${ext}`,
-      mime_type,
-      file_type,
-    },
+  const feedKey = safeVariantKey(baseKey, "feed", "webp");
+  const feedUrl = await putObject(env, {
+    key: feedKey,
+    bytes: feedBuffer,
+    mime_type: "image/webp",
+    filename: filename || "feed.webp",
+    file_type,
   });
 
-  await env.R2.put(feedKey, feedBuffer, {
-    httpMetadata: {
-      contentType: mime_type,
-      cacheControl: "public, max-age=31536000, immutable",
-    },
-    customMetadata: {
-      filename: filename || `upload.${ext}`,
-      mime_type,
-      file_type,
-    },
+  // Thumbnail variant
+  const thumbBuffer = await cfImageTransform(bytes, {
+    width: 320,
+    fit: "cover",
+    quality: 70,
+    format: "webp",
   });
 
-  await env.R2.put(thumbKey, thumbBuffer, {
-    httpMetadata: {
-      contentType: mime_type,
-      cacheControl: "public, max-age=31536000, immutable",
-    },
-    customMetadata: {
-      filename: filename || `upload.${ext}`,
-      mime_type,
-      file_type,
-    },
+  const thumbKey = safeVariantKey(baseKey, "thumb", "webp");
+  const thumbUrl = await putObject(env, {
+    key: thumbKey,
+    bytes: thumbBuffer,
+    mime_type: "image/webp",
+    filename: filename || "thumb.webp",
+    file_type,
   });
 
   return {
     success: true,
     media_type: "image",
     media_urls: {
-      thumb: `${PUBLIC_BASE}/${thumbKey}`,
-      feed: `${PUBLIC_BASE}/${feedKey}`,
-      full: `${PUBLIC_BASE}/${originalKey}`,
+      thumb: thumbUrl,
+      feed: feedUrl,
+      full: originalUrl,
     },
     key: originalKey,
-    url: `${PUBLIC_BASE}/${originalKey}`,
+    url: originalUrl,
     filename: filename || null,
-    size_bytes: bytes.byteLength,
-    mime_type,
-    file_type,
-    metadata: {},
+    size_bytes: originalInfo.bytes.byteLength,
+    mime_type: originalInfo.mime_type,
+    file_type: originalInfo.file_type,
+    metadata: {
+      cache_control: LONG_CACHE_CONTROL,
+    },
+  };
+};
+
+const uploadBundlePart = async (
+  env: Env,
+  file: File,
+  baseFolder: string,
+  variant: string
+) => {
+  const info = await getFileInfo(file);
+  const key = safeVariantKey(baseFolder, variant, info.ext);
+  const url = await putObject(env, {
+    key,
+    bytes: info.bytes,
+    mime_type: info.mime_type,
+    filename: info.filename || `${variant}.${info.ext}`,
+    file_type: info.file_type,
+  });
+
+  return {
+    key,
+    url,
+    filename: info.filename || null,
+    size_bytes: info.bytes.byteLength,
+    mime_type: info.mime_type,
+    file_type: info.file_type,
+    cache_control: LONG_CACHE_CONTROL,
   };
 };
 
@@ -303,107 +329,44 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const singleFile = form.get("file");
 
+      // bundle fields
+      const originalFile = form.get("original");
       const feedFile = form.get("feed");
       const playFile = form.get("play");
       const thumbnailFile = form.get("thumbnail");
       const audioFile = form.get("audio");
 
-      const folder = sanitizeFolder(form.get("folder")?.toString() || "uploads");
-
       // =========================================
-      // PROFESSIONAL MULTI-ASSET VIDEO UPLOAD
+      // MULTI-ASSET BUNDLE UPLOAD
       // =========================================
       if (
+        originalFile instanceof File ||
         feedFile instanceof File ||
         playFile instanceof File ||
         thumbnailFile instanceof File ||
         audioFile instanceof File
       ) {
-        const baseFolder = `${folder}/${randomId()}`;
+        const baseFolder = `uploads/${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const uploaded: Record<string, any> = {};
 
-        if (feedFile instanceof File) {
-          const info = await getFileInfo(feedFile);
-          const key = safeVariantKey(baseFolder, "feed", info.ext);
-          const url = await uploadSingleBlob(env, {
-            key,
-            bytes: info.bytes,
-            mime_type: info.mime_type,
-            filename: info.filename || `feed.${info.ext}`,
-            file_type: info.file_type,
-          });
+        if (originalFile instanceof File) {
+          uploaded.original = await uploadBundlePart(env, originalFile, baseFolder, "original");
+        }
 
-          uploaded.feed = {
-            key,
-            url,
-            filename: info.filename || null,
-            size_bytes: info.bytes.byteLength,
-            mime_type: info.mime_type,
-            file_type: info.file_type,
-          };
+        if (feedFile instanceof File) {
+          uploaded.feed = await uploadBundlePart(env, feedFile, baseFolder, "feed");
         }
 
         if (playFile instanceof File) {
-          const info = await getFileInfo(playFile);
-          const key = safeVariantKey(baseFolder, "play", info.ext);
-          const url = await uploadSingleBlob(env, {
-            key,
-            bytes: info.bytes,
-            mime_type: info.mime_type,
-            filename: info.filename || `play.${info.ext}`,
-            file_type: info.file_type,
-          });
-
-          uploaded.play = {
-            key,
-            url,
-            filename: info.filename || null,
-            size_bytes: info.bytes.byteLength,
-            mime_type: info.mime_type,
-            file_type: info.file_type,
-          };
+          uploaded.play = await uploadBundlePart(env, playFile, baseFolder, "play");
         }
 
         if (thumbnailFile instanceof File) {
-          const info = await getFileInfo(thumbnailFile);
-          const key = safeVariantKey(baseFolder, "thumbnail", info.ext);
-          const url = await uploadSingleBlob(env, {
-            key,
-            bytes: info.bytes,
-            mime_type: info.mime_type,
-            filename: info.filename || `thumbnail.${info.ext}`,
-            file_type: info.file_type,
-          });
-
-          uploaded.thumbnail = {
-            key,
-            url,
-            filename: info.filename || null,
-            size_bytes: info.bytes.byteLength,
-            mime_type: info.mime_type,
-            file_type: info.file_type,
-          };
+          uploaded.thumbnail = await uploadBundlePart(env, thumbnailFile, baseFolder, "thumbnail");
         }
 
         if (audioFile instanceof File) {
-          const info = await getFileInfo(audioFile);
-          const key = safeVariantKey(baseFolder, "audio", info.ext);
-          const url = await uploadSingleBlob(env, {
-            key,
-            bytes: info.bytes,
-            mime_type: info.mime_type,
-            filename: info.filename || `audio.${info.ext}`,
-            file_type: info.file_type,
-          });
-
-          uploaded.audio = {
-            key,
-            url,
-            filename: info.filename || null,
-            size_bytes: info.bytes.byteLength,
-            mime_type: info.mime_type,
-            file_type: info.file_type,
-          };
+          uploaded.audio = await uploadBundlePart(env, audioFile, baseFolder, "audio");
         }
 
         return toJson({
@@ -420,7 +383,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         return toJson(
           {
             success: false,
-            error: "file is required (multipart field name: file), or send feed/play/thumbnail/audio fields",
+            error:
+              "file is required (multipart field name: file), or send original/feed/play/thumbnail/audio fields",
           },
           400
         );
@@ -428,22 +392,27 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const { filename, ext, mime_type, file_type, bytes } = await getFileInfo(singleFile);
 
-      // Keep original file format exactly as uploaded.
-      // mp4 stays mp4, webp stays webp, wav stays wav.
-      // Only general images in normal folders get variants.
-      const isDedicatedThumbFolder =
-        folder.includes("thumb") || folder.includes("thumbnail");
-
-      if ((file_type === "image" || file_type === "gif") && !isDedicatedThumbFolder) {
-        const imageResult = await processImageVariants(env, singleFile, folder);
+      // Image: generate 3 URLs
+      if (file_type === "image" || file_type === "gif") {
+        const imageResult = await processImageVariants(env, singleFile);
         return toJson({
           ...imageResult,
           media_urls: JSON.stringify(imageResult.media_urls),
         });
       }
 
+      // Video/audio/doc: store original only
+      const folder =
+        file_type === "video"
+          ? "uploads/videos"
+          : file_type === "audio"
+          ? "uploads/audio"
+          : file_type === "document"
+          ? "uploads/documents"
+          : "uploads/files";
+
       const key = safeKey(ext, folder);
-      const url = await uploadSingleBlob(env, {
+      const url = await putObject(env, {
         key,
         bytes,
         mime_type,
@@ -459,7 +428,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         size_bytes: bytes.byteLength,
         mime_type,
         file_type,
-        metadata: {},
+        metadata: {
+          cache_control: LONG_CACHE_CONTROL,
+        },
       });
     }
 
@@ -470,13 +441,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const filename = String(body.filename || "").trim();
     const incomingType = String(body.contentType || body.mime_type || "").trim();
     const dataBase64 = String(body.dataBase64 || "").trim();
-    const folder = sanitizeFolder(body.folder || "uploads");
 
     if (!dataBase64) {
       return toJson({ success: false, error: "dataBase64 is required" }, 400);
     }
 
-    const base64 = dataBase64.includes("base64,") ? dataBase64.split("base64,")[1] : dataBase64;
+    const base64 = dataBase64.includes("base64,")
+      ? dataBase64.split("base64,")[1]
+      : dataBase64;
 
     let bin: string;
     try {
@@ -499,116 +471,33 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const file_type = fileTypeFromMimeOrExt(mime_type, ext);
 
-    const isDedicatedThumbFolder =
-      folder.includes("thumb") || folder.includes("thumbnail");
-
-    if ((file_type === "image" || file_type === "gif") && !isDedicatedThumbFolder) {
-      const baseKey = `${folder}/${randomId()}`;
-      const originalBuffer = bytes;
-
-      const feedRes = await fetch("https://dummy", {
-        method: "POST",
-        body: originalBuffer,
-        // @ts-ignore
-        cf: {
-          image: {
-            width: 1080,
-            fit: "cover",
-            quality: 78,
-          },
-        },
-      });
-
-      const feedBuffer = new Uint8Array(await feedRes.arrayBuffer());
-
-      const thumbRes = await fetch("https://dummy", {
-        method: "POST",
-        body: originalBuffer,
-        // @ts-ignore
-        cf: {
-          image: {
-            width: 320,
-            fit: "cover",
-            quality: 68,
-          },
-        },
-      });
-
-      const thumbBuffer = new Uint8Array(await thumbRes.arrayBuffer());
-
-      const originalKey = `${baseKey}_full.${ext}`;
-      const feedKey = `${baseKey}_feed.${ext}`;
-      const thumbKey = `${baseKey}_thumb.${ext}`;
-
-      await env.R2.put(originalKey, originalBuffer, {
-        httpMetadata: {
-          contentType: mime_type,
-          cacheControl: "public, max-age=31536000, immutable",
-        },
-        customMetadata: {
-          filename: filename || `upload.${ext}`,
-          mime_type,
-          file_type,
-        },
-      });
-
-      await env.R2.put(feedKey, feedBuffer, {
-        httpMetadata: {
-          contentType: mime_type,
-          cacheControl: "public, max-age=31536000, immutable",
-        },
-        customMetadata: {
-          filename: filename || `upload.${ext}`,
-          mime_type,
-          file_type,
-        },
-      });
-
-      await env.R2.put(thumbKey, thumbBuffer, {
-        httpMetadata: {
-          contentType: mime_type,
-          cacheControl: "public, max-age=31536000, immutable",
-        },
-        customMetadata: {
-          filename: filename || `upload.${ext}`,
-          mime_type,
-          file_type,
-        },
-      });
+    if (file_type === "image" || file_type === "gif") {
+      const originalFile = new File([bytes], filename || `upload.${ext}`, { type: mime_type });
+      const imageResult = await processImageVariants(env, originalFile);
 
       return toJson({
-        success: true,
-        media_type: "image",
-        media_urls: JSON.stringify({
-          thumb: `${PUBLIC_BASE}/${thumbKey}`,
-          feed: `${PUBLIC_BASE}/${feedKey}`,
-          full: `${PUBLIC_BASE}/${originalKey}`,
-        }),
-        key: originalKey,
-        url: `${PUBLIC_BASE}/${originalKey}`,
-        filename: filename || null,
-        size_bytes: bytes.byteLength,
-        mime_type,
-        file_type,
-        metadata: {},
+        ...imageResult,
+        media_urls: JSON.stringify(imageResult.media_urls),
       });
     }
 
+    const folder =
+      file_type === "video"
+        ? "uploads/videos"
+        : file_type === "audio"
+        ? "uploads/audio"
+        : file_type === "document"
+        ? "uploads/documents"
+        : "uploads/files";
+
     const key = safeKey(ext, folder);
-
-    await env.R2.put(key, bytes, {
-      httpMetadata: {
-        contentType: mime_type,
-        cacheControl: "public, max-age=31536000, immutable",
-      },
-      customMetadata: {
-        filename: filename || `upload.${ext}`,
-        mime_type,
-        file_type,
-      },
+    const url = await putObject(env, {
+      key,
+      bytes,
+      mime_type,
+      filename: filename || `upload.${ext}`,
+      file_type,
     });
-
-    const url = `${PUBLIC_BASE}/${key}`;
 
     return toJson({
       success: true,
@@ -618,7 +507,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       size_bytes: bytes.byteLength,
       mime_type,
       file_type,
-      metadata: {},
+      metadata: {
+        cache_control: LONG_CACHE_CONTROL,
+      },
     });
   } catch (e: any) {
     return toJson({ success: false, error: e?.message || "Upload failed" }, 500);
