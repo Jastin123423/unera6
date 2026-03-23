@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -785,7 +784,7 @@ const normalizeUser = (u: any): User => {
 
 /**
  * Normalize reel data with trimmed audio support and full comment structure
- * UPDATED to include adaptive video fields expected by new Reels.tsx
+ * UPDATED to include thumbnail field for Reels.tsx
  */
 const normalizeReel = (r: any): Reel => {
   const resolvedId = safeNumber(r?.id ?? r?.reel_id ?? 0);
@@ -847,6 +846,7 @@ const normalizeReel = (r: any): Reel => {
     comments,
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
     thumbnail_url: safeString(r?.thumbnail_url ?? r?.cover_url ?? ''),
+    thumbnail: safeString(r?.thumbnail_url ?? r?.cover_url ?? ''), // Added for Reels.tsx
     reactions_count: safeNumber(r?.reactions_count ?? safeArray(r?.reactions).length),
     comments_count: safeNumber(r?.comments_count ?? comments.length),
     author: r?.author || r?.author_name || '',
@@ -3114,85 +3114,67 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // ✅ UPDATED createReel - optimistic only, no forced refresh
+  // ✅ UPDATED createReel - MP4 only, no fake compression
   // ============================================================================
   const createReel = useCallback(async (
     reelData: Partial<Reel> & {
       videoFile?: File | Blob;
+      thumbnailFile?: File | Blob;
       audioFile?: File | Blob;
       originalSoundId?: string | number;
-      preparedVideoAssets?: {
-        feedFile?: File;
-        playFile?: File;
-        thumbnailFile?: File;
-      };
     }
   ) => {
     if (!requireAuth('Creating reels')) return;
     if (!currentUser) return;
 
     console.log("createReel input:", reelData);
-    
     setIsFeedRefreshing(true);
-    
+
     try {
       const videoFile = reelData.videoFile;
+      const thumbnailFile = reelData.thumbnailFile;
       const audioFile = reelData.audioFile;
-      const prepared = (reelData as any).preparedVideoAssets;
 
-      if (!videoFile && !prepared?.playFile && !prepared?.feedFile) {
-        throw new Error('Video was not uploaded. Please select a video [video file missing]');
+      if (!videoFile) {
+        throw new Error('Video is required');
       }
 
+      let videoUrl = '';
       let videoUrlLow = '';
       let videoUrlMedium = '';
       let videoUrlHd = '';
-      let videoUrl = '';
       let thumbnailUrl = '';
 
-      if (prepared?.feedFile) {
-        videoUrlLow = await ensureR2Url(
-          prepared.feedFile,
-          'reels',
-          `reel-feed-${Date.now()}.webm`
-        );
-      }
+      // =========================
+      // ✅ Upload VIDEO (MP4 ONLY)
+      // =========================
+      videoUrlMedium = await ensureR2Url(
+        videoFile,
+        'reels',
+        `reel-${Date.now()}.mp4`
+      );
+      videoUrlLow = videoUrlMedium;
+      videoUrl = videoUrlMedium;
+      videoUrlHd = '';
 
-      if (prepared?.playFile) {
-        videoUrlMedium = await ensureR2Url(
-          prepared.playFile,
-          'reels',
-          `reel-play-${Date.now()}.webm`
-        );
-      }
-
-      if (prepared?.thumbnailFile) {
+      // =========================
+      // ✅ Upload THUMBNAIL (CRITICAL FIX)
+      // =========================
+      if (thumbnailFile) {
         thumbnailUrl = await ensureR2Url(
-          prepared.thumbnailFile,
+          thumbnailFile,
           'reels-thumbs',
           `reel-thumb-${Date.now()}.webp`
         );
       }
 
-      if (!videoUrlMedium && videoFile) {
-        videoUrlMedium = await ensureR2Url(
-          videoFile,
-          'reels',
-          `reel-${Date.now()}.mp4`
-        );
-      }
-
-      if (!videoUrlLow) {
-        videoUrlLow = videoUrlMedium;
-      }
-
-      videoUrl = videoUrlMedium || videoUrlLow || '';
-      videoUrlHd = '';
-
       if (!videoUrl || !videoUrl.startsWith('http')) {
-        throw new Error('Reel video upload failed (no valid R2 URL).');
+        throw new Error('Video upload failed');
       }
 
+      // =========================
+      // ✅ AUDIO
+      // =========================
       let audioUrl = null;
       if (audioFile) {
         audioUrl = await ensureR2Url(
@@ -3204,12 +3186,14 @@ export default function App() {
         audioUrl = reelData.audioUrl;
       }
 
+      // =========================
+      // ✅ SOUND LOGIC
+      // =========================
       const soundKey = generateSoundKey(reelData, selectedReelSound);
       const isTrimmedAudio = soundKey.startsWith('trimmed:');
-      
       const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
       const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
-      
+
       const soundPayload = selectedReelSound || {
         songName: reelData.songName || 'Original Sound',
         audioUrl: audioUrl || '',
@@ -3218,6 +3202,9 @@ export default function App() {
         songId: reelData.originalSoundId,
       };
 
+      // =========================
+      // ✅ FINAL PAYLOAD
+      // =========================
       const payload = {
         user_id: currentUser.id,
         caption: reelData.caption || '',
@@ -3225,7 +3212,7 @@ export default function App() {
         video_url_low: videoUrlLow,
         video_url_medium: videoUrlMedium,
         video_url_hd: videoUrlHd,
-        thumbnail_url: thumbnailUrl,
+        thumbnail_url: thumbnailUrl || '', // 🔥 FIXED
         song_name: soundPayload.songName,
         audio_url: audioUrl,
         audio_start: audioStart,
@@ -3237,29 +3224,25 @@ export default function App() {
         views: 0,
         shares: 0,
       };
-      
+
       console.log("Sending to API:", payload);
-      
+
       const data = await apiFetch('/api/reels', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      
+
       const newReel = normalizeReel(data.reel || data);
-      
+
       newReel.author = currentUser.name;
       newReel.author_name = currentUser.name;
       newReel.avatar = currentUser.profile_image_url;
       newReel.avatar_url = currentUser.profile_image_url;
       newReel.verified = currentUser.is_verified;
-      
-      // 🔧 FIX: Optimistic only - no forced refresh
+
       setReels(prev => [newReel, ...safeArray(prev)]);
-      
       setLoginError('Reel posted successfully!');
-      
       setSelectedReelSound(null);
-      
     } catch (error: any) {
       console.error('Failed to create reel:', error);
       setLoginError(error?.message || 'Failed to create reel');
@@ -3313,7 +3296,7 @@ export default function App() {
     if (!requireAuth('Commenting on reels')) return;
     if (!currentUser) return;
     
-    // 🔧 FIX: Validate comment is not empty
+    // Validate comment is not empty
     if (!payload.text?.trim() && !payload.imageFile) {
       setLoginError('Comment cannot be empty');
       return;
@@ -4938,7 +4921,7 @@ export default function App() {
   }, [rankedPosts]);
 
   // ============================================================================
-  // ✅ NEW: Transform feed items with reels - ONLY THIS SECTION CHANGED
+  // ✅ NEW: Transform feed items - reels appended, no forced insertion
   // ============================================================================
   const feedItems = useMemo<FeedItem[]>(() => {
     const postItems = safeArray(rankedPosts).map(post => ({
@@ -4975,35 +4958,28 @@ export default function App() {
       id: `ad-${ad.id}`,
     }));
 
-    const shuffledReels = shuffleArray(reelItems);
-    
+    // Simple merging: posts and ads interleaved, reels appended at the end
     const merged: FeedItem[] = [];
-    let reelIndex = 0;
     let adIndex = 0;
 
     for (let i = 0; i < postItems.length; i++) {
       merged.push(postItems[i]);
 
+      // Insert ads every 5 posts (as before)
       if ((i + 1) % 5 === 0 && adIndex < adItems.length) {
         merged.push(adItems[adIndex]);
         adIndex++;
       }
-
-      if ((i + 1) % 3 === 0 && reelIndex < shuffledReels.length) {
-        merged.push(shuffledReels[reelIndex]);
-        reelIndex++;
-      }
     }
 
+    // Append remaining ads
     while (adIndex < adItems.length) {
       merged.push(adItems[adIndex]);
       adIndex++;
     }
 
-    while (reelIndex < shuffledReels.length) {
-      merged.push(shuffledReels[reelIndex]);
-      reelIndex++;
-    }
+    // Append all reels at the end (they will be mixed later by ranking)
+    merged.push(...reelItems);
 
     return merged;
   }, [rankedPosts, reels, ads]);
@@ -6824,4 +6800,3 @@ export default function App() {
       )}
     </div>
   );
-}
