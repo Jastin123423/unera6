@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -6761,32 +6760,401 @@ export default function App() {
             />
           )}
 
-          {/* Keep all your other view renders (marketplace, groups, brands, music, tools, profiles, events, birthdays, memories, settings, privacy, terms, help, profile, login, register, recorder, notifications, ads) */}
-          {/* They should remain unchanged from your original App.tsx */}
-
-          {/* ✅ UPDATED Comments Sheet with identity-based handlers */}
-          {commentPostSnapshot && currentUser && (
-            <CommentsSheet
-              post={commentPostSnapshot}
+          {view === 'marketplace' && (
+            <MarketplacePage
               currentUser={currentUser}
+              products={products}
+              onNavigateHome={() => handleNavigate('home')}
+              onCreateProduct={createProduct}
+              onViewProduct={setActiveProduct}
+            />
+          )}
+
+          {view === 'groups' && (
+            <ErrorBoundary>
+              <GroupsPage
+                currentUser={currentUser}
+                groups={groups}
+                users={users}
+                onCreateGroup={createGroup}
+                onJoinGroup={joinGroup}
+                onLeaveGroup={leaveGroup}
+                onDeleteGroup={deleteGroup}
+                onUpdateGroupImage={updateGroupImage}
+                onPostToGroup={createGroupPost}
+                onCreateGroupEvent={createGroupEvent}
+                onInviteToGroup={inviteToGroup}
+                onProfileClick={openProfile}
+                onLikePost={toggleGroupPostLike}
+                onSharePost={(postId: number, newShareCount: number) => {
+                  setPosts(prev => prev.map(p => 
+                    p.id === postId ? { ...p, shares: newShareCount } as any : p
+                  ));
+                }}
+                onDeleteGroupPost={deleteGroupPost}
+                onEditGroupPost={editGroupPost}
+                onRemoveMember={removeGroupMember}
+                onUpdateGroupSettings={updateGroupSettings}
+                onEventRSVP={handleEventRSVP}
+                fetchGroupPosts={fetchGroupPosts}
+                fetchGroupDetails={fetchGroupDetails}
+                fetchGroupEvents={fetchGroupEvents}
+                fetchComments={fetchGroupPostComments}
+                onComment={createGroupPostComment}
+                onLikeComment={handleLikeComment}
+                onPlayAudioTrack={onPlayTrack}
+                onFollow={followUser}
+                checkIsFollowing={checkIsFollowing}
+                onHashtagClick={handleHashtagClick}
+                onViewImage={setFullScreenImage}
+                onVideoClick={handleVideoClick}
+                initialGroupId={null}
+                onApplyToJob={async (postId: number, applicationData?: any) => {
+                  console.log('Apply to job:', postId, applicationData);
+                }}
+                onMessageSeller={(userId: number) => {
+                  const recipient = users.find(u => u.id === userId);
+                  if (recipient) {
+                    handleOpenChat(recipient);
+                  }
+                }}
+                onMakeOffer={async (postId: number, amount: number) => {
+                  console.log('Make offer:', postId, amount);
+                }}
+                onPlayVideo={(postId: number, url: string) => {
+                  console.log('Play video:', postId, url);
+                }}
+              />
+            </ErrorBoundary>
+          )}
+
+          {view === 'brands' && (
+            <BrandsPage
+              currentUser={currentUser}
+              brands={brands}
+              posts={posts}
               users={users}
-              onClose={handleCloseComments}
-              onCreateComment={(postId, text, parentId, imageFile) => 
-                createComment(commentPostSnapshot, text, parentId, imageFile)
-              }
-              onEditComment={editComment}
-              onDeleteComment={deleteComment}
-              onLikeComment={likeComment}
-              onFetchReplies={fetchCommentReplies}
-              getCommentAuthor={getCommentAuthor}
+              onCreateBrand={() => requireAuth('Creating brands')}
+              onFollowBrand={(id: number) => followUser(id)}
               onProfileClick={(id) => openProfile(id)}
+              onPostAsBrand={() => requireAuth('Posting')}
+              onReact={() => requireAuth('Reacting')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onOpenComments={(id: any) => {
+                if (!requireAuth('Commenting')) return;
+                const pid = Number(id);
+                const post = posts.find(p => p.id === pid);
+                if (post) handleOpenComments(post);
+              }}
+              onDeleteBrand={() => requireAuth('Deleting brands')}
+              onPlayAudioTrack={onPlayTrack}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          )}
+
+          {view === 'music' && (
+            <MusicSystem
+              currentUser={currentUser}
+              onPlayTrack={onPlayTrack}
+              onProfileClick={(id) => openProfile(id)}
+              likedTracks={likedTracks}
+              onToggleLike={handleMusicSystemLikeSync}
+              playHistory={playHistory}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              users={users}
+              currentTrack={currentAudioTrack}
+              isPlaying={isAudioPlaying}
+              myTotalPlays={currentUser?.id ? myTotalPlays : 0}
+              playsLoading={playsLoading}
+            />
+          )}
+
+          {view === 'tools' && <ToolsPage />}
+
+          {view === 'profiles' && (
+            <SuggestedProfilesPage
+              currentUser={currentUser as any}
+              users={users}
+              onFollow={(id: number) => followUser(id)}
+              onProfileClick={(id) => openProfile(id)}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+            />
+          )}
+
+          {view === 'events' && (
+            <ErrorBoundary>
+              <AllEvents
+                currentUser={currentUser ?? null}
+                users={users}
+                onProfileClick={(id) => openProfile(id)}
+                onEventClick={(eventId) => {
+                  setActiveEventId(eventId);
+                }}
+                onCreateEventClick={() => {
+                  if (!requireAuth('Creating events')) return;
+                  setShowCreateEventModal(true);
+                }}
+              />
+            </ErrorBoundary>
+          )}
+
+          {view === 'birthdays' && (
+            <BirthdaysPage
+              currentUser={currentUser as any}
+              users={users}
+              onMessage={(id) => {
+                if (!requireAuth('Messaging')) return;
+                setActiveChatUser(users.find((u) => u.id === id) || null);
+                setIsChatOpen(true);
+              }}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+            />
+          )}
+
+          {view === 'memories' && currentUser && (
+            <MemoriesPage
+              currentUser={currentUser}
+              posts={allKnownPosts}
+              users={users}
+              onProfileClick={(id: number) => openProfile(id)}
+              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onViewImage={setFullScreenImage}
+              onOpenComments={(postId: number) => {
+                const post = posts.find(p => p.id === postId);
+                if (post) handleOpenComments(post);
+              }}
+              onVideoClick={handleVideoClick}
+              onPlayAudioTrack={onPlayTrack}
               onHashtagClick={handleHashtagClick}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
-              onRefreshComments={() => refreshComments(commentPostSnapshot)}
-              onViewProductFromPost={openProductFromPost}
+              groups={groups}
+              brands={brands}
+              chats={chats}
             />
+          )}
+
+          {view === 'settings' && currentUser && (
+            <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
+          )}
+
+          {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
+          {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
+          {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
+
+          {view === 'profile' && profileUser && (
+            <UserProfile
+              user={profileUser}
+              currentUser={currentUser}
+              users={users}
+              posts={profilePosts}
+              reels={reels}
+              onProfileClick={(id) => openProfile(id)}
+              onFollow={(id: number) => followUser(id)}
+              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+              onComment={() => requireAuth('Commenting')}
+              onShare={(post: any) => handleOpenShareSheet(post)}
+              onMessage={(id) => {
+                if (!requireAuth('Messaging')) return;
+                const recipient = users.find((u) => u.id === id);
+                if (recipient) {
+                  handleOpenChat(recipient);
+                }
+              }}
+              onCreatePost={createPost as any}
+              onUpdateProfileImage={updateProfileImage as any}
+              onUpdateCoverImage={updateCoverImage as any}
+              onUpdateUserDetails={updateUserDetails as any}
+              onDeletePost={(postId: number) => deletePost(postId)}
+              onEditPost={(postId: number, content: string) => editPost(postId, content)}
+              getCommentAuthor={(id) => users.find((u) => u.id === id)}
+              onViewImage={setFullScreenImage}
+              onOpenComments={(postId) => {
+                const post = profilePosts.find(p => p.id === postId);
+                if (post) handleOpenComments(post);
+              }}
+              onVideoClick={handleVideoClick}
+              onPlayAudioTrack={onPlayTrack}
+              onCreateStoryClick={handleCreateStoryFromProfile}
+              onVerifyUser={(id) => verifyUser(id)}
+              onRestrictUser={(id, duration) => suspendUser(id, duration)}
+              onDeleteUser={(id) => deleteUserAccount(id)}
+              onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
+              isFollowing={checkIsFollowing(Number(profileUser.id))}
+              followLoading={followLoading[Number(profileUser.id)] || false}
+              onOpenChat={handleOpenChat}
+              isChatOpen={isChatOpen}
+              activeChatRecipient={activeChatUser}
+              onOpenChatsList={handleOpenChatsList}
+              isChatsListOpen={isChatsListOpen}
+            />
+          )}
+
+          {view === 'login' && (
+            <Login
+              onLogin={handleLogin}
+              onNavigateToRegister={() => setView('register')}
+              onNavigateToForgotPassword={() => setView('login')}
+              onClose={() => setView('home')}
+              error={loginError}
+            />
+          )}
+
+          {view === 'register' && (
+            <Register 
+              onRegister={handleRegister} 
+              onBackToLogin={() => setView('login')} 
+              error={loginError}
+            />
+          )}
+
+          {view === 'recorder' && (
+            <Recorder
+              currentUser={currentUser}
+              selectedSound={selectedReelSound}
+              sounds={songs.map((song: any) => ({
+                id: song.id,
+                name: song.title || song.name || 'Song',
+                url: song.audio_fetch_url || song.audio_url || song.url || '',
+                originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+                duration: song.duration || 30,
+                start: 0,
+                end: song.duration || 30,
+                coverImage: song.cover_url || song.cover || '',
+                creatorName: song.artist || '',
+                creatorImage: song.artist_image || song.cover_url || '',
+                playCount: song.playCount || song.plays || 0,
+                creationCount: song.creationCount || song.uses || 0,
+                soundKey: `song:${song.id}`,
+              }))}
+              onSelectSound={setSelectedReelSound}
+              onBack={() => setView('home')}
+              onSubmit={async (reelData) => {
+                await createReel({
+                  ...reelData,
+                  audioUrl:
+                    reelData.audioUrl ||
+                    (selectedReelSound?.songId &&
+                      songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+                    selectedReelSound?.audioUrl ||
+                    '',
+                  originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+                  songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+                  audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+                  audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+                });
+              }}
+            />
+          )}
+
+          {view === 'notifications' && (
+            <NotificationsPage
+              notifications={notifications}
+              users={users}
+              onBack={() => navigateTo('home')}
+              onProfileClick={(id)=>openProfile(id)}
+            />
+          )}
+
+          {view === 'ads' && currentUser && (
+            <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
+              <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2 overflow-x-auto">
+                <button
+                  onClick={() => setActiveAdTab('dashboard')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                    activeAdTab === 'dashboard'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faChartLine} className="w-4 h-4" />
+                  Dashboard
+                </button>
+                <button
+                  onClick={() => setActiveAdTab('create')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                    activeAdTab === 'create'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
+                  Create Campaign
+                </button>
+                <button
+                  onClick={() => setActiveAdTab('ads')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                    activeAdTab === 'ads'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faBullhorn} className="w-4 h-4" />
+                  My Campaigns
+                </button>
+                <button
+                  onClick={() => setActiveAdTab('analytics')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                    activeAdTab === 'analytics'
+                      ? 'bg-[#1877F2] text-white'
+                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faChartBar} className="w-4 h-4" />
+                  Analytics
+                </button>
+              </div>
+
+              {activeAdTab === 'dashboard' && (
+                <Dashboard campaigns={adCampaigns} loading={adsLoading} />
+              )}
+              
+              {activeAdTab === 'create' && (
+                <AdCreator 
+                  onSuccess={() => {
+                    setActiveAdTab('ads');
+                    fetchMyAds();
+                    if (selectedPostForAd) {
+                      setPushedPosts(prev => ({
+                        ...prev,
+                        [selectedPostForAd.id]: true
+                      }));
+                    }
+                    setSelectedPostForAd(null);
+                  }}
+                  onBack={() => {
+                    setActiveAdTab('dashboard');
+                    setSelectedPostForAd(null);
+                  }}
+                  userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser?.id))}
+                  onCreateCampaign={createAdCampaign}
+                  currentUser={currentUser}
+                  initialPost={selectedPostForAd}
+                />
+              )}
+              
+              {activeAdTab === 'ads' && (
+                <AdsManager 
+                  campaigns={adCampaigns} 
+                  onUpdate={fetchMyAds}
+                  onPause={pauseCampaign}
+                  onResume={resumeCampaign}
+                  onDelete={deleteCampaign}
+                  loading={adsLoading}
+                />
+              )}
+              
+              {activeAdTab === 'analytics' && (
+                <Dashboard campaigns={adCampaigns} loading={adsLoading} />
+              )}
+            </div>
           )}
         </div>
 
