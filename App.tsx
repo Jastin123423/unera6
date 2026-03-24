@@ -66,6 +66,87 @@ import {
   AdCampaign,
 } from './types';
 
+// ============================================================================
+// ✅ FEED IDENTITY HELPERS - FIX FOR MIXED FEED TYPES
+// ============================================================================
+
+/**
+ * Get feed item type for proper identification
+ */
+const getFeedItemType = (item: any): string => {
+  const meta = item?.meta || {};
+  
+  if (item?.source === 'product' || 
+      item?.item_type === 'product' ||
+      item?.type === 'marketplace' || 
+      item?.type === 'product' ||
+      item?.post_type === 'product' ||
+      meta?.type === 'product' || 
+      meta?.kind === 'product' ||
+      !!item?.product_id ||
+      !!meta?.marketplace?.id) {
+    return 'product';
+  }
+  
+  if (item?.source === 'event' || 
+      item?.item_type === 'event' ||
+      item?.type === 'event' ||
+      item?.post_type === 'event' ||
+      meta?.type === 'event' || 
+      meta?.kind === 'event' ||
+      !!item?.event_id ||
+      !!meta?.event) {
+    return 'event';
+  }
+  
+  if (item?.source === 'group_post' || 
+      item?.item_type === 'group_post' ||
+      !!item?.group_id || 
+      !!item?.group) {
+    return 'group_post';
+  }
+  
+  if (item?.source === 'reel' || 
+      item?.item_type === 'reel' ||
+      !!item?.reel_id) {
+    return 'reel';
+  }
+  
+  if (meta?.kind === 'music' || meta?.type === 'music') return 'music';
+  if (meta?.kind === 'podcast' || meta?.type === 'podcast') return 'podcast';
+  
+  return 'post';
+};
+
+/**
+ * Get feed item ID based on type
+ */
+const getFeedItemId = (item: any): number => {
+  const type = getFeedItemType(item);
+  
+  switch (type) {
+    case 'product':
+      return Number(item?.product_id ?? item?.meta?.marketplace?.id ?? item?.id);
+    case 'event':
+      return Number(item?.event_id ?? item?.id);
+    case 'group_post':
+      return Number(item?.post_id ?? item?.id);
+    case 'reel':
+      return Number(item?.reel_id ?? item?.id);
+    default:
+      return Number(item?.id);
+  }
+};
+
+/**
+ * Get unique feed identity (type:id combination)
+ */
+const getFeedIdentity = (item: any): string => {
+  if (!item) return '';
+  if (item?.feed_key) return String(item.feed_key);
+  return `${getFeedItemType(item)}:${getFeedItemId(item)}`;
+};
+
 /** ---------- Type for People You May Know suggestions ---------- */
 type PeopleSuggestion = {
   id: number;
@@ -978,9 +1059,9 @@ const postJSON = async (url: string, body: any) => {
   return data;
 };
 
-/** ---------- Optimistic reaction helper ---------- */
-const applyOptimisticReaction = (p: any, postId: number, type: ReactionType, meId: number) => {
-  if (Number(p?.id) !== Number(postId)) return p;
+/** ---------- Optimistic reaction helper with proper type handling ---------- */
+const applyOptimisticReaction = (p: any, itemId: number, type: ReactionType, meId: number) => {
+  if (Number(getFeedItemId(p)) !== Number(itemId)) return p;
 
   const prevMy = p?.my_reaction ?? p?.myReaction ?? null;
   const nextMy = prevMy === type ? null : type;
@@ -1264,7 +1345,7 @@ export type View =
   | 'register'
   | 'recorder'
   | 'notifications'
-  | 'ads';  // 👈 ADD THIS
+  | 'ads';
 
 const normalizeFeedRowToPost = (row: any): PostType => {
   return normalizePost({
@@ -1457,6 +1538,20 @@ export default function App() {
   const [selectedPostForAd, setSelectedPostForAd] = useState<PostType | null>(null);
 
   // ============================================================================
+  // ✅ REACTION LOCK STATE - PREVENTS MULTIPLE TAPS
+  // ============================================================================
+  const [reactingMap, setReactingMap] = useState<Record<string, boolean>>({});
+  const setReacting = useCallback((identity: string, value: boolean) => {
+    setReactingMap(prev => ({ ...prev, [identity]: value }));
+  }, []);
+
+  // ============================================================================
+  // ✅ COMMENTS IDENTITY STATE
+  // ============================================================================
+  const [activeCommentsIdentity, setActiveCommentsIdentity] = useState<string | null>(null);
+  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
+
+  // ============================================================================
   // ✅ People You May Know - State declarations
   // ============================================================================
   const [peopleYouMayKnow, setPeopleYouMayKnow] = useState<PeopleSuggestion[]>([]);
@@ -1498,8 +1593,6 @@ export default function App() {
   const lastGoodPostsRef = useRef<PostType[]>([]);
   const stableFeedRef = useRef<PostType[]>([]);
   const scheduleSilentRefreshRef = useRef<any>(null);
-
-  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
 
   const [loginError, setLoginError] = useState('');
 
@@ -1687,7 +1780,6 @@ export default function App() {
     setSelectedReelId(null);
   }, []);
   
-  const [activeCommentsPostId, setActiveCommentsPostId] = useState<number | null>(null);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
@@ -3648,8 +3740,8 @@ export default function App() {
 
           if (!feedHydrated) setFeedHydrated(true);
 
-          if (activeCommentsPostId != null) {
-            const found = ordered.find((p: any) => Number(p.id) === Number(activeCommentsPostId));
+          if (activeCommentsIdentity != null) {
+            const found = ordered.find((p: any) => getFeedIdentity(p) === activeCommentsIdentity);
             if (found) setCommentPostSnapshot(found);
           }
 
@@ -3682,8 +3774,8 @@ export default function App() {
 
         if (!feedHydrated) setFeedHydrated(true);
 
-        if (activeCommentsPostId != null) {
-          const found = normalized.find((x: any) => Number(x.id) === Number(activeCommentsPostId));
+        if (activeCommentsIdentity != null) {
+          const found = normalized.find((x: any) => getFeedIdentity(x) === activeCommentsIdentity);
           if (found) setCommentPostSnapshot(found);
         }
       } catch {
@@ -3694,7 +3786,7 @@ export default function App() {
         postsInFlightRef.current = false;
       }
     },
-    [activeCommentsPostId, feedHydrated]
+    [activeCommentsIdentity, feedHydrated]
   );
 
   const fetchProfilePosts = useCallback(async (profileUserId: number) => {
@@ -4761,7 +4853,7 @@ export default function App() {
   }, [currentUser, fetchPostsForHome, fetchReels]);
 
   useEffect(() => {
-    if (activeCommentsPostId != null) return;
+    if (activeCommentsIdentity != null) return;
     if (document.visibilityState !== 'visible') return;
 
     let stopped = false;
@@ -4769,7 +4861,7 @@ export default function App() {
     const tick = async () => {
       if (stopped) return;
       if (document.visibilityState !== 'visible') return;
-      if (activeCommentsPostId != null) return;
+      if (activeCommentsIdentity != null) return;
       await fetchPostsForHome(currentUser).catch(() => {});
       await fetchReels().catch(() => {});
     };
@@ -4779,7 +4871,7 @@ export default function App() {
       stopped = true;
       clearInterval(t);
     };
-  }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsPostId]);
+  }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsIdentity]);
 
   const verifyUser = useCallback(
     async (userId: number) => {
@@ -4921,7 +5013,7 @@ export default function App() {
   }, [rankedPosts]);
 
   // ============================================================================
-  // ✅ NEW: Transform feed items - reels appended, no forced insertion
+  // ✅ NEW: Transform feed items - mix posts and reels, insert ads
   // ============================================================================
   const feedItems = useMemo<FeedItem[]>(() => {
     const postItems = safeArray(rankedPosts).map(post => ({
@@ -4958,14 +5050,21 @@ export default function App() {
       id: `ad-${ad.id}`,
     }));
 
-    // Simple merging: posts and ads interleaved, reels appended at the end
+    // Combine posts and reels
+    let combinedItems = [...postItems, ...reelItems];
+
+    // Shuffle combined items using the same session seed as posts
+    const seed = getOrCreateSessionSeed(currentUser?.id ?? null);
+    combinedItems = seededShuffle(combinedItems, seed);
+
+    // Insert ads every 5 items (including reels as regular items)
     const merged: FeedItem[] = [];
     let adIndex = 0;
 
-    for (let i = 0; i < postItems.length; i++) {
-      merged.push(postItems[i]);
+    for (let i = 0; i < combinedItems.length; i++) {
+      merged.push(combinedItems[i]);
 
-      // Insert ads every 5 posts (as before)
+      // Insert ad after every 5 items
       if ((i + 1) % 5 === 0 && adIndex < adItems.length) {
         merged.push(adItems[adIndex]);
         adIndex++;
@@ -4978,22 +5077,19 @@ export default function App() {
       adIndex++;
     }
 
-    // Append all reels at the end (they will be mixed later by ranking)
-    merged.push(...reelItems);
-
     return merged;
-  }, [rankedPosts, reels, ads]);
+  }, [rankedPosts, reels, ads, currentUser]);
 
   const activePost = useMemo(() => {
-    if (activeCommentsPostId == null) return null;
+    if (activeCommentsIdentity == null) return null;
 
-    if (commentPostSnapshot && Number((commentPostSnapshot as any)?.id) === Number(activeCommentsPostId)) {
+    if (commentPostSnapshot && getFeedIdentity(commentPostSnapshot) === activeCommentsIdentity) {
       return commentPostSnapshot;
     }
 
     const source = view === 'profile' ? profilePosts : posts;
-    return source.find((p: any) => Number(p.id) === Number(activeCommentsPostId)) || null;
-  }, [posts, profilePosts, view, activeCommentsPostId, commentPostSnapshot]);
+    return source.find((p: any) => getFeedIdentity(p) === activeCommentsIdentity) || null;
+  }, [posts, profilePosts, view, activeCommentsIdentity, commentPostSnapshot]);
 
   const profileUser = useMemo(() => {
     if (selectedUserId) {
@@ -5281,6 +5377,624 @@ export default function App() {
     navigateTo(target);
   }, [currentUser, navigateTo, openProfile]);
 
+  // ============================================================================
+  // ✅ COMPLETE REACT HANDLER WITH LOCKING AND PROPER ERROR RECOVERY
+  // ============================================================================
+  const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
+    if (!requireAuth('Reacting')) return;
+    if (!currentUser || !item) return;
+
+    const identity = getFeedIdentity(item);
+    const itemType = getFeedItemType(item);
+    const itemId = getFeedItemId(item);
+    const meId = currentUser.id;
+
+    // ✅ PREVENT MULTIPLE TAPS
+    if (reactingMap[identity]) return;
+
+    // Get current item from appropriate source
+    const sourceList = view === 'profile' ? profilePosts : posts;
+    const previousItem = safeArray(sourceList).find((p: any) => getFeedIdentity(p) === identity);
+    if (!previousItem) return;
+
+    // Helper to replace item by identity
+    const replaceItemByIdentity = (list: any[], replacement: any) => 
+      safeArray(list).map(p => getFeedIdentity(p) === identity ? replacement : p);
+
+    // Set reacting lock
+    setReacting(identity, true);
+
+    // Apply optimistic update
+    const optimisticItem = applyOptimisticReaction(previousItem, itemId, type, meId);
+    setPosts(prev => replaceItemByIdentity(prev, optimisticItem));
+    setProfilePosts(prev => replaceItemByIdentity(prev, optimisticItem));
+    
+    if (activeCommentsIdentity === identity) {
+      setCommentPostSnapshot(optimisticItem);
+    }
+
+    try {
+      let endpoint = '';
+      switch (itemType) {
+        case 'event':
+          endpoint = `/api/events/${itemId}/react`;
+          break;
+        case 'group_post':
+          endpoint = `/api/groups/${item.group_id}/posts/${itemId}/react`;
+          break;
+        case 'product':
+          endpoint = `/api/products/${itemId}/react`;
+          break;
+        case 'reel':
+          endpoint = `/api/reels/${itemId}/react`;
+          break;
+        default:
+          endpoint = `/api/posts/${itemId}/react`;
+      }
+
+      const data = await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ type, user_id: meId }),
+      });
+
+      if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
+        const serverMy = data.my_reaction ?? null;
+        const serverCount = safeNumber(data.reactions_count, 0);
+
+        const applyServerTruth = (p: any) => {
+          if (getFeedIdentity(p) !== identity) return p;
+
+          const prevArr = safeArray<any>(p?.reactions);
+          const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== meId);
+          const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
+
+          return {
+            ...p,
+            reactions: nextArr,
+            my_reaction: serverMy,
+            myReaction: serverMy,
+            reactions_count: serverCount,
+            reactionsCount: serverCount,
+            likesCount: serverCount,
+          };
+        };
+
+        setPosts(prev => safeArray(prev).map(p => applyServerTruth(p)));
+        setProfilePosts(prev => safeArray(prev).map(p => applyServerTruth(p)));
+        setCommentPostSnapshot(prev => prev && getFeedIdentity(prev) === identity ? applyServerTruth(prev) : prev);
+      }
+    } catch (error) {
+      console.error('Failed to react:', error);
+      // ✅ RESTORE PREVIOUS STATE ON FAILURE
+      setPosts(prev => replaceItemByIdentity(prev, previousItem));
+      setProfilePosts(prev => replaceItemByIdentity(prev, previousItem));
+      setCommentPostSnapshot(prev => prev && getFeedIdentity(prev) === identity ? previousItem : prev);
+    } finally {
+      // ✅ RELEASE LOCK
+      setReacting(identity, false);
+    }
+  }, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);
+
+  // ============================================================================
+  // ✅ COMPLETE COMMENT HANDLERS WITH IDENTITY SYSTEM
+  // ============================================================================
+  
+  /**
+   * Fetch comments for a feed item
+   */
+  const fetchComments = useCallback(async (item: any) => {
+    if (!requireAuth('Viewing comments')) return [];
+    if (!item) return [];
+    
+    const type = getFeedItemType(item);
+    const id = getFeedItemId(item);
+    
+    try {
+      let endpoint = '';
+      switch (type) {
+        case 'event':
+          endpoint = `/api/events/${id}/comments?viewerId=${currentUser?.id || 0}`;
+          break;
+        case 'group_post':
+          endpoint = `/api/groups/${item.group_id}/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+          break;
+        case 'product':
+          endpoint = `/api/products/${id}/reviews?viewerId=${currentUser?.id || 0}`;
+          break;
+        case 'reel':
+          endpoint = `/api/reels/${id}/comments?viewerId=${currentUser?.id || 0}`;
+          break;
+        default:
+          endpoint = `/api/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+      }
+      
+      const data = await apiFetch(endpoint);
+      return safeArray(data?.comments ?? data);
+    } catch (error) {
+      console.error('Failed to fetch comments:', error);
+      return [];
+    }
+  }, [currentUser, requireAuth]);
+
+  /**
+   * Create a comment on any feed item
+   */
+  const createComment = useCallback(async (
+    item: any,
+    text: string,
+    parentCommentId: number | null = null,
+    imageFile?: File | null
+  ) => {
+    if (!requireAuth('Commenting')) return null;
+    if (!currentUser) return null;
+    if (!text?.trim() && !imageFile) {
+      setLoginError('Comment cannot be empty');
+      return null;
+    }
+
+    const identity = getFeedIdentity(item);
+    const type = getFeedItemType(item);
+    const id = getFeedItemId(item);
+
+    try {
+      let image_url = '';
+
+      if (imageFile) {
+        image_url = await ensureR2Url(
+          imageFile,
+          'comments',
+          `comment-${Date.now()}.jpg`
+        );
+      }
+
+      let endpoint = '';
+      let payload: any = {};
+
+      switch (type) {
+        case 'event':
+          endpoint = `/api/events/${id}/comment`;
+          payload = {
+            user_id: currentUser.id,
+            text: text || '',
+            parent_comment_id: parentCommentId ?? null,
+            image_url: image_url || '',
+          };
+          break;
+        case 'group_post':
+          endpoint = `/api/groups/${item.group_id}/posts/${id}/comment`;
+          payload = {
+            user_id: currentUser.id,
+            text: text || '',
+            parent_comment_id: parentCommentId ?? null,
+            image_url: image_url || '',
+          };
+          break;
+        case 'product':
+          endpoint = `/api/products/${id}/review`;
+          payload = {
+            user_id: currentUser.id,
+            rating: null,
+            text: text || '',
+            parent_comment_id: parentCommentId ?? null,
+            image_url: image_url || '',
+          };
+          break;
+        case 'reel':
+          endpoint = `/api/reels/${id}/comment`;
+          payload = {
+            user_id: currentUser.id,
+            text: text || '',
+            parent_comment_id: parentCommentId ?? null,
+            image_url: image_url || '',
+          };
+          break;
+        default:
+          endpoint = `/api/posts/${id}/comment`;
+          payload = {
+            user_id: currentUser.id,
+            text: text || '',
+            parent_comment_id: parentCommentId ?? null,
+            image_url: image_url || '',
+          };
+      }
+
+      const data = await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      // Build new comment object with proper fields for the type
+      const newComment: any = {
+        id: safeNumber(data?.comment?.id ?? 0),
+        user_id: currentUser.id,
+        parent_comment_id: parentCommentId ?? null,
+        text: text || '',
+        image_url: image_url || '',
+        created_at: data?.comment?.created_at ?? new Date().toISOString(),
+        user: {
+          id: currentUser.id,
+          name: currentUser.name,
+          username: currentUser.username,
+          profile_image_url: currentUser.profile_image_url,
+          is_verified: currentUser.is_verified,
+        },
+        likes_count: 0,
+        liked_by_me: false,
+        replies: [],
+        replies_count: 0,
+      };
+
+      // Add type-specific ID field
+      switch (type) {
+        case 'event':
+          newComment.event_id = id;
+          break;
+        case 'product':
+          newComment.product_id = id;
+          break;
+        case 'reel':
+          newComment.reel_id = id;
+          break;
+        default:
+          newComment.post_id = id;
+      }
+
+      // Update posts state with new comment using identity
+      setPosts(prev =>
+        safeArray(prev).map(post => {
+          if (getFeedIdentity(post) !== identity) return post;
+          
+          const existingComments = safeArray((post as any).comments);
+          return {
+            ...post,
+            comments: [newComment, ...existingComments],
+            comments_count: safeNumber((post as any).comments_count) + 1,
+          };
+        })
+      );
+
+      // Update profile posts if viewing profile
+      if (view === 'profile' && selectedUserId) {
+        setProfilePosts(prev =>
+          safeArray(prev).map(post => {
+            if (getFeedIdentity(post) !== identity) return post;
+            
+            const existingComments = safeArray((post as any).comments);
+            return {
+              ...post,
+              comments: [newComment, ...existingComments],
+              comments_count: safeNumber((post as any).comments_count) + 1,
+            };
+          })
+        );
+      }
+
+      // Update comment post snapshot if open
+      if (activeCommentsIdentity === identity && commentPostSnapshot) {
+        setCommentPostSnapshot(prev => {
+          if (!prev) return prev;
+          const existingComments = safeArray((prev as any).comments);
+          return {
+            ...prev,
+            comments: [newComment, ...existingComments],
+            comments_count: safeNumber((prev as any).comments_count) + 1,
+          } as any;
+        });
+      }
+
+      return newComment;
+    } catch (error) {
+      console.error('Failed to create comment:', error);
+      setLoginError('Failed to post comment');
+      return null;
+    }
+  }, [currentUser, requireAuth, view, selectedUserId, activeCommentsIdentity, commentPostSnapshot]);
+
+  /**
+   * Edit a comment
+   */
+  const editComment = useCallback(async (
+    commentId: number,
+    text: string,
+    imageFile?: File | null,
+    existingImageUrl?: string
+  ) => {
+    if (!requireAuth('Editing comments')) return null;
+    if (!currentUser) return null;
+
+    try {
+      let image_url = existingImageUrl || '';
+
+      if (imageFile) {
+        image_url = await ensureR2Url(
+          imageFile,
+          'comments',
+          `comment-edit-${Date.now()}.jpg`
+        );
+      }
+
+      const data = await apiFetch(`/api/comments/${commentId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          user_id: currentUser.id,
+          text: text || '',
+          image_url,
+        }),
+      });
+
+      const updatedComment = data?.comment || {};
+
+      // Helper to update comment in posts
+      const updateCommentInPosts = (postsList: any[]) => {
+        return postsList.map(post => ({
+          ...post,
+          comments: safeArray(post.comments).map((comment: any) => {
+            if (Number(comment.id) !== Number(commentId)) return comment;
+            return {
+              ...comment,
+              text: updatedComment.text ?? text ?? comment.text,
+              image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
+            };
+          }),
+        }));
+      };
+
+      setPosts(prev => updateCommentInPosts(safeArray(prev)));
+      
+      if (view === 'profile') {
+        setProfilePosts(prev => updateCommentInPosts(safeArray(prev)));
+      }
+
+      if (activeCommentsIdentity && commentPostSnapshot) {
+        setCommentPostSnapshot(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            comments: safeArray((prev as any).comments).map((comment: any) => {
+              if (Number(comment.id) !== Number(commentId)) return comment;
+              return {
+                ...comment,
+                text: updatedComment.text ?? text ?? comment.text,
+                image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
+              };
+            }),
+          } as any;
+        });
+      }
+
+      return updatedComment;
+    } catch (error) {
+      console.error('Failed to edit comment:', error);
+      setLoginError('Failed to edit comment');
+      return null;
+    }
+  }, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
+
+  /**
+   * Delete a comment (cascades to replies)
+   */
+  const deleteComment = useCallback(async (commentId: number) => {
+    if (!requireAuth('Deleting comments')) return false;
+    if (!currentUser) return false;
+
+    try {
+      await apiFetch(`/api/comments/${commentId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+
+      // Helper to remove comment and its replies from posts
+      const removeCommentFromPosts = (postsList: any[]) => {
+        return postsList.map(post => {
+          const before = safeArray(post.comments);
+          
+          // Filter out the deleted comment and any replies to it
+          const filtered = before.filter((comment: any) => {
+            const commentIdNum = Number(comment.id);
+            const parentId = Number(comment.parent_comment_id);
+            return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
+          });
+          
+          const removedCount = before.length - filtered.length;
+          
+          if (removedCount === 0) return post;
+          
+          return {
+            ...post,
+            comments: filtered,
+            comments_count: Math.max(0, safeNumber(post.comments_count) - removedCount),
+          };
+        });
+      };
+
+      setPosts(prev => removeCommentFromPosts(safeArray(prev)));
+      
+      if (view === 'profile') {
+        setProfilePosts(prev => removeCommentFromPosts(safeArray(prev)));
+      }
+
+      if (activeCommentsIdentity && commentPostSnapshot) {
+        setCommentPostSnapshot(prev => {
+          if (!prev) return prev;
+          const before = safeArray((prev as any).comments);
+          const filtered = before.filter((comment: any) => {
+            const commentIdNum = Number(comment.id);
+            const parentId = Number(comment.parent_comment_id);
+            return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
+          });
+          
+          return {
+            ...prev,
+            comments: filtered,
+            comments_count: filtered.length,
+          } as any;
+        });
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Failed to delete comment:', error);
+      setLoginError('Failed to delete comment');
+      return false;
+    }
+  }, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
+
+  /**
+   * Like/unlike a comment
+   */
+  const likeComment = useCallback(async (commentId: number) => {
+    if (!requireAuth('Liking comments')) return null;
+    if (!currentUser) return null;
+
+    // Helper to update comment like state
+    const updateCommentLike = (comment: any) => {
+      const currentlyLiked = comment.liked_by_me;
+      return {
+        ...comment,
+        liked_by_me: !currentlyLiked,
+        likes_count: currentlyLiked 
+          ? Math.max(0, (comment.likes_count || 0) - 1)
+          : (comment.likes_count || 0) + 1,
+      };
+    };
+
+    // Update comments in posts
+    const updateLikesInPosts = (postsList: any[]) => {
+      return postsList.map(post => ({
+        ...post,
+        comments: safeArray(post.comments).map((comment: any) => {
+          if (Number(comment.id) !== Number(commentId)) return comment;
+          return updateCommentLike(comment);
+        }),
+      }));
+    };
+
+    setPosts(prev => updateLikesInPosts(safeArray(prev)));
+    
+    if (view === 'profile') {
+      setProfilePosts(prev => updateLikesInPosts(safeArray(prev)));
+    }
+
+    if (activeCommentsIdentity && commentPostSnapshot) {
+      setCommentPostSnapshot(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          comments: safeArray((prev as any).comments).map((comment: any) => {
+            if (Number(comment.id) !== Number(commentId)) return comment;
+            return updateCommentLike(comment);
+          }),
+        } as any;
+      });
+    }
+
+    try {
+      const data = await apiFetch(`/api/comments/${commentId}/like`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+      
+      return data;
+    } catch (error) {
+      console.error('Failed to like comment:', error);
+      // ✅ Use refreshComments to restore state properly
+      if (commentPostSnapshot) {
+        refreshComments(commentPostSnapshot).catch(() => {});
+      }
+      return null;
+    }
+  }, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
+
+  /**
+   * Fetch replies for a comment
+   */
+  const fetchCommentReplies = useCallback(async (commentId: number) => {
+    if (!requireAuth('Viewing replies')) return [];
+    
+    try {
+      const data = await apiFetch(`/api/comments/${commentId}/replies`);
+      return safeArray(data?.replies ?? data);
+    } catch (error) {
+      console.error('Failed to fetch replies:', error);
+      return [];
+    }
+  }, [requireAuth]);
+
+  /**
+   * Get comment author details
+   */
+  const getCommentAuthor = useCallback((userId: number) => {
+    return users.find(u => Number(u.id) === Number(userId)) || null;
+  }, [users]);
+
+  /**
+   * Open comments sheet for a feed item (using identity)
+   */
+  const handleOpenComments = useCallback((item: any) => {
+    if (!requireAuth('Viewing comments')) return;
+    if (!item) return;
+    
+    const identity = getFeedIdentity(item);
+    setActiveCommentsIdentity(identity);
+    
+    // Find the item in current view using identity
+    const source = view === 'profile' ? profilePosts : posts;
+    const found = source.find((p: any) => getFeedIdentity(p) === identity) || null;
+    setCommentPostSnapshot(found);
+  }, [requireAuth, view, posts, profilePosts]);
+
+  /**
+   * Close comments sheet
+   */
+  const handleCloseComments = useCallback(() => {
+    setActiveCommentsIdentity(null);
+    setCommentPostSnapshot(null);
+  }, []);
+
+  /**
+   * Refresh comments for a feed item
+   */
+  const refreshComments = useCallback(async (item: any) => {
+    if (!item) return [];
+    
+    const identity = getFeedIdentity(item);
+    const freshComments = await fetchComments(item);
+    
+    const updateCommentsInPosts = (postsList: any[]) => {
+      return postsList.map(post => {
+        if (getFeedIdentity(post) !== identity) return post;
+        return {
+          ...post,
+          comments: freshComments,
+          comments_count: freshComments.length,
+        };
+      });
+    };
+    
+    setPosts(prev => updateCommentsInPosts(safeArray(prev)));
+    
+    if (view === 'profile') {
+      setProfilePosts(prev => updateCommentsInPosts(safeArray(prev)));
+    }
+    
+    if (activeCommentsIdentity === identity && commentPostSnapshot) {
+      setCommentPostSnapshot(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          comments: freshComments,
+          comments_count: freshComments.length,
+        } as any;
+      });
+    }
+    
+    return freshComments;
+  }, [fetchComments, view, activeCommentsIdentity, commentPostSnapshot]);
+
+  // ============================================================================
+  // ✅ ORIGINAL FUNCTIONS (KEEP THESE)
+  // ============================================================================
+
   const createPost = useCallback(
     async (
       text: string,
@@ -5379,195 +6093,6 @@ export default function App() {
     [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
   );
 
-  const onReactPost = useCallback(
-    async (postId: number, type: ReactionType) => {
-      if (!requireAuth('Reacting')) return;
-      const meId = Number(currentUser!.id);
-
-      setPosts(prev => {
-        const next = safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId));
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
-
-      setProfilePosts(prev => safeArray(prev).map(p => applyOptimisticReaction(p, postId, type, meId)));
-
-      setCommentPostSnapshot(prev =>
-        prev && Number(prev.id) === Number(postId)
-          ? applyOptimisticReaction(prev, postId, type, meId)
-          : prev
-      );
-
-      try {
-        const data = await apiFetch(`/api/posts/${postId}/react`, {
-          method: 'POST',
-          body: JSON.stringify({ type, user_id: meId }),
-        });
-
-        if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
-          const serverMy = data.my_reaction ?? null;
-          const serverCount = safeNumber(data.reactions_count, 0);
-
-          const applyServerTruth = (p: any) => {
-            if (Number(p?.id) !== Number(postId)) return p;
-
-            const prevArr = safeArray<any>(p?.reactions);
-            const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== Number(meId));
-            const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
-
-            return {
-              ...p,
-              reactions: nextArr,
-              my_reaction: serverMy,
-              myReaction: serverMy,
-              reactions_count: serverCount,
-              reactionsCount: serverCount,
-              likesCount: serverCount,
-            };
-          };
-
-          setPosts(prev => safeArray(prev).map(applyServerTruth));
-          setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
-          setCommentPostSnapshot(prev => (prev ? applyServerTruth(prev) : prev));
-        }
-      } catch {
-        scheduleSilentRefresh();
-      }
-    },
-    [currentUser, requireAuth, scheduleSilentRefresh]
-  );
-
-  const handleOpenShareSheet = useCallback(
-    (post: any) => {
-      if (!currentUser) {
-        setLoginError('Please login to share posts.');
-        setView('login');
-        return;
-      }
-      setActiveSharePost(post);
-      setShowShareSheet(true);
-    },
-    [currentUser]
-  );
-
-  const handleShareComplete = useCallback(
-    async (destination: string, data?: any) => {
-      if (data?.success && activeSharePost) {
-        setPosts((prev) => {
-          const next = safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(activeSharePost.id)
-              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
-              : p
-          );
-          lastGoodPostsRef.current = next;
-          stableFeedRef.current = next;
-          return next;
-        });
-
-        setProfilePosts((prev) => {
-          return safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(activeSharePost.id)
-              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
-              : p
-          );
-        });
-
-        try {
-          await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
-            method: 'POST',
-            body: JSON.stringify({ destination }),
-          });
-        } catch (error) {
-          console.error('Failed to record share:', error);
-        }
-      }
-
-      setShareInProgress(false);
-      setActiveSharePost(null);
-      setShowShareSheet(false);
-      scheduleSilentRefresh();
-    },
-    [activeSharePost, scheduleSilentRefresh]
-  );
-
-  const onOpenComments = (postId: number) => {
-    if (!requireAuth('Commenting')) return;
-
-    const pid = Number(postId);
-    setActiveCommentsPostId(pid);
-
-    const source = view === 'profile' ? profilePosts : posts;
-    const found = source.find((p: any) => Number(p.id) === pid) || null;
-    setCommentPostSnapshot(found);
-  };
-
-  const deletePost = useCallback(
-    async (postId: number) => {
-      if (!requireAuth('Deleting posts')) return;
-
-      const prev = posts;
-      const prevProfilePosts = profilePosts;
-      
-      setPosts((p) => {
-        const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
-
-      setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
-
-      try {
-        await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
-      } catch {
-        setPosts(prev);
-        lastGoodPostsRef.current = prev;
-        stableFeedRef.current = prev;
-        
-        setProfilePosts(prevProfilePosts);
-        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
-      }
-    },
-    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
-  );
-
-  const editPost = useCallback(
-    async (postId: number, content: string) => {
-      if (!requireAuth('Editing posts')) return;
-      const trimmed = (content || '').trim();
-      if (!trimmed) return;
-
-      const prev = posts;
-      const prevProfilePosts = profilePosts;
-      
-      setPosts((p) => {
-        const next = safeArray(p).map((x: any) =>
-          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
-        );
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
-
-      setProfilePosts((prev) =>
-        safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
-      );
-
-      try {
-        await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
-      } catch {
-        setPosts(prev);
-        lastGoodPostsRef.current = prev;
-        stableFeedRef.current = prev;
-        
-        setProfilePosts(prevProfilePosts);
-        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
-      }
-    },
-    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
-  );
-
   const updateUserDetails = useCallback(
     async (data: Partial<User>) => {
       if (!requireAuth('Updating profile')) return;
@@ -5664,8 +6189,151 @@ export default function App() {
     [products, navigateTo]
   );
 
-  const isLoading = false;
-  if (isLoading) return <ProfessionalLoader />;
+  const handleVideoClick = useCallback((item: any) => {
+    const videoId = resolveVideoId(item);
+    if (!videoId) {
+      console.warn('Could not resolve video ID for item:', item);
+      return;
+    }
+    setSelectedReelId(videoId);
+    navigateTo('reels');
+  }, [navigateTo]);
+
+  const handlePhotoClick = useCallback(() => {
+    if (!requireAuth('Creating posts')) return;
+    setShowCreatePostModal(true);
+  }, [requireAuth]);
+
+  const handleVideoClickFromCreate = useCallback(() => {
+    if (!requireAuth('Creating videos')) return;
+    setShowRecorder(true);
+  }, [requireAuth]);
+
+  const onReactPost = useCallback((postId: number, type: ReactionType) => {
+    const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
+    if (post) {
+      reactToFeedItem(post, type);
+    }
+  }, [posts, profilePosts, reactToFeedItem]);
+
+  const handleOpenShareSheet = useCallback(
+    (post: any) => {
+      if (!currentUser) {
+        setLoginError('Please login to share posts.');
+        setView('login');
+        return;
+      }
+      setActiveSharePost(post);
+      setShowShareSheet(true);
+    },
+    [currentUser]
+  );
+
+  const handleShareComplete = useCallback(
+    async (destination: string, data?: any) => {
+      if (data?.success && activeSharePost) {
+        setPosts((prev) => {
+          const next = safeArray(prev).map((p: any) =>
+            Number(p.id) === Number(activeSharePost.id)
+              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+              : p
+          );
+          lastGoodPostsRef.current = next;
+          stableFeedRef.current = next;
+          return next;
+        });
+
+        setProfilePosts((prev) => {
+          return safeArray(prev).map((p: any) =>
+            Number(p.id) === Number(activeSharePost.id)
+              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+              : p
+          );
+        });
+
+        try {
+          await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
+            method: 'POST',
+            body: JSON.stringify({ destination }),
+          });
+        } catch (error) {
+          console.error('Failed to record share:', error);
+        }
+      }
+
+      setShareInProgress(false);
+      setActiveSharePost(null);
+      setShowShareSheet(false);
+      scheduleSilentRefresh();
+    },
+    [activeSharePost, scheduleSilentRefresh]
+  );
+
+  const deletePost = useCallback(
+    async (postId: number) => {
+      if (!requireAuth('Deleting posts')) return;
+
+      const prev = posts;
+      const prevProfilePosts = profilePosts;
+      
+      setPosts((p) => {
+        const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+      } catch {
+        setPosts(prev);
+        lastGoodPostsRef.current = prev;
+        stableFeedRef.current = prev;
+        
+        setProfilePosts(prevProfilePosts);
+        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+      }
+    },
+    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+  );
+
+  const editPost = useCallback(
+    async (postId: number, content: string) => {
+      if (!requireAuth('Editing posts')) return;
+      const trimmed = (content || '').trim();
+      if (!trimmed) return;
+
+      const prev = posts;
+      const prevProfilePosts = profilePosts;
+      
+      setPosts((p) => {
+        const next = safeArray(p).map((x: any) =>
+          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+        );
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      setProfilePosts((prev) =>
+        safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
+      );
+
+      try {
+        await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
+      } catch {
+        setPosts(prev);
+        lastGoodPostsRef.current = prev;
+        stableFeedRef.current = prev;
+        
+        setProfilePosts(prevProfilePosts);
+        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+      }
+    },
+    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+  );
 
   const getProductData = useCallback((productId: number) => {
     const product = products.find(p => Number(p.id) === Number(productId));
@@ -5677,28 +6345,9 @@ export default function App() {
     };
   }, [products]);
 
-  const handleVideoClick = useCallback((item: any) => {
-    const videoId = resolveVideoId(item);
-    if (!videoId) {
-      console.warn('Could not resolve video ID for item:', item);
-      return;
-    }
-    
-    setSelectedReelId(videoId);
-    navigateTo('reels');
-  }, [navigateTo]);
-
-  // ✅ UPDATED: Handlers for Photo and Video buttons
-  const handlePhotoClick = useCallback(() => {
-    if (!requireAuth('Creating posts')) return;
-    setShowCreatePostModal(true);
-  }, [requireAuth]);
-
-  const handleVideoClickFromCreate = useCallback(() => {
-    if (!requireAuth('Creating videos')) return;
-    setShowRecorder(true);
-  }, [requireAuth]);
-
+  // ============================================================================
+  // ✅ UPDATED: EventDetailModal (keep your existing one)
+  // ============================================================================
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
     const event = events.find(e => e.id === eventId);
     
@@ -5770,6 +6419,12 @@ export default function App() {
       </div>
     );
   }, [events, onRSVPEvent]);
+
+  // ============================================================================
+  // ✅ RENDER
+  // ============================================================================
+  const isLoading = false;
+  if (isLoading) return <ProfessionalLoader />;
 
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
@@ -5899,11 +6554,11 @@ export default function App() {
                             ad={item}
                             currentUser={currentUser}
                             onProfileClick={openProfile}
-                            onReact={onReactPost}
+                            onReact={(ad, type) => reactToFeedItem(ad, type)}
                             onShare={(postId, newShareCount) => {
                               console.log('Share:', postId, newShareCount);
                             }}
-                            onOpenComments={onOpenComments}
+                            onOpenComments={(ad) => handleOpenComments(ad)}
                             isActive={isActive}
                           />
                         );
@@ -5957,10 +6612,12 @@ export default function App() {
                             currentUser={currentUser}
                             users={users}
                             onProfileClick={openProfile}
-                            onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-                            onShare={() => handleOpenShareSheet(item)}
+                            onReact={(post, type) => reactToFeedItem(post, type)}
+                            onShare={(postId, newShareCount) => {
+                              console.log('Share:', postId, newShareCount);
+                            }}
                             onViewImage={setFullScreenImage}
-                            onOpenComments={(postId: number) => onOpenComments(postId)}
+                            onOpenComments={(post) => handleOpenComments(post)}
                             onVideoClick={handleVideoClick}
                             onPlayAudioTrack={onPlayTrack}
                             groups={groups}
@@ -6078,7 +6735,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ✅ UPDATED ReelsFeed render with correct props for new Reels.tsx */}
+          {/* ✅ UPDATED ReelsFeed render */}
           {view === 'reels' && (
             <ReelsFeed
               reels={safeArray(reels)}
@@ -6182,11 +6839,8 @@ export default function App() {
               onShare={(post: any) => handleOpenShareSheet(post)}
               onOpenComments={(id: any) => {
                 if (!requireAuth('Commenting')) return;
-                const pid = Number(id);
-                setActiveCommentsPostId(pid);
-                const source = view === 'profile' ? profilePosts : posts;
-                const found = source.find((p: any) => Number(p.id) === pid) || null;
-                setCommentPostSnapshot(found);
+                const post = posts.find(p => p.id === id);
+                if (post) handleOpenComments(post);
               }}
               onDeleteBrand={() => requireAuth('Deleting brands')}
               onPlayAudioTrack={onPlayTrack}
@@ -6267,7 +6921,10 @@ export default function App() {
               onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
               onShare={(post: any) => handleOpenShareSheet(post)}
               onViewImage={setFullScreenImage}
-              onOpenComments={(postId: number) => onOpenComments(postId)}
+              onOpenComments={(postId: number) => {
+                const post = posts.find(p => p.id === postId);
+                if (post) handleOpenComments(post);
+              }}
               onVideoClick={handleVideoClick}
               onPlayAudioTrack={onPlayTrack}
               onHashtagClick={handleHashtagClick}
@@ -6315,7 +6972,10 @@ export default function App() {
               onEditPost={(postId: number, content: string) => editPost(postId, content)}
               getCommentAuthor={(id) => users.find((u) => u.id === id)}
               onViewImage={setFullScreenImage}
-              onOpenComments={(postId) => onOpenComments(postId)}
+              onOpenComments={(postId) => {
+                const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
+                if (post) handleOpenComments(post);
+              }}
               onVideoClick={handleVideoClick}
               onPlayAudioTrack={onPlayTrack}
               onCreateStoryClick={handleCreateStoryFromProfile}
@@ -6612,25 +7272,6 @@ export default function App() {
         />
       )}
 
-      {activePost && currentUser && (
-        <CommentsSheet
-          post={activePost}
-          currentUser={currentUser}
-          users={users}
-          onClose={() => {
-            setActiveCommentsPostId(null);
-            setCommentPostSnapshot(null);
-          }}
-          onComment={createGroupPostComment}
-          onLikeComment={handleLikeComment}
-          getCommentAuthor={(id) => users.find((u) => u.id === id)}
-          onProfileClick={(id) => openProfile(id)}
-          onHashtagClick={handleHashtagClick}
-          onFollow={followUser}
-          checkIsFollowing={checkIsFollowing}
-        />
-      )}
-
       {activeSharePost && (
         <ShareBottomSheet
           isOpen={showShareSheet}
@@ -6800,4 +7441,4 @@ export default function App() {
       )}
     </div>
   );
-  }
+}
