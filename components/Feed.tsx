@@ -1,5 +1,5 @@
-
-// Feed.tsx – Fully optimized with React.memo, identity-based identification, and correct reaction handling
+// Feed.tsx – Fully optimized with React.memo, no duplicate exports
+// UPDATED: Fixed Discuss and React buttons to pass full post objects
 
 import React, {
   useEffect,
@@ -9,7 +9,6 @@ import React, {
   useCallback,
   useContext,
   memo,
-  Fragment,
 } from 'react';
 import {
   User,
@@ -30,7 +29,10 @@ import { performPostAction } from '../postActionRegistry';
 import { PostMenu } from './Post/PostMenu';
 
 // ==================== ICON COMPONENTS ====================
-const Film: React.FC<{ size?: number; color?: string }> = ({ size = 22, color = '#1877F2' }) => (
+const Film: React.FC<{ size?: number; color?: string }> = ({
+  size = 22,
+  color = '#1877F2',
+}) => (
   <svg
     width={size}
     height={size}
@@ -47,11 +49,13 @@ const Film: React.FC<{ size?: number; color?: string }> = ({ size = 22, color = 
     <line x1="2" y1="12" x2="22" y2="12"></line>
     <line x1="2" y1="7" x2="7" y2="7"></line>
     <line x1="2" y1="17" x2="7" y2="17"></line>
-    <line x1="17" y1="17" x2="22" y2="17"></line>
   </svg>
 );
 
-const MoreHorizontal: React.FC<{ size?: number; color?: string }> = ({ size = 26, color = '#b0b3b8' }) => (
+const MoreHorizontal: React.FC<{ size?: number; color?: string }> = ({
+  size = 26,
+  color = '#b0b3b8',
+}) => (
   <svg
     width={size}
     height={size}
@@ -68,7 +72,12 @@ const MoreHorizontal: React.FC<{ size?: number; color?: string }> = ({ size = 26
   </svg>
 );
 
-const Play: React.FC<{ size?: number; color?: string; fill?: string; style?: React.CSSProperties }> = ({ size = 36, color = '#fff', fill = '#fff', style }) => (
+const Play: React.FC<{
+  size?: number;
+  color?: string;
+  fill?: string;
+  style?: React.CSSProperties;
+}> = ({ size = 36, color = '#fff', fill = '#fff', style }) => (
   <svg
     width={size}
     height={size}
@@ -84,7 +93,10 @@ const Play: React.FC<{ size?: number; color?: string; fill?: string; style?: Rea
   </svg>
 );
 
-const Eye: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = '#fff' }) => (
+const Eye: React.FC<{ size?: number; color?: string }> = ({
+  size = 20,
+  color = '#fff',
+}) => (
   <svg
     width={size}
     height={size}
@@ -108,7 +120,13 @@ const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
         <stop offset="55%" stopColor="#FF5A6A" />
         <stop offset="100%" stopColor="#FF8A3D" />
       </linearGradient>
-      <filter id="uneraSparkGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <filter
+        id="uneraSparkGlow"
+        x="-40%"
+        y="-40%"
+        width="180%"
+        height="180%"
+      >
         <feGaussianBlur stdDeviation="2.2" result="blur" />
         <feMerge>
           <feMergeNode in="blur" />
@@ -116,8 +134,19 @@ const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
         </feMerge>
       </filter>
     </defs>
-    <circle cx="32" cy="32" r="18" fill="url(#uneraSparkGrad)" opacity="0.14" />
-    <g stroke="url(#uneraSparkGrad)" strokeWidth="5.2" strokeLinecap="round" filter="url(#uneraSparkGlow)">
+    <circle
+      cx="32"
+      cy="32"
+      r="18"
+      fill="url(#uneraSparkGrad)"
+      opacity="0.14"
+    />
+    <g
+      stroke="url(#uneraSparkGrad)"
+      strokeWidth="5.2"
+      strokeLinecap="round"
+      filter="url(#uneraSparkGlow)"
+    >
       <line x1="32" y1="10" x2="32" y2="18" />
       <line x1="32" y1="46" x2="32" y2="54" />
       <line x1="10" y1="32" x2="18" y2="32" />
@@ -131,9 +160,18 @@ const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
   </svg>
 );
 
-const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size = 28, color = '#1877F2' }) => (
+const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
+  size = 28,
+  color = '#1877F2',
+}) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <g fill="none" stroke={color} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
+    <g
+      fill="none"
+      stroke={color}
+      strokeWidth="4.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
       <circle cx="27" cy="30" r="2.2" />
       <circle cx="33" cy="30" r="2.2" />
@@ -147,8 +185,10 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size =
 // ==================== HELPER FUNCTIONS ====================
 const formatViewCount = (n?: number): string => {
   const v = Number(n || 0);
-  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (v >= 1_000_000_000)
+    return `${(v / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
+  if (v >= 1_000_000)
+    return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
   if (v >= 1_000) return `${(v / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
   return String(v);
 };
@@ -221,8 +261,11 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
-  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  if (!isFormData) headers['Content-Type'] = (headers['Content-Type'] as string) || 'application/json';
+  const isFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (!isFormData)
+    headers['Content-Type'] =
+      (headers['Content-Type'] as string) || 'application/json';
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 20000);
@@ -323,7 +366,8 @@ const safeNumber = (v: any, fallback = 0) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
 };
-const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : fallback);
+const safeString = (v: any, fallback = '') =>
+  typeof v === 'string' ? v : fallback;
 const safeStr = (v: any) => String(v ?? '').trim();
 const safeUserId = (u: any) => safeNumber(u?.id ?? u?.user_id ?? u?.userId, 0);
 const safePostId = (p: any) => safeNumber(p?.id ?? p?.post_id ?? p?.postId, 0);
@@ -380,8 +424,10 @@ const getMarketplacePriceLine = (productData?: any) => {
   const priceRaw = productData?.price ?? productData?.main_price ?? null;
   const currency = productData?.currency || 'TZS';
   const loc =
-    (typeof productData?.location === 'string' && productData.location.split(',')[0]) ||
-    (typeof productData?.address === 'string' && productData.address.split(',')[0]) ||
+    (typeof productData?.location === 'string' &&
+      productData.location.split(',')[0]) ||
+    (typeof productData?.address === 'string' &&
+      productData.address.split(',')[0]) ||
     'Marketplace';
   const priceNum = priceRaw != null ? Number(priceRaw) : NaN;
   const price = Number.isFinite(priceNum) ? priceNum.toFixed(0) : null;
@@ -437,32 +483,58 @@ export const formatRelativeTime = (dateInput: any): string => {
 
 const reactionEmoji = (t: string) => {
   switch (t) {
-    case 'like': return '👍';
-    case 'love': return '❤️';
-    case 'haha': return '😂';
-    case 'wow': return '😮';
-    case 'sad': return '😢';
-    case 'angry': return '😡';
-    case 'fire': return '🔥';
-    case 'party': return '🎉';
-    case 'clap': return '👏';
-    case 'star': return '⭐';
-    case 'thinking': return '🤔';
-    case 'crying': return '😭';
-    case 'heart_eyes': return '🥰';
-    case 'kiss': return '😘';
-    case 'sunglasses': return '😎';
-    case 'rocket': return '🚀';
-    case 'trophy': return '🏆';
-    case 'crown': return '👑';
-    case 'unicorn': return '🦄';
-    case 'rainbow': return '🌈';
-    case 'money': return '💰';
-    case 'muscle': return '💪';
-    case 'brain': return '🧠';
-    case 'lightning': return '⚡';
-    case 'gem': return '💎';
-    default: return '👍';
+    case 'like':
+      return '👍';
+    case 'love':
+      return '❤️';
+    case 'haha':
+      return '😂';
+    case 'wow':
+      return '😮';
+    case 'sad':
+      return '😢';
+    case 'angry':
+      return '😡';
+    case 'fire':
+      return '🔥';
+    case 'party':
+      return '🎉';
+    case 'clap':
+      return '👏';
+    case 'star':
+      return '⭐';
+    case 'thinking':
+      return '🤔';
+    case 'crying':
+      return '😭';
+    case 'heart_eyes':
+      return '🥰';
+    case 'kiss':
+      return '😘';
+    case 'sunglasses':
+      return '😎';
+    case 'rocket':
+      return '🚀';
+    case 'trophy':
+      return '🏆';
+    case 'crown':
+      return '👑';
+    case 'unicorn':
+      return '🦄';
+    case 'rainbow':
+      return '🌈';
+    case 'money':
+      return '💰';
+    case 'muscle':
+      return '💪';
+    case 'brain':
+      return '🧠';
+    case 'lightning':
+      return '⚡';
+    case 'gem':
+      return '💎';
+    default:
+      return '👍';
   }
 };
 
@@ -481,8 +553,10 @@ const topReactionEmojis = (reactionsArr: any[], max = 2) => {
 
 const fmtCount = (n: number) => {
   const num = Number(n || 0);
-  if (num >= 1_000_000) return (num / 1_000_000).toFixed(num % 1_000_000 === 0 ? 0 : 1) + 'M';
-  if (num >= 1_000) return (num / 1_000).toFixed(num % 1_000 === 0 ? 0 : 1) + 'K';
+  if (num >= 1_000_000)
+    return (num / 1_000_000).toFixed(num % 1_000_000 === 0 ? 0 : 1) + 'M';
+  if (num >= 1_000)
+    return (num / 1_000).toFixed(num % 1_000 === 0 ? 0 : 1) + 'K';
   return String(num);
 };
 
@@ -494,7 +568,9 @@ const formatReactionText = (totalCount: number, reactorName: string): string => 
   }
   const othersCount = totalCount - 1;
   const formattedOthers = fmtCount(othersCount);
-  return `${formattedTotal} · ${reactorName} and ${formattedOthers} other${othersCount !== 1 ? 's' : ''}`;
+  return `${formattedTotal} · ${reactorName} and ${formattedOthers} other${
+    othersCount !== 1 ? 's' : ''
+  }`;
 };
 
 const stableHash = (input: any) => {
@@ -514,7 +590,8 @@ const resolveUserName = (reaction: any, users?: any[]) => {
       reaction?.user?.user_id ??
       0
   );
-  const user = (users || []).find((u) => Number(u?.id) === uid) || reaction?.user || null;
+  const user =
+    (users || []).find((u) => Number(u?.id) === uid) || reaction?.user || null;
   const name = String(
     reaction?.name ??
       reaction?.user?.name ??
@@ -526,7 +603,11 @@ const resolveUserName = (reaction: any, users?: any[]) => {
   return name;
 };
 
-const pickStableReactorName = (postId: number | string, reactions: any[], users?: any[]) => {
+const pickStableReactorName = (
+  postId: number | string,
+  reactions: any[],
+  users?: any[]
+) => {
   if (!Array.isArray(reactions) || reactions.length === 0) return '';
   const idx = stableHash(postId) % reactions.length;
   const r = reactions[idx] || reactions[0];
@@ -546,14 +627,20 @@ const getLinkPreview = async (text: string): Promise<LinkPreview | null> => {
     return null;
   }
   try {
-    const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
+    const response = await fetch(
+      `/api/link-preview?url=${encodeURIComponent(url)}`
+    );
     const data = await response.json();
     if (data.success && data.data) {
       return {
         url,
         title: data.data.title || domain,
-        description: data.data.description || `Visit ${domain} for more information.`,
-        image: data.data.image || 'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
+        description:
+          data.data.description ||
+          `Visit ${domain} for more information.`,
+        image:
+          data.data.image ||
+          'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
         domain: domain,
       };
     }
@@ -565,7 +652,8 @@ const getLinkPreview = async (text: string): Promise<LinkPreview | null> => {
       url,
       title: 'YouTube Video',
       description: 'Watch this video on YouTube.',
-      image: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&w=800&q=80',
+      image:
+        'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&w=800&q=80',
       domain: 'youtube.com',
     };
   }
@@ -574,7 +662,8 @@ const getLinkPreview = async (text: string): Promise<LinkPreview | null> => {
       url,
       title: 'GitHub Repository',
       description: 'Open source project on GitHub.',
-      image: 'https://images.unsplash.com/photo-1618401471353-b98afee0b2eb?auto=format&fit=crop&w=800&q=80',
+      image:
+        'https://images.unsplash.com/photo-1618401471353-b98afee0b2eb?auto=format&fit=crop&w=800&q=80',
       domain: 'github.com',
     };
   }
@@ -582,7 +671,8 @@ const getLinkPreview = async (text: string): Promise<LinkPreview | null> => {
     url,
     title: domain,
     description: `Visit ${domain} for more information.`,
-    image: 'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
+    image:
+      'https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=800&q=80',
     domain,
   };
 };
@@ -593,13 +683,26 @@ const BACKGROUNDS = [
   { id: 'blue', value: 'linear-gradient(45deg, #00C6FF, #0072FF)' },
   { id: 'green', value: 'linear-gradient(45deg, #a8ff78, #78ffd6)' },
   { id: 'purple', value: 'linear-gradient(45deg, #e65c00, #F9D423)' },
-  { id: 'heart', value: 'url("https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=500&q=60")' },
+  {
+    id: 'heart',
+    value:
+      'url("https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=500&q=60")',
+  },
   { id: 'dark', value: 'linear-gradient(to right, #434343 0%, black 100%)' },
   { id: 'fire', value: 'linear-gradient(120deg, #f6d365 0%, #fda085 100%)' },
 ];
 
 const FEELINGS = [
-  'Happy', 'Blessed', 'Loved', 'Sad', 'Excited', 'Thankful', 'Crazy', 'Tired', 'Cool', 'Relaxed',
+  'Happy',
+  'Blessed',
+  'Loved',
+  'Sad',
+  'Excited',
+  'Thankful',
+  'Crazy',
+  'Tired',
+  'Cool',
+  'Relaxed',
 ];
 
 const QUICK_EMOJIS = [
@@ -630,19 +733,28 @@ const reactionStyles = `
     60% { transform: translateY(-6px) scale(1.15); opacity: 1; }
     100% { transform: translateY(0px) scale(1); }
   }
+  
   @keyframes wiggle {
     0%, 100% { transform: rotate(0deg); }
     25% { transform: rotate(-2deg); }
     75% { transform: rotate(2deg); }
   }
+  
   @keyframes bounce {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-3px); }
   }
+  
   .react-pop { animation: popFloat 220ms ease-out; }
   .react-hover { transition: transform 120ms ease; }
-  .react-hover:hover { transform: translateY(-10px) scale(1.25); animation: wiggle 300ms ease-in-out; }
-  .reaction-preview { animation: bounce 0.5s infinite alternate; }
+  .react-hover:hover { 
+    transform: translateY(-10px) scale(1.25); 
+    animation: wiggle 300ms ease-in-out; 
+  }
+  
+  .reaction-preview {
+    animation: bounce 0.5s infinite alternate;
+  }
 `;
 
 let reactionStyleMounted = false;
@@ -656,95 +768,10 @@ const ensureReactionStyles = () => {
   document.head.appendChild(styleTag);
 };
 
-// ==================== IDENTITY HELPERS (NEW) ====================
-/**
- * Get the type of a feed item.
- */
-const getFeedItemType = (p: any): string => {
-  const meta = p?.meta || {};
-  if (p?.type === 'sponsored' || p?.ad_type || p?.is_sponsored) {
-    return 'sponsored';
-  }
-  if (p?.source === 'product' || p?.item_type === 'product' ||
-      p?.type === 'marketplace' || p?.type === 'product' ||
-      p?.post_type === 'product' || meta?.type === 'product' ||
-      meta?.kind === 'product' || !!p?.product_id) {
-    return 'product';
-  }
-  if (p?.source === 'event' || p?.item_type === 'event' ||
-      p?.type === 'event' || p?.post_type === 'event' ||
-      meta?.type === 'event' || meta?.kind === 'event' ||
-      !!p?.event_id) {
-    return 'event';
-  }
-  if (p?.source === 'group_post' || p?.item_type === 'group_post' ||
-      !!p?.group_id || !!p?.group) {
-    return 'group_post';
-  }
-  if (p?.source === 'reel' || p?.item_type === 'reel' ||
-      p?.type === 'reel' || !!p?.reel_id) {
-    return 'reel';
-  }
-  if (meta?.kind === 'music' || meta?.type === 'music') {
-    return 'music';
-  }
-  if (meta?.kind === 'podcast' || meta?.type === 'podcast') {
-    return 'podcast';
-  }
-  return 'post';
-};
-
-/**
- * Get the numeric ID of a feed item.
- */
-const getFeedItemId = (p: any): number => {
-  const type = getFeedItemType(p);
-  switch (type) {
-    case 'product':
-      return Number(p?.product_id ?? p?.meta?.marketplace?.id ?? p?.id ?? 0);
-    case 'event':
-      return Number(p?.event_id ?? p?.id ?? 0);
-    case 'group_post':
-      return Number(p?.post_id ?? p?.id ?? 0);
-    case 'reel':
-      return Number(p?.reel_id ?? p?.id ?? 0);
-    default:
-      return Number(p?.id ?? 0);
-  }
-};
-
-/**
- * Get a stable, unique identity for a feed item.
- */
-const getFeedIdentity = (p: any): string => {
-  if (p?.feed_key) return String(p.feed_key);
-  return `${getFeedItemType(p)}:${getFeedItemId(p)}`;
-};
-
-// ==================== REACTION ENDPOINT HELPER (NEW) ====================
-const getReactionEndpointForItem = (p: any): string => {
-  const type = getFeedItemType(p);
-  const id = getFeedItemId(p);
-  switch (type) {
-    case 'product':
-      return `/api/products/${id}/react`;
-    case 'event':
-      return `/api/events/${id}/react`;
-    case 'group_post': {
-      const groupId = Number(p?.group_id ?? p?.group?.id ?? 0);
-      return `/api/groups/${groupId}/posts/${id}/react`;
-    }
-    case 'reel':
-      return `/api/reels/${id}/react`;
-    default:
-      return `/api/posts/${id}/react`;
-  }
-};
-
-// ==================== CUSTOM COMPARISON FUNCTIONS (updated) ====================
+// ==================== CUSTOM COMPARISON FUNCTIONS ====================
 const postPropsEqual = (prev: any, next: any) => {
   return (
-    getFeedIdentity(prev.post) === getFeedIdentity(next.post) &&
+    prev.post?.id === next.post?.id &&
     prev.post?.reactions_count === next.post?.reactions_count &&
     prev.post?.comments_count === next.post?.comments_count &&
     prev.post?.shares === next.post?.shares &&
@@ -756,7 +783,7 @@ const postPropsEqual = (prev: any, next: any) => {
 
 const eventPostPropsEqual = (prev: any, next: any) => {
   return (
-    getFeedIdentity(prev.event) === getFeedIdentity(next.event) &&
+    prev.event?.id === next.event?.id &&
     prev.event?.attendees_count === next.event?.attendees_count &&
     prev.event?.interested_count === next.event?.interested_count &&
     prev.event?.user_rsvp_status === next.event?.user_rsvp_status
@@ -765,18 +792,18 @@ const eventPostPropsEqual = (prev: any, next: any) => {
 
 const reelCardPropsEqual = (prev: any, next: any) => {
   return (
-    getFeedIdentity(prev.reel) === getFeedIdentity(next.reel) &&
+    prev.reel?.id === next.reel?.id &&
     prev.reel?.views === next.reel?.views &&
     prev.reel?.likes === next.reel?.likes &&
     prev.reel?.comments === next.reel?.comments
   );
 };
 
-// ==================== EXPORTED COMPONENTS (updated where needed) ====================
+// ==================== EXPORTED COMPONENTS (Memoized) ====================
 
 /**
  * =========================
- * ✅ REACTIONS SHEET (unchanged)
+ * ✅ REACTIONS SHEET
  * =========================
  */
 export const ReactionsSheet = memo(
@@ -956,12 +983,14 @@ export const ReactionsSheet = memo(
       </div>
     );
   },
-  (prev, next) => prev.isOpen === next.isOpen && prev.postId === next.postId
+  (prev, next) => {
+    return prev.isOpen === next.isOpen && prev.postId === next.postId;
+  }
 );
 
 /**
  * =========================
- * ✅ GALLERY VIEWER (unchanged)
+ * ✅ GALLERY VIEWER
  * =========================
  */
 export const GalleryViewer = memo(
@@ -1141,7 +1170,9 @@ export const GalleryViewer = memo(
             </button>
             <button
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-              onClick={() => (currentUser ? onShare() : alert('Please login to share posts.'))}
+              onClick={() =>
+                currentUser ? onShare() : alert('Please login to share posts.')
+              }
             >
               <i className="fas fa-share text-[22px]"></i>
               <span className="text-[19px] font-bold">Share</span>
@@ -1166,7 +1197,7 @@ export const GalleryViewer = memo(
 
 /**
  * =========================
- * ✅ SHARE BOTTOM SHEET (updated comparison)
+ * ✅ SHARE BOTTOM SHEET
  * =========================
  */
 export const ShareBottomSheet = memo(
@@ -1191,19 +1222,27 @@ export const ShareBottomSheet = memo(
     chats?: any[];
     onShareComplete?: (destination: string, data?: any) => void;
   }) => {
-    const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>('sheet');
+    const [activeFlow, setActiveFlow] = useState<'sheet' | 'feed' | 'groups' | 'messages'>(
+      'sheet'
+    );
     const [isAnimating, setIsAnimating] = useState(false);
     const sheetRef = useRef<HTMLDivElement>(null);
     const backdropRef = useRef<HTMLDivElement>(null);
 
     const getShareEndpoint = () => {
       const p = post as any;
-      if (p.source === 'event' || p.item_type === 'event') return '/api/events/share';
-      else if (p.source === 'group_post' || p.item_type === 'group_post') return '/api/groups/posts/share';
-      else if (p.source === 'product' || p.item_type === 'product') return '/api/products/share';
-      else if (p.source === 'reel' || p.item_type === 'reel') return '/api/reels/share';
-      else if (p.source === 'song' || p.item_type === 'song') return '/api/songs/share';
-      else if (p.source === 'podcast' || p.item_type === 'podcast') return '/api/podcasts/share';
+      if (p.source === 'event' || p.item_type === 'event')
+        return '/api/events/share';
+      else if (p.source === 'group_post' || p.item_type === 'group_post')
+        return '/api/groups/posts/share';
+      else if (p.source === 'product' || p.item_type === 'product')
+        return '/api/products/share';
+      else if (p.source === 'reel' || p.item_type === 'reel')
+        return '/api/reels/share';
+      else if (p.source === 'song' || p.item_type === 'song')
+        return '/api/songs/share';
+      else if (p.source === 'podcast' || p.item_type === 'podcast')
+        return '/api/podcasts/share';
       else return '/api/posts/share';
     };
 
@@ -1214,12 +1253,18 @@ export const ShareBottomSheet = memo(
         destination: destination,
         shared_at: new Date().toISOString(),
       };
-      if (p.source === 'event' || p.item_type === 'event') return { ...base, event_id: p.event_id || p.id };
-      else if (p.source === 'group_post' || p.item_type === 'group_post') return { ...base, post_id: p.id, group_id: p.group_id };
-      else if (p.source === 'product' || p.item_type === 'product') return { ...base, product_id: p.product_id || p.id };
-      else if (p.source === 'reel' || p.item_type === 'reel') return { ...base, reel_id: p.reel_id || p.id };
-      else if (p.source === 'song' || p.item_type === 'song') return { ...base, song_id: p.song_id2 || p.id };
-      else if (p.source === 'podcast' || p.item_type === 'podcast') return { ...base, podcast_id: p.podcast_id || p.id };
+      if (p.source === 'event' || p.item_type === 'event')
+        return { ...base, event_id: p.event_id || p.id };
+      else if (p.source === 'group_post' || p.item_type === 'group_post')
+        return { ...base, post_id: p.id, group_id: p.group_id };
+      else if (p.source === 'product' || p.item_type === 'product')
+        return { ...base, product_id: p.product_id || p.id };
+      else if (p.source === 'reel' || p.item_type === 'reel')
+        return { ...base, reel_id: p.reel_id || p.id };
+      else if (p.source === 'song' || p.item_type === 'song')
+        return { ...base, song_id: p.song_id2 || p.id };
+      else if (p.source === 'podcast' || p.item_type === 'podcast')
+        return { ...base, podcast_id: p.podcast_id || p.id };
       else return { ...base, post_id: p.id };
     };
 
@@ -1280,7 +1325,8 @@ export const ShareBottomSheet = memo(
         closeSheet();
       } catch (error: any) {
         console.error('Share failed:', error);
-        if (onShareComplete) onShareComplete(destination, { success: false, error: error.message });
+        if (onShareComplete)
+          onShareComplete(destination, { success: false, error: error.message });
       }
     };
 
@@ -1682,7 +1728,7 @@ export const ShareBottomSheet = memo(
   (prev, next) => {
     return (
       prev.isOpen === next.isOpen &&
-      getFeedIdentity(prev.post) === getFeedIdentity(next.post) &&
+      prev.post?.id === next.post?.id &&
       prev.currentUser?.id === next.currentUser?.id
     );
   }
@@ -1690,7 +1736,7 @@ export const ShareBottomSheet = memo(
 
 /**
  * =========================
- * ✅ PEOPLE YOU MAY KNOW (unchanged)
+ * ✅ PEOPLE YOU MAY KNOW
  * =========================
  */
 interface PeopleSuggestion {
@@ -1725,7 +1771,9 @@ export const PeopleYouMayKnowGrid = memo(
     title?: string;
     maxDisplay?: number;
   }) => {
-    const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
+    const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>(
+      {}
+    );
     const scrollRef = useRef<HTMLDivElement>(null);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(false);
@@ -1878,7 +1926,8 @@ export const PeopleYouMayKnowGrid = memo(
                 {user.mutual_count > 0 && (
                   <div className="text-center mb-3">
                     <span className="text-[#B0B3B8] text-[13px]">
-                      {user.mutual_count} mutual friend{user.mutual_count !== 1 ? 's' : ''}
+                      {user.mutual_count} mutual friend
+                      {user.mutual_count !== 1 ? 's' : ''}
                     </span>
                   </div>
                 )}
@@ -1935,7 +1984,7 @@ export const PeopleYouMayKnowGrid = memo(
 
 /**
  * =========================
- * ✅ REEL PREVIEW CARD (updated identity comparison)
+ * ✅ REEL PREVIEW CARD
  * =========================
  */
 export type ReelFeedData = {
@@ -1962,8 +2011,10 @@ export type ReelFeedData = {
 
 const formatReelCount = (n?: number): string => {
   const v = Number(n || 0);
-  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1_000_000_000)
+    return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (v >= 1_000_000)
+    return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
   if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(v);
 };
@@ -1975,8 +2026,12 @@ const getReelAuthorName = (reel: any): string => {
     reel?.username ||
     reel?.user_name ||
     reel?.name ||
-    (reel?.user && (reel.user.full_name || reel.user.username || reel.user.name)) ||
-    (reel?.author && (typeof reel.author === 'string' ? reel.author : reel.author.full_name || reel.author.username || reel.author.name)) ||
+    (reel?.user &&
+      (reel.user.full_name || reel.user.username || reel.user.name)) ||
+    (reel?.author &&
+      (typeof reel.author === 'string'
+        ? reel.author
+        : reel.author.full_name || reel.author.username || reel.author.name)) ||
     'User'
   );
 };
@@ -1987,7 +2042,12 @@ export const normalizeReelFromFeed = (item: any): ReelFeedData => {
     id: reelData?.id || item?.id || 0,
     user_id: reelData?.user_id ?? reelData?.userId ?? item?.user_id ?? 0,
     author: getReelAuthorName(reelData) || getReelAuthorName(item),
-    avatar: reelData?.avatar || reelData?.profile_image_url || reelData?.user?.profile_image_url || item?.avatar || '',
+    avatar:
+      reelData?.avatar ||
+      reelData?.profile_image_url ||
+      reelData?.user?.profile_image_url ||
+      item?.avatar ||
+      '',
     verified: Boolean(reelData?.verified || reelData?.is_verified || false),
     views: Number(
       reelData?.views_count ??
@@ -1998,10 +2058,13 @@ export const normalizeReelFromFeed = (item: any): ReelFeedData => {
         item?.views ??
         0
     ),
-    likes: Number(reelData?.likes_count ?? reelData?.likes ?? reelData?.reactions_count ?? 0),
+    likes: Number(
+      reelData?.likes_count ?? reelData?.likes ?? reelData?.reactions_count ?? 0
+    ),
     comments: Number(reelData?.comments_count ?? reelData?.comments ?? 0),
     shares: Number(reelData?.shares_count ?? reelData?.shares ?? 0),
-    video: reelData?.video_url || reelData?.video || reelData?.media_url || item?.video_url || '',
+    video:
+      reelData?.video_url || reelData?.video || reelData?.media_url || item?.video_url || '',
     thumbnail: reelData?.thumbnail_url || reelData?.thumbnail || reelData?.cover_url || '',
     caption: reelData?.caption || reelData?.description || '',
     created_at: reelData?.created_at || reelData?.createdAt || item?.created_at || '',
@@ -2288,7 +2351,7 @@ export const ReelFeedCard = memo(
 
 /**
  * =========================
- * ✅ GROUPS YOU MAY JOIN (unchanged)
+ * ✅ GROUPS YOU MAY JOIN
  * =========================
  */
 interface GroupSuggestion {
@@ -2596,7 +2659,7 @@ if (typeof document !== 'undefined') {
   }
 }
 
-// ==================== EVENT HELPERS (unchanged) ====================
+// ==================== EVENT HELPERS ====================
 const safeParseJsonArray = (v: any): string[] => {
   if (!v) return [];
   if (Array.isArray(v)) return v.filter(Boolean).map(String);
@@ -2654,7 +2717,7 @@ const normalizeEventFromFeed = (item: any) => {
 
 /**
  * =========================
- * ✅ EVENT POST (updated identity comparison)
+ * ✅ EVENT POST
  * =========================
  */
 export const EventPost = memo(
@@ -2694,8 +2757,12 @@ export const EventPost = memo(
     onEventClick?: (eventId: number) => void;
   }) => {
     const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
-    const [attendeesCount, setAttendeesCount] = useState(event.attendees_count || 0);
-    const [interestedCount, setInterestedCount] = useState(event.interested_count || 0);
+    const [attendeesCount, setAttendeesCount] = useState(
+      event.attendees_count || 0
+    );
+    const [interestedCount, setInterestedCount] = useState(
+      event.interested_count || 0
+    );
     const [loading, setLoading] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
 
@@ -2744,7 +2811,8 @@ export const EventPost = memo(
       setLoading(true);
 
       const prevStatus = rsvpStatus;
-      const nextStatus: '' | 'going' | 'interested' = prevStatus === target ? '' : target;
+      const nextStatus: '' | 'going' | 'interested' =
+        prevStatus === target ? '' : target;
 
       const prevAtt = attendeesCount;
       const prevInt = interestedCount;
@@ -2812,7 +2880,8 @@ export const EventPost = memo(
       if (onFollow && creator?.id) onFollow(safeUserId(creator));
     };
 
-    const getReactionEndpoint = () => (event.id ? `/api/events/${event.id}/react` : null);
+    const getReactionEndpoint = () =>
+      event.id ? `/api/events/${event.id}/react` : null;
 
     const handleReact = async (type: ReactionType) => {
       if (!currentUser || !event.id || !onReact) return;
@@ -3116,7 +3185,7 @@ export const EventPost = memo(
 
 /**
  * =========================
- * ✅ EVENT FEED CARD (updated identity comparison)
+ * ✅ EVENT FEED CARD
  * =========================
  */
 type FeedEventItem = {
@@ -3184,7 +3253,8 @@ export const EventFeedCard = memo(
 
       const eventId = item.event_id || item.id;
       const prevStatus = (item.my_rsvp_status || '') as '' | 'going' | 'interested';
-      const nextStatus: '' | 'going' | 'interested' = prevStatus === target ? '' : target;
+      const nextStatus: '' | 'going' | 'interested' =
+        prevStatus === target ? '' : target;
 
       const prevAtt = Number(item.attending_count ?? 0);
       const prevInt = Number(item.interested_count ?? 0);
@@ -3229,8 +3299,10 @@ export const EventFeedCard = memo(
         if (res?.success) {
           const patch: Partial<FeedEventItem> = {};
           if (res.my_status !== undefined) patch.my_rsvp_status = res.my_status;
-          if (res.attending_count !== undefined) patch.attending_count = Number(res.attending_count);
-          if (res.interested_count !== undefined) patch.interested_count = Number(res.interested_count);
+          if (res.attending_count !== undefined)
+            patch.attending_count = Number(res.attending_count);
+          if (res.interested_count !== undefined)
+            patch.interested_count = Number(res.interested_count);
           onUpdateItem(patch);
         }
       } catch (e: any) {
@@ -3432,7 +3504,7 @@ export const EventFeedCard = memo(
   },
   (prev, next) => {
     return (
-      getFeedIdentity(prev.item) === getFeedIdentity(next.item) &&
+      prev.item.id === next.item.id &&
       prev.item.my_rsvp_status === next.item.my_rsvp_status &&
       prev.item.attending_count === next.item.attending_count &&
       prev.item.interested_count === next.item.interested_count
@@ -3442,7 +3514,7 @@ export const EventFeedCard = memo(
 
 /**
  * =========================
- * ✅ REACTION BUTTON (updated to accept identity and use proper handlers)
+ * ✅ REACTION BUTTON
  * =========================
  */
 export const ReactionButton = memo(
@@ -3451,13 +3523,11 @@ export const ReactionButton = memo(
     reactionCount,
     onReact,
     isGuest,
-    isLoading = false,
   }: {
     currentUserReactions: ReactionType | undefined;
     reactionCount: number;
     onReact: (type: ReactionType) => void;
     isGuest?: boolean;
-    isLoading?: boolean;
   }) => {
     const [showDock, setShowDock] = useState(false);
     const [isAnimating, setIsAnimating] = useState(false);
@@ -3598,10 +3668,9 @@ export const ReactionButton = memo(
           onClick={handleClick}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          disabled={isLoading}
           className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
             isAnimating ? 'scale-110' : ''
-          } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+          }`}
         >
           {activeReaction ? (
             <>
@@ -3631,15 +3700,12 @@ export const ReactionButton = memo(
     return (
       prev.currentUserReactions === next.currentUserReactions &&
       prev.reactionCount === next.reactionCount &&
-      prev.isGuest === next.isGuest &&
-      prev.isLoading === next.isLoading
+      prev.isGuest === next.isGuest
     );
   }
 );
 
-// ==================== END OF PART 1 ====================
-// The rest of the file continues in Part 2
-// ==================== MEDIA HELPERS (unchanged) ====================
+// ==================== MEDIA HELPERS ====================
 const getMediaTypeInfo = (post: any) => {
   const mediaUrl = String(post?.media_url || '');
   const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
@@ -3652,7 +3718,9 @@ const getMediaTypeInfo = (post: any) => {
     typeRaw === 'image' ||
     mediaTypeRaw === 'image' ||
     mediaTypeRaw.startsWith('image/') ||
-    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(ext);
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(
+      ext
+    );
 
   const isVideo =
     typeRaw === 'video' ||
@@ -4049,12 +4117,14 @@ const GroupPostHeader = memo(
     author,
     onOpenGroup,
     onOpenProfile,
+    onOpenMenu,
   }: {
     post: any;
     group?: any;
     author?: any;
     onOpenGroup?: (groupId: number) => void;
     onOpenProfile?: (userId: number) => void;
+    onOpenMenu?: () => void;
   }) => {
     const groupName = safeStr(group?.name || post?.group_name);
     const groupId = Number(group?.id || post?.group_id || 0);
@@ -4134,7 +4204,7 @@ const GroupPostHeader = memo(
   },
   (prev, next) => {
     return (
-      getFeedIdentity(prev.post) === getFeedIdentity(next.post) &&
+      prev.post?.id === next.post?.id &&
       prev.group?.id === next.group?.id &&
       prev.author?.id === next.author?.id
     );
@@ -4280,7 +4350,7 @@ export const RichText = ({
 
 /**
  * =========================
- * ✅ SPONSORED POST CARD (updated identity comparison)
+ * ✅ SPONSORED POST CARD
  * =========================
  */
 export const SponsoredPostCard = memo(
@@ -4298,7 +4368,7 @@ export const SponsoredPostCard = memo(
     onProfileClick?: (id: number) => void;
     onReact?: (id: number, type: ReactionType) => void;
     onShare?: (id: number, newShareCount: number) => void;
-    onOpenComments?: (id: number) => void;
+    onOpenComments?: (post: any) => void;
     isActive?: boolean;
   }) => {
     const [imageError, setImageError] = useState(false);
@@ -4492,7 +4562,7 @@ export const SponsoredPostCard = memo(
                 {originalCommentCount > 0 && (
                   <span
                     className="hover:underline cursor-pointer text-[16px]"
-                    onClick={() => onOpenComments?.(ad.id)}
+                    onClick={() => onOpenComments?.(ad)}
                   >
                     {fmtCount(originalCommentCount)} Discussions
                   </span>
@@ -4517,7 +4587,7 @@ export const SponsoredPostCard = memo(
               <button
                 type="button"
                 className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                onClick={() => onOpenComments?.(ad.id)}
+                onClick={() => onOpenComments?.(ad)}
               >
                 <DiscussSignalIcon size={28} color="#1877F2" />
                 <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
@@ -4565,14 +4635,14 @@ export const SponsoredPostCard = memo(
           onClose={() => setShowReactionsSheet(false)}
           postId={ad.id}
           onProfileClick={(id) => onProfileClick?.(id)}
-          onOpenComments={() => onOpenComments?.(ad.id)}
+          onOpenComments={() => onOpenComments?.(ad)}
         />
       </>
     );
   },
   (prev, next) => {
     return (
-      getFeedIdentity(prev.ad) === getFeedIdentity(next.ad) &&
+      prev.ad?.id === next.ad?.id &&
       prev.currentUser?.id === next.currentUser?.id &&
       prev.isActive === next.isActive
     );
@@ -4581,7 +4651,7 @@ export const SponsoredPostCard = memo(
 
 /**
  * =========================
- * ✅ MAIN POST COMPONENT (updated to pass full post to onReact and onOpenComments)
+ * ✅ MAIN POST COMPONENT
  * =========================
  */
 export const Post = memo(
@@ -4621,12 +4691,12 @@ export const Post = memo(
     currentUser: User | null;
     users?: User[];
     onProfileClick: (id: number) => void;
-    onReact: (post: PostType, type: ReactionType) => void;  // changed
+    onReact: (post: PostType, type: ReactionType) => void;
     onShare: (id: number, newShareCount: number) => void;
     onDelete?: (id: number) => void;
     onEdit?: (id: number, content: string) => void;
     onViewImage: (url: string) => void;
-    onOpenComments: (post: PostType) => void;             // changed
+    onOpenComments: (post: PostType) => void;
     onVideoClick: (p: PostType) => void;
     onPlayAudioTrack?: (t: AudioTrack) => void;
     onHashtagClick?: (tag: string) => void;
@@ -4685,9 +4755,9 @@ export const Post = memo(
           onFollow={onFollow}
           isFollowing={isFollowing}
           followLoading={followLoading}
-          onReact={onReact}
+          onReact={(id, type) => onReact(post, type)}
           onShare={onShare}
-          onOpenComments={onOpenComments}
+          onOpenComments={(id) => onOpenComments(post)}
           groups={groups}
           brands={brands}
           chats={chats}
@@ -4823,12 +4893,35 @@ export const Post = memo(
       if (onFollow && a.id) onFollow(safeUserId(a));
     };
 
+    const getReactionEndpoint = (item: any) => {
+      if (item.source === 'group_post' || item.item_type === 'group_post')
+        return `/api/groups/${item.group_id}/posts/${item.id}/react`;
+      else if (item.source === 'product' || item.item_type === 'product')
+        return `/api/products/${item.product_id || item.id}/react`;
+      else if (item.source === 'reel' || item.item_type === 'reel')
+        return `/api/reels/${item.reel_id || item.id}/react`;
+      else if (item.source === 'song' || item.item_type === 'song')
+        return `/api/songs/${item.song_id2 || item.id}/react`;
+      else if (item.source === 'podcast' || item.item_type === 'podcast')
+        return `/api/podcasts/${item.podcast_id || item.id}/react`;
+      else return `/api/posts/${item.id}/react`;
+    };
+
     const handleReactClick = async (type: ReactionType) => {
       if (!currentUser) {
         alert('Please login to react.');
         return;
       }
-      onReact(post, type);  // pass full post
+      const endpoint = getReactionEndpoint(p);
+      try {
+        await apiFetch(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({ user_id: currentUser.id, type: type }),
+        });
+        onReact(post, type);
+      } catch (error) {
+        console.error('Failed to react:', error);
+      }
     };
 
     const openGallery = (urls: string[], index: number) => {
@@ -5433,7 +5526,7 @@ export const Post = memo(
           onClose={() => setShowReactionsSheet(false)}
           postId={postId}
           onProfileClick={onProfileClick}
-          onOpenComments={onOpenComments}
+          onOpenComments={() => onOpenComments(post)}
         />
 
         <GalleryViewer
@@ -5466,7 +5559,7 @@ export const Post = memo(
 
 /**
  * =========================
- * ✅ CREATE POST CARD (unchanged)
+ * ✅ CREATE POST CARD
  * =========================
  */
 export const CreatePost: React.FC<{
@@ -5546,7 +5639,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * ✅ CREATE POST MODAL (unchanged)
+ * ✅ CREATE POST MODAL
  * =========================
  */
 export const CreatePostModal = memo(
@@ -6156,12 +6249,12 @@ export const CreatePostModal = memo(
   }
 );
 
-// ==================== COMMENTS CACHE (updated to use identity) ====================
-const commentsCache = new Map<string, { data: any[]; timestamp: number; postId: string }>();
+// ==================== COMMENTS CACHE ====================
+const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: number }>();
 
 /**
  * =========================
- * ✅ COMMENTS SHEET (updated to use identity)
+ * ✅ COMMENTS SHEET
  * =========================
  */
 export const CommentsSheet = memo(
@@ -6199,8 +6292,11 @@ export const CommentsSheet = memo(
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
 
     const p: any = post as any;
-    const identity = getFeedIdentity(p);
-    const cacheKey = identity;
+    const postId = safePostId(p);
+
+    // Detect if this is a group post
+    const isGroupPost = !!(p as any)?.group_id || !!(p as any)?.group;
+    const groupId = (p as any)?.group_id || (p as any)?.group?.id;
 
     const discussionsTopRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -6321,7 +6417,7 @@ export const CommentsSheet = memo(
       }, 0);
 
       return () => clearTimeout(t);
-    }, [identity]);
+    }, [postId]);
 
     const meta: any = p?.meta || {};
 
@@ -6459,10 +6555,10 @@ export const CommentsSheet = memo(
 
         if (arr.length > 0) {
           setComments(arr);
-          commentsCache.set(cacheKey, {
+          commentsCache.set(postId, {
             data: arr,
             timestamp: Date.now(),
-            postId: cacheKey,
+            postId,
           });
         }
       } catch (error: any) {
@@ -6475,7 +6571,7 @@ export const CommentsSheet = memo(
 
     useEffect(() => {
       const initializeComments = async () => {
-        const cached = commentsCache.get(cacheKey);
+        const cached = commentsCache.get(postId);
         if (cached) {
           setComments(cached.data);
         }
@@ -6483,10 +6579,10 @@ export const CommentsSheet = memo(
         const postComments = Array.isArray(p.comments) ? p.comments : [];
         if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
           setComments(postComments);
-          commentsCache.set(cacheKey, {
+          commentsCache.set(postId, {
             data: postComments,
             timestamp: Date.now(),
-            postId: cacheKey,
+            postId,
           });
         }
 
@@ -6500,7 +6596,7 @@ export const CommentsSheet = memo(
           abortControllerRef.current.abort();
         }
       };
-    }, [identity, p.comments]);
+    }, [postId, p.comments]);
 
     const idKey = (v: any) => String(v ?? '').trim();
 
@@ -6545,7 +6641,7 @@ export const CommentsSheet = memo(
 
       const optimisticComment = {
         id: `tmp-${Date.now()}`,
-        post_id: identity,
+        post_id: postId,
         user_id: safeUserId(currentUser),
         text: finalText,
         parent_comment_id: replyTo?.id || null,
@@ -6561,17 +6657,17 @@ export const CommentsSheet = memo(
 
       setComments((prev) => {
         const next = [...prev, optimisticComment];
-        const allComments = commentsCache.get(cacheKey)?.data || [];
-        commentsCache.set(cacheKey, {
+        const allComments = commentsCache.get(postId)?.data || [];
+        commentsCache.set(postId, {
           data: [...allComments, optimisticComment],
           timestamp: Date.now(),
-          postId: cacheKey,
+          postId,
         });
         return next;
       });
 
       if (onComment) {
-        onComment(Number(identity.split(':')[1]), finalText);
+        onComment(postId, finalText);
       }
 
       try {
@@ -6593,7 +6689,7 @@ export const CommentsSheet = memo(
         });
 
         if (onCommentAdded) {
-          console.log('🔄 Calling onCommentAdded to refresh post:', identity);
+          console.log('🔄 Calling onCommentAdded to refresh post:', postId);
           onCommentAdded();
         }
 
@@ -6611,7 +6707,7 @@ export const CommentsSheet = memo(
 
     useEffect(() => {
       const handleFocus = () => {
-        const cached = commentsCache.get(cacheKey);
+        const cached = commentsCache.get(postId);
         if (cached && Date.now() - cached.timestamp > 30000) {
           fetchCommentsSilently();
         }
@@ -6619,7 +6715,7 @@ export const CommentsSheet = memo(
 
       window.addEventListener('focus', handleFocus);
       return () => window.removeEventListener('focus', handleFocus);
-    }, [identity]);
+    }, [postId]);
 
     const postAuthor = p.author || {
       name: p.name,
@@ -7094,12 +7190,12 @@ export const CommentsSheet = memo(
       </div>
     );
   },
-  (prev, next) => getFeedIdentity(prev.post) === getFeedIdentity(next.post) && prev.currentUser?.id === next.currentUser?.id
+  (prev, next) => prev.post?.id === next.post?.id && prev.currentUser?.id === next.currentUser?.id
 );
 
 /**
  * =========================
- * ✅ SUGGESTED PRODUCTS WIDGET (unchanged)
+ * ✅ SUGGESTED PRODUCTS WIDGET
  * =========================
  */
 export const SuggestedProductsWidget = memo(
@@ -7190,25 +7286,74 @@ export {
   avatarFrom,
   formatReelCount,
   getReelAuthorName,
-  getFeedItemType,
-  getFeedItemId,
-  getFeedIdentity,
-  getReactionEndpointForItem,
 };
 
 /**
  * =========================
- * ✅ MAIN FEED COMPONENT (updated with identity and reaction fixes)
+ * ✅ FEED PROPS INTERFACE
+ * =========================
+ */
+interface FeedProps {
+  feedItems: any[];
+  currentUser: User | null;
+  users: User[];
+  onProfileClick: (id: number) => void;
+  onReact: (post: PostType, type: ReactionType) => void;
+  onShare: (id: number, newShareCount: number) => void;
+  onOpenComments: (post: PostType) => void;
+  onViewImage: (url: string) => void;
+  onVideoClick: (post: PostType) => void;
+  onPlayAudioTrack?: (track: AudioTrack) => void;
+  onHashtagClick?: (tag: string) => void;
+  onFollow?: (id: number) => void;
+  followLoading?: { [key: number]: boolean };
+  checkIsFollowing?: (id: number) => boolean;
+  groups?: Group[];
+  brands?: Brand[];
+  chats?: any[];
+  onViewProductFromPost?: (productId: number) => void;
+  onRSVPEvent?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+  getPostAuthor?: (post: PostType) => User;
+  
+  // Push More button props
+  onPushMore?: (postId: number) => void;
+  pushedPosts?: Record<number, boolean>;
+  
+  // Reel props
+  onOpenReel?: (reelId: number | string) => void;
+  onOpenReelMenu?: (reel: any) => void;
+  
+  // People You May Know props
+  peopleYouMayKnow?: any[];
+  peopleYouMayKnowInsertIndex1?: number;
+  peopleYouMayKnowInsertIndex2?: number;
+  onFollowFromPymk?: (id: number) => void;
+  pymkLoading?: boolean;
+  
+  // Groups You May Join props
+  groupsYouMayJoin?: any[];
+  groupsYouMayJoinInsertIndex?: number;
+  onJoinGroupSuggestion?: (groupId: number) => void;
+  gymjLoading?: boolean;
+  onOpenGroup?: (groupId: number) => void;
+  
+  // Login
+  onLoginClick?: () => void;
+}
+
+/**
+ * =========================
+ * ✅ MAIN FEED COMPONENT
  * =========================
  */
 export const Feed = memo(({
-  feedItems: initialFeedItems = [],
+  feedItems,
   currentUser,
   users,
   onProfileClick,
-  onReact: externalOnReact,
+  onReact,
   onShare,
-  onOpenComments: externalOnOpenComments,
+  onOpenComments,
   onViewImage,
   onVideoClick,
   onPlayAudioTrack,
@@ -7238,140 +7383,39 @@ export const Feed = memo(({
   onOpenGroup,
   onLoginClick,
 }: FeedProps) => {
-  const [feedItems, setFeedItems] = useState(initialFeedItems);
-  const [reactingMap, setReactingMap] = useState<Record<string, boolean>>({});
-
-  // Update feed when initial items change
-  useEffect(() => {
-    setFeedItems(initialFeedItems);
-  }, [initialFeedItems]);
-
-  // Helper to update a feed item by identity
-  const updatePostInFeed = useCallback((identity: string, updater: (item: any) => any) => {
-    setFeedItems(prev =>
-      prev.map(item => (getFeedIdentity(item) === identity ? updater(item) : item))
-    );
-  }, []);
-
-  // Reaction handler with optimistic updates and loading lock
-  const handleReact = useCallback(async (post: any, type: ReactionType) => {
-    if (!currentUser) {
-      alert('Please login to react');
-      return;
-    }
-
-    const identity = getFeedIdentity(post);
-    if (reactingMap[identity]) return; // prevent double tap
-
-    setReactingMap(prev => ({ ...prev, [identity]: true }));
-
-    // Capture previous state for rollback
-    const prevState = {
-      my_reaction: (post as any).my_reaction ?? (post as any).myReaction ?? null,
-      reactions_count: Number((post as any).reactions_count ?? (post as any).likesCount ?? 0),
-    };
-
-    // Optimistic update with correct reaction logic
-    updatePostInFeed(identity, (item) => {
-      const currentReaction = item.my_reaction ?? item.myReaction ?? null;
-      const currentCount = Number(item.reactions_count ?? item.likesCount ?? 0);
-      let nextReaction: ReactionType | null = type;
-      let nextCount = currentCount;
-
-      if (!currentReaction) {
-        // No reaction yet → add
-        nextCount = currentCount + 1;
-      } else if (currentReaction === type) {
-        // Already reacted with same type → remove
-        nextReaction = null;
-        nextCount = Math.max(0, currentCount - 1);
-      } else {
-        // Change reaction type → keep count same
-        nextCount = currentCount;
-      }
-
-      return {
-        ...item,
-        my_reaction: nextReaction,
-        myReaction: nextReaction,
-        reactions_count: nextCount,
-      };
-    });
-
-    // Send actual API request
-    try {
-      const endpoint = getReactionEndpointForItem(post);
-      await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id, type }),
-      });
-      // Optionally refresh post data or rely on eventual consistency
-      externalOnReact(post, type); // notify parent if needed
-    } catch (error) {
-      console.error('Failed to react:', error);
-      // Rollback on error
-      updatePostInFeed(identity, (item) => ({
-        ...item,
-        my_reaction: prevState.my_reaction,
-        myReaction: prevState.my_reaction,
-        reactions_count: prevState.reactions_count,
-      }));
-    } finally {
-      setReactingMap(prev => ({ ...prev, [identity]: false }));
-    }
-  }, [currentUser, reactingMap, updatePostInFeed, externalOnReact]);
-
-  // Comment added handler: increment comment count optimistically
-  const handleCommentAdded = useCallback((post: any) => {
-    const identity = getFeedIdentity(post);
-    updatePostInFeed(identity, (item) => ({
-      ...item,
-      comments_count: (item.comments_count || 0) + 1,
-    }));
-  }, [updatePostInFeed]);
-
-  // Stable item key using identity
-  const getStableItemKey = useCallback((item: any, prefix: string) => {
-    return `${prefix}-${getFeedIdentity(item)}`;
-  }, []);
-
-  // Check if user is following someone
-  const isUserFollowing = useCallback((userId: number) => {
-    return checkIsFollowing ? checkIsFollowing(userId) : false;
-  }, [checkIsFollowing]);
-
-  const isAdmin = useMemo(() => currentUser?.role === 'admin', [currentUser]);
-
-  const canPushPost = useCallback((postAuthorId: number) => {
-    return (currentUser && Number(currentUser.id) === postAuthorId) || isAdmin;
-  }, [currentUser, isAdmin]);
+  
+  const getStableItemKey = (item: any, prefix: string) => {
+    return `${prefix}-${item.id}-${item.feed_key || ''}`;
+  };
 
   return (
     <div className="space-y-2">
       {feedItems.map((item, idx) => {
-        // Sponsored post
+        // Check if it's a sponsored post
         if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
-          const isActive = item.campaign_status === 'active' ||
+          // Determine if campaign is still active
+          const isActive = item.campaign_status === 'active' || 
                          (item.end_date && new Date(item.end_date) > new Date());
+          
           return (
             <SponsoredPostCard
-              key={`sponsored-${getFeedIdentity(item)}`}
+              key={`sponsored-${item.id}`}
               ad={item}
               currentUser={currentUser}
               onProfileClick={onProfileClick}
-              onReact={(id, type) => handleReact(item, type)}
+              onReact={(id, type) => onReact(item, type)}
               onShare={onShare}
-              onOpenComments={(id) => externalOnOpenComments(item)}
+              onOpenComments={(post) => onOpenComments(post)}
               isActive={isActive}
             />
           );
         }
 
-        // Reel
+        // Handle reel cards
         if (item.type === 'reel') {
           return (
             <ReelFeedCard
-              key={`reel-${getFeedIdentity(item)}`}
+              key={`reel-${item.id}`}
               reel={item.reel || item}
               onOpen={(reelId) => onOpenReel?.(reelId)}
               onOpenMenu={(reel) => onOpenReelMenu?.(reel)}
@@ -7380,28 +7424,43 @@ export const Feed = memo(({
           );
         }
 
-        // Regular post (including marketplace, event, group, music, etc.)
+        // Handle regular posts
         const postAuthorId = Number((item as any).user_id);
-        const isFollowing = isUserFollowing(postAuthorId);
-        const showPushButton = canPushPost(postAuthorId) && onPushMore;
+        const isFollowing = checkIsFollowing?.(postAuthorId) || false;
+        
+        // Check if current user is the post owner OR admin
+        const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
+        const isAdminUser = currentUser && currentUser.role === 'admin';
+        const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
 
-        // Insert People You May Know at specified positions
-        const showFirstPymk = peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex1 >= 0 && idx === peopleYouMayKnowInsertIndex1;
-        const showSecondPymk = peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex2 >= 0 && idx === peopleYouMayKnowInsertIndex2;
-        const showGroupsYouMayJoin = groupsYouMayJoin.length > 0 && groupsYouMayJoinInsertIndex >= 0 && idx === groupsYouMayJoinInsertIndex;
+        // Track PYMK and Groups inserts
+        const showFirstPymk = peopleYouMayKnow && 
+          peopleYouMayKnow.length > 0 &&
+          peopleYouMayKnowInsertIndex1 >= 0 &&
+          idx === peopleYouMayKnowInsertIndex1;
+
+        const showSecondPymk = peopleYouMayKnow && 
+          peopleYouMayKnow.length > 0 &&
+          peopleYouMayKnowInsertIndex2 >= 0 &&
+          idx === peopleYouMayKnowInsertIndex2;
+
+        const showGroupsYouMayJoin = groupsYouMayJoin && 
+          groupsYouMayJoin.length > 0 &&
+          groupsYouMayJoinInsertIndex >= 0 &&
+          idx === groupsYouMayJoinInsertIndex;
 
         return (
-          <Fragment key={getStableItemKey(item, 'post')}>
+          <React.Fragment key={getStableItemKey(item, 'post')}>
             <Post
               post={item as PostType}
               author={getPostAuthor?.(item as PostType) || item.author || item}
               currentUser={currentUser}
               users={users}
               onProfileClick={onProfileClick}
-              onReact={handleReact}
+              onReact={onReact}
               onShare={onShare}
               onViewImage={onViewImage}
-              onOpenComments={externalOnOpenComments}
+              onOpenComments={onOpenComments}
               onVideoClick={onVideoClick}
               onPlayAudioTrack={onPlayAudioTrack}
               groups={groups}
@@ -7470,27 +7529,13 @@ export const Feed = memo(({
                 maxDisplay={8}
               />
             )}
-          </Fragment>
+          </React.Fragment>
         );
       })}
     </div>
   );
 }, (prev, next) => {
-  // Custom comparison: only re-render if feedItems reference changes, currentUser id changes, or arrays of suggestions change
-  return prev.feedItems === next.feedItems &&
-         prev.currentUser?.id === next.currentUser?.id &&
-         prev.users === next.users &&
-         prev.peopleYouMayKnow === next.peopleYouMayKnow &&
-         prev.groupsYouMayJoin === next.groupsYouMayJoin;
+  // Custom comparison for memo
+  return prev.feedItems === next.feedItems && 
+         prev.currentUser?.id === next.currentUser?.id;
 });
-
-// Ensure all styles are applied (unchanged)
-if (typeof document !== 'undefined') {
-  const styleId = 'people-you-may-know-styles';
-  if (!document.getElementById(styleId)) {
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = scrollbarHideStyles;
-    document.head.appendChild(style);
-  }
-}
