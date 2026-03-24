@@ -5989,7 +5989,360 @@ export default function App() {
 
   // Keep your existing createPost, updateUserDetails, etc. functions here...
   // (All the existing functions from your original App.tsx that I haven't explicitly rewritten)
+    
+   // ============================================================================
+// ✅ ORIGINAL FUNCTIONS (KEEP THESE)
+// ============================================================================
 
+const createPost = useCallback(
+  async (
+    text: string,
+    files: File[] | File | null,
+    meta?: {
+      type?: 'text' | 'image' | 'video';
+      visibility?: string;
+      location?: string;
+      feeling?: string;
+      taggedUsers?: number[];
+      background?: string;
+      linkPreview?: any;
+    }
+  ) => {
+    if (!requireAuth('Creating posts')) return;
+
+    const trimmed = (text || '').trim();
+    if (!trimmed && !files && !meta?.background) return;
+
+    const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
+
+    let media_urls: string[] = [];
+    let media_types: string[] = [];
+
+    if (list.length) {
+      try {
+        const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
+        media_urls = ups.map((u) => u.url).filter(Boolean);
+        media_types = ups.map((u) => u.type).filter(Boolean);
+      } catch (error: any) {
+        setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
+        return;
+      }
+    }
+
+    const media_url = media_urls[0] ?? null;
+    const media_type = media_types[0] ?? null;
+
+    const payload: any = {
+      user_id: currentUser!.id,
+      content: trimmed,
+
+      media_url,
+      media_type,
+
+      media_urls: media_urls.length ? media_urls : undefined,
+      media_types: media_types.length ? media_types : undefined,
+
+      visibility: meta?.visibility ?? 'public',
+      location: meta?.location,
+      feeling: meta?.feeling,
+      tagged_users: meta?.taggedUsers,
+      background: meta?.background,
+      link_preview: meta?.linkPreview,
+      type: (() => {
+        const t = media_type || media_types[0] || null;
+        if (!t) return meta?.type || 'text';
+        if (t.startsWith('image/')) return 'image';
+        if (t.startsWith('video/')) return 'video';
+        if (t.startsWith('audio/')) return 'audio';
+        return meta?.type || 'text';
+      })(),
+    };
+
+    const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
+
+    const newPostRaw =
+      data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
+
+    (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
+    (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
+
+    const normalized = normalizePost(newPostRaw);
+
+    setPosts((prev) => {
+      const next = [normalized, ...safeArray(prev)];
+      lastGoodPostsRef.current = next;
+      stableFeedRef.current = next;
+      return next;
+    });
+
+    setProfilePosts((prev) => {
+      if (!currentUser) return prev;
+      const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
+      if (!isMyProfile) return prev;
+
+      const next = [normalized, ...safeArray(prev)];
+      return next;
+    });
+
+    pushSeenIds([Number((normalized as any).id)]);
+
+    setShowCreatePostModal(false);
+    scheduleSilentRefresh();
+  },
+  [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
+);
+
+const updateUserDetails = useCallback(
+  async (data: Partial<User>) => {
+    if (!requireAuth('Updating profile')) return;
+    if (!currentUser) return;
+
+    await apiFetch(`/api/users`, {
+      method: 'PUT',
+      body: JSON.stringify({ id: currentUser.id, ...data }),
+    });
+
+    const merged = normalizeUser({ ...currentUser, ...data });
+    setCurrentUser(merged);
+    localStorage.setItem(LS_USER_KEY, JSON.stringify(merged));
+
+    setUsers((prev) => safeArray(prev).map((u) => (Number(u.id) === Number(merged.id) ? merged : u)));
+  },
+  [requireAuth, currentUser]
+);
+
+const updateProfileImage = useCallback(
+  async (file: File) => {
+    if (!requireAuth('Updating profile')) return;
+    if (!currentUser) return;
+
+    if (!file.type || !file.type.startsWith('image/')) {
+      setLoginError('Only image files are allowed.');
+      return;
+    }
+
+    try {
+      const uploadResult = await uploadToCloudflareR2(file, 'profiles');
+      await updateUserDetails({ profile_image_url: uploadResult.url } as any);
+    } catch (error: any) {
+      setLoginError(`Failed to upload profile image: ${error.message}`);
+    }
+  },
+  [requireAuth, currentUser, updateUserDetails]
+);
+
+const updateCoverImage = useCallback(
+  async (file: File) => {
+    if (!requireAuth('Updating profile')) return;
+    if (!currentUser) return;
+
+    if (!file.type || !file.type.startsWith('image/')) {
+      setLoginError('Only image files are allowed.');
+      return;
+    }
+
+    try {
+      const uploadResult = await uploadToCloudflareR2(file, 'covers');
+      await updateUserDetails({ cover_image_url: uploadResult.url } as any);
+    } catch (error: any) {
+      setLoginError(`Failed to upload cover image: ${error.message}`);
+    }
+  },
+  [requireAuth, currentUser, updateUserDetails]
+);
+
+const getPostAuthor = useCallback(
+  (post: PostType) => {
+    const author = users.find((u) => Number(u.id) === Number((post as any).user_id));
+    if (author) return author;
+    return createFallbackUser();
+  },
+  [users]
+);
+
+const handleCreateStoryFromProfile = useCallback(() => {
+  if (!requireAuth('Creating stories')) return;
+  setShowCreateStoryModal(true);
+}, [requireAuth]);
+
+const allKnownPosts = useMemo(() => {
+  const map = new Map<number, PostType>();
+  [...safeArray(posts), ...safeArray(profilePosts)].forEach(p => {
+    if (p?.id) {
+      map.set(Number(p.id), p);
+    }
+  });
+  return Array.from(map.values());
+}, [posts, profilePosts]);
+
+const openProductFromPost = useCallback(
+  (productId: number) => {
+    const p = (products || []).find((x: any) => Number(x.id) === Number(productId));
+    if (!p) {
+      navigateTo('marketplace');
+      return;
+    }
+    navigateTo('marketplace');
+    setActiveProduct(p);
+  },
+  [products, navigateTo]
+);
+
+const handleVideoClick = useCallback((item: any) => {
+  const videoId = resolveVideoId(item);
+  if (!videoId) {
+    console.warn('Could not resolve video ID for item:', item);
+    return;
+  }
+  setSelectedReelId(videoId);
+  navigateTo('reels');
+}, [navigateTo]);
+
+const handlePhotoClick = useCallback(() => {
+  if (!requireAuth('Creating posts')) return;
+  setShowCreatePostModal(true);
+}, [requireAuth]);
+
+const handleVideoClickFromCreate = useCallback(() => {
+  if (!requireAuth('Creating videos')) return;
+  setShowRecorder(true);
+}, [requireAuth]);
+
+const onReactPost = useCallback((postId: number, type: ReactionType) => {
+  const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
+  if (post) {
+    reactToFeedItem(post, type);
+  }
+}, [posts, profilePosts, reactToFeedItem]);
+
+const handleOpenShareSheet = useCallback(
+  (post: any) => {
+    if (!currentUser) {
+      setLoginError('Please login to share posts.');
+      setView('login');
+      return;
+    }
+    setActiveSharePost(post);
+    setShowShareSheet(true);
+  },
+  [currentUser]
+);
+
+const handleShareComplete = useCallback(
+  async (destination: string, data?: any) => {
+    if (data?.success && activeSharePost) {
+      setPosts((prev) => {
+        const next = safeArray(prev).map((p: any) =>
+          Number(p.id) === Number(activeSharePost.id)
+            ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+            : p
+        );
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      setProfilePosts((prev) => {
+        return safeArray(prev).map((p: any) =>
+          Number(p.id) === Number(activeSharePost.id)
+            ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+            : p
+        );
+      });
+
+      try {
+        await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
+          method: 'POST',
+          body: JSON.stringify({ destination }),
+        });
+      } catch (error) {
+        console.error('Failed to record share:', error);
+      }
+    }
+
+    setShareInProgress(false);
+    setActiveSharePost(null);
+    setShowShareSheet(false);
+    scheduleSilentRefresh();
+  },
+  [activeSharePost, scheduleSilentRefresh]
+);
+
+const deletePost = useCallback(
+  async (postId: number) => {
+    if (!requireAuth('Deleting posts')) return;
+
+    const prev = posts;
+    const prevProfilePosts = profilePosts;
+    
+    setPosts((p) => {
+      const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
+      lastGoodPostsRef.current = next;
+      stableFeedRef.current = next;
+      return next;
+    });
+
+    setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
+
+    try {
+      await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+    } catch {
+      setPosts(prev);
+      lastGoodPostsRef.current = prev;
+      stableFeedRef.current = prev;
+      
+      setProfilePosts(prevProfilePosts);
+      if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+    }
+  },
+  [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+);
+
+const editPost = useCallback(
+  async (postId: number, content: string) => {
+    if (!requireAuth('Editing posts')) return;
+    const trimmed = (content || '').trim();
+    if (!trimmed) return;
+
+    const prev = posts;
+    const prevProfilePosts = profilePosts;
+    
+    setPosts((p) => {
+      const next = safeArray(p).map((x: any) =>
+        Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+      );
+      lastGoodPostsRef.current = next;
+      stableFeedRef.current = next;
+      return next;
+    });
+
+    setProfilePosts((prev) =>
+      safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
+    );
+
+    try {
+      await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
+    } catch {
+      setPosts(prev);
+      lastGoodPostsRef.current = prev;
+      stableFeedRef.current = prev;
+      
+      setProfilePosts(prevProfilePosts);
+      if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+    }
+  },
+  [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+);
+
+const getProductData = useCallback((productId: number) => {
+  const product = products.find(p => Number(p.id) === Number(productId));
+  if (!product) return null;
+  return {
+    price: product.discount_price ?? product.main_price,
+    location: product.address || 'Marketplace',
+    currency: product.currency_symbol || 'TZS'
+  };
+}, [products]);
   // ============================================================================
   // ✅ UPDATED createPost function (keep your existing one, but ensure it uses identity)
   // ============================================================================
