@@ -6813,9 +6813,267 @@ export default function App() {
         )}
       </div>
 
-      {/* Keep all your modals and other UI elements from original App.tsx */}
-      {/* (CreatePostModal, Recorder, ShareBottomSheet, StoryViewerModal, etc.) */}
-      {/* They should remain unchanged from your original App.tsx */}
+   {/* ========== MODALS & OVERLAYS ========== */}
+
+{activeProduct && (
+  <ProductDetailModal
+    product={activeProduct}
+    currentUser={currentUser}
+    onClose={() => setActiveProduct(null)}
+    onMessage={(id) => {
+      if (!requireAuth('Messaging')) return;
+      const recipient = users.find((u) => u.id === id);
+      if (recipient) {
+        handleOpenChat(recipient);
+      }
+    }}
+  />
+)}
+
+{activeEventId && (
+  <EventDetailModal
+    eventId={activeEventId}
+    onClose={() => setActiveEventId(null)}
+  />
+)}
+
+{showCreateEventModal && currentUser && (
+  <CreateEventModal
+    currentUser={currentUser}
+    onClose={() => setShowCreateEventModal(false)}
+    onCreate={async (eventData) => {
+      try {
+        const newEvent = await createEvent(eventData);
+        setShowCreateEventModal(false);
+      } catch (error) {
+        console.error('Failed to create event:', error);
+      }
+    }}
+  />
+)}
+
+{showCreatePostModal && currentUser && (
+  <CreatePostModal
+    currentUser={currentUser}
+    users={users}
+    onClose={() => setShowCreatePostModal(false)}
+    onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
+    onCreateEventClick={() => {
+      setShowCreatePostModal(false);
+      setShowCreateEventModal(true);
+    }}
+    onOpenRecorder={() => {
+      setShowCreatePostModal(false);
+      setShowRecorder(true);
+    }}
+  />
+)}
+
+{showRecorder && currentUser && (
+  <Recorder
+    currentUser={currentUser}
+    selectedSound={selectedReelSound}
+    sounds={songs.map((song: any) => ({
+      id: song.id,
+      name: song.title || song.name || 'Song',
+      url: song.audio_fetch_url || song.audio_url || song.url || '',
+      originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+      duration: song.duration || 30,
+      start: 0,
+      end: song.duration || 30,
+      coverImage: song.cover_url || song.cover || '',
+      creatorName: song.artist || '',
+      creatorImage: song.artist_image || song.cover_url || '',
+      playCount: song.playCount || song.plays || 0,
+      creationCount: song.creationCount || song.uses || 0,
+      soundKey: `song:${song.id}`,
+    }))}
+    onSelectSound={setSelectedReelSound}
+    onBack={() => setShowRecorder(false)}
+    onSubmit={async (reelData) => {
+      await createReel({
+        ...reelData,
+        audioUrl:
+          reelData.audioUrl ||
+          (selectedReelSound?.songId &&
+            songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+          selectedReelSound?.audioUrl ||
+          '',
+        originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+        songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+        audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+        audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+      });
+
+      setShowRecorder(false);
+    }}
+  />
+)}
+
+{activeSharePost && (
+  <ShareBottomSheet
+    isOpen={showShareSheet}
+    onClose={() => {
+      setShowShareSheet(false);
+      setActiveSharePost(null);
+    }}
+    post={activeSharePost}
+    currentUser={currentUser}
+    users={users}
+    groups={groups}
+    brands={brands}
+    chats={chats}
+    onShareComplete={handleShareComplete}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+  />
+)}
+
+{activeStoryId && activeStory && (
+  <StoryViewerModal
+    story={activeStory}
+    onClose={closeStoryViewer}
+    onProfileClick={(id) => {
+      closeStoryViewer();
+      openProfile(id);
+    }}
+    currentUser={currentUser}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    followLoading={followLoading}
+    allStories={orderedStories}
+    onFetchViewers={fetchStoryViewers}
+    onFetchAnalytics={fetchStoryAnalytics}
+    onReply={replyToStory}
+    onLike={likeStory}
+    onReaction={reactToStory}
+    onNext={handleStoryNext}
+    onPrev={handleStoryPrev}
+    muted={storyMuted}
+    onToggleMute={() => setStoryMuted(!storyMuted)}
+  />
+)}
+
+{showCreateStoryModal && currentUser && (
+  <CreateStoryModal
+    currentUser={currentUser}
+    songs={songs}
+    onClose={() => setShowCreateStoryModal(false)}
+    onCreate={createStory}
+  />
+)}
+
+{currentAudioTrack && (
+  <GlobalAudioPlayer
+    currentTrack={currentAudioTrack}
+    isPlaying={isAudioPlaying}
+    onTogglePlay={onTogglePlay}
+    onNext={onNext}
+    onPrevious={onPrevious}
+    onClose={onClosePlayer}
+    onDownload={(id) => {
+      console.log('Download track:', id);
+    }}
+    onLike={(id, type) => {
+      const k = `${type}:${String(id)}`;
+      const nextLiked = !likedTracks.includes(k);
+      handleMusicSystemLikeSync(k, nextLiked);
+    }}
+    onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
+    isLiked={isPlayerLiked}
+    ownerUser={resolveTrackOwner(currentAudioTrack)}
+    totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
+    totalPlaysLoading={playsLoading}
+    onStarted={onStarted}
+  />
+)}
+
+{fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+
+{incomingCall && currentUser && (
+  <CallScreen
+    open={true}
+    mode={incomingCall.call_type === "video" ? "video" : "voice"}
+    phase="incoming"
+    peerName={incomingCall.caller_name || "User"}
+    peerAvatar={incomingCall.caller_avatar || null}
+    micOn={true}
+    camOn={true}
+    speakerOn={true}
+    onAccept={() => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      openChatWith(incomingCall.caller_id);
+      setIncomingCall(null);
+    }}
+    onDecline={() => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      apiFetch(
+        "/api/calls/signal",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            call_id: incomingCall.id,
+            to_user_id: incomingCall.caller_id,
+            type: "decline",
+          }),
+        },
+      ).catch(err => console.error('Failed to decline call:', err));
+      setIncomingCall(null);
+    }}
+    onHangup={() => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      setIncomingCall(null);
+    }}
+    onToggleMic={() => {}}
+    onToggleCam={() => {}}
+    onToggleSpeaker={() => {}}
+  />
+)}
+
+{isChatOpen && activeChatUser && currentUser && (
+  <ChatWindow
+    currentUser={currentUser}
+    recipient={activeChatUser}
+    onClose={handleCloseChat}
+    onSendMessage={handleSendMessage}
+  />
+)}
+
+{isChatsListOpen && currentUser && (
+  <ChatsList
+    currentUser={currentUser}
+    onOpenChat={handleOpenChat}
+    onOpenRequests={() => {
+      console.log('Open message requests');
+    }}
+    onNewChat={() => {
+      console.log('Create new chat');
+    }}
+  />
+)}
+
+{showAdAnalytics && adAnalyticsId && (
+  <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
+    <div className="bg-[#242526] rounded-xl max-w-2xl w-full p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-white">Ad Analytics</h2>
+        <button
+          onClick={() => setShowAdAnalytics(false)}
+          className="text-[#B0B3B8] hover:text-white"
+        >
+          <i className="fas fa-times" />
+        </button>
+      </div>
+      <p className="text-[#B0B3B8]">Analytics for ad #{adAnalyticsId}</p>
     </div>
-  );
-}
+  </div>
+)}   
