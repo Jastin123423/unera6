@@ -6421,7 +6421,7 @@ export default function App() {
   }, [events, onRSVPEvent]);
 
   // ============================================================================
-  // ✅ RENDER
+  // ✅ RENDER (Keep your existing render structure, but update CommentsSheet and Reaction calls)
   // ============================================================================
   const isLoading = false;
   if (isLoading) return <ProfessionalLoader />;
