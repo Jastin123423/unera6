@@ -7548,7 +7548,6 @@ export type { FeedProps, PeopleSuggestion, GroupSuggestion, ReelFeedData, FeedEv
 
 // Export helper functions that might be useful
 export {
-  formatRelativeTime,
   reactionEmoji,
   fmtCount,
   formatReactionText,
