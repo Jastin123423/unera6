@@ -1,4 +1,1971 @@
+/**
+ * =========================
+ * ✅ PEOPLE YOU MAY KNOW
+ * =========================
+ */
+interface PeopleSuggestion {
+  id: number;
+  username: string;
+  name: string;
+  profile_image_url: string | null;
+  is_verified: boolean;
+  role: string;
+  mutual_count: number;
+  is_following: boolean;
+  score: number;
+}
 
+export const PeopleYouMayKnowGrid = memo(
+  ({
+    users = [],
+    onFollow,
+    currentUser,
+    isLoading = false,
+    onLoginClick,
+    onProfileClick,
+    title = 'People You May Know',
+    maxDisplay = 8,
+  }: {
+    users: PeopleSuggestion[];
+    onFollow: (userId: number) => void;
+    currentUser: User | null;
+    isLoading?: boolean;
+    onLoginClick?: () => void;
+    onProfileClick?: (userId: number) => void;
+    title?: string;
+    maxDisplay?: number;
+  }) => {
+    const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [canScrollLeft, setCanScrollLeft] = useState(false);
+    const [canScrollRight, setCanScrollRight] = useState(false);
+
+    const displayUsers = users.slice(0, maxDisplay);
+
+    const checkScroll = useCallback(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      setCanScrollLeft(el.scrollLeft > 0);
+      setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 5);
+    }, []);
+
+    useEffect(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      checkScroll();
+      el.addEventListener('scroll', checkScroll);
+      window.addEventListener('resize', checkScroll);
+      return () => {
+        el.removeEventListener('scroll', checkScroll);
+        window.removeEventListener('resize', checkScroll);
+      };
+    }, [checkScroll, displayUsers.length]);
+
+    const scroll = (direction: 'left' | 'right') => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const scrollAmount = 350;
+      el.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth',
+      });
+    };
+
+    const handleFollow = async (userId: number) => {
+      setFollowLoading((prev) => ({ ...prev, [userId]: true }));
+      try {
+        await onFollow(userId);
+      } finally {
+        setFollowLoading((prev) => ({ ...prev, [userId]: false }));
+      }
+    };
+
+    const handleProfileClick = (userId: number) => {
+      if (onProfileClick) onProfileClick(userId);
+    };
+
+    if (isLoading) {
+      return (
+        <div className="w-full">
+          <div className="bg-[#242526] w-full p-4">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
+            </div>
+            <div className="flex gap-4 overflow-x-hidden py-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex-shrink-0 w-[180px] animate-pulse">
+                  <div className="w-24 h-24 mx-auto mb-3 bg-[#3A3B3C] rounded-full"></div>
+                  <div className="h-5 bg-[#3A3B3C] rounded w-32 mx-auto mb-2"></div>
+                  <div className="h-4 bg-[#3A3B3C] rounded w-20 mx-auto mb-4"></div>
+                  <div className="h-10 bg-[#3A3B3C] rounded-lg w-full"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+        </div>
+      );
+    }
+
+    if (displayUsers.length === 0) return null;
+
+    return (
+      <div className="w-full">
+        <div className="bg-[#242526] w-full p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
+            <div className="flex items-center gap-2">
+              {canScrollLeft && (
+                <button
+                  onClick={() => scroll('left')}
+                  className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-chevron-left text-[#E4E6EB] text-base"></i>
+                </button>
+              )}
+              {canScrollRight && (
+                <button
+                  onClick={() => scroll('right')}
+                  className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-chevron-right text-[#E4E6EB] text-base"></i>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div
+            ref={scrollRef}
+            className="flex gap-4 overflow-x-auto scrollbar-hide pb-1"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {displayUsers.map((user) => (
+              <div
+                key={user.id}
+                className="flex-shrink-0 w-[180px] bg-[#3A3B3C] rounded-xl p-4 hover:bg-[#4E4F50] transition-colors group"
+              >
+                <div
+                  className="relative w-24 h-24 mx-auto mb-3 cursor-pointer"
+                  onClick={() => handleProfileClick(user.id)}
+                >
+                  <div className="w-full h-full rounded-full overflow-hidden border-3 border-[#1877F2] group-hover:border-[#166FE5] transition-colors">
+                    <img
+                      src={
+                        user.profile_image_url ||
+                        `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          user.name
+                        )}&background=1877F2&color=fff&bold=true&size=128`
+                      }
+                      alt={user.name}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          user.name
+                        )}&background=1877F2&color=fff&bold=true&size=128`;
+                      }}
+                    />
+                  </div>
+                  {user.is_verified && (
+                    <i className="fas fa-check-circle absolute bottom-1 right-1 text-[#1877F2] text-base bg-[#242526] rounded-full p-0.5 border border-[#3A3B3C]"></i>
+                  )}
+                </div>
+
+                <div className="text-center mb-2">
+                  <button
+                    type="button"
+                    onClick={() => handleProfileClick(user.id)}
+                    className="text-[#E4E6EB] font-bold text-[17px] truncate block w-full hover:underline"
+                  >
+                    {user.name}
+                  </button>
+                  {user.role && (
+                    <div className="text-[#B0B3B8] text-[13px] mt-1">{user.role}</div>
+                  )}
+                </div>
+
+                {user.mutual_count > 0 && (
+                  <div className="text-center mb-3">
+                    <span className="text-[#B0B3B8] text-[13px]">
+                      {user.mutual_count} mutual friend
+                      {user.mutual_count !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                )}
+
+                {!currentUser ? (
+                  <button
+                    onClick={onLoginClick}
+                    className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[15px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+                  >
+                    <i className="fas fa-sign-in-alt text-[13px]"></i>
+                    <span>Sign in</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleFollow(user.id)}
+                    disabled={followLoading[user.id]}
+                    className={`w-full py-2.5 text-[15px] font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                      user.is_following
+                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                    } disabled:opacity-70 disabled:cursor-not-allowed`}
+                  >
+                    {followLoading[user.id] ? (
+                      <i className="fas fa-spinner fa-spin text-[13px]"></i>
+                    ) : (
+                      <>
+                        <i
+                          className={`fas ${
+                            user.is_following ? 'fa-check' : 'fa-user-plus'
+                          } text-[13px]`}
+                        ></i>
+                        <span>{user.is_following ? 'Following' : 'Follow'}</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.users === next.users &&
+      prev.currentUser?.id === next.currentUser?.id &&
+      prev.isLoading === next.isLoading
+    );
+  }
+);
+
+/**
+ * =========================
+ * ✅ REEL PREVIEW CARD
+ * =========================
+ */
+export type ReelFeedData = {
+  id: number | string;
+  user_id: number | string;
+  author: string;
+  avatar?: string;
+  verified?: boolean;
+  video: string;
+  thumbnail?: string;
+  caption?: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  created_at?: string;
+  audioUrl?: string;
+  audioStart?: number;
+  audioEnd?: number;
+  songName?: string;
+  songId?: string | number;
+  soundKey?: string;
+};
+
+const formatReelCount = (n?: number): string => {
+  const v = Number(n || 0);
+  if (v >= 1_000_000_000)
+    return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (v >= 1_000_000)
+    return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(v);
+};
+
+const getReelAuthorName = (reel: any): string => {
+  return (
+    reel?.author_name ||
+    reel?.full_name ||
+    reel?.username ||
+    reel?.user_name ||
+    reel?.name ||
+    (reel?.user &&
+      (reel.user.full_name || reel.user.username || reel.user.name)) ||
+    (reel?.author &&
+      (typeof reel.author === 'string'
+        ? reel.author
+        : reel.author.full_name || reel.author.username || reel.author.name)) ||
+    'User'
+  );
+};
+
+export const normalizeReelFromFeed = (item: any): ReelFeedData => {
+  const reelData = item?.reel || item;
+  return {
+    id: reelData?.id || item?.id || 0,
+    user_id: reelData?.user_id ?? reelData?.userId ?? item?.user_id ?? 0,
+    author: getReelAuthorName(reelData) || getReelAuthorName(item),
+    avatar:
+      reelData?.avatar ||
+      reelData?.profile_image_url ||
+      reelData?.user?.profile_image_url ||
+      item?.avatar ||
+      '',
+    verified: Boolean(reelData?.verified || reelData?.is_verified || false),
+    views: Number(
+      reelData?.views_count ??
+        reelData?.view_count ??
+        reelData?.views ??
+        reelData?.total_views ??
+        item?.views_count ??
+        item?.views ??
+        0
+    ),
+    likes: Number(
+      reelData?.likes_count ?? reelData?.likes ?? reelData?.reactions_count ?? 0
+    ),
+    comments: Number(reelData?.comments_count ?? reelData?.comments ?? 0),
+    shares: Number(reelData?.shares_count ?? reelData?.shares ?? 0),
+    video:
+      reelData?.video_url || reelData?.video || reelData?.media_url || item?.video_url || '',
+    thumbnail: reelData?.thumbnail_url || reelData?.thumbnail || reelData?.cover_url || '',
+    caption: reelData?.caption || reelData?.description || '',
+    created_at: reelData?.created_at || reelData?.createdAt || item?.created_at || '',
+    audioUrl: reelData?.audio_url || reelData?.audioUrl || reelData?.song?.audio_url,
+    audioStart: Number(reelData?.audio_start || reelData?.audioStart || 0),
+    audioEnd: Number(reelData?.audio_end || reelData?.audioEnd || 0),
+    songName: reelData?.song_name || reelData?.songName || reelData?.song?.title,
+    songId: reelData?.song_id || reelData?.songId || reelData?.song?.id,
+    soundKey: reelData?.sound_key || reelData?.soundKey || `reel:${reelData?.id || 0}`,
+  };
+};
+
+export const isReelPost = (item: any): boolean => {
+  return (
+    item?.type === 'reel' ||
+    item?.post_type === 'reel' ||
+    item?.kind === 'reel' ||
+    item?.feed_type === 'reel' ||
+    item?.item_type === 'reel' ||
+    item?.is_reel === true ||
+    item?.format === 'reel' ||
+    (item?.video && (item?.audio_url || item?.song_name))
+  );
+};
+
+export const ReelFeedCard = memo(
+  ({
+    reel,
+    onOpen,
+    onOpenMenu,
+    onProfileClick,
+  }: {
+    reel: ReelFeedData;
+    onOpen?: (reelId: number | string) => void;
+    onOpenMenu?: (reel: ReelFeedData) => void;
+    onProfileClick?: (userId: number | string) => void;
+  }) => {
+    const openReel = () => {
+      onOpen?.(reel.id);
+    };
+    const handleProfileClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onProfileClick?.(reel.user_id);
+    };
+
+    return (
+      <div
+        className="w-full"
+        style={{
+          background: '#1c1e21',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          marginBottom: 10,
+          padding: '12px 0 14px',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 14px 12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Film size={22} color="#1877f2" />
+            <span style={{ fontSize: 24, fontWeight: 700, color: '#e4e6eb' }}>
+              Reels
+            </span>
+          </div>
+          <PostMenu
+            item={{
+              id: reel.id,
+              user_id: reel.user_id,
+              type: 'reel',
+              content: reel.caption,
+              caption: reel.caption,
+              author: reel.author,
+            }}
+            currentUser={{ id: Number(localStorage.getItem('user_id')) }}
+            onShare={(item) => {
+              console.log('Share reel:', item);
+            }}
+          />
+        </div>
+        <div
+          onClick={openReel}
+          style={{
+            position: 'relative',
+            width: 'calc(100% - 28px)',
+            margin: '0 14px',
+            aspectRatio: '9 / 16',
+            maxHeight: '75vh',
+            borderRadius: 24,
+            overflow: 'hidden',
+            background: '#111',
+            cursor: 'pointer',
+          }}
+        >
+          {reel.thumbnail ? (
+            <img
+              src={reel.thumbnail}
+              alt={reel.caption || 'Reel preview'}
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+                objectFit: 'cover',
+              }}
+            />
+          ) : (
+            <video
+              src={reel.video}
+              muted
+              playsInline
+              preload="metadata"
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+                objectFit: 'cover',
+              }}
+            />
+          )}
+
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background:
+                'linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0.10), rgba(0,0,0,0.25))',
+            }}
+          />
+
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+            }}
+          >
+            <div
+              style={{
+                width: 74,
+                height: 74,
+                borderRadius: '50%',
+                border: '3px solid rgba(255,255,255,0.95)',
+                background: 'rgba(255,255,255,0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Play size={36} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
+            </div>
+          </div>
+
+          <div
+            style={{
+              position: 'absolute',
+              left: 14,
+              right: 14,
+              bottom: 12,
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  color: '#fff',
+                  fontSize: 17,
+                  fontWeight: 700,
+                  marginBottom: 6,
+                  textShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                }}
+              >
+                {reel.author}
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  color: '#fff',
+                  fontSize: 16,
+                  fontWeight: 700,
+                  textShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                }}
+              >
+                <Eye size={20} />
+                <span>{formatReelCount(reel.views)}</span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: '50%',
+                overflow: 'hidden',
+                border: '2px solid #fff',
+                background: '#1877f2',
+                flexShrink: 0,
+              }}
+            >
+              {reel.avatar ? (
+                <img
+                  src={reel.avatar}
+                  alt={reel.author}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    display: 'block',
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 18,
+                  }}
+                >
+                  {(reel.author || 'U').charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {reel.songName && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 12,
+                right: 12,
+                background: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(4px)',
+                padding: '4px 8px',
+                borderRadius: 20,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                border: '1px solid rgba(255,255,255,0.2)',
+              }}
+            >
+              <i
+                className="fas fa-music"
+                style={{ color: '#1877F2', fontSize: 12 }}
+              ></i>
+              <span
+                style={{
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 'bold',
+                  maxWidth: 80,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {reel.songName}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  },
+  reelCardPropsEqual
+);
+
+/**
+ * =========================
+ * ✅ GROUPS YOU MAY JOIN
+ * =========================
+ */
+interface GroupSuggestion {
+  id: number;
+  admin_id: number;
+  name: string;
+  description: string;
+  type: 'public' | 'private';
+  cover_image?: string;
+  profile_image?: string;
+  created_at?: string;
+  category: string;
+  members_count: number;
+  mutual_count: number;
+  is_member: boolean;
+  score: number;
+}
+
+export const GroupsYouMayJoinCard = memo(
+  ({
+    groups = [],
+    onJoin,
+    currentUser,
+    isLoading = false,
+    onLoginClick,
+    onOpenGroup,
+    onProfileClick,
+    title = 'Groups You May Join',
+    maxDisplay = 8,
+  }: {
+    groups: GroupSuggestion[];
+    onJoin: (groupId: number) => void;
+    currentUser: User | null;
+    isLoading?: boolean;
+    onLoginClick?: () => void;
+    onOpenGroup?: (groupId: number) => void;
+    onProfileClick?: (userId: number) => void;
+    title?: string;
+    maxDisplay?: number;
+  }) => {
+    const [joinLoading, setJoinLoading] = useState<{ [key: number]: boolean }>({});
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [canScrollLeft, setCanScrollLeft] = useState(false);
+    const [canScrollRight, setCanScrollRight] = useState(false);
+
+    const displayGroups = groups.slice(0, maxDisplay);
+
+    const checkScroll = useCallback(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      setCanScrollLeft(el.scrollLeft > 0);
+      setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 5);
+    }, []);
+
+    useEffect(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      checkScroll();
+      el.addEventListener('scroll', checkScroll);
+      window.addEventListener('resize', checkScroll);
+      return () => {
+        el.removeEventListener('scroll', checkScroll);
+        window.removeEventListener('resize', checkScroll);
+      };
+    }, [checkScroll, displayGroups.length]);
+
+    const scroll = (direction: 'left' | 'right') => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const scrollAmount = 400;
+      el.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth',
+      });
+    };
+
+    const handleJoin = async (groupId: number) => {
+      setJoinLoading((prev) => ({ ...prev, [groupId]: true }));
+      try {
+        await onJoin(groupId);
+      } finally {
+        setJoinLoading((prev) => ({ ...prev, [groupId]: false }));
+      }
+    };
+
+    const handleGroupClick = (groupId: number) => {
+      if (onOpenGroup) onOpenGroup(groupId);
+    };
+    const handleAdminClick = (adminId: number) => {
+      if (onProfileClick) onProfileClick(adminId);
+    };
+
+    if (isLoading) {
+      return (
+        <div className="w-full">
+          <div className="bg-[#242526] w-full p-4">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
+            </div>
+            <div className="flex gap-4 overflow-x-hidden py-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex-shrink-0 w-[240px] animate-pulse">
+                  <div className="h-32 bg-[#3A3B3C] rounded-t-lg"></div>
+                  <div className="p-4 bg-[#3A3B3C]">
+                    <div className="h-5 bg-[#4E4F50] rounded w-32 mb-3"></div>
+                    <div className="h-4 bg-[#4E4F50] rounded w-20 mb-4"></div>
+                    <div className="h-10 bg-[#4E4F50] rounded-lg w-full"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+        </div>
+      );
+    }
+
+    if (displayGroups.length === 0) return null;
+
+    return (
+      <div className="w-full">
+        <div className="bg-[#242526] w-full p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-[#E4E6EB] font-bold text-[20px]">{title}</h3>
+            <div className="flex items-center gap-2">
+              {canScrollLeft && (
+                <button
+                  onClick={() => scroll('left')}
+                  className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-chevron-left text-[#E4E6EB] text-base"></i>
+                </button>
+              )}
+              {canScrollRight && (
+                <button
+                  onClick={() => scroll('right')}
+                  className="w-9 h-9 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-chevron-right text-[#E4E6EB] text-base"></i>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div
+            ref={scrollRef}
+            className="flex gap-4 overflow-x-auto scrollbar-hide pb-1"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {displayGroups.map((group) => (
+              <div
+                key={group.id}
+                className="flex-shrink-0 w-[240px] bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors group"
+              >
+                <div
+                  className="h-32 bg-[#4E4F50] cursor-pointer relative"
+                  onClick={() => handleGroupClick(group.id)}
+                >
+                  {group.cover_image ? (
+                    <img
+                      src={group.cover_image}
+                      alt={group.name}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#1877F2] to-[#166FE5]">
+                      <i className="fas fa-users text-white text-3xl opacity-50"></i>
+                    </div>
+                  )}
+
+                  <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-full text-white text-[13px] font-semibold">
+                    {group.type === 'public' ? '🌍 Public' : '🔒 Private'}
+                  </div>
+                </div>
+
+                <div className="p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div
+                      className="w-12 h-12 rounded-full overflow-hidden bg-[#4E4F50] flex-shrink-0 cursor-pointer border-3 border-[#1877F2] group-hover:border-[#166FE5] transition-colors"
+                      onClick={() => handleGroupClick(group.id)}
+                    >
+                      {group.profile_image ? (
+                        <img
+                          src={group.profile_image}
+                          alt={group.name}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-[#3A3B3C]">
+                          <i className="fas fa-users text-[#B0B3B8] text-base"></i>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => handleGroupClick(group.id)}
+                        className="text-[#E4E6EB] font-bold text-[17px] truncate w-full text-left hover:underline"
+                      >
+                        {group.name}
+                      </button>
+                      <div className="text-[#B0B3B8] text-[13px] truncate">
+                        {group.category}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-[#B0B3B8] text-[13px] mb-3">
+                    <i className="fas fa-users mr-1"></i>
+                    {group.members_count.toLocaleString()} members
+                    {group.mutual_count > 0 && (
+                      <span className="ml-1">· {group.mutual_count} mutual</span>
+                    )}
+                  </div>
+
+                  {onProfileClick && (
+                    <div className="text-[#B0B3B8] text-[13px] mb-3">
+                      Admin:{' '}
+                      <button
+                        type="button"
+                        onClick={() => handleAdminClick(group.admin_id)}
+                        className="text-[#E4E6EB] hover:underline font-medium text-[13px]"
+                      >
+                        View Admin
+                      </button>
+                    </div>
+                  )}
+
+                  {group.description && (
+                    <div className="text-[#B0B3B8] text-[13px] mb-3 line-clamp-2">
+                      {group.description}
+                    </div>
+                  )}
+
+                  {!currentUser ? (
+                    <button
+                      onClick={onLoginClick}
+                      className="w-full py-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-[15px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+                    >
+                      <i className="fas fa-sign-in-alt text-[13px]"></i>
+                      <span>Sign in</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleJoin(group.id)}
+                      disabled={joinLoading[group.id] || group.is_member}
+                      className={`w-full py-2.5 text-[15px] font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 ${
+                        group.is_member
+                          ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                          : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                      } disabled:opacity-70 disabled:cursor-not-allowed`}
+                    >
+                      {joinLoading[group.id] ? (
+                        <i className="fas fa-spinner fa-spin text-[13px]"></i>
+                      ) : (
+                        <>
+                          <i
+                            className={`fas ${
+                              group.is_member ? 'fa-check' : 'fa-user-plus'
+                            } text-[13px]`}
+                          ></i>
+                          <span>{group.is_member ? 'Joined' : 'Join Group'}</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.groups === next.groups &&
+      prev.currentUser?.id === next.currentUser?.id &&
+      prev.isLoading === next.isLoading
+    );
+  }
+);
+
+// Add CSS for hiding scrollbar
+const scrollbarHideStyles = `
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+`;
+
+if (typeof document !== 'undefined') {
+  const styleId = 'people-you-may-know-styles';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = scrollbarHideStyles;
+    document.head.appendChild(style);
+  }
+}
+
+// ==================== EVENT HELPERS ====================
+const safeParseJsonArray = (v: any): string[] => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.filter(Boolean).map(String);
+  if (typeof v === 'string') {
+    try {
+      const arr = JSON.parse(v);
+      if (Array.isArray(arr)) return arr.filter(Boolean).map(String);
+    } catch {}
+  }
+  return [];
+};
+
+const getEventCover = (item: any, meta?: any) => {
+  const urls = safeParseJsonArray(item?.media_urls);
+  if (urls.length > 0) return urls[0];
+  if (item?.media_url) return item.media_url;
+  if (meta?.cover_url) return meta.cover_url;
+  if (meta?.image) return meta.image;
+  if (meta?.cover) return meta.cover;
+  return '';
+};
+
+const normalizeEventFromFeed = (item: any) => {
+  const metaRaw = item?.meta || {};
+  let meta: any = metaRaw;
+  if (typeof metaRaw === 'string') {
+    try {
+      meta = JSON.parse(metaRaw);
+    } catch {
+      meta = {};
+    }
+  }
+  const cover = getEventCover(item, meta);
+  const id = Number(item?.event_id ?? item?.id ?? meta?.event_id ?? 0);
+  return {
+    id,
+    title: String(item?.content ?? meta?.title ?? 'Event'),
+    description: String(item?.event_description ?? meta?.description ?? ''),
+    cover_url: String(cover || ''),
+    location: String(item?.location ?? meta?.location ?? ''),
+    event_date: String(item?.event_date ?? meta?.event_date ?? meta?.start_time ?? ''),
+    created_at: String(item?.created_at ?? meta?.created_at ?? ''),
+    attendees_count: Number(item?.attending_count ?? meta?.attending_count ?? 0),
+    interested_count: Number(item?.interested_count ?? meta?.interested_count ?? 0),
+    user_rsvp_status: String(item?.my_rsvp_status ?? meta?.my_rsvp_status ?? ''),
+    creator_id: Number(item?.user_id ?? meta?.creator_id ?? 0),
+    creator: {
+      id: Number(item?.user_id ?? meta?.creator_id ?? 0),
+      name: String(item?.name ?? meta?.creator_name ?? 'Event Organizer'),
+      username: String(item?.username ?? meta?.creator_username ?? ''),
+      profile_image_url: String(item?.profile_image_url ?? meta?.creator_image ?? ''),
+    },
+  };
+};
+
+/**
+ * =========================
+ * ✅ EVENT POST
+ * =========================
+ */
+export const EventPost = memo(
+  ({
+    event,
+    author,
+    currentUser,
+    users = [],
+    onProfileClick,
+    onRSVP,
+    onFollow,
+    isFollowing = false,
+    followLoading = false,
+    onReact,
+    onShare,
+    onOpenComments,
+    groups = [],
+    brands = [],
+    chats = [],
+    onEventClick,
+  }: {
+    event: any;
+    author?: any;
+    currentUser: User | null;
+    users?: User[];
+    onProfileClick: (id: number) => void;
+    onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<any>;
+    onFollow?: (id: number) => void;
+    isFollowing?: boolean;
+    followLoading?: boolean;
+    onReact?: (id: number, type: ReactionType) => void;
+    onShare?: (id: number, newShareCount: number) => void;
+    onOpenComments?: (id: number) => void;
+    groups?: Group[];
+    brands?: Brand[];
+    chats?: any[];
+    onEventClick?: (eventId: number) => void;
+  }) => {
+    const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
+    const [attendeesCount, setAttendeesCount] = useState(
+      event.attendees_count || 0
+    );
+    const [interestedCount, setInterestedCount] = useState(
+      event.interested_count || 0
+    );
+    const [loading, setLoading] = useState(false);
+    const [showShareSheet, setShowShareSheet] = useState(false);
+
+    const creator =
+      author ||
+      users?.find((u) => Number(u.id) === Number(event.creator_id)) ||
+      event.creator || {
+        id: event.creator_id,
+        name: 'Event Organizer',
+        username: '',
+        profile_image_url: null,
+      };
+
+    const dateObj = event.event_date ? toDateSafe(event.event_date) : null;
+    const nowLocal = new Date();
+    const isPast = !!dateObj && dateObj < nowLocal;
+
+    const formatEventDate = () => {
+      if (!dateObj) return 'Date TBD';
+      if (dateObj.toDateString() === nowLocal.toDateString()) return 'Today';
+      const tomorrow = new Date(nowLocal);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      if (dateObj.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+      return dateObj.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      });
+    };
+
+    const formatEventTime = () => {
+      if (!dateObj) return '';
+      return dateObj.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    };
+
+    const handleRSVPClick = async (target: 'going' | 'interested') => {
+      if (!currentUser) {
+        alert('Please login to RSVP');
+        return;
+      }
+      if (!event.id) return;
+
+      setLoading(true);
+
+      const prevStatus = rsvpStatus;
+      const nextStatus: '' | 'going' | 'interested' =
+        prevStatus === target ? '' : target;
+
+      const prevAtt = attendeesCount;
+      const prevInt = interestedCount;
+
+      let nextAtt = prevAtt;
+      let nextInt = prevInt;
+
+      if (target === 'going') {
+        if (prevStatus === 'going') nextAtt = Math.max(0, prevAtt - 1);
+        else if (prevStatus === 'interested') {
+          nextAtt = prevAtt + 1;
+          nextInt = Math.max(0, prevInt - 1);
+        } else nextAtt = prevAtt + 1;
+      } else {
+        if (prevStatus === 'interested') nextInt = Math.max(0, prevInt - 1);
+        else if (prevStatus === 'going') {
+          nextInt = prevInt + 1;
+          nextAtt = Math.max(0, prevAtt - 1);
+        } else nextInt = prevInt + 1;
+      }
+
+      setRsvpStatus(nextStatus);
+      setAttendeesCount(nextAtt);
+      setInterestedCount(nextInt);
+
+      try {
+        let res;
+        if (onRSVP) {
+          await onRSVP(event.id, (nextStatus || 'not_going') as any);
+          res = { success: true };
+        } else {
+          res = await rsvpEventDirect({
+            eventId: event.id,
+            userId: safeUserId(currentUser),
+            newStatus: (nextStatus || 'not_going') as any,
+            prevStatus: prevStatus as any,
+          });
+        }
+
+        if (res?.success) {
+          if (res.attending_count !== undefined) {
+            setAttendeesCount(Number(res.attending_count));
+          }
+          if (res.interested_count !== undefined) {
+            setInterestedCount(Number(res.interested_count));
+          }
+          if (res.my_status !== undefined) {
+            setRsvpStatus(res.my_status);
+          }
+        }
+      } catch (error) {
+        setRsvpStatus(prevStatus);
+        setAttendeesCount(prevAtt);
+        setInterestedCount(prevInt);
+        console.error('RSVP failed:', error);
+        alert('Failed to RSVP. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const handleFollowClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (onFollow && creator?.id) onFollow(safeUserId(creator));
+    };
+
+    const getReactionEndpoint = () =>
+      event.id ? `/api/events/${event.id}/react` : null;
+
+    const handleReact = async (type: ReactionType) => {
+      if (!currentUser || !event.id || !onReact) return;
+      const endpoint = getReactionEndpoint();
+      if (!endpoint) return;
+      try {
+        await apiFetch(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({ user_id: currentUser.id, type: type }),
+        });
+        onReact(event.id, type);
+      } catch (error) {
+        console.error('Failed to react to event:', error);
+      }
+    };
+
+    const handleShare = () => {
+      if (!currentUser) alert('Please login to share');
+      else setShowShareSheet(true);
+    };
+
+    const handleShareComplete = (destination: string, data?: any) => {
+      if (onShare && data?.success && event.id) {
+        const newShares = data?.shares || 0;
+        onShare(event.id, newShares);
+      }
+      setShowShareSheet(false);
+    };
+
+    const handleOpenComments = () => {
+      if (onOpenComments && event.id) onOpenComments(event.id);
+    };
+
+    const handleCardClick = () => {
+      if (onEventClick && event.id) onEventClick(event.id);
+    };
+
+    return (
+      <>
+        <div className="w-full">
+          <div
+            className="bg-[#242526] w-full overflow-hidden cursor-pointer"
+            onClick={handleCardClick}
+          >
+            <div
+              className="p-3 md:p-4 flex items-center justify-between"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  creator?.id && onProfileClick(Number(creator.id));
+                }}
+              >
+                <img
+                  src={avatarFrom(creator)}
+                  alt=""
+                  className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <h4 className="font-bold text-[#E4E6EB] text-[20px] truncate">
+                      {creator?.name || creator?.username || 'User'}
+                    </h4>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[15px]">
+                    <span>{formatRelativeTime(event.created_at)}</span>
+                    <span>•</span>
+                    <i className="fas fa-globe-americas text-[14px]"></i>
+                    <span>• created an event</span>
+                  </div>
+                </div>
+              </div>
+
+              {onFollow && currentUser && creator?.id && safeUserId(creator) !== safeUserId(currentUser) && (
+                <button
+                  onClick={handleFollowClick}
+                  disabled={followLoading}
+                  className={`px-3 py-1.5 text-[15px] font-bold rounded-lg transition-all duration-200 ml-2 ${
+                    isFollowing
+                      ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                      : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                  } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  {followLoading ? (
+                    <i className="fas fa-spinner fa-spin"></i>
+                  ) : isFollowing ? (
+                    'Following'
+                  ) : (
+                    'Follow'
+                  )}
+                </button>
+              )}
+            </div>
+
+            <div className="pb-4" onClick={(e) => e.stopPropagation()}>
+              <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
+                {event.cover_url ? (
+                  <div className="h-48 bg-[#18191A] overflow-hidden relative">
+                    <img
+                      src={event.cover_url}
+                      alt={event.title}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        const parent = e.currentTarget.parentElement;
+                        if (parent) {
+                          const fallback = document.createElement('div');
+                          fallback.className =
+                            'h-48 bg-[#1f2a37] flex items-center justify-center';
+                          fallback.innerHTML =
+                            '<i class="fas fa-calendar text-white/30 text-5xl"></i>';
+                          parent.appendChild(fallback);
+                        }
+                      }}
+                    />
+                    {dateObj && (
+                      <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                        <div className="text-[#B0B3B8] text-[13px] font-black">
+                          {dateObj
+                            .toLocaleDateString('en-US', { month: 'short' })
+                            .toUpperCase()}
+                        </div>
+                        <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
+                          {dateObj.getDate()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="h-32 bg-[#1f2a37] flex items-center justify-center relative">
+                    <i className="fas fa-calendar text-white/30 text-5xl"></i>
+                    {dateObj && (
+                      <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                        <div className="text-[#B0B3B8] text-[13px] font-black">
+                          {dateObj
+                            .toLocaleDateString('en-US', { month: 'short' })
+                            .toUpperCase()}
+                        </div>
+                        <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
+                          {dateObj.getDate()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="p-4">
+                  <div className="text-[#E4E6EB] font-black text-[22px] line-clamp-2">
+                    {event.title}
+                  </div>
+
+                  {event.description && (
+                    <div className="text-[#B0B3B8] text-[16px] mt-1 line-clamp-2">
+                      {event.description}
+                    </div>
+                  )}
+
+                  <div className="mt-3 space-y-2">
+                    {event.event_date && (
+                      <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
+                        <i
+                          className={`fas fa-calendar-alt ${
+                            isPast ? 'text-[#B0B3B8]' : 'text-[#1877F2]'
+                          } w-4`}
+                        ></i>
+                        <span>
+                          {formatEventDate()} at {formatEventTime()}
+                        </span>
+                      </div>
+                    )}
+                    {event.location && (
+                      <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
+                        <i className="fas fa-map-marker-alt text-[#F02849] w-4"></i>
+                        <span className="line-clamp-1">{event.location}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
+                      <i className="fas fa-users text-[#45BD62] w-4"></i>
+                      <span>
+                        {attendeesCount} attending • {interestedCount} interested
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      disabled={loading || isPast}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRSVPClick('going');
+                      }}
+                      className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${
+                        isPast ? 'opacity-50 cursor-not-allowed' : ''
+                      } ${
+                        rsvpStatus === 'going'
+                          ? 'bg-[#45BD62] text-white'
+                          : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                      } disabled:opacity-60`}
+                    >
+                      {loading && rsvpStatus === 'going' ? (
+                        <i className="fas fa-spinner fa-spin"></i>
+                      ) : rsvpStatus === 'going' ? (
+                        '✓ Going'
+                      ) : (
+                        'Going'
+                      )}
+                    </button>
+
+                    <button
+                      disabled={loading || isPast}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRSVPClick('interested');
+                      }}
+                      className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${
+                        isPast ? 'opacity-50 cursor-not-allowed' : ''
+                      } ${
+                        rsvpStatus === 'interested'
+                          ? 'bg-[#F7B928] text-black'
+                          : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                      } disabled:opacity-60`}
+                    >
+                      {loading && rsvpStatus === 'interested' ? (
+                        <i className="fas fa-spinner fa-spin"></i>
+                      ) : rsvpStatus === 'interested' ? (
+                        '✓ Interested'
+                      ) : (
+                        'Interested'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="px-2 py-1 border-t border-white/10 flex items-center justify-between"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex-1">
+                <ReactionButton
+                  currentUserReactions={undefined}
+                  reactionCount={0}
+                  onReact={handleReact}
+                  isGuest={!currentUser}
+                />
+              </div>
+              <button
+                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
+                onClick={handleOpenComments}
+              >
+                <DiscussSignalIcon size={28} color="#1877F2" />
+                <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                  Discuss
+                </span>
+              </button>
+              <button
+                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                onClick={handleShare}
+              >
+                <i className="fas fa-share text-[22px]"></i>
+                <span className="text-[19px] font-bold">Share</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+        </div>
+
+        {event && (
+          <ShareBottomSheet
+            isOpen={showShareSheet}
+            onClose={() => setShowShareSheet(false)}
+            post={{
+              id: event.id,
+              author: creator,
+              content: event.title,
+              description: event.description,
+              media_url: event.cover_url,
+              created_at: event.created_at,
+              source: 'event',
+              item_type: 'event',
+              event_id: event.id,
+            }}
+            currentUser={currentUser}
+            users={users}
+            groups={groups}
+            brands={brands}
+            chats={chats}
+            onShareComplete={handleShareComplete}
+          />
+        )}
+      </>
+    );
+  },
+  eventPostPropsEqual
+);
+
+/**
+ * =========================
+ * ✅ EVENT FEED CARD
+ * =========================
+ */
+type FeedEventItem = {
+  id: number;
+  feed_key: string;
+  item_type: 'event';
+  event_id: number;
+  user_id: number;
+  name: string;
+  username: string;
+  profile_image_url: string | null;
+  created_at: string;
+  content: string;
+  event_date?: string;
+  event_description?: string;
+  location?: string;
+  media_url?: string | null;
+  attending_count?: number;
+  interested_count?: number;
+  my_rsvp_status?: '' | 'going' | 'interested';
+};
+
+export const EventFeedCard = memo(
+  ({
+    item,
+    currentUser,
+    onProfileClick,
+    onUpdateItem,
+    onRSVPEvent,
+    onEventClick,
+  }: {
+    item: FeedEventItem;
+    currentUser: { id: number } | null;
+    onProfileClick: (id: number) => void;
+    onUpdateItem: (patch: Partial<FeedEventItem>) => void;
+    onRSVPEvent?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<any>;
+    onEventClick?: (eventId: number) => void;
+  }) => {
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const whenText = useMemo(() => {
+      const d = item.event_date ? new Date(item.event_date) : null;
+      if (!d || isNaN(d.getTime())) return '';
+      return d.toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }, [item.event_date]);
+
+    const dateObj = item.event_date ? toDateSafe(item.event_date) : null;
+    const nowLocal = new Date();
+    const isPast = !!dateObj && dateObj < nowLocal;
+
+    const rsvp = async (target: 'going' | 'interested') => {
+      if (!currentUser) {
+        alert('Please login to RSVP');
+        return;
+      }
+      setLoading(true);
+      setError(null);
+
+      const eventId = item.event_id || item.id;
+      const prevStatus = (item.my_rsvp_status || '') as '' | 'going' | 'interested';
+      const nextStatus: '' | 'going' | 'interested' =
+        prevStatus === target ? '' : target;
+
+      const prevAtt = Number(item.attending_count ?? 0);
+      const prevInt = Number(item.interested_count ?? 0);
+
+      let nextAtt = prevAtt;
+      let nextInt = prevInt;
+
+      if (target === 'going') {
+        if (prevStatus === 'going') nextAtt = Math.max(0, prevAtt - 1);
+        else if (prevStatus === 'interested') {
+          nextAtt = prevAtt + 1;
+          nextInt = Math.max(0, prevInt - 1);
+        } else nextAtt = prevAtt + 1;
+      } else {
+        if (prevStatus === 'interested') nextInt = Math.max(0, prevInt - 1);
+        else if (prevStatus === 'going') {
+          nextInt = prevInt + 1;
+          nextAtt = Math.max(0, prevAtt - 1);
+        } else nextInt = prevInt + 1;
+      }
+
+      onUpdateItem({
+        my_rsvp_status: nextStatus as any,
+        attending_count: nextAtt,
+        interested_count: nextInt,
+      });
+
+      try {
+        let res;
+        if (onRSVPEvent) {
+          await onRSVPEvent(eventId, (nextStatus || 'not_going') as any);
+          res = { success: true };
+        } else {
+          res = await rsvpEventDirect({
+            eventId,
+            userId: currentUser.id,
+            newStatus: (nextStatus || 'not_going') as any,
+            prevStatus,
+          });
+        }
+
+        if (res?.success) {
+          const patch: Partial<FeedEventItem> = {};
+          if (res.my_status !== undefined) patch.my_rsvp_status = res.my_status;
+          if (res.attending_count !== undefined)
+            patch.attending_count = Number(res.attending_count);
+          if (res.interested_count !== undefined)
+            patch.interested_count = Number(res.interested_count);
+          onUpdateItem(patch);
+        }
+      } catch (e: any) {
+        onUpdateItem({
+          my_rsvp_status: prevStatus as any,
+          attending_count: prevAtt,
+          interested_count: prevInt,
+        });
+        setError(e?.message || 'Failed to RSVP. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const my = item.my_rsvp_status || '';
+    const attending = Number(item.attending_count ?? 0);
+    const interested = Number(item.interested_count ?? 0);
+
+    const handleCardClick = () => {
+      if (onEventClick) {
+        const eventId = item.event_id || item.id;
+        onEventClick(eventId);
+      }
+    };
+
+    return (
+      <div className="w-full cursor-pointer" onClick={handleCardClick}>
+        <div className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042]">
+          <div
+            className="flex items-center gap-3 p-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={item.profile_image_url || 'https://via.placeholder.com/40'}
+              className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
+              alt=""
+              onClick={(e) => {
+                e.stopPropagation();
+                onProfileClick(item.user_id);
+              }}
+            />
+            <div className="min-w-0">
+              <div className="text-[#E4E6EB] font-bold text-[20px] truncate">
+                {item.name}
+              </div>
+              <div className="text-[#B0B3B8] text-[15px]">
+                {formatRelativeTime(item.created_at)} • created an event
+              </div>
+            </div>
+          </div>
+
+          {item.media_url ? (
+            <div className="w-full h-56 bg-black overflow-hidden relative">
+              <img
+                src={item.media_url}
+                className="w-full h-full object-cover"
+                alt=""
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  const parent = e.currentTarget.parentElement;
+                  if (parent) {
+                    const fallback = document.createElement('div');
+                    fallback.className =
+                      'w-full h-56 bg-[#1B1C1D] flex items-center justify-center';
+                    fallback.innerHTML =
+                      '<i class="fas fa-calendar text-[#1877F2] text-4xl opacity-60"></i>';
+                    parent.appendChild(fallback);
+                  }
+                }}
+              />
+              {dateObj && (
+                <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                  <div className="text-[#B0B3B8] text-[13px] font-black">
+                    {dateObj
+                      .toLocaleDateString('en-US', { month: 'short' })
+                      .toUpperCase()}
+                  </div>
+                  <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
+                    {dateObj.getDate()}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="w-full h-40 bg-[#1B1C1D] flex items-center justify-center relative">
+              <i className="fas fa-calendar text-[#1877F2] text-4xl opacity-60"></i>
+              {dateObj && (
+                <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
+                  <div className="text-[#B0B3B8] text-[13px] font-black">
+                    {dateObj
+                      .toLocaleDateString('en-US', { month: 'short' })
+                      .toUpperCase()}
+                  </div>
+                  <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
+                    {dateObj.getDate()}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="text-[#E4E6EB] font-black text-[22px] leading-tight">
+              {item.content}
+            </div>
+
+            {item.event_description ? (
+              <div className="text-[#B0B3B8] text-[16px] mt-2 line-clamp-2">
+                {item.event_description}
+              </div>
+            ) : null}
+
+            <div className="mt-3 space-y-2 text-[#B0B3B8] text-[15px]">
+              {whenText ? (
+                <div className="flex items-center gap-2">
+                  <i
+                    className={`fas fa-clock ${
+                      isPast ? 'text-[#B0B3B8]' : 'text-[#1877F2]'
+                    } w-5`}
+                  ></i>
+                  <span>{whenText}</span>
+                </div>
+              ) : null}
+
+              {item.location ? (
+                <div className="flex items-center gap-2">
+                  <i className="fas fa-map-marker-alt text-[#F02849] w-5"></i>
+                  <span className="line-clamp-1">{item.location}</span>
+                </div>
+              ) : null}
+
+              <div className="flex items-center gap-2">
+                <i className="fas fa-users text-[#45BD62] w-5"></i>
+                <span>
+                  {attending} attending • {interested} interested
+                </span>
+              </div>
+            </div>
+
+            {error && (
+              <div className="mt-2 text-[15px] text-red-500 bg-red-500/10 p-2 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <div className="mt-4 flex gap-2">
+              <button
+                disabled={loading || isPast}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  rsvp('going');
+                }}
+                className={`flex-1 py-2.5 rounded-lg font-bold text-[15px] disabled:opacity-60 transition-colors ${
+                  isPast ? 'opacity-50 cursor-not-allowed' : ''
+                } ${
+                  my === 'going'
+                    ? 'bg-[#45BD62] text-white hover:bg-[#3da855]'
+                    : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                }`}
+              >
+                {loading && my === 'going' ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : my === 'going' ? (
+                  '✓ Going'
+                ) : (
+                  'Going'
+                )}
+              </button>
+
+              <button
+                disabled={loading || isPast}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  rsvp('interested');
+                }}
+                className={`flex-1 py-2.5 rounded-lg font-bold text-[15px] disabled:opacity-60 transition-colors ${
+                  isPast ? 'opacity-50 cursor-not-allowed' : ''
+                } ${
+                  my === 'interested'
+                    ? 'bg-[#F7B928] text-black hover:bg-[#e5aa24]'
+                    : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                }`}
+              >
+                {loading && my === 'interested' ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : my === 'interested' ? (
+                  '✓ Interested'
+                ) : (
+                  'Interested'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.item.id === next.item.id &&
+      prev.item.my_rsvp_status === next.item.my_rsvp_status &&
+      prev.item.attending_count === next.item.attending_count &&
+      prev.item.interested_count === next.item.interested_count
+    );
+  }
+);
+
+/**
+ * =========================
+ * ✅ REACTION BUTTON
+ * =========================
+ */
+export const ReactionButton = memo(
+  ({
+    currentUserReactions,
+    reactionCount,
+    onReact,
+    isGuest,
+  }: {
+    currentUserReactions: ReactionType | undefined;
+    reactionCount: number;
+    onReact: (type: ReactionType) => void;
+    isGuest?: boolean;
+  }) => {
+    const [showDock, setShowDock] = useState(false);
+    const [isAnimating, setIsAnimating] = useState(false);
+    const [showPreview, setShowPreview] = useState(false);
+    const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
+    const timerRef = useRef<any>(null);
+    const longPressTimerRef = useRef<any>(null);
+    const dockRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      ensureReactionStyles();
+    }, []);
+
+    const reactionConfig = [
+      { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
+      { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
+      { type: 'haha', icon: '😂', color: '#F7B928', label: 'Haha' },
+      { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
+      { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
+      { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
+      { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
+      { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
+      { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
+      { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
+      { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
+      { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
+      { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
+      { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
+      { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
+      { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
+      { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
+      { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
+      { type: 'unicorn', icon: '🦄', color: '#E040FB', label: 'Unicorn' },
+      { type: 'rainbow', icon: '🌈', color: '#00E676', label: 'Rainbow' },
+      { type: 'money', icon: '💰', color: '#4CAF50', label: 'Money' },
+      { type: 'muscle', icon: '💪', color: '#FF5722', label: 'Muscle' },
+      { type: 'brain', icon: '🧠', color: '#9C27B0', label: 'Brain' },
+      { type: 'lightning', icon: '⚡', color: '#FFEB3B', label: 'Lightning' },
+      { type: 'gem', icon: '💎', color: '#00BCD4', label: 'Gem' },
+    ] as const;
+
+    const handleMouseEnter = () => {
+      if (isGuest) return;
+      timerRef.current = setTimeout(() => setShowDock(true), 500);
+    };
+
+    const handleMouseLeave = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      setTimeout(() => setShowDock(false), 250);
+      setShowPreview(false);
+    };
+
+    const handleTouchStart = () => {
+      if (isGuest) return;
+      longPressTimerRef.current = setTimeout(() => {
+        setShowDock(true);
+        setShowPreview(true);
+        setPreviewEmoji('👍');
+      }, 600);
+    };
+
+    const handleTouchEnd = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+      setTimeout(() => setShowPreview(false), 300);
+    };
+
+    const handleClick = () => {
+      if (isGuest) return alert('Please login to react.');
+      if (currentUserReactions) {
+        setIsAnimating(true);
+        onReact(currentUserReactions);
+        setTimeout(() => setIsAnimating(false), 300);
+      } else {
+        setShowDock(!showDock);
+      }
+    };
+
+    const handleDockReact = (type: ReactionType) => {
+      setIsAnimating(true);
+      onReact(type);
+      setShowDock(false);
+      setShowPreview(false);
+      setTimeout(() => setIsAnimating(false), 300);
+    };
+
+    const handleEmojiHover = (emoji: string) => {
+      if (showPreview) {
+        setPreviewEmoji(emoji);
+      }
+    };
+
+    const activeReaction = currentUserReactions
+      ? reactionConfig.find((r) => r.type === currentUserReactions)
+      : null;
+
+    return (
+      <div
+        className="flex-1 relative group"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      >
+        {showPreview && (
+          <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
+            <div className="text-4xl">{previewEmoji}</div>
+          </div>
+        )}
+
+        {showDock && (
+          <div
+            ref={dockRef}
+            className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
+          >
+            <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
+              {reactionConfig.map((r) => (
+                <div
+                  key={r.type}
+                  className="text-3xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDockReact(r.type as ReactionType);
+                  }}
+                  onMouseEnter={() => handleEmojiHover(r.icon)}
+                  title={r.label}
+                >
+                  {r.icon}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={handleClick}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          className={`w-full flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-all duration-200 active:scale-95 ${
+            isAnimating ? 'scale-110' : ''
+          }`}
+        >
+          {activeReaction ? (
+            <>
+              <span className="text-[22px] transition-transform duration-300">
+                {activeReaction.icon}
+              </span>
+              <span
+                className="text-[19px] font-bold transition-colors duration-300"
+                style={{ color: activeReaction.color }}
+              >
+                React
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="flex items-center justify-center -mt-[1px]">
+                <SparkReactIcon size={28} />
+              </span>
+              <span className="text-[19px] font-bold text-[#B0B3B8]">React</span>
+            </>
+          )}
+        </button>
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.currentUserReactions === next.currentUserReactions &&
+      prev.reactionCount === next.reactionCount &&
+      prev.isGuest === next.isGuest
+    );
+  }
+);
 // ==================== MEDIA HELPERS ====================
 const getMediaTypeInfo = (post: any) => {
   const mediaUrl = String(post?.media_url || '');
