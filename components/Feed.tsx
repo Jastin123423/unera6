@@ -1,5 +1,4 @@
-// Feed.tsx – Fully optimized with React.memo, no duplicate exports
-// UPDATED: Sponsored posts now use normal Post component with sponsored badge and CTA
+
 
 import React, {
   useEffect,
@@ -4350,7 +4349,7 @@ export const RichText = ({
 
 /**
  * =========================
- * ✅ MAIN POST COMPONENT (with integrated sponsored support)
+ * ✅ MAIN POST COMPONENT (with integrated Facebook-style sponsored support)
  * =========================
  */
 export const Post = memo(
@@ -4420,13 +4419,61 @@ export const Post = memo(
     const a: any = author as any;
     const meta: any = p?.meta || {};
 
-    // ==================== SPONSORED DETECTION ====================
+    // ==================== SPONSORED DETECTION - ENHANCED ====================
     const isSponsored = !!p?.is_sponsored || !!meta?.is_sponsored || !!meta?.sponsored_meta;
     const sponsoredMeta = p?.sponsored_meta || meta?.sponsored_meta || null;
     const sponsoredAdId = Number(sponsoredMeta?.ad_id || 0);
-    const sponsoredCtaText = String(sponsoredMeta?.cta_text || 'Learn More').trim();
-    const sponsoredCtaUrl = String(sponsoredMeta?.cta_url || '').trim();
-    const sponsoredHeadline = String(sponsoredMeta?.headline || '').trim();
+    
+    // Enhanced headline detection
+    const sponsoredHeadline = String(
+      sponsoredMeta?.headline || p?.headline || ''
+    ).trim();
+    
+    // Enhanced CTA text detection - supports multiple button types
+    const sponsoredCtaText = String(
+      sponsoredMeta?.cta_text || 
+      p?.cta_text || 
+      p?.cta_button || 
+      sponsoredMeta?.button_text ||
+      'Learn More'
+    ).trim();
+    
+    // Enhanced URL detection
+    const sponsoredCtaUrl = String(
+      sponsoredMeta?.cta_url || 
+      p?.cta_url || 
+      p?.destination_url || 
+      ''
+    ).trim();
+    
+    // Contact type detection (for phone/email buttons)
+    const sponsoredContactType = String(
+      sponsoredMeta?.contact_type || 
+      p?.contact_type || 
+      'link'
+    ).trim();
+    
+    const sponsoredPhone = String(
+      sponsoredMeta?.phone_number || 
+      p?.phone_number || 
+      ''
+    ).trim();
+    
+    const sponsoredEmail = String(
+      sponsoredMeta?.email_address || 
+      p?.email_address || 
+      ''
+    ).trim();
+    
+    // Determine if button should show
+    const shouldShowSponsoredButton = isSponsored && (
+      !!sponsoredCtaUrl ||
+      (sponsoredContactType === 'phone' && !!sponsoredPhone) ||
+      (sponsoredContactType === 'email' && !!sponsoredEmail)
+    );
+    
+    // Hide date for active sponsored posts (Facebook style)
+    const shouldHideDateForSponsored = isSponsored;
 
     // ==================== SPONSORED IMPRESSION TRACKING ====================
     const sponsoredImpressionTrackedRef = useRef(false);
@@ -4455,12 +4502,30 @@ export const Post = memo(
             'x-user-id': String(currentUser.id),
           },
           body: JSON.stringify({ ad_id: sponsoredAdId }),
-        }).catch((err) => console.error('Failed to record sponsored click:', err));
+        }).catch((err) => console.error('Failed to record ad click:', err));
+      }
+      
+      // Handle different contact types
+      if (sponsoredContactType === 'phone' && sponsoredPhone) {
+        window.location.href = `tel:${sponsoredPhone}`;
+        return;
+      }
+      if (sponsoredContactType === 'email' && sponsoredEmail) {
+        window.location.href = `mailto:${sponsoredEmail}`;
+        return;
       }
       if (sponsoredCtaUrl) {
         window.open(sponsoredCtaUrl, '_blank', 'noopener,noreferrer');
       }
-    }, [isSponsored, sponsoredAdId, currentUser, sponsoredCtaUrl]);
+    }, [
+      isSponsored, 
+      sponsoredAdId, 
+      currentUser, 
+      sponsoredContactType, 
+      sponsoredPhone, 
+      sponsoredEmail, 
+      sponsoredCtaUrl
+    ]);
 
     const isMarketplace =
       p?.type === 'marketplace' ||
@@ -4698,13 +4763,10 @@ export const Post = memo(
                   onOpenGroup={(id) => onOpenGroup?.(id)}
                   onOpenProfile={(id) => onProfileClick(id)}
                 />
-                {/* Sponsored badge for group posts */}
+                {/* Sponsored label for group posts (Facebook style) */}
                 {isSponsored && (
-                  <div className="px-3 md:px-4 pb-2">
-                    <span className="inline-flex items-center gap-1 bg-[#F7B928] text-black text-[12px] font-bold px-2 py-0.5 rounded-full">
-                      <i className="fas fa-ad text-[10px]"></i>
-                      Sponsored
-                    </span>
+                  <div className="px-3 md:px-4 pb-2 text-[#B0B3B8] text-[15px] font-medium">
+                    Sponsored
                   </div>
                 )}
               </>
@@ -4727,19 +4789,23 @@ export const Post = memo(
                       {a.is_verified && (
                         <i className="fas fa-check-circle text-[#1877F2] text-[15px]"></i>
                       )}
-                      {/* SPONSORED BADGE - Integrated into regular header */}
+                      {/* SPONSORED BADGE - Facebook style (text only, no badge) */}
                       {isSponsored && (
-                        <span className="bg-[#F7B928] text-black text-[12px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <i className="fas fa-ad text-[10px]"></i>
+                        <span className="text-[#B0B3B8] text-[15px] font-medium">
                           Sponsored
                         </span>
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[15px]">
-                      <span>{createdAtLabel}</span>
-                      <span>•</span>
+                      {/* Hide date for active sponsored posts (Facebook style) */}
+                      {!shouldHideDateForSponsored && (
+                        <>
+                          <span>{createdAtLabel}</span>
+                          <span>•</span>
+                        </>
+                      )}
                       <i className="fas fa-globe-americas text-[14px]"></i>
-                      {p.location && (
+                      {p.location && !isSponsored && (
                         <>
                           <span>•</span>
                           <span className="truncate max-w-[160px]">
@@ -4747,7 +4813,7 @@ export const Post = memo(
                           </span>
                         </>
                       )}
-                      {p.feeling && (
+                      {p.feeling && !isSponsored && (
                         <>
                           <span>•</span>
                           <span>feeling {p.feeling}</span>
@@ -4757,7 +4823,7 @@ export const Post = memo(
                   </div>
                 </div>
 
-                {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && (
+                {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && !isSponsored && (
                   <button
                     onClick={handleFollowClick}
                     disabled={followLoading}
@@ -4952,15 +5018,15 @@ export const Post = memo(
                   </div>
                 )}
 
-                {/* SPONSORED CTA BUTTON - Marketplace Branch */}
-                {isSponsored && sponsoredCtaUrl && (
+                {/* SPONSORED CTA BUTTON - Facebook position (below media, above engagement) */}
+                {shouldShowSponsoredButton && (
                   <div className="px-3 py-2">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleSponsoredClick();
                       }}
-                      className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors text-[17px]"
+                      className="w-full bg-[#E4E6EB] hover:bg-[#D8DADF] text-black font-bold py-2.5 rounded-lg transition-colors text-[17px]"
                     >
                       {sponsoredCtaText}
                     </button>
@@ -5206,15 +5272,15 @@ export const Post = memo(
                   </div>
                 )}
 
-                {/* SPONSORED CTA BUTTON - Non-Marketplace Branch */}
-                {isSponsored && sponsoredCtaUrl && (
+                {/* SPONSORED CTA BUTTON - Facebook position (below media, above engagement) */}
+                {shouldShowSponsoredButton && (
                   <div className="px-3 py-2">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleSponsoredClick();
                       }}
-                      className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors text-[17px]"
+                      className="w-full bg-[#E4E6EB] hover:bg-[#D8DADF] text-black font-bold py-2.5 rounded-lg transition-colors text-[17px]"
                     >
                       {sponsoredCtaText}
                     </button>
@@ -7235,3 +7301,5 @@ if (typeof window !== 'undefined') {
 
 export const FEED_VERSION = '2.0.0';
 export const LAST_UPDATED = '2024-03-25';
+
+
