@@ -7126,6 +7126,7 @@ export {
   reactionEmoji,
   fmtCount,
   formatReactionText,
+  SponsoredPostCard,
   formatViewCount,
   getPostTextPreview,
   toDateSafe,
