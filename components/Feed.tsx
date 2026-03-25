@@ -6867,7 +6867,6 @@ export const SuggestedProductsWidget = memo(
 
 // ==================== EXPORTED HELPERS ====================
 export {
-  getMediaTypeInfo,
   getMarketplaceImages,
   getMarketplacePriceLine,
   normalizeEventFromFeed,
