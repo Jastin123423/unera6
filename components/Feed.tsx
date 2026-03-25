@@ -7312,7 +7312,6 @@ export default Feed;
 export type { FeedProps, PeopleSuggestion, GroupSuggestion, ReelFeedData, FeedEventItem };
 
 export {
-  formatRelativeTime,
   reactionEmoji,
   fmtCount,
   formatReactionText,
