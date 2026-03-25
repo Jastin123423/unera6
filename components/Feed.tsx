@@ -1,5 +1,5 @@
 // Feed.tsx – Fully optimized with React.memo, no duplicate exports
-// UPDATED: Fixed Discuss and React buttons to pass full post objects
+// UPDATED: Sponsored posts now use normal Post component with sponsored badge and CTA
 
 import React, {
   useEffect,
@@ -1733,6 +1733,7 @@ export const ShareBottomSheet = memo(
     );
   }
 );
+
 /**
  * =========================
  * ✅ PEOPLE YOU MAY KNOW
@@ -1770,7 +1771,9 @@ export const PeopleYouMayKnowGrid = memo(
     title?: string;
     maxDisplay?: number;
   }) => {
-    const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
+    const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>(
+      {}
+    );
     const scrollRef = useRef<HTMLDivElement>(null);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(false);
@@ -3701,6 +3704,7 @@ export const ReactionButton = memo(
     );
   }
 );
+
 // ==================== MEDIA HELPERS ====================
 const getMediaTypeInfo = (post: any) => {
   const mediaUrl = String(post?.media_url || '');
@@ -4346,307 +4350,7 @@ export const RichText = ({
 
 /**
  * =========================
- * ✅ SPONSORED POST CARD
- * =========================
- */
-export const SponsoredPostCard = memo(
-  ({
-    ad,
-    currentUser,
-    onProfileClick,
-    onReact,
-    onShare,
-    onOpenComments,
-    isActive = true,
-  }: {
-    ad: any;
-    currentUser: User | null;
-    onProfileClick?: (id: number) => void;
-    onReact?: (id: number, type: ReactionType) => void;
-    onShare?: (id: number, newShareCount: number) => void;
-    onOpenComments?: (post: any) => void;
-    isActive?: boolean;
-  }) => {
-    const [imageError, setImageError] = useState(false);
-    const [showShareSheet, setShowShareSheet] = useState(false);
-    const [showReactionsSheet, setShowReactionsSheet] = useState(false);
-
-    // Record impression when active
-    useEffect(() => {
-      if (!isActive || !currentUser) return;
-      
-      fetch("/api/ads/impression", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-user-id": String(currentUser.id),
-        },
-        body: JSON.stringify({ ad_id: ad.id }),
-      }).catch(err => console.error('Failed to record impression:', err));
-    }, [ad.id, currentUser, isActive]);
-
-    // Handle click
-    const handleClick = () => {
-      if (isActive && currentUser) {
-        fetch("/api/ads/click", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-user-id": String(currentUser.id),
-          },
-          body: JSON.stringify({ ad_id: ad.id }),
-        }).catch(err => console.error('Failed to record click:', err));
-      }
-
-      if (ad.destination_url || ad.cta_url) {
-        window.open(ad.destination_url || ad.cta_url, '_blank', 'noopener,noreferrer');
-      }
-    };
-
-    // Get media URL
-    const mediaUrl = !imageError ? 
-      (ad.media_url || (ad.media_urls && ad.media_urls[0]) || null) : null;
-
-    // Get advertiser name
-    const advertiserName = ad.name || ad.advertiser_name || ad.sponsor_name || 'Sponsored';
-
-    // Get profile image
-    const profileImage = avatarFrom({
-      profile_image_url: ad.profile_image_url || ad.sponsor_image,
-      name: advertiserName,
-    });
-
-    // Get original post metrics
-    const originalReactionCount = Number(
-      ad.original_reactions_count || ad.reactions_count || ad.likes || 0
-    );
-    
-    const originalCommentCount = Number(
-      ad.original_comments_count || ad.comments_count || ad.comments?.length || 0
-    );
-    
-    const originalShareCount = Number(
-      ad.original_shares_count || ad.shares_count || ad.shares || 0
-    );
-
-    const handleReactClick = (type: ReactionType) => {
-      if (!currentUser) {
-        alert('Please login to react.');
-        return;
-      }
-      onReact?.(ad.id, type);
-    };
-
-    const handleShareComplete = (destination: string, data?: any) => {
-      const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
-      if (data?.success && Number.isFinite(nextShares)) {
-        onShare?.(ad.id, nextShares);
-      }
-      setShowShareSheet(false);
-    };
-
-    return (
-      <>
-        <div className="w-full">
-          <div className="bg-[#242526] w-full overflow-hidden">
-            {/* HEADER */}
-            <div className="flex items-center justify-between p-3">
-              <div className="flex items-center gap-2">
-                <img
-                  src={profileImage}
-                  className="w-10 h-10 rounded-full object-cover border border-[#3E4042] cursor-pointer"
-                  alt={advertiserName}
-                  onClick={() => onProfileClick?.(ad.user_id || ad.advertiser_id)}
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(advertiserName)}&background=1877F2&color=fff`;
-                  }}
-                />
-
-                <div>
-                  <div
-                    className="font-bold text-[#E4E6EB] text-[20px] cursor-pointer hover:underline flex items-center gap-2"
-                    onClick={() => onProfileClick?.(ad.user_id || ad.advertiser_id)}
-                  >
-                    {advertiserName}
-                    {ad.is_verified && (
-                      <i className="fas fa-check-circle text-[#1877F2] text-[15px]"></i>
-                    )}
-                    {/* SPONSORED BADGE - ONLY WHEN ACTIVE */}
-                    {isActive && (
-                      <span className="bg-[#F7B928] text-black text-[12px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <i className="fas fa-ad text-[10px]"></i>
-                        Sponsored
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center text-[15px] text-[#B0B3B8]">
-                    <span>{formatRelativeTime(ad.created_at)}</span>
-                    <span>•</span>
-                    <i className="fas fa-globe-americas text-[14px]"></i>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* TITLE */}
-            {ad.headline && (
-              <div className="px-3 pb-1">
-                <h3 className="text-[#E4E6EB] font-bold text-[22px]">
-                  {ad.headline}
-                </h3>
-              </div>
-            )}
-
-            {/* DESCRIPTION */}
-            {ad.description && (
-              <div className="px-3 pb-3 text-[#B0B3B8] text-[17px]">
-                {ad.description}
-              </div>
-            )}
-
-            {/* MEDIA */}
-            {mediaUrl && (
-              <div 
-                onClick={isActive ? handleClick : undefined}
-                className={`w-full bg-black ${isActive ? 'cursor-pointer' : ''}`}
-              >
-                <img
-                  src={mediaUrl}
-                  alt={ad.headline || 'Sponsored'}
-                  className="w-full max-h-[500px] object-cover"
-                  loading="lazy"
-                  onError={() => setImageError(true)}
-                />
-              </div>
-            )}
-
-            {/* CTA BUTTON - Only when active */}
-            {isActive && (ad.destination_url || ad.cta_url) && (
-              <div className="px-3 py-2">
-                <button
-                  onClick={handleClick}
-                  className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors text-[17px]"
-                >
-                  {ad.cta_text || 'Learn More'}
-                </button>
-              </div>
-            )}
-
-            {/* ENGAGEMENT METRICS */}
-            <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
-              <div className="flex items-center gap-2">
-                {originalReactionCount > 0 && (
-                  <div
-                    className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                    onClick={() => setShowReactionsSheet(true)}
-                  >
-                    <div className="flex -space-x-2">
-                      <span className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]">
-                        👍
-                      </span>
-                    </div>
-                    <span className="text-[17px] text-[#E4E6EB] font-bold">
-                      {fmtCount(originalReactionCount)}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex gap-4">
-                {originalCommentCount > 0 && (
-                  <span
-                    className="hover:underline cursor-pointer text-[16px]"
-                    onClick={() => onOpenComments?.(ad)}
-                  >
-                    {fmtCount(originalCommentCount)} Discussions
-                  </span>
-                )}
-                {originalShareCount > 0 && (
-                  <span className="hover:underline text-[16px]">
-                    {fmtCount(originalShareCount)} Shares
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* ACTION BUTTONS */}
-            <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-              <ReactionButton
-                currentUserReactions={ad.my_reaction}
-                reactionCount={originalReactionCount}
-                onReact={handleReactClick}
-                isGuest={!currentUser}
-              />
-              
-              <button
-                type="button"
-                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                onClick={() => onOpenComments?.(ad)}
-              >
-                <DiscussSignalIcon size={28} color="#1877F2" />
-                <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-                  Discuss
-                </span>
-              </button>
-              
-              <button
-                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                onClick={() => {
-                  if (!currentUser) {
-                    alert('Please login to share posts.');
-                    return;
-                  }
-                  setShowShareSheet(true);
-                }}
-              >
-                <i className="fas fa-share text-[22px]"></i>
-                <span className="text-[19px] font-bold">Share</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-        </div>
-
-        <ShareBottomSheet
-          isOpen={showShareSheet}
-          onClose={() => setShowShareSheet(false)}
-          post={{
-            ...ad,
-            source: isActive ? 'sponsored' : 'post',
-            item_type: isActive ? 'sponsored' : 'post',
-          }}
-          currentUser={currentUser}
-          users={[]}
-          groups={[]}
-          brands={[]}
-          chats={[]}
-          onShareComplete={handleShareComplete}
-        />
-
-        <ReactionsSheet
-          isOpen={showReactionsSheet}
-          onClose={() => setShowReactionsSheet(false)}
-          postId={ad.id}
-          onProfileClick={(id) => onProfileClick?.(id)}
-          onOpenComments={() => onOpenComments?.(ad)}
-        />
-      </>
-    );
-  },
-  (prev, next) => {
-    return (
-      prev.ad?.id === next.ad?.id &&
-      prev.currentUser?.id === next.currentUser?.id &&
-      prev.isActive === next.isActive
-    );
-  }
-);
-/**
- * =========================
- * ✅ MAIN POST COMPONENT
+ * ✅ MAIN POST COMPONENT (with integrated sponsored support)
  * =========================
  */
 export const Post = memo(
@@ -4716,6 +4420,48 @@ export const Post = memo(
     const a: any = author as any;
     const meta: any = p?.meta || {};
 
+    // ==================== SPONSORED DETECTION ====================
+    const isSponsored = !!p?.is_sponsored || !!meta?.is_sponsored || !!meta?.sponsored_meta;
+    const sponsoredMeta = p?.sponsored_meta || meta?.sponsored_meta || null;
+    const sponsoredAdId = Number(sponsoredMeta?.ad_id || 0);
+    const sponsoredCtaText = String(sponsoredMeta?.cta_text || 'Learn More').trim();
+    const sponsoredCtaUrl = String(sponsoredMeta?.cta_url || '').trim();
+    const sponsoredHeadline = String(sponsoredMeta?.headline || '').trim();
+
+    // ==================== SPONSORED IMPRESSION TRACKING ====================
+    const sponsoredImpressionTrackedRef = useRef(false);
+    useEffect(() => {
+      if (!isSponsored || !currentUser || !sponsoredAdId) return;
+      if (sponsoredImpressionTrackedRef.current) return;
+      sponsoredImpressionTrackedRef.current = true;
+      fetch('/api/ads/impression', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': String(currentUser.id),
+        },
+        body: JSON.stringify({ ad_id: sponsoredAdId }),
+      }).catch((err) => console.error('Failed to record sponsored impression:', err));
+    }, [isSponsored, currentUser, sponsoredAdId]);
+
+    // ==================== SPONSORED CLICK HANDLER ====================
+    const handleSponsoredClick = useCallback(() => {
+      if (!isSponsored || !sponsoredAdId) return;
+      if (currentUser) {
+        fetch('/api/ads/click', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': String(currentUser.id),
+          },
+          body: JSON.stringify({ ad_id: sponsoredAdId }),
+        }).catch((err) => console.error('Failed to record sponsored click:', err));
+      }
+      if (sponsoredCtaUrl) {
+        window.open(sponsoredCtaUrl, '_blank', 'noopener,noreferrer');
+      }
+    }, [isSponsored, sponsoredAdId, currentUser, sponsoredCtaUrl]);
+
     const isMarketplace =
       p?.type === 'marketplace' ||
       p?.post_type === 'product' ||
@@ -4737,6 +4483,7 @@ export const Post = memo(
       !!p?.event_id ||
       !!meta?.event;
 
+    // If it's an event post, render EventPost component
     if (isEventPost) {
       const event = normalizeEventFromFeed(p);
       return (
@@ -4941,14 +4688,26 @@ export const Post = memo(
       <>
         <div className="w-full relative">
           <div className="bg-[#242526] w-full overflow-hidden">
+            {/* HEADER SECTION - Group Post vs Regular Post */}
             {isGroupPost ? (
-              <GroupPostHeader
-                post={p}
-                group={group}
-                author={a}
-                onOpenGroup={(id) => onOpenGroup?.(id)}
-                onOpenProfile={(id) => onProfileClick(id)}
-              />
+              <>
+                <GroupPostHeader
+                  post={p}
+                  group={group}
+                  author={a}
+                  onOpenGroup={(id) => onOpenGroup?.(id)}
+                  onOpenProfile={(id) => onProfileClick(id)}
+                />
+                {/* Sponsored badge for group posts */}
+                {isSponsored && (
+                  <div className="px-3 md:px-4 pb-2">
+                    <span className="inline-flex items-center gap-1 bg-[#F7B928] text-black text-[12px] font-bold px-2 py-0.5 rounded-full">
+                      <i className="fas fa-ad text-[10px]"></i>
+                      Sponsored
+                    </span>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="p-3 md:p-4 flex items-center justify-between">
                 <div
@@ -4967,6 +4726,13 @@ export const Post = memo(
                       </h4>
                       {a.is_verified && (
                         <i className="fas fa-check-circle text-[#1877F2] text-[15px]"></i>
+                      )}
+                      {/* SPONSORED BADGE - Integrated into regular header */}
+                      {isSponsored && (
+                        <span className="bg-[#F7B928] text-black text-[12px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <i className="fas fa-ad text-[10px]"></i>
+                          Sponsored
+                        </span>
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[15px]">
@@ -5030,6 +4796,16 @@ export const Post = memo(
               </div>
             )}
 
+            {/* SPONSORED HEADLINE - Show if present and different from original content */}
+            {sponsoredHeadline && sponsoredHeadline !== String(p.content || '').trim() && (
+              <div className="px-3 md:px-4 pb-1">
+                <h3 className="text-[#E4E6EB] font-bold text-[22px]">
+                  {sponsoredHeadline}
+                </h3>
+              </div>
+            )}
+
+            {/* MARKETPLACE BADGE */}
             {isMarketplace && (
               <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
                 <span className="text-[#1877F2] font-bold text-[15px] bg-[#1877F2]/10 px-2 py-1 rounded-full">
@@ -5044,6 +4820,7 @@ export const Post = memo(
               </div>
             )}
 
+            {/* POST CONTENT */}
             {p.content && !isMarketplace && (
               <div className="px-3 md:px-4 pb-2">
                 <ExpandableRichText
@@ -5057,6 +4834,7 @@ export const Post = memo(
               </div>
             )}
 
+            {/* MUSIC/PODCAST PLAYER */}
             {(isMusic || isPodcast) && (
               <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
                 <div className="flex items-center gap-3 p-3">
@@ -5091,6 +4869,7 @@ export const Post = memo(
               </div>
             )}
 
+            {/* LINK PREVIEW */}
             {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
               <div
                 className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
@@ -5124,6 +4903,7 @@ export const Post = memo(
               </div>
             )}
 
+            {/* BACKGROUND POST */}
             {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
               <div
                 className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
@@ -5133,6 +4913,7 @@ export const Post = memo(
               </div>
             )}
 
+            {/* MARKETPLACE RENDERING */}
             {isMarketplace ? (
               <>
                 {mpImages.length > 0 && (
@@ -5171,6 +4952,22 @@ export const Post = memo(
                   </div>
                 )}
 
+                {/* SPONSORED CTA BUTTON - Marketplace Branch */}
+                {isSponsored && sponsoredCtaUrl && (
+                  <div className="px-3 py-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSponsoredClick();
+                      }}
+                      className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors text-[17px]"
+                    >
+                      {sponsoredCtaText}
+                    </button>
+                  </div>
+                )}
+
+                {/* ENGAGEMENT METRICS */}
                 <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
                   <div className="flex items-center gap-2">
                     {finalReactionCount > 0 && (
@@ -5221,6 +5018,7 @@ export const Post = memo(
                   </div>
                 </div>
 
+                {/* ACTION BUTTONS */}
                 <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
                   <ReactionButton
                     currentUserReactions={finalMyReaction}
@@ -5260,6 +5058,7 @@ export const Post = memo(
               </>
             ) : (
               <>
+                {/* IMAGE MEDIA */}
                 {!p.background && imageMedia.length > 0 && (
                   <MediaGrid
                     media={imageMedia.map((m) => ({ url: m.url }))}
@@ -5270,6 +5069,7 @@ export const Post = memo(
                   />
                 )}
 
+                {/* VIDEO MEDIA */}
                 {!p.background && videoMedia.length > 0 && (
                   <div
                     className="cursor-pointer relative h-[500px] bg-black"
@@ -5292,6 +5092,7 @@ export const Post = memo(
                   </div>
                 )}
 
+                {/* AUDIO MEDIA */}
                 {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
                   <div className="my-3">
                     {(() => {
@@ -5405,6 +5206,22 @@ export const Post = memo(
                   </div>
                 )}
 
+                {/* SPONSORED CTA BUTTON - Non-Marketplace Branch */}
+                {isSponsored && sponsoredCtaUrl && (
+                  <div className="px-3 py-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSponsoredClick();
+                      }}
+                      className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors text-[17px]"
+                    >
+                      {sponsoredCtaText}
+                    </button>
+                  </div>
+                )}
+
+                {/* ENGAGEMENT METRICS */}
                 <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
                   <div className="flex items-center gap-2">
                     {finalReactionCount > 0 && (
@@ -5455,6 +5272,7 @@ export const Post = memo(
                   </div>
                 </div>
 
+                {/* ACTION BUTTONS */}
                 <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
                   <ReactionButton
                     currentUserReactions={finalMyReaction}
@@ -5498,6 +5316,7 @@ export const Post = memo(
           <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
         </div>
 
+        {/* SHARE BOTTOM SHEET */}
         <ShareBottomSheet
           isOpen={showShareSheet}
           onClose={() => setShowShareSheet(false)}
@@ -5516,6 +5335,7 @@ export const Post = memo(
           onShareComplete={handleShareComplete}
         />
 
+        {/* REACTIONS SHEET */}
         <ReactionsSheet
           isOpen={showReactionsSheet}
           onClose={() => setShowReactionsSheet(false)}
@@ -5524,6 +5344,7 @@ export const Post = memo(
           onOpenComments={() => onOpenComments(post)}
         />
 
+        {/* GALLERY VIEWER */}
         <GalleryViewer
           isOpen={galleryOpen}
           urls={galleryUrls}
@@ -7116,7 +6937,7 @@ interface FeedProps {
 
 /**
  * =========================
- * ✅ MAIN FEED COMPONENT
+ * ✅ MAIN FEED COMPONENT (NO SPONSORED CARD - ALL POSTS GO THROUGH Post COMPONENT)
  * =========================
  */
 export const Feed = memo(({
@@ -7164,24 +6985,9 @@ export const Feed = memo(({
   return (
     <div className="space-y-2">
       {feedItems.map((item, idx) => {
-        // Check if it's a sponsored post
-        if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
-          const isActive = item.campaign_status === 'active' || 
-                         (item.end_date && new Date(item.end_date) > new Date());
-          
-          return (
-            <SponsoredPostCard
-              key={`sponsored-${item.id}`}
-              ad={item}
-              currentUser={currentUser}
-              onProfileClick={onProfileClick}
-              onReact={(id, type) => onReact(item, type)}
-              onShare={onShare}
-              onOpenComments={(post) => onOpenComments(post)}
-              isActive={isActive}
-            />
-          );
-        }
+        // NOTE: Sponsored posts are NO LONGER handled separately
+        // They flow through the normal Post component and are detected
+        // via isSponsored flag inside the Post component
 
         // Handle reel cards
         if (item.type === 'reel') {
@@ -7196,7 +7002,7 @@ export const Feed = memo(({
           );
         }
 
-        // Handle regular posts
+        // Handle all other posts (including sponsored) through the unified Post component
         const postAuthorId = Number((item as any).user_id);
         const isFollowing = checkIsFollowing?.(postAuthorId) || false;
         
@@ -7204,6 +7010,7 @@ export const Feed = memo(({
         const isAdminUser = currentUser && currentUser.role === 'admin';
         const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
 
+        // Track PYMK and Groups inserts
         const showFirstPymk = peopleYouMayKnow && 
           peopleYouMayKnow.length > 0 &&
           peopleYouMayKnowInsertIndex1 >= 0 &&
@@ -7257,6 +7064,7 @@ export const Feed = memo(({
               ) : undefined}
             />
 
+            {/* People You May Know Grid - FIRST APPEARANCE */}
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
                 users={peopleYouMayKnow}
@@ -7270,6 +7078,7 @@ export const Feed = memo(({
               />
             )}
 
+            {/* People You May Know Grid - SECOND APPEARANCE */}
             {showSecondPymk && (
               <PeopleYouMayKnowGrid
                 users={peopleYouMayKnow}
@@ -7283,6 +7092,7 @@ export const Feed = memo(({
               />
             )}
 
+            {/* Groups You May Join Card */}
             {showGroupsYouMayJoin && (
               <GroupsYouMayJoinCard
                 groups={groupsYouMayJoin}
@@ -7302,6 +7112,7 @@ export const Feed = memo(({
     </div>
   );
 }, (prev, next) => {
+  // Custom comparison for memo
   return prev.feedItems === next.feedItems && 
          prev.currentUser?.id === next.currentUser?.id;
 });
@@ -7312,6 +7123,7 @@ export default Feed;
 export type { FeedProps, PeopleSuggestion, GroupSuggestion, ReelFeedData, FeedEventItem };
 
 export {
+  formatRelativeTime,
   reactionEmoji,
   fmtCount,
   formatReactionText,
