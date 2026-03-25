@@ -1,3 +1,947 @@
+
+// ==================== MEDIA HELPERS ====================
+const getMediaTypeInfo = (post: any) => {
+  const mediaUrl = String(post?.media_url || '');
+  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
+  const typeRaw = String(post?.type || '').toLowerCase();
+
+  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
+  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
+
+  const isImage =
+    typeRaw === 'image' ||
+    mediaTypeRaw === 'image' ||
+    mediaTypeRaw.startsWith('image/') ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(
+      ext
+    );
+
+  const isVideo =
+    typeRaw === 'video' ||
+    mediaTypeRaw === 'video' ||
+    mediaTypeRaw.startsWith('video/') ||
+    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
+
+  const isAudio =
+    typeRaw === 'audio' ||
+    mediaTypeRaw.startsWith('audio/') ||
+    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
+
+  return {
+    mediaUrl,
+    isImage,
+    isVideo,
+    isAudio,
+    extension: ext,
+    mimeType: mediaTypeRaw,
+  };
+};
+
+type NormalizedMedia = {
+  url: string;
+  kind: 'image' | 'video';
+  width?: number;
+  height?: number;
+};
+
+const getPostMediaList = (post: any): NormalizedMedia[] => {
+  const out: NormalizedMedia[] = [];
+
+  const arrUrls: any[] = Array.isArray(post?.media_urls)
+    ? post.media_urls
+    : Array.isArray(post?.images)
+    ? post.images
+    : [];
+
+  for (const u of arrUrls) {
+    const url = String(u || '').trim();
+    if (!url) continue;
+    out.push({
+      url,
+      kind: 'image',
+      width: typeof u === 'object' ? u?.width : undefined,
+      height: typeof u === 'object' ? u?.height : undefined,
+    });
+  }
+
+  const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
+  for (const m of arrMedia) {
+    const url = String(m?.url || m?.media_url || '').trim();
+    if (!url) continue;
+
+    const type = String(m?.type || m?.media_type || '').toLowerCase();
+    const clean = url.split('?')[0].split('#')[0];
+    const ext = clean.split('.').pop()?.toLowerCase() || '';
+
+    const isVideo =
+      type.startsWith('video') ||
+      ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
+
+    out.push({
+      url,
+      kind: isVideo ? 'video' : 'image',
+      width: m?.width,
+      height: m?.height,
+    });
+  }
+
+  if (out.length === 0) {
+    const single = String(post?.media_url || '').trim();
+    if (single) {
+      const info = getMediaTypeInfo(post);
+      if (info.isVideo) out.push({ url: single, kind: 'video' });
+      else if (info.isImage) out.push({ url: single, kind: 'image' });
+    }
+  }
+
+  return out.filter((x) => x.url);
+};
+
+type MediaOrientation = 'portrait' | 'landscape' | 'square';
+
+const getOrientation = (item: {
+  width?: number;
+  height?: number;
+}): MediaOrientation => {
+  const w = Number(item?.width || 0);
+  const h = Number(item?.height || 0);
+
+  if (!w || !h) return 'square';
+
+  const ratio = w / h;
+
+  if (ratio > 1.15) return 'landscape';
+  if (ratio < 0.87) return 'portrait';
+  return 'square';
+};
+
+const classifyOrientations = (
+  media: { width?: number; height?: number }[]
+): MediaOrientation[] => media.map(getOrientation);
+
+// ==================== MEDIA GRID (internal) ====================
+const MediaGrid = memo(
+  ({ media, onOpen }: { media: { url: string }[]; onOpen: (url: string, index: number) => void }) => {
+    const total = Array.isArray(media) ? media.length : 0;
+
+    const [measuredMedia, setMeasuredMedia] = useState(media);
+
+    useEffect(() => {
+      let cancelled = false;
+
+      const run = async () => {
+        const next = await Promise.all(
+          media.map(
+            (item) =>
+              new Promise<{ url: string; width?: number; height?: number }>(
+                (resolve) => {
+                  if (item.width && item.height) {
+                    resolve(item);
+                    return;
+                  }
+
+                  const img = new Image();
+                  img.onload = () => {
+                    resolve({
+                      ...item,
+                      width: img.naturalWidth,
+                      height: img.naturalHeight,
+                    });
+                  };
+                  img.onerror = () => resolve(item);
+                  img.src = item.url;
+                }
+              )
+          )
+        );
+
+        if (!cancelled) {
+          setMeasuredMedia(next);
+        }
+      };
+
+      run();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [media]);
+
+    const visible =
+      total <= 4
+        ? measuredMedia
+        : total === 5
+        ? measuredMedia.slice(0, 5)
+        : measuredMedia.slice(0, 6);
+
+    const extra =
+      total <= 5 ? 0 : total === 6 ? 0 : total - 6;
+
+    const orientations = classifyOrientations(visible);
+
+    const Tile = ({
+      url,
+      index,
+      className,
+      showOverlay = false,
+    }: {
+      url: string;
+      index: number;
+      className: string;
+      showOverlay?: boolean;
+    }) => (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(url, index);
+        }}
+        className={`relative overflow-hidden ${className}`}
+        style={{ borderRadius: 0 }}
+      >
+        <img
+          src={url}
+          alt=""
+          loading="lazy"
+          className="absolute inset-0 w-full h-full object-cover"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          }}
+        />
+
+        {showOverlay && extra > 0 && (
+          <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+            <span className="text-white font-bold text-[34px] leading-none">
+              +{extra}
+            </span>
+          </div>
+        )}
+      </button>
+    );
+
+    if (total === 0) return null;
+
+    if (total === 1) {
+      return (
+        <div className="w-full bg-black">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(visible[0].url, 0);
+            }}
+            className="w-full block"
+          >
+            <img
+              src={visible[0].url}
+              alt=""
+              loading="lazy"
+              className="w-full h-auto max-h-[650px] object-contain"
+            />
+          </button>
+        </div>
+      );
+    }
+
+    if (total === 2) {
+      return (
+        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+          <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
+          <Tile url={visible[1].url} index={1} className="h-[320px] w-full" />
+        </div>
+      );
+    }
+
+    if (total === 3) {
+      return (
+        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+          <Tile url={visible[0].url} index={0} className="h-[420px] w-full" />
+          <div className="grid grid-rows-2 gap-[2px] h-[420px]">
+            <Tile url={visible[1].url} index={1} className="w-full h-full" />
+            <Tile url={visible[2].url} index={2} className="w-full h-full" />
+          </div>
+        </div>
+      );
+    }
+
+    if (total === 4) {
+      return (
+        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+          <Tile url={visible[0].url} index={0} className="h-[260px] w-full" />
+          <Tile url={visible[1].url} index={1} className="h-[260px] w-full" />
+          <Tile url={visible[2].url} index={2} className="h-[260px] w-full" />
+          <Tile url={visible[3].url} index={3} className="h-[260px] w-full" />
+        </div>
+      );
+    }
+
+    if (total === 5) {
+      return (
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
+            <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-[2px]">
+            <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
+            <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
+            <Tile
+              url={visible[4].url}
+              index={4}
+              className="h-[170px] w-full"
+              showOverlay={extra > 0}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Smart 6-image layout based on orientation
+    if (total >= 6) {
+      const first = orientations[0];
+      const second = orientations[1];
+      const third = orientations[2];
+
+      const topPortraitPair = first === 'portrait' && second === 'portrait';
+      const firstLandscape = first === 'landscape' || second === 'landscape';
+      const tallLeft = third === 'portrait';
+
+      // Layout A: Tall left + 3 stacked right - Best when 3rd image is portrait
+      if (tallLeft) {
+        return (
+          <div className="w-full bg-black">
+            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+              <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
+              <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-[2px]">
+              <Tile url={visible[2].url} index={2} className="h-[340px] w-full" />
+              <div className="grid grid-rows-3 gap-[2px] h-[340px]">
+                <Tile url={visible[3].url} index={3} className="w-full h-full" />
+                <Tile url={visible[4].url} index={4} className="w-full h-full" />
+                <Tile
+                  url={visible[5].url}
+                  index={5}
+                  className="w-full h-full"
+                  showOverlay={extra > 0}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Layout B: 2 top large + 4 bottom squares - Better for landscapes/squares
+      if (firstLandscape || !topPortraitPair) {
+        return (
+          <div className="w-full bg-black">
+            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+              <Tile url={visible[0].url} index={0} className="h-[230px] w-full" />
+              <Tile url={visible[1].url} index={1} className="h-[230px] w-full" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-[2px]">
+              <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
+              <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
+              <Tile url={visible[4].url} index={4} className="h-[170px] w-full" />
+              <Tile
+                url={visible[5].url}
+                index={5}
+                className="h-[170px] w-full"
+                showOverlay={extra > 0}
+              />
+            </div>
+          </div>
+        );
+      }
+
+      // Layout C: 1 big left + 2 stacked right on top, then 3 bottom tiles
+      // Good for portrait-heavy first image
+      return (
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
+            <div className="grid grid-rows-2 gap-[2px] h-[320px]">
+              <Tile url={visible[1].url} index={1} className="w-full h-full" />
+              <Tile url={visible[2].url} index={2} className="w-full h-full" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-[2px]">
+            <Tile url={visible[3].url} index={3} className="h-[150px] w-full" />
+            <Tile url={visible[4].url} index={4} className="h-[150px] w-full" />
+            <Tile
+              url={visible[5].url}
+              index={5}
+              className="h-[150px] w-full"
+              showOverlay={extra > 0}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Fallback for any other case (should not reach here)
+    return (
+      <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
+        <Tile url={visible[0].url} index={0} className="h-[180px] w-full" />
+        <Tile url={visible[1].url} index={1} className="h-[180px] w-full" />
+        <Tile url={visible[2].url} index={2} className="h-[180px] w-full" />
+        <Tile url={visible[3].url} index={3} className="h-[180px] w-full" />
+        <Tile url={visible[4].url} index={4} className="h-[180px] w-full" />
+        <Tile
+          url={visible[5].url}
+          index={5}
+          className="h-[180px] w-full"
+          showOverlay={extra > 0}
+        />
+      </div>
+    );
+  },
+  (prev, next) => prev.media === next.media
+);
+
+// ==================== GROUP POST HEADER (internal) ====================
+const GroupPostHeader = memo(
+  ({
+    post,
+    group,
+    author,
+    onOpenGroup,
+    onOpenProfile,
+    onOpenMenu,
+  }: {
+    post: any;
+    group?: any;
+    author?: any;
+    onOpenGroup?: (groupId: number) => void;
+    onOpenProfile?: (userId: number) => void;
+    onOpenMenu?: () => void;
+  }) => {
+    const groupName = safeStr(group?.name || post?.group_name);
+    const groupId = Number(group?.id || post?.group_id || 0);
+    const userName = safeStr(author?.name || post?.name || post?.username);
+    const userId = Number(author?.id || post?.user_id || 0);
+    const groupImg =
+      safeStr(
+        group?.profile_image || group?.avatar || group?.image || post?.group_image
+      ) || '';
+    const userImg =
+      safeStr(author?.profile_image_url || author?.avatar || post?.profile_image_url) ||
+      '';
+    const timeAgo = formatRelativeTime(post?.created_at);
+
+    return (
+      <div className="flex items-start justify-between px-3 pt-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <button
+            className="relative shrink-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (groupId && onOpenGroup) onOpenGroup(groupId);
+            }}
+            title={groupName}
+          >
+            <div className="w-10 h-10 rounded-full bg-[#3A3B3C] overflow-hidden flex items-center justify-center border border-[#4E4F50]">
+              {groupImg ? (
+                <img src={groupImg} className="w-full h-full object-cover" />
+              ) : (
+                <i className="fas fa-users text-[#B0B3B8]" />
+              )}
+            </div>
+
+            <div className="absolute -right-1 -bottom-1 w-5 h-5 rounded-full bg-[#3A3B3C] overflow-hidden border-2 border-[#242526] flex items-center justify-center">
+              {userImg ? (
+                <img src={userImg} className="w-full h-full object-cover" />
+              ) : (
+                <i className="fas fa-user text-[10px] text-[#B0B3B8]" />
+              )}
+            </div>
+          </button>
+
+          <div className="min-w-0">
+            <button
+              className="text-left font-extrabold text-[20px] leading-[1.1] text-[#E4E6EB] truncate hover:underline"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (groupId && onOpenGroup) onOpenGroup(groupId);
+              }}
+            >
+              {groupName || 'Group'}
+            </button>
+
+            <div className="flex items-center gap-2 text-[15px] text-[#B0B3B8] min-w-0">
+              <button
+                className="font-semibold text-[15px] text-[#B0B3B8] hover:underline truncate"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (userId && onOpenProfile) onOpenProfile(userId);
+                }}
+              >
+                {userName || 'User'}
+              </button>
+
+              <span>·</span>
+              <span className="truncate">{timeAgo}</span>
+
+              <span>·</span>
+              <i className="fas fa-users text-[14px]" />
+            </div>
+          </div>
+        </div>
+
+        {/* Right menu - Will be handled by PostMenu component */}
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.post?.id === next.post?.id &&
+      prev.group?.id === next.group?.id &&
+      prev.author?.id === next.author?.id
+    );
+  }
+);
+
+// ==================== EXPANDABLE RICH TEXT (internal) ====================
+const ExpandableRichText = memo(
+  ({
+    text,
+    users,
+    onProfileClick,
+    onHashtagClick,
+    maxWords = 14,
+    fontSizePx = 23,
+    forceExpanded = false,
+  }: {
+    text: string;
+    users?: User[];
+    onProfileClick: (id: number) => void;
+    onHashtagClick?: (tag: string) => void;
+    maxWords?: number;
+    fontSizePx?: number;
+    forceExpanded?: boolean;
+  }) => {
+    const [expanded, setExpanded] = useState(false);
+
+    const words = (text || '').trim().split(/\s+/).filter(Boolean);
+    const isLong = words.length > maxWords;
+
+    const showAll = forceExpanded || expanded || !isLong;
+    const shownText = showAll
+      ? text
+      : words.slice(0, maxWords).join(' ') + '…';
+
+    return (
+      <div
+        style={{ fontSize: `${fontSizePx}px` }}
+        className="text-[#E4E6EB] leading-relaxed"
+      >
+        <RichText
+          text={shownText}
+          users={users}
+          onProfileClick={onProfileClick}
+          onHashtagClick={onHashtagClick}
+        />
+
+        {isLong && !forceExpanded && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }}
+            className="ml-2 font-bold text-[#1877F2] hover:underline text-[16px]"
+          >
+            {expanded ? 'See less' : 'See more'}
+          </button>
+        )}
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.text === next.text &&
+      prev.forceExpanded === next.forceExpanded &&
+      prev.users === next.users
+    );
+  }
+);
+
+// ==================== RICH TEXT (exported) ====================
+export const RichText = ({
+  text,
+  users,
+  onProfileClick,
+  onHashtagClick,
+}: {
+  text: string;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+}) => {
+  if (!text) return null;
+  const parts = text.split(/(#[a-zA-Z0-9_]+|@\w+(?:\s\w+)?)/g);
+
+  return (
+    <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words text-[23px]">
+      {parts.map((part, index) => {
+        if (part.startsWith('@')) {
+          const name = part.substring(1).trim().toLowerCase();
+          const user = users?.find((u: any) => {
+            const un = String(u?.username ?? '').toLowerCase();
+            const nm = String(u?.name ?? '').toLowerCase();
+            return un === name || nm === name;
+          });
+
+          if (user) {
+            return (
+              <span
+                key={index}
+                className="text-[#1877F2] font-semibold cursor-pointer hover:underline text-[23px]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onProfileClick(safeUserId(user));
+                }}
+              >
+                {part}
+              </span>
+            );
+          }
+
+          return (
+            <span
+              key={index}
+              className="text-[#1877F2] font-semibold text-[23px]"
+            >
+              {part}
+            </span>
+          );
+        }
+
+        if (part.startsWith('#')) {
+          return (
+            <span
+              key={index}
+              className="text-[#1877F2] cursor-pointer hover:underline text-[23px]"
+              onClick={(e) => {
+                e.stopPropagation();
+                onHashtagClick && onHashtagClick(part);
+              }}
+            >
+              {part}
+            </span>
+          );
+        }
+
+        return <span key={index} className="text-[23px]">{part}</span>;
+      })}
+    </span>
+  );
+};
+
+/**
+ * =========================
+ * ✅ SPONSORED POST CARD
+ * =========================
+ */
+export const SponsoredPostCard = memo(
+  ({
+    ad,
+    currentUser,
+    onProfileClick,
+    onReact,
+    onShare,
+    onOpenComments,
+    isActive = true,
+  }: {
+    ad: any;
+    currentUser: User | null;
+    onProfileClick?: (id: number) => void;
+    onReact?: (id: number, type: ReactionType) => void;
+    onShare?: (id: number, newShareCount: number) => void;
+    onOpenComments?: (post: any) => void;
+    isActive?: boolean;
+  }) => {
+    const [imageError, setImageError] = useState(false);
+    const [showShareSheet, setShowShareSheet] = useState(false);
+    const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+
+    // Record impression when active
+    useEffect(() => {
+      if (!isActive || !currentUser) return;
+      
+      fetch("/api/ads/impression", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": String(currentUser.id),
+        },
+        body: JSON.stringify({ ad_id: ad.id }),
+      }).catch(err => console.error('Failed to record impression:', err));
+    }, [ad.id, currentUser, isActive]);
+
+    // Handle click
+    const handleClick = () => {
+      if (isActive && currentUser) {
+        fetch("/api/ads/click", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-user-id": String(currentUser.id),
+          },
+          body: JSON.stringify({ ad_id: ad.id }),
+        }).catch(err => console.error('Failed to record click:', err));
+      }
+
+      if (ad.destination_url || ad.cta_url) {
+        window.open(ad.destination_url || ad.cta_url, '_blank', 'noopener,noreferrer');
+      }
+    };
+
+    // Get media URL
+    const mediaUrl = !imageError ? 
+      (ad.media_url || (ad.media_urls && ad.media_urls[0]) || null) : null;
+
+    // Get advertiser name
+    const advertiserName = ad.name || ad.advertiser_name || ad.sponsor_name || 'Sponsored';
+
+    // Get profile image
+    const profileImage = avatarFrom({
+      profile_image_url: ad.profile_image_url || ad.sponsor_image,
+      name: advertiserName,
+    });
+
+    // Get original post metrics
+    const originalReactionCount = Number(
+      ad.original_reactions_count || ad.reactions_count || ad.likes || 0
+    );
+    
+    const originalCommentCount = Number(
+      ad.original_comments_count || ad.comments_count || ad.comments?.length || 0
+    );
+    
+    const originalShareCount = Number(
+      ad.original_shares_count || ad.shares_count || ad.shares || 0
+    );
+
+    const handleReactClick = (type: ReactionType) => {
+      if (!currentUser) {
+        alert('Please login to react.');
+        return;
+      }
+      onReact?.(ad.id, type);
+    };
+
+    const handleShareComplete = (destination: string, data?: any) => {
+      const nextShares = safeNumber(data?.shares ?? data?.share_count, NaN);
+      if (data?.success && Number.isFinite(nextShares)) {
+        onShare?.(ad.id, nextShares);
+      }
+      setShowShareSheet(false);
+    };
+
+    return (
+      <>
+        <div className="w-full">
+          <div className="bg-[#242526] w-full overflow-hidden">
+            {/* HEADER */}
+            <div className="flex items-center justify-between p-3">
+              <div className="flex items-center gap-2">
+                <img
+                  src={profileImage}
+                  className="w-10 h-10 rounded-full object-cover border border-[#3E4042] cursor-pointer"
+                  alt={advertiserName}
+                  onClick={() => onProfileClick?.(ad.user_id || ad.advertiser_id)}
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(advertiserName)}&background=1877F2&color=fff`;
+                  }}
+                />
+
+                <div>
+                  <div
+                    className="font-bold text-[#E4E6EB] text-[20px] cursor-pointer hover:underline flex items-center gap-2"
+                    onClick={() => onProfileClick?.(ad.user_id || ad.advertiser_id)}
+                  >
+                    {advertiserName}
+                    {ad.is_verified && (
+                      <i className="fas fa-check-circle text-[#1877F2] text-[15px]"></i>
+                    )}
+                    {/* SPONSORED BADGE - ONLY WHEN ACTIVE */}
+                    {isActive && (
+                      <span className="bg-[#F7B928] text-black text-[12px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <i className="fas fa-ad text-[10px]"></i>
+                        Sponsored
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center text-[15px] text-[#B0B3B8]">
+                    <span>{formatRelativeTime(ad.created_at)}</span>
+                    <span>•</span>
+                    <i className="fas fa-globe-americas text-[14px]"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* TITLE */}
+            {ad.headline && (
+              <div className="px-3 pb-1">
+                <h3 className="text-[#E4E6EB] font-bold text-[22px]">
+                  {ad.headline}
+                </h3>
+              </div>
+            )}
+
+            {/* DESCRIPTION */}
+            {ad.description && (
+              <div className="px-3 pb-3 text-[#B0B3B8] text-[17px]">
+                {ad.description}
+              </div>
+            )}
+
+            {/* MEDIA */}
+            {mediaUrl && (
+              <div 
+                onClick={isActive ? handleClick : undefined}
+                className={`w-full bg-black ${isActive ? 'cursor-pointer' : ''}`}
+              >
+                <img
+                  src={mediaUrl}
+                  alt={ad.headline || 'Sponsored'}
+                  className="w-full max-h-[500px] object-cover"
+                  loading="lazy"
+                  onError={() => setImageError(true)}
+                />
+              </div>
+            )}
+
+            {/* CTA BUTTON - Only when active */}
+            {isActive && (ad.destination_url || ad.cta_url) && (
+              <div className="px-3 py-2">
+                <button
+                  onClick={handleClick}
+                  className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-3 rounded-lg transition-colors text-[17px]"
+                >
+                  {ad.cta_text || 'Learn More'}
+                </button>
+              </div>
+            )}
+
+            {/* ENGAGEMENT METRICS */}
+            <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+              <div className="flex items-center gap-2">
+                {originalReactionCount > 0 && (
+                  <div
+                    className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => setShowReactionsSheet(true)}
+                  >
+                    <div className="flex -space-x-2">
+                      <span className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]">
+                        👍
+                      </span>
+                    </div>
+                    <span className="text-[17px] text-[#E4E6EB] font-bold">
+                      {fmtCount(originalReactionCount)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-4">
+                {originalCommentCount > 0 && (
+                  <span
+                    className="hover:underline cursor-pointer text-[16px]"
+                    onClick={() => onOpenComments?.(ad)}
+                  >
+                    {fmtCount(originalCommentCount)} Discussions
+                  </span>
+                )}
+                {originalShareCount > 0 && (
+                  <span className="hover:underline text-[16px]">
+                    {fmtCount(originalShareCount)} Shares
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* ACTION BUTTONS */}
+            <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+              <ReactionButton
+                currentUserReactions={ad.my_reaction}
+                reactionCount={originalReactionCount}
+                onReact={handleReactClick}
+                isGuest={!currentUser}
+              />
+              
+              <button
+                type="button"
+                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                onClick={() => onOpenComments?.(ad)}
+              >
+                <DiscussSignalIcon size={28} color="#1877F2" />
+                <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                  Discuss
+                </span>
+              </button>
+              
+              <button
+                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                onClick={() => {
+                  if (!currentUser) {
+                    alert('Please login to share posts.');
+                    return;
+                  }
+                  setShowShareSheet(true);
+                }}
+              >
+                <i className="fas fa-share text-[22px]"></i>
+                <span className="text-[19px] font-bold">Share</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+        </div>
+
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => setShowShareSheet(false)}
+          post={{
+            ...ad,
+            source: isActive ? 'sponsored' : 'post',
+            item_type: isActive ? 'sponsored' : 'post',
+          }}
+          currentUser={currentUser}
+          users={[]}
+          groups={[]}
+          brands={[]}
+          chats={[]}
+          onShareComplete={handleShareComplete}
+        />
+
+        <ReactionsSheet
+          isOpen={showReactionsSheet}
+          onClose={() => setShowReactionsSheet(false)}
+          postId={ad.id}
+          onProfileClick={(id) => onProfileClick?.(id)}
+          onOpenComments={() => onOpenComments?.(ad)}
+        />
+      </>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.ad?.id === next.ad?.id &&
+      prev.currentUser?.id === next.currentUser?.id &&
+      prev.isActive === next.isActive
+    );
+  }
+);
 /**
  * =========================
  * ✅ MAIN POST COMPONENT
