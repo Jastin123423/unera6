@@ -6867,6 +6867,7 @@ export const SuggestedProductsWidget = memo(
 
 // ==================== EXPORTED HELPERS ====================
 export {
+  getMediaTypeInfo,
   getMarketplaceImages,
   getMarketplacePriceLine,
   normalizeEventFromFeed,
@@ -7122,7 +7123,6 @@ export default Feed;
 export type { FeedProps, PeopleSuggestion, GroupSuggestion, ReelFeedData, FeedEventItem };
 
 export {
-  formatRelativeTime,
   reactionEmoji,
   fmtCount,
   formatReactionText,
