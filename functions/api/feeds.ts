@@ -37,12 +37,11 @@ const cleanUrl = (v: any) => {
   const s = String(v ?? "").trim();
   if (!s) return "";
   if (s === "null" || s === "undefined") return "";
-  if (s.startsWith("data:")) return ""; // block base64 in feeds
+  if (s.startsWith("data:")) return "";
   return s;
 };
 
 const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
-  // For URL arrays
   if (Array.isArray(raw)) return raw.map(cleanUrl).filter(Boolean).slice(0, maxItems);
 
   if (typeof raw === "string") {
@@ -66,7 +65,6 @@ const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
 };
 
 const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
-  // For types arrays like ["image","video"] (NOT URLs)
   if (Array.isArray(raw)) {
     return raw
       .map((x) => String(x ?? "").trim())
@@ -121,9 +119,9 @@ const normalizeMedia = (row: any) => {
 
   return {
     media_url: single || null,
-    media_urls: outUrls, // ✅ ALWAYS array
-    media_types: outTypes, // ✅ ALWAYS array (best-effort)
-    images: outUrls, // ✅ alias for your UI
+    media_urls: outUrls,
+    media_types: outTypes,
+    images: outUrls,
   };
 };
 
@@ -160,7 +158,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const reactionUserId = userId || 0;
 
     const limit = clamp(toInt(url.searchParams.get("limit"), 20), 1, 50);
-    const cursor = url.searchParams.get("cursor"); // older-than created_at
+    const cursor = url.searchParams.get("cursor");
     const seed = toInt(url.searchParams.get("seed"), 1);
     const seen = parseSeenIds(url.searchParams.get("seen"), 250);
     const debug = url.searchParams.get("debug") === "1";
@@ -255,7 +253,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE p.media_types
         END AS media_types,
 
-        -- ✅ NEW: comments count for feed cards
         (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
 
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
@@ -334,6 +331,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
+
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status,
 
         NULL AS type,
         NULL AS post_type,
@@ -440,6 +443,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_audio_url,
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
+
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status,
 
         NULL AS type,
         NULL AS post_type,
@@ -565,6 +574,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status,
+
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
@@ -677,6 +692,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         pc.audio_url AS podcast_audio_url,
         pc.cover_url AS podcast_cover_url,
         COALESCE(pc.plays_count, 0) AS podcast_plays_count,
+
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status,
 
         NULL AS type,
         NULL AS post_type,
@@ -901,19 +922,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             END
         END AS media_type,
 
-        -- ✅ multi media stored in gp.media_urls (JSON text)
         CASE
           WHEN gp.media_urls LIKE 'data:%' THEN NULL
           WHEN length(gp.media_urls) > 5000 THEN NULL
           ELSE gp.media_urls
         END AS media_urls,
 
-        -- if you add gp.media_types later, select it here
         NULL AS media_types,
 
-        0 AS comments_count,
+        (SELECT COUNT(*) FROM group_post_comments gpc WHERE gpc.group_post_id = gp.id) AS comments_count,
 
-        -- ✅ reactions like posts (group_post_reactions)
         (SELECT COUNT(*) FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id) AS reactions_count,
         (SELECT gpr.type FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id AND gpr.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -995,6 +1013,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status,
+
         NULL AS type,
         NULL AS post_type,
         NULL AS kind,
@@ -1061,14 +1085,59 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         pr.images AS media_urls,
         NULL AS media_types,
 
-        0 AS comments_count,
+        (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = pr.id) AS comments_count,
 
-        0 AS reactions_count,
-        NULL AS my_reaction,
+        (SELECT COUNT(*) FROM product_reactions prr WHERE prr.product_id = pr.id) AS reactions_count,
+        (SELECT prr.type FROM product_reactions prr WHERE prr.product_id = pr.id AND prr.user_id = ? LIMIT 1) AS my_reaction,
 
-        NULL AS reactor_name,
-        NULL AS reactions_preview,
-        NULL AS reactions_by_type,
+        (
+          SELECT COALESCE(u2.name, u2.username, '')
+          FROM product_reactions pr2
+          JOIN users u2 ON u2.id = pr2.user_id
+          WHERE pr2.product_id = pr.id
+          ORDER BY pr2.created_at DESC, pr2.id DESC
+          LIMIT 1
+        ) AS reactor_name,
+
+        (
+          SELECT json_group_array(
+            json_object(
+              'user_id', x.user_id,
+              'type', x.type,
+              'name', x.name,
+              'profile_image_url', x.profile_image_url
+            )
+          )
+          FROM (
+            SELECT
+              pr3.user_id AS user_id,
+              LOWER(COALESCE(pr3.type,'like')) AS type,
+              COALESCE(u3.name, u3.username, '') AS name,
+              CASE
+                WHEN u3.profile_image_url LIKE 'data:%' THEN NULL
+                WHEN length(u3.profile_image_url) > 300 THEN NULL
+                ELSE u3.profile_image_url
+              END AS profile_image_url
+            FROM product_reactions pr3
+            LEFT JOIN users u3 ON u3.id = pr3.user_id
+            WHERE pr3.product_id = pr.id
+            ORDER BY pr3.created_at DESC, pr3.id DESC
+            LIMIT 30
+          ) x
+        ) AS reactions_preview,
+
+        (
+          SELECT json_group_array(
+            json_object('type', t.type, 'count', t.c)
+          )
+          FROM (
+            SELECT LOWER(COALESCE(type,'like')) AS type, COUNT(*) AS c
+            FROM product_reactions
+            WHERE product_id = pr.id
+            GROUP BY LOWER(COALESCE(type,'like'))
+            ORDER BY c DESC
+          ) t
+        ) AS reactions_by_type,
 
         NULL AS video_url,
         NULL AS caption,
@@ -1095,11 +1164,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status,
+
         'marketplace' AS type,
         'product' AS post_type,
         'product' AS kind,
-        pr.id AS product_id,
-
         json_object(
           'kind','product',
           'type','product',
@@ -1153,18 +1226,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 9) SPONSORED / ADS POSTS - MODIFIED WITH is_sponsored FLAG
+    // 9) BOOSTED POSTS FROM ADS TABLE
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
 
-    // Only show active ads
     whereAds.push(`a.status = 'active'`);
+    whereAds.push(`a.post_id IS NOT NULL`);
 
     if (cursor && cursor.trim()) {
       whereAds.push(`a.created_at < ?`);
       bindsAds.push(cursor.trim());
     }
+
     if (seen.length > 0) {
       whereAds.push(`a.id NOT IN (${seen.map(() => "?").join(",")})`);
       bindsAds.push(...seen);
@@ -1174,16 +1248,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const baseSelectAds = `
       SELECT
-        'sponsored' AS source,
-        'sponsored' AS item_type,
-        1 AS is_sponsored,  -- ✅ ADDED: Flag for frontend to identify sponsored posts
+        'post' AS source,
+        'post' AS item_type,
 
-        a.id AS id,
-        ('ad:' || CAST(a.id AS TEXT)) AS feed_key,
+        p.id AS id,
+        ('ad_post:' || CAST(a.id AS TEXT) || ':' || CAST(p.id AS TEXT)) AS feed_key,
 
-        a.created_at AS created_at,
+        COALESCE(a.created_at, p.created_at) AS created_at,
 
-        NULL AS post_id,
+        p.id AS post_id,
         NULL AS reel_id,
         NULL AS song_id2,
         NULL AS podcast_id,
@@ -1191,49 +1264,106 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS group_post_id,
         NULL AS product_id2,
 
-        a.advertiser_id AS user_id,
-        COALESCE(u.username, 'advertiser') AS username,
-        COALESCE(u.name, u.username, 'Sponsored') AS name,
+        p.user_id AS user_id,
+        COALESCE(u.username, 'user') AS username,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
           ELSE u.profile_image_url
         END AS profile_image_url,
         COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'business') AS role,
+        COALESCE(u.role, 'user') AS role,
 
-        -- Ad content using your schema's column names
-        a.title AS headline,
-        a.title AS content,
-        a.description AS description,
-        a.cta_button AS cta_text,
-        a.destination_url AS cta_url,
-        a.contact_type AS cta_type,
+        COALESCE(NULLIF(a.description, ''), p.content) AS content,
+        COALESCE(p.visibility, 'Public') AS visibility,
+        COALESCE(p.views, 0) AS views,
+        COALESCE(p.shares, 0) AS shares,
 
-        'public' AS visibility,
-        a.impressions AS views,
-        0 AS shares,
+        CASE
+          WHEN COALESCE(a.media_url, p.media_url) LIKE 'data:%' THEN NULL
+          WHEN length(COALESCE(a.media_url, p.media_url)) > 300 THEN NULL
+          ELSE COALESCE(a.media_url, p.media_url)
+        END AS media_url,
 
-        a.media_url AS media_url,
-        a.media_type AS media_type,
+        COALESCE(
+          NULLIF(a.media_type, ''),
+          NULLIF(p.media_type, ''),
+          'image'
+        ) AS media_type,
 
-        a.media_urls AS media_urls,
-        a.media_types AS media_types,
+        CASE
+          WHEN COALESCE(a.media_urls, p.media_urls) LIKE 'data:%' THEN NULL
+          WHEN length(COALESCE(a.media_urls, p.media_urls)) > 5000 THEN NULL
+          ELSE COALESCE(a.media_urls, p.media_urls)
+        END AS media_urls,
 
-        0 AS comments_count,
-        0 AS reactions_count,
-        NULL AS my_reaction,
-        NULL AS reactor_name,
-        NULL AS reactions_preview,
-        NULL AS reactions_by_type,
+        CASE
+          WHEN length(COALESCE(a.media_types, p.media_types)) > 5000 THEN NULL
+          ELSE COALESCE(a.media_types, p.media_types)
+        END AS media_types,
 
-        CASE WHEN a.media_type LIKE '%video%' THEN a.media_url ELSE NULL END AS video_url,
-        a.description AS caption,
+        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
+
+        (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
+        (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
+
+        (
+          SELECT COALESCE(u2.name, u2.username, '')
+          FROM post_reactions pr2
+          JOIN users u2 ON u2.id = pr2.user_id
+          WHERE pr2.post_id = p.id
+          ORDER BY pr2.created_at DESC, pr2.id DESC
+          LIMIT 1
+        ) AS reactor_name,
+
+        (
+          SELECT json_group_array(
+            json_object(
+              'user_id', x.user_id,
+              'type', x.type,
+              'name', x.name,
+              'profile_image_url', x.profile_image_url
+            )
+          )
+          FROM (
+            SELECT
+              pr3.user_id AS user_id,
+              LOWER(COALESCE(pr3.type,'like')) AS type,
+              COALESCE(u3.name, u3.username, '') AS name,
+              CASE
+                WHEN u3.profile_image_url LIKE 'data:%' THEN NULL
+                WHEN length(u3.profile_image_url) > 300 THEN NULL
+                ELSE u3.profile_image_url
+              END AS profile_image_url
+            FROM post_reactions pr3
+            LEFT JOIN users u3 ON u3.id = pr3.user_id
+            WHERE pr3.post_id = p.id
+            ORDER BY pr3.created_at DESC, pr3.id DESC
+            LIMIT 30
+          ) x
+        ) AS reactions_preview,
+
+        (
+          SELECT json_group_array(
+            json_object('type', t.type, 'count', t.c)
+          )
+          FROM (
+            SELECT LOWER(COALESCE(type,'like')) AS type, COUNT(*) AS c
+            FROM post_reactions
+            WHERE post_id = p.id
+            GROUP BY LOWER(COALESCE(type,'like'))
+            ORDER BY c DESC
+          ) t
+        ) AS reactions_by_type,
+
+        NULL AS video_url,
+        NULL AS caption,
         NULL AS song_name,
         NULL AS audio_url,
         0 AS audio_start,
         0 AS audio_end,
-        a.target_location AS location,
+        NULL AS location,
         NULL AS sound_key,
         NULL AS sound_id,
 
@@ -1252,30 +1382,39 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        'sponsored' AS type,
-        'ad' AS post_type,
-        'ad' AS kind,
+        NULL AS event_date,
+        NULL AS event_description,
+        NULL AS attending_count,
+        NULL AS interested_count,
+        NULL AS my_rsvp_status,
 
+        'post' AS type,
+        'post' AS post_type,
+        'post' AS kind,
         json_object(
-          'kind','ad',
-          'type','sponsored',
-          'ad_id', a.id,
-          'advertiser_id', a.advertiser_id,
-          'campaign_name', a.campaign_name
+          'kind','post',
+          'type','post',
+          'post_id', p.id,
+          'is_sponsored', 1,
+          'sponsored_meta', json_object(
+            'ad_id', a.id,
+            'advertiser_id', a.advertiser_id,
+            'campaign_name', a.campaign_name,
+            'headline', a.title,
+            'cta_text', a.cta_button,
+            'cta_url', a.destination_url,
+            'contact_type', a.contact_type,
+            'phone_number', a.phone_number,
+            'email_address', a.email_address
+          )
         ) AS meta,
-
-        'Sponsored' AS reason,
-        a.campaign_name AS campaign_name,
-
-        a.target_location AS target_location,
-        a.target_country AS target_country,
-        a.target_city AS target_city,
 
         NULL AS group_id,
         NULL AS group_name,
         NULL AS group_image
       FROM ads a
-      LEFT JOIN users u ON u.id = a.advertiser_id
+      JOIN posts p ON p.id = a.post_id
+      LEFT JOIN users u ON u.id = p.user_id
     `;
 
     // ============================================================
@@ -1326,15 +1465,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const freshProductsFeedRes = await env.DB.prepare(
       `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY pr.created_at DESC LIMIT ?`
     )
-      .bind(...bindsProductsFeed, freshCount)
+      .bind(reactionUserId, ...bindsProductsFeed, freshCount)
       .all();
     const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results) ? freshProductsFeedRes.results : [];
 
-    // ✅ FRESH ADS QUERY
     const freshAdsRes = await env.DB.prepare(
       `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
     )
-      .bind(...bindsAds, Math.min(3, freshCount))
+      .bind(reactionUserId, ...bindsAds, Math.min(3, freshCount))
       .all();
     const freshAds = Array.isArray(freshAdsRes?.results) ? freshAdsRes.results : [];
 
@@ -1400,15 +1538,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       const exploreProductsFeedRes = await env.DB.prepare(
         `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
       )
-        .bind(...bindsProductsFeed, exploreCount)
+        .bind(reactionUserId, ...bindsProductsFeed, exploreCount)
         .all();
       exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results) ? exploreProductsFeedRes.results : [];
 
-      // ✅ EXPLORE ADS QUERY
       const exploreAdsRes = await env.DB.prepare(
         `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
       )
-        .bind(...bindsAds, Math.min(2, exploreCount))
+        .bind(reactionUserId, ...bindsAds, Math.min(2, exploreCount))
         .all();
       exploreAds = Array.isArray(exploreAdsRes?.results) ? exploreAdsRes.results : [];
 
@@ -1440,7 +1577,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...freshEvents,
       ...freshGroupPosts,
       ...freshProductsFeed,
-      ...freshAds,           // ✅ Include fresh ads
+      ...freshAds,
       ...explorePosts,
       ...exploreReels,
       ...exploreSongs,
@@ -1448,7 +1585,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...exploreEvents,
       ...exploreGroupPosts,
       ...exploreProductsFeed,
-      ...exploreAds,         // ✅ Include explore ads
+      ...exploreAds,
     ];
 
     for (const row of allFeedRows) {
@@ -1474,16 +1611,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const nextCursor = oldest?.created_at ?? null;
     const orderedRaw = seededShuffle(merged, seed);
 
-    // ✅ Normalize media for ALL feed items
     const ordered = orderedRaw.map((item: any) => ({
       ...item,
       ...normalizeMedia(item),
-      // ensure numeric count
       comments_count: Number((item as any)?.comments_count ?? 0),
+      reactions_count: Number((item as any)?.reactions_count ?? 0),
     }));
 
     // ============================================================
-    // Merge + dedup PRODUCTS (separate list) + normalize images
+    // Merge + dedup PRODUCTS (separate list)
     // ============================================================
     const productMap = new Map<number, any>();
     for (const row of [...freshProducts, ...exploreProducts]) {
@@ -1550,7 +1686,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             events: freshEvents.length,
             groupPosts: freshGroupPosts.length,
             productsFeed: freshProductsFeed.length,
-            ads: freshAds.length,
+            boostedPosts: freshAds.length,
             products: freshProducts.length,
           },
           explore: {
@@ -1561,7 +1697,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             events: exploreEvents.length,
             groupPosts: exploreGroupPosts.length,
             productsFeed: exploreProductsFeed.length,
-            ads: exploreAds.length,
+            boostedPosts: exploreAds.length,
             products: exploreProducts.length,
           },
         },
