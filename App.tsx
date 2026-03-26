@@ -50,6 +50,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { TrendingUp } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
+import { buildImageUploadBundle } from '../utils/imageCompression';
 import {
   User,
   Post as PostType,
@@ -129,7 +130,7 @@ const getFeedItemType = (item: any): string => {
 };
 
 /**
- * Get feed item ID based on type
+ * Get feed item ID based on type - ALWAYS returns numeric ID
  */
 const getFeedItemId = (item: any): number => {
   if (!item || typeof item !== 'object') return 0;
@@ -153,24 +154,23 @@ const getFeedItemId = (item: any): number => {
 };
 
 /**
- * ✅ HYBRID: Defensive getFeedIdentity that handles all input types
+ * Get feed key for mixed-feed identification (post:123, reel:456, etc.)
  */
-const getFeedIdentity = (item: any): string => {
+const getFeedKey = (item: any): string => {
   if (!item) return "";
   
   // Handle string input (already a key)
   if (typeof item === "string") return item;
   
-  // Handle number input (treat as post ID)
-  if (typeof item === "number") return `post:${item}`;
-  
   // Handle object with feed_key
   if (item?.feed_key) return String(item.feed_key);
   
-  // Handle object with id
+  // Generate feed_key from type and numeric ID
   if (item?.id) {
     try {
-      return `${getFeedItemType(item)}:${getFeedItemId(item)}`;
+      const type = getFeedItemType(item);
+      const id = getFeedItemId(item);
+      return `${type}:${id}`;
     } catch {
       return `post:${item.id}`;
     }
@@ -180,21 +180,22 @@ const getFeedIdentity = (item: any): string => {
 };
 
 /**
- * ✅ HYBRID: Safe item comparison
+ * Safe item comparison using numeric IDs
  */
 const isSameFeedItem = (a: any, b: any): boolean => {
   if (!a || !b) return false;
   
-  try {
-    const aKey = getFeedIdentity(a);
-    const bKey = getFeedIdentity(b);
-    
-    if (aKey && bKey && aKey === bKey) return true;
-  } catch {
-    // Fall through to ID comparison
-  }
+  // Compare by numeric ID first
+  const aId = getFeedItemId(a);
+  const bId = getFeedItemId(b);
+  if (aId && bId && aId === bId) return true;
   
-  return Number(a?.id) === Number(b?.id);
+  // Fallback to feed_key comparison
+  const aKey = getFeedKey(a);
+  const bKey = getFeedKey(b);
+  if (aKey && bKey && aKey === bKey) return true;
+  
+  return false;
 };
 
 /** ---------- Type for People You May Know suggestions ---------- */
@@ -3727,7 +3728,7 @@ export default function App() {
           if (!feedHydrated) setFeedHydrated(true);
 
           if (activeCommentsIdentity != null) {
-            const found = ordered.find((p: any) => getFeedIdentity(p) === activeCommentsIdentity);
+            const found = ordered.find((p: any) => getFeedKey(p) === activeCommentsIdentity);
             if (found) setCommentPostSnapshot(found);
           }
 
@@ -3761,7 +3762,7 @@ export default function App() {
         if (!feedHydrated) setFeedHydrated(true);
 
         if (activeCommentsIdentity != null) {
-          const found = normalized.find((x: any) => getFeedIdentity(x) === activeCommentsIdentity);
+          const found = normalized.find((x: any) => getFeedKey(x) === activeCommentsIdentity);
           if (found) setCommentPostSnapshot(found);
         }
       } catch {
@@ -5059,12 +5060,12 @@ export default function App() {
   const activePost = useMemo(() => {
     if (activeCommentsIdentity == null) return null;
 
-    if (commentPostSnapshot && getFeedIdentity(commentPostSnapshot) === activeCommentsIdentity) {
+    if (commentPostSnapshot && getFeedKey(commentPostSnapshot) === activeCommentsIdentity) {
       return commentPostSnapshot;
     }
 
     const source = view === 'profile' ? profilePosts : posts;
-    return source.find((p: any) => getFeedIdentity(p) === activeCommentsIdentity) || null;
+    return source.find((p: any) => getFeedKey(p) === activeCommentsIdentity) || null;
   }, [posts, profilePosts, view, activeCommentsIdentity, commentPostSnapshot]);
 
   const profileUser = useMemo(() => {
@@ -5349,7 +5350,9 @@ export default function App() {
     navigateTo(target);
   }, [currentUser, navigateTo, openProfile]);
 
-  // Create post
+  // ============================================================================
+  // ✅ UPDATED CREATE POST - With image compression for thumb/feed/full URLs
+  // ============================================================================
   const createPost = useCallback(
     async (
       text: string,
@@ -5371,33 +5374,70 @@ export default function App() {
 
       const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
 
-      let media_urls: string[] = [];
+      let media_urls: any[] = [];
       let media_types: string[] = [];
+      let media_url: string | null = null;
+      let media_type: string | null = null;
 
-      if (list.length) {
-        try {
+      try {
+        // IMAGE POSTS -> compress in browser, upload bundled thumb/feed/full
+        if (meta?.type === 'image' && list.length) {
+          const uploadedItems = await Promise.all(
+            list.map(async (file) => {
+              const bundle = await buildImageUploadBundle(file);
+              const form = new FormData();
+              form.append('thumbnail', bundle.thumb);
+              form.append('feed', bundle.feed);
+              form.append('original', bundle.full);
+
+              const data = await apiFetch('/api/upload', {
+                method: 'POST',
+                body: form,
+              });
+
+              const thumb = data?.uploaded?.thumbnail?.url || data?.media_urls?.thumb || '';
+              const feed = data?.uploaded?.feed?.url || data?.media_urls?.feed || '';
+              const full = data?.uploaded?.original?.url || data?.media_urls?.full || data?.url || '';
+
+              if (!feed) {
+                throw new Error('Image upload failed: missing feed URL');
+              }
+
+              return {
+                thumb,
+                feed,
+                full: full || feed,
+                type: 'image',
+              };
+            })
+          );
+
+          // store rich objects in media_urls so feed can use thumb/feed/full
+          media_urls = uploadedItems;
+          media_types = uploadedItems.map(() => 'image');
+          media_url = uploadedItems[0]?.feed || null;
+          media_type = 'image';
+        }
+        // NON-IMAGE POSTS -> keep old upload flow
+        else if (list.length) {
           const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
           media_urls = ups.map((u) => u.url).filter(Boolean);
           media_types = ups.map((u) => u.type).filter(Boolean);
-        } catch (error: any) {
-          setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
-          return;
+          media_url = media_urls[0] ?? null;
+          media_type = media_types[0] ?? null;
         }
+      } catch (error: any) {
+        setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
+        return;
       }
-
-      const media_url = media_urls[0] ?? null;
-      const media_type = media_types[0] ?? null;
 
       const payload: any = {
         user_id: currentUser!.id,
         content: trimmed,
-
         media_url,
         media_type,
-
         media_urls: media_urls.length ? media_urls : undefined,
         media_types: media_types.length ? media_types : undefined,
-
         visibility: meta?.visibility ?? 'public',
         location: meta?.location,
         feeling: meta?.feeling,
@@ -5407,20 +5447,26 @@ export default function App() {
         type: (() => {
           const t = media_type || media_types[0] || null;
           if (!t) return meta?.type || 'text';
-          if (t.startsWith('image/')) return 'image';
-          if (t.startsWith('video/')) return 'video';
-          if (t.startsWith('audio/')) return 'audio';
+          if (typeof t === 'string' && t.startsWith('image')) return 'image';
+          if (typeof t === 'string' && t.startsWith('video')) return 'video';
+          if (typeof t === 'string' && t.startsWith('audio')) return 'audio';
           return meta?.type || 'text';
         })(),
       };
 
-      const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
+      const data = await apiFetch('/api/posts', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
 
-      const newPostRaw =
-        data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
+      const newPostRaw = data?.post ?? {
+        ...payload,
+        post_id: data?.post_id ?? data?.id ?? Date.now(),
+        created_at: new Date().toISOString(),
+      };
 
-      (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
-      (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
+      (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : media_url ? [media_url] : []);
+      (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : media_type ? [media_type] : []);
 
       const normalized = normalizePost(newPostRaw);
 
@@ -5675,7 +5721,7 @@ export default function App() {
     let itemType = 'post';
     
     try {
-      identity = getFeedIdentity(item);
+      identity = getFeedKey(item);
       itemId = getFeedItemId(item);
       itemType = getFeedItemType(item);
     } catch (error) {
@@ -5702,7 +5748,7 @@ export default function App() {
     const sourceList = view === 'profile' ? profilePosts : posts;
     const previousItem = safeArray(sourceList).find((p: any) => {
       try {
-        return getFeedIdentity(p) === identity;
+        return getFeedKey(p) === identity;
       } catch {
         return Number(p?.id) === itemId;
       }
@@ -5713,7 +5759,7 @@ export default function App() {
     const replaceItem = (list: any[], replacement: any) => 
       safeArray(list).map(p => {
         try {
-          if (getFeedIdentity(p) === identity) return replacement;
+          if (getFeedKey(p) === identity) return replacement;
         } catch {
           if (Number(p?.id) === itemId) return replacement;
         }
@@ -5762,7 +5808,7 @@ export default function App() {
 
         const applyServerTruth = (p: any) => {
           try {
-            if (getFeedIdentity(p) !== identity) return p;
+            if (getFeedKey(p) !== identity) return p;
           } catch {
             if (Number(p?.id) !== itemId) return p;
           }
@@ -5791,7 +5837,7 @@ export default function App() {
       // Restore previous state on failure
       setPosts(prev => replaceItem(prev, previousItem));
       setProfilePosts(prev => replaceItem(prev, previousItem));
-      setCommentPostSnapshot(prev => prev && getFeedIdentity(prev) === identity ? previousItem : prev);
+      setCommentPostSnapshot(prev => prev && getFeedKey(prev) === identity ? previousItem : prev);
     } finally {
       setReacting(identity, false);
     }
@@ -5861,7 +5907,7 @@ export default function App() {
     let id = 0;
     
     try {
-      identity = getFeedIdentity(item);
+      identity = getFeedKey(item);
       type = getFeedItemType(item);
       id = getFeedItemId(item);
     } catch {
@@ -5976,7 +6022,7 @@ export default function App() {
       const updatePostsWithComment = (postsList: any[]) => {
         return postsList.map(post => {
           try {
-            if (getFeedIdentity(post) !== identity) return post;
+            if (getFeedKey(post) !== identity) return post;
           } catch {
             if (Number(post?.id) !== id) return post;
           }
@@ -6238,7 +6284,7 @@ export default function App() {
     
     let identity = '';
     try {
-      identity = getFeedIdentity(item);
+      identity = getFeedKey(item);
     } catch {
       identity = `post:${item?.id}`;
     }
@@ -6249,7 +6295,7 @@ export default function App() {
     let found = null;
     
     try {
-      found = source.find((p: any) => getFeedIdentity(p) === identity) || null;
+      found = source.find((p: any) => getFeedKey(p) === identity) || null;
     } catch {
       found = source.find((p: any) => Number(p?.id) === Number(item?.id)) || null;
     }
@@ -6269,7 +6315,7 @@ export default function App() {
     let id = 0;
     
     try {
-      identity = getFeedIdentity(item);
+      identity = getFeedKey(item);
       id = getFeedItemId(item);
     } catch {
       identity = `post:${item?.id}`;
@@ -6281,7 +6327,7 @@ export default function App() {
     const updateCommentsInPosts = (postsList: any[]) => {
       return postsList.map(post => {
         try {
-          if (getFeedIdentity(post) !== identity) return post;
+          if (getFeedKey(post) !== identity) return post;
         } catch {
           if (Number(post?.id) !== id) return post;
         }
@@ -7481,3 +7527,4 @@ export default function App() {
     </div>
   );
 }
+ 
