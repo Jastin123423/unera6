@@ -48,7 +48,6 @@ import {
   faBullhorn, 
   faChartBar 
 } from '@fortawesome/free-solid-svg-icons';
-import { TrendingUp } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
 import { buildImageUploadBundle } from './utils/imageCompression';
 import {
@@ -651,26 +650,48 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
   )}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
 };
 
-/**
- * Normalize raw D1 rows to UI-safe PostType shape
- */
+// ============================================================================
+// ✅ SAFE normalizePost - Handles both string URLs and object-based media
+// ============================================================================
 const normalizePost = (p: any): PostType => {
-  const mediaUrls =
-    Array.isArray(p?.media_urls) ? p.media_urls :
-    typeof p?.media_urls === "string" ? (() => { try { return JSON.parse(p.media_urls); } catch { return []; } })() :
-    Array.isArray(p?.mediaUrls) ? p.mediaUrls :
-    typeof p?.mediaUrls === "string" ? (() => { try { return JSON.parse(p.mediaUrls); } catch { return []; } })() :
-    [];
+  const parseMaybeJson = (v: any) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === "string") {
+      try {
+        return JSON.parse(v);
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
 
-  const mediaTypes =
-    Array.isArray(p?.media_types) ? p.media_types :
-    typeof p?.media_types === "string" ? (() => { try { return JSON.parse(p.media_types); } catch { return []; } })() :
-    Array.isArray(p?.mediaTypes) ? p.mediaTypes :
-    typeof p?.mediaTypes === "string" ? (() => { try { return JSON.parse(p.mediaTypes); } catch { return []; } })() :
-    [];
+  const rawMediaUrls = Array.isArray(p?.media_urls) || typeof p?.media_urls === "string"
+    ? parseMaybeJson(p.media_urls)
+    : Array.isArray(p?.mediaUrls) || typeof p?.mediaUrls === "string"
+    ? parseMaybeJson(p.mediaUrls)
+    : [];
 
-  const mediaType = p?.media_type ?? p?.mediaType ?? (mediaTypes[0] ?? null);
-  const mediaUrl = p?.media_url ?? p?.mediaUrl ?? (mediaUrls[0] ?? null);
+  const rawMediaTypes = Array.isArray(p?.media_types) || typeof p?.media_types === "string"
+    ? parseMaybeJson(p.media_types)
+    : Array.isArray(p?.mediaTypes) || typeof p?.mediaTypes === "string"
+    ? parseMaybeJson(p.mediaTypes)
+    : [];
+
+  const normalizedMediaUrls = Array.isArray(rawMediaUrls) ? rawMediaUrls : [];
+  const normalizedMediaTypes = Array.isArray(rawMediaTypes) ? rawMediaTypes : [];
+
+  const firstMediaItem = normalizedMediaUrls[0] ?? null;
+  const firstMediaUrl = typeof firstMediaItem === "string"
+    ? firstMediaItem
+    : firstMediaItem && typeof firstMediaItem === "object"
+    ? firstMediaItem.feed || firstMediaItem.feed_url || firstMediaItem.full || firstMediaItem.full_url || firstMediaItem.thumb || firstMediaItem.thumbnail_url || null
+    : null;
+
+  const firstMediaType = normalizedMediaTypes[0] ?? (firstMediaItem && typeof firstMediaItem === "object" ? firstMediaItem.type || "image" : null);
+
+  const mediaType = p?.media_type ?? p?.mediaType ?? firstMediaType ?? null;
+  const mediaUrl = p?.media_url ?? p?.mediaUrl ?? firstMediaUrl ?? null;
 
   const resolvedId = safeNumber(p?.id ?? p?.post_id ?? p?.postId ?? p?.postID);
 
@@ -685,6 +706,8 @@ const normalizePost = (p: any): PostType => {
       event_id: p?.event_id || p?.meta?.event_id,
       media_url: p?.meta?.event?.cover_url || mediaUrl,
       media_type: 'image',
+      media_urls: normalizedMediaUrls.length ? normalizedMediaUrls : (mediaUrl ? [mediaUrl] : []),
+      media_types: normalizedMediaTypes.length ? normalizedMediaTypes : ['image'],
       meta: {
         kind: 'event',
         event_id: p?.event_id || p?.meta?.event_id,
@@ -703,6 +726,15 @@ const normalizePost = (p: any): PostType => {
     } as any;
   }
 
+  const inferredType = p?.type ?? (() => {
+    const t = String(mediaType || '').toLowerCase();
+    if (!t) return 'post';
+    if (t.startsWith('image')) return 'image';
+    if (t.startsWith('video')) return 'video';
+    if (t.startsWith('audio')) return 'audio';
+    return 'post';
+  })();
+
   return {
     ...p,
     id: resolvedId,
@@ -712,24 +744,16 @@ const normalizePost = (p: any): PostType => {
     media_url: mediaUrl,
     media_type: mediaType,
 
-    media_urls: mediaUrls.length ? mediaUrls : (mediaUrl ? [mediaUrl] : []),
-    media_types: mediaTypes.length ? mediaTypes : (mediaType ? [mediaType] : []),
+    // IMPORTANT: keep objects if they are objects
+    media_urls: normalizedMediaUrls.length ? normalizedMediaUrls : (mediaUrl ? [mediaUrl] : []),
+    media_types: normalizedMediaTypes.length ? normalizedMediaTypes : (mediaType ? [mediaType] : []),
 
     reactions: safeArray(p?.reactions),
     comments: safeArray(p?.comments),
     shares: safeNumber(p?.shares),
     views: safeNumber(p?.views),
     visibility: p?.visibility ?? 'public',
-    type:
-      p?.type ??
-      (() => {
-        const t = mediaType || mediaTypes[0] || null;
-        if (!t) return 'post';
-        if (t.startsWith('image/')) return 'image';
-        if (t.startsWith('video/')) return 'video';
-        if (t.startsWith('audio/')) return 'audio';
-        return 'post';
-      })(),
+    type: inferredType,
     
     created_at: p?.created_at ?? p?.createdAt ?? new Date().toISOString(),
     
@@ -741,6 +765,99 @@ const normalizePost = (p: any): PostType => {
 
     meta: parseJSON(p?.meta) || null,
   } as any;
+};
+
+// ============================================================================
+// ✅ SAFE getPostMediaList - Handles all media types safely
+// ============================================================================
+const getPostMediaList = (post: PostType): Array<{ 
+  url: string; 
+  type: string; 
+  thumb?: string; 
+  feed?: string; 
+  full?: string; 
+}> => {
+  if (!post) return [];
+  
+  const parseMaybeJsonArray = (value: any): any[] => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+  
+  const mediaUrls = parseMaybeJsonArray((post as any).media_urls);
+  const mediaTypes = parseMaybeJsonArray((post as any).media_types);
+  
+  // Rich object media: { thumb, feed, full } or variants
+  if (mediaUrls.length > 0 && typeof mediaUrls[0] === 'object' && mediaUrls[0] !== null) {
+    return mediaUrls
+      .map((item: any, index: number) => {
+        const thumb = item.thumb || item.thumbnail_url || item.url || '';
+        const feed = item.feed || item.feed_url || item.url || item.full || item.full_url || '';
+        const full = item.full || item.full_url || item.feed || item.feed_url || item.url || '';
+        const fallbackType = item.type || mediaTypes[index] || 
+          (String(feed || full).match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' : 
+           String(feed || full).match(/\.(mp3|wav|m4a|ogg)(\?|$)/i) ? 'audio' : 'image');
+        const url = feed || full || thumb;
+        
+        return {
+          url,
+          type: fallbackType,
+          thumb: thumb || url,
+          feed: feed || url,
+          full: full || url,
+        };
+      })
+      .filter((item) => !!item.url);
+  }
+  
+  // Plain string media URLs
+  if (mediaUrls.length > 0 && typeof mediaUrls[0] === 'string') {
+    return mediaUrls
+      .map((url: string, index: number) => {
+        const cleanUrl = String(url || '').trim();
+        if (!cleanUrl) return null;
+        const fallbackType = mediaTypes[index] || 
+          (cleanUrl.match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' : 
+           cleanUrl.match(/\.(mp3|wav|m4a|ogg)(\?|$)/i) ? 'audio' : 'image');
+        
+        return {
+          url: cleanUrl,
+          type: fallbackType,
+          thumb: cleanUrl,
+          feed: cleanUrl,
+          full: cleanUrl,
+        };
+      })
+      .filter(Boolean) as Array<{ url: string; type: string; thumb?: string; feed?: string; full?: string; }>;
+  }
+  
+  // Single media fallback
+  if ((post as any).media_url && typeof (post as any).media_url === 'string') {
+    const singleUrl = String((post as any).media_url).trim();
+    if (singleUrl) {
+      const mediaType = (post as any).media_type || 
+        (singleUrl.match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' : 
+         singleUrl.match(/\.(mp3|wav|m4a|ogg)(\?|$)/i) ? 'audio' : 'image');
+      
+      return [{
+        url: singleUrl,
+        type: mediaType,
+        thumb: singleUrl,
+        feed: singleUrl,
+        full: singleUrl,
+      }];
+    }
+  }
+  
+  return [];
 };
 
 /** Event normalization helpers */
