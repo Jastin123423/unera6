@@ -50,7 +50,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { TrendingUp } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
-import { buildImageUploadBundle } from '../utils/imageCompression';
+import { buildImageUploadBundle } from './utils/imageCompression';
 import {
   User,
   Post as PostType,
