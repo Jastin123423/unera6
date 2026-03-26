@@ -1,4 +1,3 @@
-// functions/api/posts.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
 
 type Env = { DB: D1Database };
@@ -12,7 +11,11 @@ const corsHeaders = {
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
   });
 
 const safeString = (v: any) => (typeof v === "string" ? v : "");
@@ -26,7 +29,8 @@ const toInt = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+const clamp = (n: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, n));
 
 const isHttpUrl = (v: any) => {
   if (typeof v !== "string") return false;
@@ -39,11 +43,26 @@ const isHttpUrl = (v: any) => {
 };
 
 const normalizeStringArray = (v: any): string[] => {
-  if (Array.isArray(v)) return v.map((x) => String(x || "").trim()).filter(Boolean);
+  if (Array.isArray(v)) {
+    return v.map((x) => String(x || "").trim()).filter(Boolean);
+  }
   if (typeof v === "string") {
     try {
       const parsed = JSON.parse(v);
-      if (Array.isArray(parsed)) return parsed.map((x) => String(x || "").trim()).filter(Boolean);
+      if (Array.isArray(parsed)) {
+        return parsed.map((x) => String(x || "").trim()).filter(Boolean);
+      }
+    } catch {}
+  }
+  return [];
+};
+
+const normalizeMediaMetaArray = (v: any): any[] => {
+  if (Array.isArray(v)) return v.filter(Boolean);
+  if (typeof v === "string") {
+    try {
+      const parsed = JSON.parse(v);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
     } catch {}
   }
   return [];
@@ -59,16 +78,27 @@ export const onRequestOptions: PagesFunction = async () =>
 
 /**
  * POST /api/posts
- * Creates a normal post (unchanged behavior)
+ * Creates a normal post
+ * Supports:
+ * - single media_url/media_type
+ * - multiple media_urls/media_types
+ * - optional media_meta (thumb/feed/full objects)
  */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    if (!env.DB) return json({ error: "D1 binding missing. Set Pages D1 binding name to DB." }, 500);
+    if (!env.DB) {
+      return json(
+        { error: "D1 binding missing. Set Pages D1 binding name to DB." },
+        500
+      );
+    }
 
     const body = await request.json().catch(() => ({} as any));
 
     const user_id = safeNumber(body.user_id, 0);
-    if (!user_id) return json({ error: "Login required (user_id missing)." }, 401);
+    if (!user_id) {
+      return json({ error: "Login required (user_id missing)." }, 401);
+    }
 
     const content = safeString(body.content).trim();
 
@@ -76,77 +106,140 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const media_url = body.media_url ?? null;
     const media_type = body.media_type ?? null;
 
-    // multi media (new)
+    // multi media
     const media_urls_arr = normalizeStringArray(body.media_urls);
     const media_types_arr = normalizeStringArray(body.media_types);
 
-    // Validate and filter multi URLs
+    // rich media meta (optional)
+    const media_meta_arr = normalizeMediaMetaArray(body.media_meta);
+
+    // Validate and filter simple multi URLs
     const filtered_urls = media_urls_arr
       .filter((u) => !String(u).startsWith("data:"))
       .filter((u) => isHttpUrl(u));
 
-    // Keep types aligned (best-effort)
+    // Keep types aligned
     const filtered_types: string[] = [];
     for (let i = 0; i < filtered_urls.length; i++) {
       const t = String(media_types_arr[i] || "").trim();
       filtered_types.push(t || "");
     }
 
-    // If multi provided but single missing, set single = first (compat)
+    // If media_meta was sent, extract feed urls from it as compatibility fallback
+    const mediaMetaFeedUrls = media_meta_arr
+      .map((item: any) =>
+        String(
+          item?.feed ||
+            item?.feed_url ||
+            item?.url ||
+            item?.full ||
+            item?.full_url ||
+            ""
+        ).trim()
+      )
+      .filter((u: string) => isHttpUrl(u));
+
+    const mediaMetaTypes = media_meta_arr.map((item: any) =>
+      String(item?.type || "image").trim()
+    );
+
+    const final_multi_urls =
+      filtered_urls.length > 0 ? filtered_urls : mediaMetaFeedUrls;
+
+    const final_multi_types =
+      filtered_types.length > 0 ? filtered_types : mediaMetaTypes;
+
+    // If multi provided but single missing, set single = first
     const final_media_url =
       typeof media_url === "string" && media_url.trim().length > 0
         ? media_url
-        : (filtered_urls[0] ?? null);
+        : final_multi_urls[0] ?? null;
 
     const final_media_type =
       typeof media_type === "string" && media_type.trim().length > 0
         ? media_type
-        : (filtered_types[0] ?? null);
+        : final_multi_types[0] ?? null;
 
-    // ✅ Required: content OR any media
-    const hasSingle = typeof final_media_url === "string" && final_media_url.trim().length > 0;
-    const hasMulti = filtered_urls.length > 0;
+    const hasSingle =
+      typeof final_media_url === "string" && final_media_url.trim().length > 0;
+    const hasMulti = final_multi_urls.length > 0;
 
-    if (!content && !hasSingle && !hasMulti) {
-      return json({ error: "content or media_url or media_urls is required" }, 400);
+    if (!content && !hasSingle && !hasMulti && !body.background) {
+      return json(
+        { error: "content or media_url or media_urls is required" },
+        400
+      );
     }
 
-    // ✅ BLOCK base64 uploads
-    if (typeof final_media_url === "string" && final_media_url.startsWith("data:")) {
+    if (
+      typeof final_media_url === "string" &&
+      final_media_url.startsWith("data:")
+    ) {
       return json(
         {
           error: "Media upload not supported in base64.",
-          message: "Upload to R2/Cloudflare Images and store a normal https URL in media_url/media_urls.",
+          message:
+            "Upload to R2/Cloudflare Images and store a normal https URL in media_url/media_urls.",
         },
         413
       );
     }
 
-    // Optional: only allow normal URLs if media_url exists
-    if (typeof final_media_url === "string" && final_media_url.length > 0) {
-      if (!isHttpUrl(final_media_url)) {
-        return json({ error: "media_url must be a valid http/https URL" }, 400);
-      }
+    if (
+      typeof final_media_url === "string" &&
+      final_media_url.length > 0 &&
+      !isHttpUrl(final_media_url)
+    ) {
+      return json({ error: "media_url must be a valid http/https URL" }, 400);
     }
 
-    // store arrays as JSON text in D1
-    const media_urls_json = filtered_urls.length ? JSON.stringify(filtered_urls) : null;
-    const media_types_json = filtered_urls.length ? JSON.stringify(filtered_types) : null;
+    const media_urls_json = final_multi_urls.length
+      ? JSON.stringify(final_multi_urls)
+      : null;
+    const media_types_json = final_multi_types.length
+      ? JSON.stringify(final_multi_types)
+      : null;
+    const media_meta_json = media_meta_arr.length
+      ? JSON.stringify(media_meta_arr)
+      : null;
 
-    const result = await env.DB.prepare(
-      `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        user_id,
-        content || null,
-        final_media_url,
-        final_media_type,
-        media_urls_json,
-        media_types_json,
-        body.visibility ?? "public"
+    // Try insert with media_meta first. If DB column doesn't exist yet, fallback.
+    let result: D1Result<any>;
+    let insertedWithMediaMeta = true;
+
+    try {
+      result = await env.DB.prepare(
+        `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types, media_meta, visibility)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run();
+        .bind(
+          user_id,
+          content || null,
+          final_media_url,
+          final_media_type,
+          media_urls_json,
+          media_types_json,
+          media_meta_json,
+          body.visibility ?? "public"
+        )
+        .run();
+    } catch (e: any) {
+      insertedWithMediaMeta = false;
+      result = await env.DB.prepare(
+        `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types, visibility)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+        .bind(
+          user_id,
+          content || null,
+          final_media_url,
+          final_media_type,
+          media_urls_json,
+          media_types_json,
+          body.visibility ?? "public"
+        )
+        .run();
+    }
 
     const post_id = result.meta?.last_row_id;
 
@@ -162,38 +255,51 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           media_type: final_media_type,
           media_urls: media_urls_json,
           media_types: media_types_json,
+          media_meta: insertedWithMediaMeta ? media_meta_json : null,
           visibility: body.visibility ?? "public",
           created_at: new Date().toISOString(),
           views: 0,
           shares: 0,
           source: "post",
           item_type: "post",
+          feed_key: `post:${post_id}`,
         },
       },
       201
     );
   } catch (err: any) {
-    return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    return json(
+      { error: "Backend crash", message: String(err?.message ?? err) },
+      500
+    );
   }
 };
 
 /**
  * GET /api/posts
- * ✅ RAW ARRAY
- * ✅ Posts + Reels + Songs + Podcasts + Products + Group Posts
- * ✅ viewerId optional (0 for not logged in)
- * ✅ Adds reactor_name (latest reacter username) for post + group_post
+ * Mixed feed for guests and logged users
+ * Returns more variety by overfetching each type before merge/sort/slice.
  */
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    if (!env.DB) return json({ error: "D1 binding missing. Set Pages D1 binding name to DB." }, 500);
+    if (!env.DB) {
+      return json(
+        { error: "D1 binding missing. Set Pages D1 binding name to DB." },
+        500
+      );
+    }
 
     const url = new URL(request.url);
-    const limit = clamp(toInt(url.searchParams.get("limit"), 50), 1, 50);
+    const limit = clamp(toInt(url.searchParams.get("limit"), 50), 1, 80);
     const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
-    // Fetch a bit more per type then merge/sort/slice
-    const perType = clamp(Math.ceil(limit * 1.5), 10, 60);
+    // Bigger guest fetch to show more variety before merge
+    const isGuest = viewerId === 0;
+    const perType = clamp(
+      Math.ceil(limit * (isGuest ? 2.5 : 1.75)),
+      12,
+      120
+    );
 
     // ------------------ POSTS ------------------
     const qPosts = `
@@ -208,26 +314,31 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
-          WHEN length(p.media_url) > 300 THEN NULL
+          WHEN length(p.media_url) > 500 THEN NULL
           ELSE p.media_url
         END AS media_url,
 
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
-          WHEN length(p.media_url) > 300 THEN NULL
+          WHEN length(p.media_url) > 500 THEN NULL
           ELSE p.media_type
         END AS media_type,
 
         CASE
           WHEN p.media_urls LIKE 'data:%' THEN NULL
-          WHEN length(p.media_urls) > 5000 THEN NULL
+          WHEN length(p.media_urls) > 20000 THEN NULL
           ELSE p.media_urls
         END AS media_urls,
 
         CASE
-          WHEN length(p.media_types) > 5000 THEN NULL
+          WHEN length(p.media_types) > 10000 THEN NULL
           ELSE p.media_types
         END AS media_types,
+
+        CASE
+          WHEN length(p.media_meta) > 40000 THEN NULL
+          ELSE p.media_meta
+        END AS media_meta,
 
         p.visibility AS visibility,
         p.created_at AS created_at,
@@ -237,7 +348,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
         (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
 
-        /* ✅ stable "who reacted" name: latest reaction user */
         (
           SELECT COALESCE(ru.username, '')
           FROM post_reactions pr2
@@ -248,7 +358,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         ) AS reactor_name,
 
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -257,7 +367,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        /* extra unified fields */
         NULL AS video_url,
         NULL AS caption,
         NULL AS song_name,
@@ -295,7 +404,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        /* ✅ group fields (null for normal post) */
         NULL AS group_id,
         NULL AS group_name,
         NULL AS group_image
@@ -322,6 +430,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         'video' AS media_type,
         NULL AS media_urls,
         NULL AS media_types,
+        NULL AS media_meta,
 
         r.visibility AS visibility,
         r.created_at AS created_at,
@@ -334,7 +443,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS reactor_name,
 
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -406,6 +515,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         'image' AS media_type,
         NULL AS media_urls,
         NULL AS media_types,
+        NULL AS media_meta,
 
         'public' AS visibility,
         s.created_at AS created_at,
@@ -418,7 +528,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS reactor_name,
 
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -493,6 +603,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         'image' AS media_type,
         NULL AS media_urls,
         NULL AS media_types,
+        NULL AS media_meta,
 
         'public' AS visibility,
         pc.created_at AS created_at,
@@ -505,7 +616,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS reactor_name,
 
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -576,6 +687,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS media_type,
         pr.images AS media_urls,
         NULL AS media_types,
+        NULL AS media_meta,
 
         'public' AS visibility,
         pr.created_at AS created_at,
@@ -588,7 +700,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS reactor_name,
 
         COALESCE(u.username, 'seller') AS username,
-        COALESCE(u.username, 'Seller') AS name,
+        COALESCE(u.name, u.username, 'Seller') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -644,7 +756,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ------------------ GROUP POSTS (✅ adds group_id/name/image) ------------------
+    // ------------------ GROUP POSTS ------------------
     const qGroupPosts = `
       SELECT
         'group_post' AS source,
@@ -684,6 +796,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ELSE NULL
         END AS media_types,
 
+        NULL AS media_meta,
+
         gp.visibility AS visibility,
         gp.created_at AS created_at,
         0 AS views,
@@ -692,7 +806,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         (SELECT COUNT(*) FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id) AS reactions_count,
         (SELECT 'like' FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id AND gpl.user_id = ? LIMIT 1) AS my_reaction,
 
-        /* ✅ latest liker username */
         (
           SELECT COALESCE(lu.username, '')
           FROM group_post_likes gpl2
@@ -703,7 +816,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         ) AS reactor_name,
 
         COALESCE(u.username, 'user') AS username,
-        COALESCE(u.username, 'User') AS name,
+        COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
           WHEN length(u.profile_image_url) > 300 THEN NULL
@@ -754,7 +867,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS podcast_cover_url,
         NULL AS podcast_plays_count,
 
-        /* ✅ Group fields you requested */
         gp.group_id AS group_id,
         COALESCE(g.name, 'Group') AS group_name,
         COALESCE(g.profile_image, g.cover_image, NULL) AS group_image
@@ -767,15 +879,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    const [postsRes, reelsRes, songsRes, podcastsRes, productsRes, groupPostsRes] =
-      await Promise.all([
-        env.DB.prepare(qPosts).bind(viewerId || 0, perType).all(),
-        env.DB.prepare(qReels).bind(viewerId || 0, perType).all(),
-        env.DB.prepare(qSongs).bind(viewerId || 0, perType).all(),
-        env.DB.prepare(qPodcasts).bind(perType).all(),
-        env.DB.prepare(qProducts).bind(perType).all(),
-        env.DB.prepare(qGroupPosts).bind(viewerId || 0, perType).all(),
-      ]);
+    const [
+      postsRes,
+      reelsRes,
+      songsRes,
+      podcastsRes,
+      productsRes,
+      groupPostsRes,
+    ] = await Promise.all([
+      env.DB.prepare(qPosts).bind(viewerId || 0, perType).all(),
+      env.DB.prepare(qReels).bind(viewerId || 0, perType).all(),
+      env.DB.prepare(qSongs).bind(viewerId || 0, perType).all(),
+      env.DB.prepare(qPodcasts).bind(perType).all(),
+      env.DB.prepare(qProducts).bind(perType).all(),
+      env.DB.prepare(qGroupPosts).bind(viewerId || 0, perType).all(),
+    ]);
 
     const items = [
       ...(Array.isArray(postsRes.results) ? postsRes.results : []),
@@ -794,11 +912,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     const merged = Array.from(map.values())
-      .sort((a, b) => normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at)))
+      .sort((a, b) =>
+        normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at))
+      )
       .slice(0, limit);
 
     return json(Array.isArray(merged) ? merged : [], 200);
   } catch (err: any) {
-    return json({ error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    return json(
+      { error: "Backend crash", message: String(err?.message ?? err) },
+      500
+    );
   }
 };
