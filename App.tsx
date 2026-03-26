@@ -50,6 +50,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { TrendingUp } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
+import { buildImageUploadBundle } from '../utils/imageCompression';
 import {
   User,
   Post as PostType,
@@ -1568,6 +1569,12 @@ export default function App() {
   // Navigation history state
   const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
 
+  // ✅ NEW: Loading states for posts and reels
+  const [postsLoaded, setPostsLoaded] = useState(false);
+  const [reelsLoaded, setReelsLoaded] = useState(false);
+  const [shouldRenderFeed, setShouldRenderFeed] = useState(false);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
@@ -2734,6 +2741,149 @@ export default function App() {
     }
   };
 
+  // ============================================================================
+  // ✅ UPDATED createPost with Image Compression (thumb/feed/full URLs)
+  // ============================================================================
+  const createPost = useCallback(
+    async (
+      text: string,
+      files: File[] | File | null,
+      meta?: {
+        type?: 'text' | 'image' | 'video';
+        visibility?: string;
+        location?: string;
+        feeling?: string;
+        taggedUsers?: number[];
+        background?: string;
+        linkPreview?: any;
+      }
+    ) => {
+      if (!requireAuth('Creating posts')) return;
+
+      const trimmed = (text || '').trim();
+      if (!trimmed && !files && !meta?.background) return;
+
+      const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
+      
+      let media_urls: any[] = [];
+      let media_types: string[] = [];
+      let media_url: string | null = null;
+      let media_type: string | null = null;
+
+      try {
+        // ✅ IMAGE POSTS - compress in browser, upload bundled thumb/feed/full
+        if (meta?.type === 'image' && list.length) {
+          const uploadedItems = await Promise.all(
+            list.map(async (file) => {
+              const bundle = await buildImageUploadBundle(file);
+              const form = new FormData();
+              form.append('thumbnail', bundle.thumb);
+              form.append('feed', bundle.feed);
+              form.append('original', bundle.full);
+              
+              const data = await apiFetch('/api/upload', {
+                method: 'POST',
+                body: form,
+              });
+              
+              const thumb = data?.uploaded?.thumbnail?.url || data?.media_urls?.thumb || '';
+              const feed = data?.uploaded?.feed?.url || data?.media_urls?.feed || '';
+              const full = data?.uploaded?.original?.url || data?.media_urls?.full || data?.url || '';
+              
+              if (!feed) {
+                throw new Error('Image upload failed: missing feed URL');
+              }
+              
+              return {
+                thumb,
+                feed,
+                full: full || feed,
+                type: 'image',
+              };
+            })
+          );
+          
+          media_urls = uploadedItems;
+          media_types = uploadedItems.map(() => 'image');
+          media_url = uploadedItems[0]?.feed || null;
+          media_type = 'image';
+        } 
+        // ✅ NON-IMAGE POSTS - keep old upload flow
+        else if (list.length) {
+          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
+          media_urls = ups.map((u) => u.url).filter(Boolean);
+          media_types = ups.map((u) => u.type).filter(Boolean);
+          media_url = media_urls[0] ?? null;
+          media_type = media_types[0] ?? null;
+        }
+      } catch (error: any) {
+        setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
+        return;
+      }
+
+      const payload: any = {
+        user_id: currentUser!.id,
+        content: trimmed,
+        media_url,
+        media_type,
+        media_urls: media_urls.length ? media_urls : undefined,
+        media_types: media_types.length ? media_types : undefined,
+        visibility: meta?.visibility ?? 'public',
+        location: meta?.location,
+        feeling: meta?.feeling,
+        tagged_users: meta?.taggedUsers,
+        background: meta?.background,
+        link_preview: meta?.linkPreview,
+        type: (() => {
+          const t = media_type || media_types[0] || null;
+          if (!t) return meta?.type || 'text';
+          if (typeof t === 'string' && t.startsWith('image')) return 'image';
+          if (typeof t === 'string' && t.startsWith('video')) return 'video';
+          if (typeof t === 'string' && t.startsWith('audio')) return 'audio';
+          return meta?.type || 'text';
+        })(),
+      };
+
+      const data = await apiFetch('/api/posts', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const newPostRaw = data?.post ?? {
+        ...payload,
+        post_id: data?.post_id ?? data?.id ?? Date.now(),
+        created_at: new Date().toISOString(),
+      };
+
+      (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || 
+        (media_urls.length ? media_urls : (media_url ? [media_url] : []));
+      (newPostRaw as any).media_types = (newPostRaw as any).media_types || 
+        (media_types.length ? media_types : (media_type ? [media_type] : []));
+
+      const normalized = normalizePost(newPostRaw);
+
+      setPosts((prev) => {
+        const next = [normalized, ...safeArray(prev)];
+        lastGoodPostsRef.current = next;
+        stableFeedRef.current = next;
+        return next;
+      });
+
+      setProfilePosts((prev) => {
+        if (!currentUser) return prev;
+        const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
+        if (!isMyProfile) return prev;
+        const next = [normalized, ...safeArray(prev)];
+        return next;
+      });
+
+      pushSeenIds([Number((normalized as any).id)]);
+      setShowCreatePostModal(false);
+      scheduleSilentRefresh();
+    },
+    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
+  );
+
   // Navigation function with history tracking
   const navigateTo = useCallback((target: View) => {
     setView(prevView => {
@@ -3166,7 +3316,9 @@ export default function App() {
     }
   }, []);
 
-  // fetchReels
+  // ============================================================================
+  // ✅ UPDATED fetchReels - Mark reels as loaded
+  // ============================================================================
   const fetchReels = useCallback(async () => {
     if (reelsInFlightRef.current) return;
     reelsInFlightRef.current = true;
@@ -3197,11 +3349,13 @@ export default function App() {
       if (requestId !== reelsRequestIdRef.current) return;
       
       setReels(normalizedReels);
+      setReelsLoaded(true); // ✅ Mark reels as loaded
     } catch (error) {
       console.error('Failed to fetch reels:', error);
       if (!isMountedRef.current) return;
       if (requestId !== reelsRequestIdRef.current) return;
       setReels([]);
+      setReelsLoaded(true); // ✅ Mark reels as loaded even on error
     } finally {
       if (requestId === reelsRequestIdRef.current) {
         reelsInFlightRef.current = false;
@@ -3665,6 +3819,9 @@ export default function App() {
     setShowCreateReelModal(true);
   }, []);
 
+  // ============================================================================
+  // ✅ UPDATED fetchPostsForHome - Mark posts as loaded
+  // ============================================================================
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
       if (postsInFlightRef.current) return;
@@ -3683,6 +3840,7 @@ export default function App() {
           if (!rows.length) {
             if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
             if (!feedHydrated) setFeedHydrated(true);
+            setPostsLoaded(true); // ✅ Mark posts as loaded even if empty
             return;
           }
 
@@ -3706,7 +3864,6 @@ export default function App() {
           });
 
           const normalized = rows.map(normalizeFeedRowToPost);
-
           const unseen = normalized.filter((p: any) => !seen.has(Number(p.id)));
           const seenOnes = normalized.filter((p: any) => seen.has(Number(p.id)));
 
@@ -3725,6 +3882,7 @@ export default function App() {
           });
 
           if (!feedHydrated) setFeedHydrated(true);
+          setPostsLoaded(true); // ✅ Mark posts as loaded
 
           if (activeCommentsIdentity != null) {
             const found = ordered.find((p: any) => getFeedIdentity(p) === activeCommentsIdentity);
@@ -3759,6 +3917,7 @@ export default function App() {
         }
 
         if (!feedHydrated) setFeedHydrated(true);
+        setPostsLoaded(true); // ✅ Mark posts as loaded
 
         if (activeCommentsIdentity != null) {
           const found = normalized.find((x: any) => getFeedIdentity(x) === activeCommentsIdentity);
@@ -3767,6 +3926,7 @@ export default function App() {
       } catch {
         if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
         if (!feedHydrated) setFeedHydrated(true);
+        setPostsLoaded(true); // ✅ Mark posts as loaded even on error
       } finally {
         setIsFeedRefreshing(false);
         postsInFlightRef.current = false;
@@ -4721,6 +4881,88 @@ export default function App() {
     [fetchUsersList, fetchPostsForHome, fetchOtherData, fetchReels, fetchSongs, fetchStories]
   );
 
+  // ============================================================================
+  // ✅ NEW: Effect to check when both posts and reels are ready
+  // ============================================================================
+  useEffect(() => {
+    if (postsLoaded && reelsLoaded && !shouldRenderFeed) {
+      // Small delay for smooth transition
+      const timer = setTimeout(() => {
+        setShouldRenderFeed(true);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [postsLoaded, reelsLoaded, shouldRenderFeed]);
+
+  // ============================================================================
+  // ✅ UPDATED feedItems - Only show when both are ready
+  // ============================================================================
+  const feedItems = useMemo<FeedItem[]>(() => {
+    // ✅ If not ready to render, return empty array
+    if (!shouldRenderFeed) return [];
+
+    const postItems = safeArray(rankedPosts).map(post => ({
+      ...post,
+      type: 'post' as const,
+      id: post.id,
+      created_at: post.created_at,
+    }));
+
+    const reelItems = safeArray(reels).map(reel => ({
+      id: `reel-${reel.id}`,
+      type: 'reel' as const,
+      created_at: reel.created_at,
+      reel: {
+        id: reel.id,
+        user_id: reel.userId || reel.user_id,
+        author: reel.author || reel.author_name || 'User',
+        avatar: reel.avatar || reel.author_image,
+        verified: reel.verified || false,
+        video: reel.videoUrl || reel.video_url,
+        thumbnail: reel.thumbnail_url || reel.cover_url,
+        caption: reel.caption,
+        views: reel.views || reel.views_count || 0,
+        likes: reel.likes || reel.reactions?.length || 0,
+        comments: reel.comments?.length || 0,
+        shares: reel.shares || 0,
+        created_at: reel.created_at,
+      }
+    }));
+
+    const adItems = safeArray(ads).map(ad => ({
+      ...ad,
+      type: 'sponsored' as const,
+      id: `ad-${ad.id}`,
+    }));
+
+    // Combine posts and reels
+    let combinedItems = [...postItems, ...reelItems];
+
+    // Shuffle combined items using the same session seed as posts
+    const seed = getOrCreateSessionSeed(currentUser?.id ?? null);
+    combinedItems = seededShuffle(combinedItems, seed);
+
+    // Insert ads every 5 items
+    const merged: FeedItem[] = [];
+    let adIndex = 0;
+
+    for (let i = 0; i < combinedItems.length; i++) {
+      merged.push(combinedItems[i]);
+
+      if ((i + 1) % 5 === 0 && adIndex < adItems.length) {
+        merged.push(adItems[adIndex]);
+        adIndex++;
+      }
+    }
+
+    while (adIndex < adItems.length) {
+      merged.push(adItems[adIndex]);
+      adIndex++;
+    }
+
+    return merged;
+  }, [rankedPosts, reels, ads, currentUser, shouldRenderFeed]);
+
   // Handle physical back button
   useEffect(() => {
     const handleBackButton = (e: PopStateEvent) => {
@@ -4729,7 +4971,6 @@ export default function App() {
     };
 
     window.addEventListener('popstate', handleBackButton);
-    
     window.history.pushState(null, '', window.location.pathname);
 
     return () => {
@@ -4746,7 +4987,9 @@ export default function App() {
     }
   }, [currentUser, fetchMyAds]);
 
-  // Initial data load
+  // ============================================================================
+  // ✅ UPDATED initial data load - Wait for both posts and reels
+  // ============================================================================
   useEffect(() => {
     let mounted = true;
     
@@ -4776,17 +5019,19 @@ export default function App() {
 
       if (!mounted) return;
       
+      // ✅ Wait for both posts and reels to load
       await Promise.all([
         fetchUsersList(),
-        fetchPostsForHome(viewer),
+        fetchPostsForHome(viewer),  // This will set postsLoaded when done
         fetchOtherData(),
-        fetchReels(),
+        fetchReels(),                // This will set reelsLoaded when done
         fetchSongs(),
         fetchStories(),
       ]);
       
       if (!mounted) return;
       setAuthHydrated(true);
+      setInitialLoadComplete(true);
     };
 
     init();
@@ -4991,70 +5236,6 @@ export default function App() {
     if (total < 4) return -1;
     return Math.min(3, total - 1);
   }, [rankedPosts]);
-
-  // Transform feed items
-  const feedItems = useMemo<FeedItem[]>(() => {
-    const postItems = safeArray(rankedPosts).map(post => ({
-      ...post,
-      type: 'post' as const,
-      id: post.id,
-      created_at: post.created_at,
-    }));
-
-    const reelItems = safeArray(reels).map(reel => ({
-      id: `reel-${reel.id}`,
-      type: 'reel' as const,
-      created_at: reel.created_at,
-      reel: {
-        id: reel.id,
-        user_id: reel.userId || reel.user_id,
-        author: reel.author || reel.author_name || 'User',
-        avatar: reel.avatar || reel.author_image,
-        verified: reel.verified || false,
-        video: reel.videoUrl || reel.video_url,
-        thumbnail: reel.thumbnail_url || reel.cover_url,
-        caption: reel.caption,
-        views: reel.views || reel.views_count || 0,
-        likes: reel.likes || reel.reactions?.length || 0,
-        comments: reel.comments?.length || 0,
-        shares: reel.shares || 0,
-        created_at: reel.created_at,
-      }
-    }));
-
-    const adItems = safeArray(ads).map(ad => ({
-      ...ad,
-      type: 'sponsored' as const,
-      id: `ad-${ad.id}`,
-    }));
-
-    // Combine posts and reels
-    let combinedItems = [...postItems, ...reelItems];
-
-    // Shuffle combined items using the same session seed as posts
-    const seed = getOrCreateSessionSeed(currentUser?.id ?? null);
-    combinedItems = seededShuffle(combinedItems, seed);
-
-    // Insert ads every 5 items
-    const merged: FeedItem[] = [];
-    let adIndex = 0;
-
-    for (let i = 0; i < combinedItems.length; i++) {
-      merged.push(combinedItems[i]);
-
-      if ((i + 1) % 5 === 0 && adIndex < adItems.length) {
-        merged.push(adItems[adIndex]);
-        adIndex++;
-      }
-    }
-
-    while (adIndex < adItems.length) {
-      merged.push(adItems[adIndex]);
-      adIndex++;
-    }
-
-    return merged;
-  }, [rankedPosts, reels, ads, currentUser]);
 
   const activePost = useMemo(() => {
     if (activeCommentsIdentity == null) return null;
@@ -5281,6 +5462,9 @@ export default function App() {
     return myFollowing.includes(Number(targetUserId));
   }, [currentUser]);
 
+  // ============================================================================
+  // ✅ UPDATED handleLogout - Reset loading states
+  // ============================================================================
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
     localStorage.removeItem(STORY_SEEN_KEY);
@@ -5326,6 +5510,13 @@ export default function App() {
     setSelectedReelId(null);
     setNavigationHistory(['home']);
     setView('home');
+    
+    // ✅ Reset loading states
+    setPostsLoaded(false);
+    setReelsLoaded(false);
+    setShouldRenderFeed(false);
+    setInitialLoadComplete(false);
+    
     fetchPostsForHome(null).catch(() => {});
     fetchReels().catch(() => {});
   };
@@ -5348,105 +5539,6 @@ export default function App() {
 
     navigateTo(target);
   }, [currentUser, navigateTo, openProfile]);
-
-  // Create post
-  const createPost = useCallback(
-    async (
-      text: string,
-      files: File[] | File | null,
-      meta?: {
-        type?: 'text' | 'image' | 'video';
-        visibility?: string;
-        location?: string;
-        feeling?: string;
-        taggedUsers?: number[];
-        background?: string;
-        linkPreview?: any;
-      }
-    ) => {
-      if (!requireAuth('Creating posts')) return;
-
-      const trimmed = (text || '').trim();
-      if (!trimmed && !files && !meta?.background) return;
-
-      const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
-
-      let media_urls: string[] = [];
-      let media_types: string[] = [];
-
-      if (list.length) {
-        try {
-          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
-          media_urls = ups.map((u) => u.url).filter(Boolean);
-          media_types = ups.map((u) => u.type).filter(Boolean);
-        } catch (error: any) {
-          setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
-          return;
-        }
-      }
-
-      const media_url = media_urls[0] ?? null;
-      const media_type = media_types[0] ?? null;
-
-      const payload: any = {
-        user_id: currentUser!.id,
-        content: trimmed,
-
-        media_url,
-        media_type,
-
-        media_urls: media_urls.length ? media_urls : undefined,
-        media_types: media_types.length ? media_types : undefined,
-
-        visibility: meta?.visibility ?? 'public',
-        location: meta?.location,
-        feeling: meta?.feeling,
-        tagged_users: meta?.taggedUsers,
-        background: meta?.background,
-        link_preview: meta?.linkPreview,
-        type: (() => {
-          const t = media_type || media_types[0] || null;
-          if (!t) return meta?.type || 'text';
-          if (t.startsWith('image/')) return 'image';
-          if (t.startsWith('video/')) return 'video';
-          if (t.startsWith('audio/')) return 'audio';
-          return meta?.type || 'text';
-        })(),
-      };
-
-      const data = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
-
-      const newPostRaw =
-        data?.post ?? { ...payload, post_id: data?.post_id ?? data?.id ?? Date.now(), created_at: new Date().toISOString() };
-
-      (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : (media_url ? [media_url] : []));
-      (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : (media_type ? [media_type] : []));
-
-      const normalized = normalizePost(newPostRaw);
-
-      setPosts((prev) => {
-        const next = [normalized, ...safeArray(prev)];
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
-
-      setProfilePosts((prev) => {
-        if (!currentUser) return prev;
-        const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
-        if (!isMyProfile) return prev;
-
-        const next = [normalized, ...safeArray(prev)];
-        return next;
-      });
-
-      pushSeenIds([Number((normalized as any).id)]);
-
-      setShowCreatePostModal(false);
-      scheduleSilentRefresh();
-    },
-    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
-  );
 
   // Update user details
   const updateUserDetails = useCallback(
@@ -6444,7 +6536,294 @@ export default function App() {
   );
 
   // ============================================================================
-  // ✅ RENDER
+  // ✅ RENDER HOME VIEW with loading state
+  // ============================================================================
+  const renderHomeView = () => (
+    <div className="w-full pt-4 md:px-8 pb-10">
+      <StoryReel
+        stories={orderedStories}
+        onProfileClick={(id) => openProfile(id)}
+        onCreateStory={() => {
+          if (!requireAuth('Creating stories')) return;
+          setShowCreateStoryModal(true);
+        }}
+        onViewStory={openStoryViewer}
+        currentUser={currentUser}
+        onRequestLogin={() => setView('login')}
+        onFollow={followUser}
+        checkIsFollowing={checkIsFollowing}
+        followLoading={followLoading}
+        onFetchViewers={fetchStoryViewers}
+        onReaction={reactToStory}
+        onReply={replyToStory}
+        onToggleMute={() => setStoryMuted(!storyMuted)}
+        muted={storyMuted}
+      />
+
+      {currentUser && (
+        <CreatePost
+          currentUser={currentUser}
+          onProfileClick={(id) => openProfile(id)}
+          onClick={() => {
+            if (!requireAuth('Creating posts')) return;
+            setShowCreatePostModal(true);
+          }}
+          onPhotoClick={handlePhotoClick}
+          onVideoClick={handleVideoClickFromCreate}
+          onCreateEventClick={() => {
+            if (!requireAuth('Creating events')) return;
+            setShowCreateEventModal(true);
+          }}
+        />
+      )}
+
+      {activeHashtag && (
+        <div className="mb-3 px-4">
+          <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
+            <span className="text-[#1877F2] font-semibold">{activeHashtag}</span>
+            <button 
+              onClick={clearHashtag} 
+              className="text-[#B0B3B8] hover:text-white ml-1"
+            >
+              <i className="fas fa-times" />
+            </button>
+          </div>
+          <p className="text-[#B0B3B8] text-xs mt-1">
+            Showing posts with {activeHashtag}
+          </p>
+        </div>
+      )}
+
+      {/* ✅ Show loading state until both posts and reels are ready */}
+      {!shouldRenderFeed ? (
+        <div className="space-y-4 mt-4">
+          <div className="bg-[#242526] rounded-xl p-6 text-center">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#1877F2] mb-3"></div>
+            <p className="text-[#B0B3B8]">Loading your feed...</p>
+          </div>
+          
+          {/* Skeleton loaders for better UX */}
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-[#242526] rounded-xl p-4 animate-pulse">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-[#3A3B3C] rounded-full"></div>
+                  <div className="flex-1">
+                    <div className="h-4 bg-[#3A3B3C] rounded w-32 mb-2"></div>
+                    <div className="h-3 bg-[#3A3B3C] rounded w-24"></div>
+                  </div>
+                </div>
+                <div className="h-40 bg-[#3A3B3C] rounded-lg"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <MarketplaceContext.Provider value={{
+            onViewProduct: (productId) => {
+              const product = products.find(p => Number(p.id) === Number(productId));
+              if (product) {
+                navigateTo('marketplace');
+                setActiveProduct(product);
+              }
+            },
+            getProductData
+          }}>
+            {feedItems.length > 0 ? (
+              feedItems.map((item, idx) => {
+                if (item.type === 'sponsored' || (item as any).ad_type || (item as any).is_sponsored) {
+                  const isActive = (item as any).campaign_status === 'active' || 
+                                   ((item as any).end_date && new Date((item as any).end_date) > new Date());
+                  
+                  return (
+                    <SponsoredPostCard
+                      key={item.id}
+                      ad={item}
+                      currentUser={currentUser}
+                      onProfileClick={openProfile}
+                      onReact={(ad, type) => reactToFeedItem(ad, type)}
+                      onShare={(postId, newShareCount) => {
+                        console.log('Share:', postId, newShareCount);
+                      }}
+                      onOpenComments={(ad) => handleOpenComments(ad)}
+                      isActive={isActive}
+                    />
+                  );
+                }
+
+                if (item.type === 'reel') {
+                  return (
+                    <ReelFeedCard
+                      key={item.id}
+                      reel={item.reel}
+                      onOpen={(reelId) => {
+                        setSelectedReelId(reelId);
+                        navigateTo('reels');
+                      }}
+                      onOpenMenu={(reel) => {
+                        // Handle menu options
+                      }}
+                      onProfileClick={(userId) => {
+                        openProfile(Number(userId));
+                      }}
+                    />
+                  );
+                }
+
+                const postAuthorId = Number((item as any).user_id);
+                const isFollowing = checkIsFollowing(postAuthorId);
+                const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
+                const isAdminUser = currentUser && currentUser.role === 'admin';
+                const showPushButton = isPostOwner || isAdminUser;
+
+                const showFirstPymk = currentUser &&
+                  peopleYouMayKnow.length > 0 &&
+                  peopleYouMayKnowInsertIndex1 >= 0 &&
+                  idx === peopleYouMayKnowInsertIndex1;
+
+                const showSecondPymk = currentUser &&
+                  peopleYouMayKnow.length > 0 &&
+                  peopleYouMayKnowInsertIndex2 >= 0 &&
+                  idx === peopleYouMayKnowInsertIndex2;
+
+                const showGroupsYouMayJoin = currentUser &&
+                  groupsYouMayJoin.length > 0 &&
+                  groupsYouMayJoinInsertIndex >= 0 &&
+                  idx === groupsYouMayJoinInsertIndex;
+
+                return (
+                  <React.Fragment key={getStableItemKey(item, 'post')}>
+                    <Post
+                      post={item as PostType}
+                      author={getPostAuthor(item as PostType)}
+                      currentUser={currentUser}
+                      users={users}
+                      onProfileClick={openProfile}
+                      onReact={(post, type) => reactToFeedItem(post, type)}
+                      onShare={(postId, newShareCount) => {
+                        console.log('Share:', postId, newShareCount);
+                      }}
+                      onViewImage={setFullScreenImage}
+                      onOpenComments={(post) => handleOpenComments(post)}
+                      onVideoClick={handleVideoClick}
+                      onPlayAudioTrack={onPlayTrack}
+                      groups={groups}
+                      brands={brands}
+                      chats={chats}
+                      onHashtagClick={handleHashtagClick}
+                      isFollowing={isFollowing}
+                      onFollow={() => followUser(postAuthorId)}
+                      followLoading={followLoading[postAuthorId] || false}
+                      onViewProductFromPost={openProductFromPost}
+                      onRSVPEvent={onRSVPEvent}
+                      pushButton={showPushButton ? (
+                        <button
+                          onClick={() => pushMore(item.id)}
+                          disabled={pushedPosts[item.id]}
+                          className={`px-3 py-1 rounded-md text-sm font-semibold ml-2 ${
+                            pushedPosts[item.id]
+                              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                              : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+                          }`}
+                        >
+                          {pushedPosts[item.id] ? 'Pushed' : 'Push More'}
+                        </button>
+                      ) : undefined}
+                    />
+
+                    {showFirstPymk && (
+                      <div className="relative">
+                        <PeopleYouMayKnowGrid
+                          users={peopleYouMayKnow}
+                          onFollow={(id: number) => followFromPymk(id)}
+                          currentUser={currentUser}
+                          isLoading={pymkLoading && peopleYouMayKnow.length === 0}
+                          onLoginClick={() => setView('login')}
+                          onProfileClick={openProfile}
+                          title="People You May Know"
+                          maxDisplay={8}
+                        />
+                        
+                        {peopleYouMayKnow[0] && (
+                          <button
+                            onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
+                            className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
+                            aria-label="Hide suggestions"
+                          >
+                            <i className="fas fa-times text-sm" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {showSecondPymk && (
+                      <div className="relative">
+                        <PeopleYouMayKnowGrid
+                          users={peopleYouMayKnow}
+                          onFollow={(id: number) => followFromPymk(id)}
+                          currentUser={currentUser}
+                          isLoading={pymkLoading && peopleYouMayKnow.length === 0}
+                          onLoginClick={() => setView('login')}
+                          onProfileClick={openProfile}
+                          title="More People You May Know"
+                          maxDisplay={8}
+                        />
+                        
+                        {peopleYouMayKnow[0] && (
+                          <button
+                            onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
+                            className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
+                            aria-label="Hide suggestions"
+                          >
+                            <i className="fas fa-times text-sm" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {showGroupsYouMayJoin && (
+                      <GroupsYouMayJoinCard
+                        groups={groupsYouMayJoin}
+                        currentUser={currentUser}
+                        isLoading={gymjLoading && groupsYouMayJoin.length === 0}
+                        onJoin={(groupId: number) => joinFromSuggestion(groupId)}
+                        onLoginClick={() => setView('login')}
+                        onOpenGroup={(groupId: number) => {
+                          navigateTo('groups');
+                        }}
+                        onProfileClick={openProfile}
+                        title="Groups You May Join"
+                        maxDisplay={8}
+                      />
+                    )}
+                  </React.Fragment>
+                );
+              })
+            ) : activeHashtag ? (
+              <div className="text-center py-20 text-[#B0B3B8]">
+                <p>No posts found with {activeHashtag}.</p>
+                <button 
+                  onClick={clearHashtag}
+                  className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
+                >
+                  Clear filter
+                </button>
+              </div>
+            ) : (
+              <div className="text-center py-20 text-[#B0B3B8]">
+                <p>No posts available.</p>
+                {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
+              </div>
+            )}
+          </MarketplaceContext.Provider>
+        </div>
+      )}
+    </div>
+  );
+
+  // ============================================================================
+  // ✅ MAIN RENDER
   // ============================================================================
   return (
     <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
@@ -6495,267 +6874,8 @@ export default function App() {
         )}
 
         <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
-          {view === 'home' && (
-            <div className="w-full pt-4 md:px-8 pb-10">
-              {activeHashtag && (
-                <div className="mb-3 px-4">
-                  <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
-                    <span className="text-[#1877F2] font-semibold">{activeHashtag}</span>
-                    <button 
-                      onClick={clearHashtag} 
-                      className="text-[#B0B3B8] hover:text-white ml-1"
-                    >
-                      <i className="fas fa-times" />
-                    </button>
-                  </div>
-                  <p className="text-[#B0B3B8] text-xs mt-1">
-                    Showing posts with {activeHashtag}
-                  </p>
-                </div>
-              )}
-
-              <StoryReel
-                stories={orderedStories}
-                onProfileClick={(id) => openProfile(id)}
-                onCreateStory={() => {
-                  if (!requireAuth('Creating stories')) return;
-                  setShowCreateStoryModal(true);
-                }}
-                onViewStory={openStoryViewer}
-                currentUser={currentUser}
-                onRequestLogin={() => setView('login')}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-                followLoading={followLoading}
-                onFetchViewers={fetchStoryViewers}
-                onReaction={reactToStory}
-                onReply={replyToStory}
-                onToggleMute={() => setStoryMuted(!storyMuted)}
-                muted={storyMuted}
-              />
-
-              {currentUser && (
-                <CreatePost
-                  currentUser={currentUser}
-                  onProfileClick={(id) => openProfile(id)}
-                  onClick={() => {
-                    if (!requireAuth('Creating posts')) return;
-                    setShowCreatePostModal(true);
-                  }}
-                  onPhotoClick={handlePhotoClick}
-                  onVideoClick={handleVideoClickFromCreate}
-                  onCreateEventClick={() => {
-                    if (!requireAuth('Creating events')) return;
-                    setShowCreateEventModal(true);
-                  }}
-                />
-              )}
-
-              <div className="space-y-2">
-                <MarketplaceContext.Provider value={{
-                  onViewProduct: (productId) => {
-                    const product = products.find(p => Number(p.id) === Number(productId));
-                    if (product) {
-                      navigateTo('marketplace');
-                      setActiveProduct(product);
-                    }
-                  },
-                  getProductData
-                }}>
-                  {feedItems.length > 0 ? (
-                    feedItems.map((item, idx) => {
-                      if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
-                        const isActive = item.campaign_status === 'active' || 
-                                         (item.end_date && new Date(item.end_date) > new Date());
-                        
-                        return (
-                          <SponsoredPostCard
-                            key={item.id}
-                            ad={item}
-                            currentUser={currentUser}
-                            onProfileClick={openProfile}
-                            onReact={(ad, type) => reactToFeedItem(ad, type)}
-                            onShare={(postId, newShareCount) => {
-                              console.log('Share:', postId, newShareCount);
-                            }}
-                            onOpenComments={(ad) => handleOpenComments(ad)}
-                            isActive={isActive}
-                          />
-                        );
-                      }
-
-                      if (item.type === 'reel') {
-                        return (
-                          <ReelFeedCard
-                            key={item.id}
-                            reel={item.reel}
-                            onOpen={(reelId) => {
-                              setSelectedReelId(reelId);
-                              navigateTo('reels');
-                            }}
-                            onOpenMenu={(reel) => {
-                              // Handle menu options
-                            }}
-                            onProfileClick={(userId) => {
-                              openProfile(Number(userId));
-                            }}
-                          />
-                        );
-                      }
-
-                      const postAuthorId = Number((item as any).user_id);
-                      const isFollowing = checkIsFollowing(postAuthorId);
-                      const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
-                      const isAdminUser = currentUser && currentUser.role === 'admin';
-                      const showPushButton = isPostOwner || isAdminUser;
-
-                      const showFirstPymk = currentUser &&
-                        peopleYouMayKnow.length > 0 &&
-                        peopleYouMayKnowInsertIndex1 >= 0 &&
-                        idx === peopleYouMayKnowInsertIndex1;
-
-                      const showSecondPymk = currentUser &&
-                        peopleYouMayKnow.length > 0 &&
-                        peopleYouMayKnowInsertIndex2 >= 0 &&
-                        idx === peopleYouMayKnowInsertIndex2;
-
-                      const showGroupsYouMayJoin = currentUser &&
-                        groupsYouMayJoin.length > 0 &&
-                        groupsYouMayJoinInsertIndex >= 0 &&
-                        idx === groupsYouMayJoinInsertIndex;
-
-                      return (
-                        <React.Fragment key={getStableItemKey(item, 'post')}>
-                          <Post
-                            post={item as PostType}
-                            author={getPostAuthor(item as PostType)}
-                            currentUser={currentUser}
-                            users={users}
-                            onProfileClick={openProfile}
-                            onReact={(post, type) => reactToFeedItem(post, type)}
-                            onShare={(postId, newShareCount) => {
-                              console.log('Share:', postId, newShareCount);
-                            }}
-                            onViewImage={setFullScreenImage}
-                            onOpenComments={(post) => handleOpenComments(post)}
-                            onVideoClick={handleVideoClick}
-                            onPlayAudioTrack={onPlayTrack}
-                            groups={groups}
-                            brands={brands}
-                            chats={chats}
-                            onHashtagClick={handleHashtagClick}
-                            isFollowing={isFollowing}
-                            onFollow={() => followUser(postAuthorId)}
-                            followLoading={followLoading[postAuthorId] || false}
-                            onViewProductFromPost={openProductFromPost}
-                            onRSVPEvent={onRSVPEvent}
-                            pushButton={showPushButton ? (
-                              <button
-                                onClick={() => pushMore(item.id)}
-                                disabled={pushedPosts[item.id]}
-                                className={`px-3 py-1 rounded-md text-sm font-semibold ml-2 ${
-                                  pushedPosts[item.id]
-                                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                    : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-                                }`}
-                              >
-                                {pushedPosts[item.id] ? 'Pushed' : 'Push More'}
-                              </button>
-                            ) : undefined}
-                          />
-
-                          {showFirstPymk && (
-                            <div className="relative">
-                              <PeopleYouMayKnowGrid
-                                users={peopleYouMayKnow}
-                                onFollow={(id: number) => followFromPymk(id)}
-                                currentUser={currentUser}
-                                isLoading={pymkLoading && peopleYouMayKnow.length === 0}
-                                onLoginClick={() => setView('login')}
-                                onProfileClick={openProfile}
-                                title="People You May Know"
-                                maxDisplay={8}
-                              />
-                              
-                              {peopleYouMayKnow[0] && (
-                                <button
-                                  onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
-                                  className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
-                                  aria-label="Hide suggestions"
-                                >
-                                  <i className="fas fa-times text-sm" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-
-                          {showSecondPymk && (
-                            <div className="relative">
-                              <PeopleYouMayKnowGrid
-                                users={peopleYouMayKnow}
-                                onFollow={(id: number) => followFromPymk(id)}
-                                currentUser={currentUser}
-                                isLoading={pymkLoading && peopleYouMayKnow.length === 0}
-                                onLoginClick={() => setView('login')}
-                                onProfileClick={openProfile}
-                                title="More People You May Know"
-                                maxDisplay={8}
-                              />
-                              
-                              {peopleYouMayKnow[0] && (
-                                <button
-                                  onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
-                                  className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
-                                  aria-label="Hide suggestions"
-                                >
-                                  <i className="fas fa-times text-sm" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-
-                          {showGroupsYouMayJoin && (
-                            <GroupsYouMayJoinCard
-                              groups={groupsYouMayJoin}
-                              currentUser={currentUser}
-                              isLoading={gymjLoading && groupsYouMayJoin.length === 0}
-                              onJoin={(groupId: number) => joinFromSuggestion(groupId)}
-                              onLoginClick={() => setView('login')}
-                              onOpenGroup={(groupId: number) => {
-                                navigateTo('groups');
-                              }}
-                              onProfileClick={openProfile}
-                              title="Groups You May Join"
-                              maxDisplay={8}
-                            />
-                          )}
-                        </React.Fragment>
-                      );
-                    })
-                  ) : !feedHydrated ? (
-                    <div className="text-center py-20 text-[#B0B3B8]"></div>
-                  ) : activeHashtag ? (
-                    <div className="text-center py-20 text-[#B0B3B8]">
-                      <p>No posts found with {activeHashtag}.</p>
-                      <button 
-                        onClick={clearHashtag}
-                        className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
-                      >
-                        Clear filter
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-center py-20 text-[#B0B3B8]">
-                      <p>No posts available.</p>
-                      {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
-                    </div>
-                  )}
-                </MarketplaceContext.Provider>
-              </div>
-            </div>
-          )}
-
-          {/* ReelsFeed render */}
+          {view === 'home' && renderHomeView()}
+          
           {view === 'reels' && (
             <ReelsFeed
               reels={safeArray(reels)}
