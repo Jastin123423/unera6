@@ -26,6 +26,7 @@ import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from '../postActionRegistry';
 import { PostMenu } from './Post/PostMenu';
+import { buildImageUploadBundle } from '../utils/imageCompression';
 
 // ==================== ICON COMPONENTS ====================
 const Film: React.FC<{ size?: number; color?: string }> = ({
@@ -179,6 +180,59 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
       <path d="M44 22c2 1 3 3 4 6" />
     </g>
   </svg>
+);
+
+// ==================== PROGRESSIVE IMAGE COMPONENT ====================
+const ProgressiveFeedImage = memo(
+  ({
+    thumb,
+    feed,
+    full,
+    alt = '',
+    className = '',
+    onClick,
+  }: {
+    thumb?: string;
+    feed?: string;
+    full?: string;
+    alt?: string;
+    className?: string;
+    onClick?: () => void;
+  }) => {
+    const initialSrc = thumb || feed || full || '';
+    const [src, setSrc] = useState(initialSrc);
+    const [loadedFeed, setLoadedFeed] = useState(false);
+
+    useEffect(() => {
+      setSrc(initialSrc);
+      setLoadedFeed(false);
+    }, [initialSrc]);
+
+    useEffect(() => {
+      const next = feed || full;
+      if (!next || next === src) return;
+      const img = new Image();
+      img.src = next;
+      img.onload = () => {
+        setSrc(next);
+        setLoadedFeed(true);
+      };
+    }, [feed, full, src]);
+
+    return (
+      <img
+        src={src}
+        alt={alt}
+        onClick={onClick}
+        className={className}
+        style={{
+          transition: 'filter 180ms ease, opacity 180ms ease',
+          filter: loadedFeed ? 'none' : 'blur(0px)',
+        }}
+        loading="lazy"
+      />
+    );
+  }
 );
 
 // ==================== HELPER FUNCTIONS ====================
@@ -3744,62 +3798,111 @@ const getMediaTypeInfo = (post: any) => {
 
 type NormalizedMedia = {
   url: string;
-  kind: 'image' | 'video';
-  width?: number;
-  height?: number;
+  thumb?: string;
+  feed?: string;
+  full?: string;
+  kind: 'image' | 'video' | 'audio';
 };
 
-const getPostMediaList = (post: any): NormalizedMedia[] => {
-  const out: NormalizedMedia[] = [];
+const getPostMediaList = (p: any) => {
+  const out: Array<{
+    url: string;
+    thumb?: string;
+    feed?: string;
+    full?: string;
+    kind: 'image' | 'video' | 'audio';
+  }> = [];
 
-  const arrUrls: any[] = Array.isArray(post?.media_urls)
-    ? post.media_urls
-    : Array.isArray(post?.images)
-    ? post.images
-    : [];
+  const guessKind = (url: string, explicitType?: string) => {
+    const t = String(explicitType || '').toLowerCase();
+    const u = String(url || '').toLowerCase();
+    if (t.includes('video') || u.match(/\.(mp4|webm|mov)(\?|$)/)) return 'video';
+    if (t.includes('audio') || u.match(/\.(mp3|wav|m4a|ogg)(\?|$)/)) return 'audio';
+    return 'image';
+  };
 
-  for (const u of arrUrls) {
-    const url = String(u || '').trim();
-    if (!url) continue;
-    out.push({
-      url,
-      kind: 'image',
-      width: typeof u === 'object' ? u?.width : undefined,
-      height: typeof u === 'object' ? u?.height : undefined,
-    });
-  }
+  try {
+    const rawUrls = p?.media_urls;
+    const rawTypes = p?.media_types;
+    const urls = Array.isArray(rawUrls) ? rawUrls : typeof rawUrls === 'string' ? JSON.parse(rawUrls || '[]') : [];
+    const types = Array.isArray(rawTypes) ? rawTypes : typeof rawTypes === 'string' ? JSON.parse(rawTypes || '[]') : [];
 
-  const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
-  for (const m of arrMedia) {
-    const url = String(m?.url || m?.media_url || '').trim();
-    if (!url) continue;
+    if (Array.isArray(urls)) {
+      urls.forEach((item: any, i: number) => {
+        if (typeof item === 'string') {
+          try {
+            const parsed = JSON.parse(item);
+            if (parsed && typeof parsed === 'object') {
+              const feedUrl = String(parsed.feed || parsed.feed_url || '').trim();
+              const fullUrl = String(parsed.full || parsed.full_url || feedUrl).trim();
+              const thumbUrl = String(parsed.thumb || parsed.thumbnail_url || feedUrl).trim();
+              const mainUrl = feedUrl || fullUrl || thumbUrl;
+              if (!mainUrl) return;
+              out.push({
+                url: mainUrl,
+                thumb: thumbUrl || mainUrl,
+                feed: feedUrl || mainUrl,
+                full: fullUrl || mainUrl,
+                kind: guessKind(mainUrl, types[i]),
+              });
+              return;
+            }
+          } catch {
+            // old plain string URL
+          }
+          const cleanUrl = item.trim();
+          if (!cleanUrl) return;
+          out.push({
+            url: cleanUrl,
+            feed: cleanUrl,
+            full: cleanUrl,
+            kind: guessKind(cleanUrl, types[i]),
+          });
+          return;
+        }
+        if (item && typeof item === 'object') {
+          const thumbUrl = String(item.thumb || item.thumbnail_url || '').trim();
+          const feedUrl = String(item.feed || item.feed_url || '').trim();
+          const fullUrl = String(item.full || item.full_url || '').trim();
+          const mainUrl = feedUrl || fullUrl || thumbUrl;
+          if (!mainUrl) return;
+          out.push({
+            url: mainUrl,
+            thumb: thumbUrl || mainUrl,
+            feed: feedUrl || mainUrl,
+            full: fullUrl || mainUrl,
+            kind: guessKind(mainUrl, item.type || types[i]),
+          });
+        }
+      });
+    }
 
-    const type = String(m?.type || m?.media_type || '').toLowerCase();
-    const clean = url.split('?')[0].split('#')[0];
-    const ext = clean.split('.').pop()?.toLowerCase() || '';
-
-    const isVideo =
-      type.startsWith('video') ||
-      ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
-
-    out.push({
-      url,
-      kind: isVideo ? 'video' : 'image',
-      width: m?.width,
-      height: m?.height,
-    });
-  }
-
-  if (out.length === 0) {
-    const single = String(post?.media_url || '').trim();
-    if (single) {
-      const info = getMediaTypeInfo(post);
-      if (info.isVideo) out.push({ url: single, kind: 'video' });
-      else if (info.isImage) out.push({ url: single, kind: 'image' });
+    if (!out.length && p?.media_url) {
+      const single = String(p.media_url).trim();
+      if (single) {
+        out.push({
+          url: single,
+          feed: single,
+          full: single,
+          kind: guessKind(single, p?.media_type),
+        });
+      }
+    }
+  } catch {
+    if (p?.media_url) {
+      const single = String(p.media_url).trim();
+      if (single) {
+        out.push({
+          url: single,
+          feed: single,
+          full: single,
+          kind: guessKind(single, p?.media_type),
+        });
+      }
     }
   }
 
-  return out.filter((x) => x.url);
+  return out;
 };
 
 type MediaOrientation = 'portrait' | 'landscape' | 'square';
@@ -5018,15 +5121,15 @@ export const Post = memo(
                   </div>
                 )}
 
-                {/* SPONSORED CTA BUTTON - Facebook position (below media, above engagement) */}
+                {/* SPONSORED CTA BUTTON - Facebook position (below media, above engagement) - IMPROVED STYLING */}
                 {shouldShowSponsoredButton && (
-                  <div className="px-3 py-2">
+                  <div className="px-3 pt-2 pb-1">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleSponsoredClick();
                       }}
-                      className="w-full bg-[#E4E6EB] hover:bg-[#D8DADF] text-black font-bold py-2.5 rounded-lg transition-colors text-[17px]"
+                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
                     >
                       {sponsoredCtaText}
                     </button>
@@ -5124,12 +5227,12 @@ export const Post = memo(
               </>
             ) : (
               <>
-                {/* IMAGE MEDIA */}
+                {/* IMAGE MEDIA - USING PROGRESSIVE IMAGES FOR FEED */}
                 {!p.background && imageMedia.length > 0 && (
                   <MediaGrid
-                    media={imageMedia.map((m) => ({ url: m.url }))}
+                    media={imageMedia.map((m) => ({ url: m.thumb || m.feed || m.url }))}
                     onOpen={(url, index) => {
-                      const urls = imageMedia.map((m) => m.url);
+                      const urls = imageMedia.map((m) => m.full || m.feed || m.url);
                       openGallery(urls, index);
                     }}
                   />
@@ -5272,15 +5375,15 @@ export const Post = memo(
                   </div>
                 )}
 
-                {/* SPONSORED CTA BUTTON - Facebook position (below media, above engagement) */}
+                {/* SPONSORED CTA BUTTON - Facebook position (below media, above engagement) - IMPROVED STYLING */}
                 {shouldShowSponsoredButton && (
-                  <div className="px-3 py-2">
+                  <div className="px-3 pt-2 pb-1">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleSponsoredClick();
                       }}
-                      className="w-full bg-[#E4E6EB] hover:bg-[#D8DADF] text-black font-bold py-2.5 rounded-lg transition-colors text-[17px]"
+                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
                     >
                       {sponsoredCtaText}
                     </button>
@@ -5521,7 +5624,7 @@ export const CreatePost: React.FC<{
 
 /**
  * =========================
- * ✅ CREATE POST MODAL
+ * ✅ CREATE POST MODAL (with image compression support)
  * =========================
  */
 export const CreatePostModal = memo(
@@ -7300,6 +7403,6 @@ if (typeof window !== 'undefined') {
 }
 
 export const FEED_VERSION = '2.0.0';
-export const LAST_UPDATED = '2024-03-25';
+export const LAST_UPDATED = '2024-03-26';
 
 
