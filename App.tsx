@@ -5374,8 +5374,9 @@ export default function App() {
 
       const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
 
-      let media_urls: any[] = [];
+      let media_urls: string[] = [];
       let media_types: string[] = [];
+      let media_meta: any[] = [];
       let media_url: string | null = null;
       let media_type: string | null = null;
 
@@ -5412,8 +5413,15 @@ export default function App() {
             })
           );
 
-          // store rich objects in media_urls so feed can use thumb/feed/full
-          media_urls = uploadedItems;
+          // Store plain feed URLs in media_urls for compatibility
+          media_urls = uploadedItems.map((item) => item.feed).filter(Boolean);
+          // Store rich objects separately in media_meta
+          media_meta = uploadedItems.map((item) => ({
+            thumb: item.thumb,
+            feed: item.feed,
+            full: item.full,
+            type: 'image',
+          }));
           media_types = uploadedItems.map(() => 'image');
           media_url = uploadedItems[0]?.feed || null;
           media_type = 'image';
@@ -5438,6 +5446,7 @@ export default function App() {
         media_type,
         media_urls: media_urls.length ? media_urls : undefined,
         media_types: media_types.length ? media_types : undefined,
+        media_meta: media_meta.length ? media_meta : undefined,
         visibility: meta?.visibility ?? 'public',
         location: meta?.location,
         feeling: meta?.feeling,
@@ -5467,6 +5476,7 @@ export default function App() {
 
       (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : media_url ? [media_url] : []);
       (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : media_type ? [media_type] : []);
+      (newPostRaw as any).media_meta = (newPostRaw as any).media_meta || (media_meta.length ? media_meta : undefined);
 
       const normalized = normalizePost(newPostRaw);
 
@@ -7527,4 +7537,5 @@ export default function App() {
     </div>
   );
 }
+
  
