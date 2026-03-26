@@ -650,9 +650,10 @@ const generateProfilePictureUrl = (name: string, identifier: string | number): s
   )}&background=${backgroundColor}&color=${textColor}&size=${size}&font-size=${fontSize}&bold=true&rounded=true&length=2`;
 };
 
-// ============================================================================
-// ✅ SAFE normalizePost - Handles both string URLs and object-based media
-// ============================================================================
+/**
+ * Normalize raw D1 rows to UI-safe PostType shape
+ * Handles both string URLs and object-based media URLs safely
+ */
 const normalizePost = (p: any): PostType => {
   const parseMaybeJson = (v: any) => {
     if (Array.isArray(v)) return v;
@@ -681,6 +682,7 @@ const normalizePost = (p: any): PostType => {
   const normalizedMediaUrls = Array.isArray(rawMediaUrls) ? rawMediaUrls : [];
   const normalizedMediaTypes = Array.isArray(rawMediaTypes) ? rawMediaTypes : [];
 
+  // Safely extract first media URL - ensure it's a string
   const firstMediaItem = normalizedMediaUrls[0] ?? null;
   const firstMediaUrl = typeof firstMediaItem === "string"
     ? firstMediaItem
@@ -744,8 +746,13 @@ const normalizePost = (p: any): PostType => {
     media_url: mediaUrl,
     media_type: mediaType,
 
-    // IMPORTANT: keep objects if they are objects
-    media_urls: normalizedMediaUrls.length ? normalizedMediaUrls : (mediaUrl ? [mediaUrl] : []),
+    // Ensure media_urls is always an array of strings for compatibility
+    media_urls: normalizedMediaUrls.map(url => {
+      if (typeof url === 'string') return url;
+      if (url && typeof url === 'object') return url.feed || url.full || url.thumb || '';
+      return '';
+    }).filter(Boolean),
+    
     media_types: normalizedMediaTypes.length ? normalizedMediaTypes : (mediaType ? [mediaType] : []),
 
     reactions: safeArray(p?.reactions),
@@ -767,9 +774,9 @@ const normalizePost = (p: any): PostType => {
   } as any;
 };
 
-// ============================================================================
-// ✅ SAFE getPostMediaList - Handles all media types safely
-// ============================================================================
+/**
+ * Safe getPostMediaList - returns media URLs as strings
+ */
 const getPostMediaList = (post: PostType): Array<{ 
   url: string; 
   type: string; 
@@ -795,48 +802,27 @@ const getPostMediaList = (post: PostType): Array<{
   const mediaUrls = parseMaybeJsonArray((post as any).media_urls);
   const mediaTypes = parseMaybeJsonArray((post as any).media_types);
   
-  // Rich object media: { thumb, feed, full } or variants
-  if (mediaUrls.length > 0 && typeof mediaUrls[0] === 'object' && mediaUrls[0] !== null) {
-    return mediaUrls
-      .map((item: any, index: number) => {
-        const thumb = item.thumb || item.thumbnail_url || item.url || '';
-        const feed = item.feed || item.feed_url || item.url || item.full || item.full_url || '';
-        const full = item.full || item.full_url || item.feed || item.feed_url || item.url || '';
-        const fallbackType = item.type || mediaTypes[index] || 
-          (String(feed || full).match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' : 
-           String(feed || full).match(/\.(mp3|wav|m4a|ogg)(\?|$)/i) ? 'audio' : 'image');
-        const url = feed || full || thumb;
-        
-        return {
-          url,
-          type: fallbackType,
-          thumb: thumb || url,
-          feed: feed || url,
-          full: full || url,
-        };
-      })
-      .filter((item) => !!item.url);
-  }
+  // Ensure we have string URLs
+  const stringUrls = mediaUrls.map(url => {
+    if (typeof url === 'string') return url;
+    if (url && typeof url === 'object') return url.feed || url.full || url.thumb || '';
+    return '';
+  }).filter(Boolean);
   
-  // Plain string media URLs
-  if (mediaUrls.length > 0 && typeof mediaUrls[0] === 'string') {
-    return mediaUrls
-      .map((url: string, index: number) => {
-        const cleanUrl = String(url || '').trim();
-        if (!cleanUrl) return null;
-        const fallbackType = mediaTypes[index] || 
-          (cleanUrl.match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' : 
-           cleanUrl.match(/\.(mp3|wav|m4a|ogg)(\?|$)/i) ? 'audio' : 'image');
-        
-        return {
-          url: cleanUrl,
-          type: fallbackType,
-          thumb: cleanUrl,
-          feed: cleanUrl,
-          full: cleanUrl,
-        };
-      })
-      .filter(Boolean) as Array<{ url: string; type: string; thumb?: string; feed?: string; full?: string; }>;
+  if (stringUrls.length > 0) {
+    return stringUrls.map((url: string, index: number) => {
+      const mediaType = mediaTypes[index] || 
+        (url.match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' : 
+         url.match(/\.(mp3|wav|m4a|ogg)(\?|$)/i) ? 'audio' : 'image');
+      
+      return {
+        url,
+        type: mediaType,
+        thumb: url,
+        feed: url,
+        full: url,
+      };
+    });
   }
   
   // Single media fallback
@@ -1226,7 +1212,6 @@ const postJSON = async (url: string, body: any) => {
 
 /** ---------- Optimistic reaction helper - FIXED to handle IDs safely ---------- */
 const applyOptimisticReaction = (p: any, itemId: number, type: ReactionType, meId: number) => {
-  // ✅ FIX: Try to get ID safely
   let postId = 0;
   try {
     postId = Number(getFeedItemId(p));
@@ -1331,19 +1316,6 @@ const toFetchableAudioUrl = (u?: string | null): string => {
   }
 
   return url;
-};
-
-const toBlobUrl = async (remoteUrl: string): Promise<string> => {
-  try {
-    const fetchableUrl = toFetchableAudioUrl(remoteUrl);
-    const res = await fetch(fetchableUrl);
-    if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
-    const blob = await res.blob();
-    return URL.createObjectURL(blob);
-  } catch (error) {
-    console.error('Failed to create blob URL:', error);
-    throw new Error(`Could not load audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
 };
 
 const apiFetch = async (url: string, options: RequestInit = {}) => {
@@ -1686,7 +1658,7 @@ export default function App() {
   // Navigation history state
   const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
 
-  // ✅ NEW: Loading states for posts and reels
+  // Loading states for posts and reels
   const [postsLoaded, setPostsLoaded] = useState(false);
   const [reelsLoaded, setReelsLoaded] = useState(false);
   const [shouldRenderFeed, setShouldRenderFeed] = useState(false);
@@ -1703,12 +1675,9 @@ export default function App() {
   const [ads, setAds] = useState<any[]>([]);
   const [showAdAnalytics, setShowAdAnalytics] = useState(false);
   const [adAnalyticsId, setAdAnalyticsId] = useState<number | null>(null);
-
-  // AD DASHBOARD STATE
   const [adCampaigns, setAdCampaigns] = useState<any[]>([]);
   const [adsLoading, setAdsLoading] = useState(false);
   const [activeAdTab, setActiveAdTab] = useState<'dashboard' | 'create' | 'ads' | 'analytics'>('dashboard');
-  
   const [selectedPostForAd, setSelectedPostForAd] = useState<PostType | null>(null);
 
   // ============================================================================
@@ -1731,7 +1700,6 @@ export default function App() {
   const [peopleYouMayKnow, setPeopleYouMayKnow] = useState<PeopleSuggestion[]>([]);
   const [pymkLoading, setPymkLoading] = useState(false);
   const [pymkHydrated, setPymkHydrated] = useState(false);
-
   const [pymkHiddenIds, setPymkHiddenIds] = useState<number[]>(() => {
     try {
       const raw = localStorage.getItem(PYMK_HIDDEN_KEY);
@@ -1748,7 +1716,6 @@ export default function App() {
   const [groupsYouMayJoin, setGroupsYouMayJoin] = useState<GroupSuggestion[]>([]);
   const [gymjLoading, setGymjLoading] = useState(false);
   const [gymjHydrated, setGymjHydrated] = useState(false);
-
   const [gymjHiddenIds, setGymjHiddenIds] = useState<number[]>(() => {
     try {
       const raw = localStorage.getItem(GROUPS_YOU_MAY_JOIN_HIDDEN_KEY);
@@ -1761,15 +1728,12 @@ export default function App() {
 
   const [feedHydrated, setFeedHydrated] = useState(false);
   const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
-  
   const [authHydrated, setAuthHydrated] = useState(false);
 
   const lastGoodPostsRef = useRef<PostType[]>([]);
   const stableFeedRef = useRef<PostType[]>([]);
   const scheduleSilentRefreshRef = useRef<any>(null);
-
   const [loginError, setLoginError] = useState('');
-
   const unreadNotifications = notifications.filter(n => !n.is_read).length;
 
   const requireAuth = useCallback(
@@ -1788,7 +1752,6 @@ export default function App() {
   const postsInFlightRef = useRef(false);
   const usersInFlightRef = useRef(false);
   const otherDataInFlightRef = useRef(false);
-  
   const reelsRequestIdRef = useRef(0);
   const isMountedRef = useRef(true);
 
@@ -2859,7 +2822,7 @@ export default function App() {
   };
 
   // ============================================================================
-  // ✅ UPDATED createPost with Image Compression (thumb/feed/full URLs)
+  // ✅ SAFE createPost - Only stores feed URLs as strings
   // ============================================================================
   const createPost = useCallback(
     async (
@@ -2882,61 +2845,49 @@ export default function App() {
 
       const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
       
-      let media_urls: any[] = [];
+      let media_urls: string[] = [];
       let media_types: string[] = [];
-      let media_url: string | null = null;
-      let media_type: string | null = null;
 
-      try {
-        // ✅ IMAGE POSTS - compress in browser, upload bundled thumb/feed/full
-        if (meta?.type === 'image' && list.length) {
-          const uploadedItems = await Promise.all(
-            list.map(async (file) => {
-              const bundle = await buildImageUploadBundle(file);
-              const form = new FormData();
-              form.append('thumbnail', bundle.thumb);
-              form.append('feed', bundle.feed);
-              form.append('original', bundle.full);
-              
-              const data = await apiFetch('/api/upload', {
-                method: 'POST',
-                body: form,
-              });
-              
-              const thumb = data?.uploaded?.thumbnail?.url || data?.media_urls?.thumb || '';
-              const feed = data?.uploaded?.feed?.url || data?.media_urls?.feed || '';
-              const full = data?.uploaded?.original?.url || data?.media_urls?.full || data?.url || '';
-              
-              if (!feed) {
-                throw new Error('Image upload failed: missing feed URL');
-              }
-              
-              return {
-                thumb,
-                feed,
-                full: full || feed,
-                type: 'image',
-              };
-            })
-          );
-          
-          media_urls = uploadedItems;
-          media_types = uploadedItems.map(() => 'image');
-          media_url = uploadedItems[0]?.feed || null;
-          media_type = 'image';
-        } 
-        // ✅ NON-IMAGE POSTS - keep old upload flow
-        else if (list.length) {
-          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
-          media_urls = ups.map((u) => u.url).filter(Boolean);
-          media_types = ups.map((u) => u.type).filter(Boolean);
-          media_url = media_urls[0] ?? null;
-          media_type = media_types[0] ?? null;
+      if (list.length) {
+        try {
+          // ✅ IMAGE POSTS - compress in browser, upload bundle, save only FEED URLs
+          if (meta?.type === 'image') {
+            const uploadedItems = await Promise.all(
+              list.map(async (file) => {
+                const bundle = await buildImageUploadBundle(file);
+                const form = new FormData();
+                form.append('thumbnail', bundle.thumb);
+                form.append('feed', bundle.feed);
+                form.append('original', bundle.full);
+                
+                const data = await apiFetch('/api/upload', {
+                  method: 'POST',
+                  body: form,
+                });
+                
+                const feedUrl = data?.uploaded?.feed?.url || data?.media_urls?.feed || '';
+                if (!feedUrl) {
+                  throw new Error('Image upload failed: missing feed URL');
+                }
+                return feedUrl;
+              })
+            );
+            media_urls = uploadedItems.filter(Boolean);
+            media_types = uploadedItems.map(() => 'image');
+          } else {
+            // OLD FLOW for non-image files (videos, audio, etc.)
+            const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
+            media_urls = ups.map((u) => u.url).filter(Boolean);
+            media_types = ups.map((u) => u.type).filter(Boolean);
+          }
+        } catch (error: any) {
+          setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
+          return;
         }
-      } catch (error: any) {
-        setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
-        return;
       }
+
+      const media_url = media_urls[0] ?? null;
+      const media_type = media_types[0] ?? null;
 
       const payload: any = {
         user_id: currentUser!.id,
@@ -3434,7 +3385,7 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // ✅ UPDATED fetchReels - Mark reels as loaded
+  // ✅ fetchReels - Mark reels as loaded
   // ============================================================================
   const fetchReels = useCallback(async () => {
     if (reelsInFlightRef.current) return;
@@ -3466,13 +3417,13 @@ export default function App() {
       if (requestId !== reelsRequestIdRef.current) return;
       
       setReels(normalizedReels);
-      setReelsLoaded(true); // ✅ Mark reels as loaded
+      setReelsLoaded(true);
     } catch (error) {
       console.error('Failed to fetch reels:', error);
       if (!isMountedRef.current) return;
       if (requestId !== reelsRequestIdRef.current) return;
       setReels([]);
-      setReelsLoaded(true); // ✅ Mark reels as loaded even on error
+      setReelsLoaded(true);
     } finally {
       if (requestId === reelsRequestIdRef.current) {
         reelsInFlightRef.current = false;
@@ -3937,7 +3888,7 @@ export default function App() {
   }, []);
 
   // ============================================================================
-  // ✅ UPDATED fetchPostsForHome - Mark posts as loaded
+  // ✅ fetchPostsForHome - Mark posts as loaded
   // ============================================================================
   const fetchPostsForHome = useCallback(
     async (viewer: User | null) => {
@@ -3957,7 +3908,7 @@ export default function App() {
           if (!rows.length) {
             if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
             if (!feedHydrated) setFeedHydrated(true);
-            setPostsLoaded(true); // ✅ Mark posts as loaded even if empty
+            setPostsLoaded(true);
             return;
           }
 
@@ -3999,7 +3950,7 @@ export default function App() {
           });
 
           if (!feedHydrated) setFeedHydrated(true);
-          setPostsLoaded(true); // ✅ Mark posts as loaded
+          setPostsLoaded(true);
 
           if (activeCommentsIdentity != null) {
             const found = ordered.find((p: any) => getFeedIdentity(p) === activeCommentsIdentity);
@@ -4034,7 +3985,7 @@ export default function App() {
         }
 
         if (!feedHydrated) setFeedHydrated(true);
-        setPostsLoaded(true); // ✅ Mark posts as loaded
+        setPostsLoaded(true);
 
         if (activeCommentsIdentity != null) {
           const found = normalized.find((x: any) => getFeedIdentity(x) === activeCommentsIdentity);
@@ -4043,7 +3994,7 @@ export default function App() {
       } catch {
         if (lastGoodPostsRef.current.length) setPosts(lastGoodPostsRef.current);
         if (!feedHydrated) setFeedHydrated(true);
-        setPostsLoaded(true); // ✅ Mark posts as loaded even on error
+        setPostsLoaded(true);
       } finally {
         setIsFeedRefreshing(false);
         postsInFlightRef.current = false;
@@ -4999,11 +4950,10 @@ export default function App() {
   );
 
   // ============================================================================
-  // ✅ NEW: Effect to check when both posts and reels are ready
+  // ✅ Effect to check when both posts and reels are ready
   // ============================================================================
   useEffect(() => {
     if (postsLoaded && reelsLoaded && !shouldRenderFeed) {
-      // Small delay for smooth transition
       const timer = setTimeout(() => {
         setShouldRenderFeed(true);
       }, 100);
@@ -5012,10 +4962,9 @@ export default function App() {
   }, [postsLoaded, reelsLoaded, shouldRenderFeed]);
 
   // ============================================================================
-  // ✅ UPDATED feedItems - Only show when both are ready
+  // ✅ feedItems - Only show when both are ready
   // ============================================================================
   const feedItems = useMemo<FeedItem[]>(() => {
-    // ✅ If not ready to render, return empty array
     if (!shouldRenderFeed) return [];
 
     const postItems = safeArray(rankedPosts).map(post => ({
@@ -5052,14 +5001,10 @@ export default function App() {
       id: `ad-${ad.id}`,
     }));
 
-    // Combine posts and reels
     let combinedItems = [...postItems, ...reelItems];
-
-    // Shuffle combined items using the same session seed as posts
     const seed = getOrCreateSessionSeed(currentUser?.id ?? null);
     combinedItems = seededShuffle(combinedItems, seed);
 
-    // Insert ads every 5 items
     const merged: FeedItem[] = [];
     let adIndex = 0;
 
@@ -5105,7 +5050,7 @@ export default function App() {
   }, [currentUser, fetchMyAds]);
 
   // ============================================================================
-  // ✅ UPDATED initial data load - Wait for both posts and reels
+  // ✅ Initial data load - Wait for both posts and reels
   // ============================================================================
   useEffect(() => {
     let mounted = true;
@@ -5136,12 +5081,11 @@ export default function App() {
 
       if (!mounted) return;
       
-      // ✅ Wait for both posts and reels to load
       await Promise.all([
         fetchUsersList(),
-        fetchPostsForHome(viewer),  // This will set postsLoaded when done
+        fetchPostsForHome(viewer),
         fetchOtherData(),
-        fetchReels(),                // This will set reelsLoaded when done
+        fetchReels(),
         fetchSongs(),
         fetchStories(),
       ]);
@@ -5580,7 +5524,7 @@ export default function App() {
   }, [currentUser]);
 
   // ============================================================================
-  // ✅ UPDATED handleLogout - Reset loading states
+  // ✅ handleLogout - Reset loading states
   // ============================================================================
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
@@ -5628,7 +5572,6 @@ export default function App() {
     setNavigationHistory(['home']);
     setView('home');
     
-    // ✅ Reset loading states
     setPostsLoaded(false);
     setReelsLoaded(false);
     setShouldRenderFeed(false);
@@ -5872,13 +5815,12 @@ export default function App() {
   }, [events, onRSVPEvent]);
 
   // ============================================================================
-  // ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
+  // ✅ HYBRID REACT HANDLER
   // ============================================================================
   const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     if (!requireAuth('Reacting')) return;
     if (!currentUser || !item) return;
 
-    // Get identity and ID safely
     let identity = '';
     let itemId = 0;
     let itemType = 'post';
@@ -5889,7 +5831,6 @@ export default function App() {
       itemType = getFeedItemType(item);
     } catch (error) {
       console.error('Failed to get feed identity:', error);
-      // Fallback to treating as post with ID
       if (typeof item === 'number') {
         itemId = item;
         identity = `post:${item}`;
@@ -5904,10 +5845,8 @@ export default function App() {
     
     const meId = currentUser.id;
 
-    // Prevent multiple taps
     if (reactingMap[identity]) return;
 
-    // Get current item from appropriate source
     const sourceList = view === 'profile' ? profilePosts : posts;
     const previousItem = safeArray(sourceList).find((p: any) => {
       try {
@@ -5918,7 +5857,6 @@ export default function App() {
     });
     if (!previousItem) return;
 
-    // Helper to replace item by identity or ID
     const replaceItem = (list: any[], replacement: any) => 
       safeArray(list).map(p => {
         try {
@@ -5929,10 +5867,8 @@ export default function App() {
         return p;
       });
 
-    // Set reacting lock
     setReacting(identity, true);
 
-    // Apply optimistic update
     const optimisticItem = applyOptimisticReaction(previousItem, itemId, type, meId);
     setPosts(prev => replaceItem(prev, optimisticItem));
     setProfilePosts(prev => replaceItem(prev, optimisticItem));
@@ -5997,7 +5933,6 @@ export default function App() {
       }
     } catch (error) {
       console.error('Failed to react:', error);
-      // Restore previous state on failure
       setPosts(prev => replaceItem(prev, previousItem));
       setProfilePosts(prev => replaceItem(prev, previousItem));
       setCommentPostSnapshot(prev => prev && getFeedIdentity(prev) === identity ? previousItem : prev);
@@ -6166,7 +6101,6 @@ export default function App() {
         replies_count: 0,
       };
 
-      // Add type-specific ID field
       switch (type) {
         case 'event':
           newComment.event_id = id;
@@ -6181,7 +6115,6 @@ export default function App() {
           newComment.post_id = id;
       }
 
-      // Update posts state with new comment using identity
       const updatePostsWithComment = (postsList: any[]) => {
         return postsList.map(post => {
           try {
@@ -6523,7 +6456,7 @@ export default function App() {
   }, [fetchComments, view, activeCommentsIdentity, commentPostSnapshot]);
 
   // ============================================================================
-  // ✅ ORIGINAL FUNCTIONS (Preserved)
+  // ✅ ORIGINAL FUNCTIONS
   // ============================================================================
 
   const onReactPost = useCallback((postId: number, type: ReactionType) => {
@@ -7718,3 +7651,4 @@ export default function App() {
     </div>
   );
 }
+ 
