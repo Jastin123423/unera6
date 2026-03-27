@@ -1,5 +1,4 @@
 
-
 import React, {
   useEffect,
   useMemo,
@@ -821,10 +820,124 @@ const ensureReactionStyles = () => {
   document.head.appendChild(styleTag);
 };
 
+// ==================== HYBRID FEED HELPERS ====================
+const getFeedItemType = (item: any): string => {
+  if (!item || typeof item !== 'object') return 'post';
+  const meta = item?.meta || {};
+  
+  if (
+    item?.source === 'sponsored' ||
+    item?.item_type === 'sponsored' ||
+    item?.type === 'sponsored' ||
+    meta?.kind === 'ad'
+  ) return 'sponsored';
+  
+  if (
+    item?.source === 'product' ||
+    item?.item_type === 'product' ||
+    item?.type === 'marketplace' ||
+    item?.type === 'product' ||
+    item?.post_type === 'product' ||
+    meta?.type === 'product' ||
+    meta?.kind === 'product' ||
+    !!item?.product_id ||
+    !!meta?.marketplace?.id
+  ) return 'product';
+  
+  if (
+    item?.source === 'event' ||
+    item?.item_type === 'event' ||
+    item?.type === 'event' ||
+    item?.post_type === 'event' ||
+    meta?.type === 'event' ||
+    meta?.kind === 'event' ||
+    !!item?.event_id ||
+    !!meta?.event
+  ) return 'event';
+  
+  if (
+    item?.source === 'group_post' ||
+    item?.item_type === 'group_post' ||
+    !!item?.group_id ||
+    !!item?.group
+  ) return 'group_post';
+  
+  if (
+    item?.source === 'reel' ||
+    item?.item_type === 'reel' ||
+    !!item?.reel_id
+  ) return 'reel';
+  
+  if (
+    item?.source === 'song' ||
+    item?.item_type === 'song' ||
+    meta?.kind === 'music' ||
+    meta?.type === 'music'
+  ) {
+    return 'music';
+  }
+  
+  if (
+    item?.source === 'podcast' ||
+    item?.item_type === 'podcast' ||
+    meta?.kind === 'podcast' ||
+    meta?.type === 'podcast'
+  ) {
+    return 'podcast';
+  }
+  
+  return 'post';
+};
+
+const getFeedItemId = (item: any): number => {
+  if (!item || typeof item !== 'object') return 0;
+  const type = getFeedItemType(item);
+  
+  switch (type) {
+    case 'product':
+      return Number(item?.product_id ?? item?.meta?.marketplace?.id ?? item?.id ?? 0);
+    case 'event':
+      return Number(item?.event_id ?? item?.id ?? 0);
+    case 'group_post':
+      return Number(item?.post_id ?? item?.id ?? 0);
+    case 'reel':
+      return Number(item?.reel_id ?? item?.id ?? 0);
+    case 'music':
+      return Number(item?.song_id2 ?? item?.song_id ?? item?.id ?? 0);
+    case 'podcast':
+      return Number(item?.podcast_id ?? item?.id ?? 0);
+    case 'sponsored':
+      return Number(item?.id ?? 0);
+    default:
+      return Number(item?.id ?? 0);
+  }
+};
+
+const getFeedKey = (item: any): string => {
+  if (!item) return '';
+  if (typeof item === 'string') return item;
+  if (item?.feed_key) return String(item.feed_key);
+  const type = getFeedItemType(item);
+  const id = getFeedItemId(item);
+  return `${type}:${id}`;
+};
+
+const isSameFeedItem = (a: any, b: any): boolean => {
+  if (!a || !b) return false;
+  const aKey = getFeedKey(a);
+  const bKey = getFeedKey(b);
+  if (aKey && bKey) return aKey === bKey;
+  const aType = getFeedItemType(a);
+  const bType = getFeedItemType(b);
+  const aId = getFeedItemId(a);
+  const bId = getFeedItemId(b);
+  return aType === bType && aId > 0 && bId > 0 && aId === bId;
+};
+
 // ==================== CUSTOM COMPARISON FUNCTIONS ====================
 const postPropsEqual = (prev: any, next: any) => {
   return (
-    prev.post?.id === next.post?.id &&
+    isSameFeedItem(prev.post, next.post) &&
     prev.post?.reactions_count === next.post?.reactions_count &&
     prev.post?.comments_count === next.post?.comments_count &&
     prev.post?.shares === next.post?.shares &&
@@ -863,16 +976,17 @@ export const ReactionsSheet = memo(
   ({
     isOpen,
     onClose,
-    postId,
+    post,
     onProfileClick,
     onOpenComments,
   }: {
     isOpen: boolean;
     onClose: () => void;
-    postId: number;
+    post: PostType;
     onProfileClick: (id: number) => void;
-    onOpenComments?: (postId: number) => void;
+    onOpenComments?: (post: PostType) => void;
   }) => {
+    const postId = getFeedItemId(post);
     const [loading, setLoading] = useState(false);
     const [active, setActive] = useState<string>('all');
     const [items, setItems] = useState<any[]>([]);
@@ -1025,7 +1139,7 @@ export const ReactionsSheet = memo(
             <button
               onClick={() => {
                 onClose();
-                onOpenComments(postId);
+                onOpenComments(post);
               }}
               className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-bold rounded-lg transition-colors text-[17px]"
             >
@@ -1037,7 +1151,7 @@ export const ReactionsSheet = memo(
     );
   },
   (prev, next) => {
-    return prev.isOpen === next.isOpen && prev.postId === next.postId;
+    return prev.isOpen === next.isOpen && isSameFeedItem(prev.post, next.post);
   }
 );
 
@@ -1052,7 +1166,7 @@ export const GalleryViewer = memo(
     urls,
     startIndex,
     onClose,
-    postId,
+    post,
     currentUser,
     reactionCount,
     commentCount,
@@ -1067,13 +1181,13 @@ export const GalleryViewer = memo(
     urls: string[];
     startIndex: number;
     onClose: () => void;
-    postId: number;
+    post: PostType;
     currentUser: User | null;
     reactionCount: number;
     commentCount: number;
     shareCount: number;
     myReaction?: ReactionType;
-    onReact: (type: ReactionType) => void;
+    onReact: (post: PostType, type: ReactionType) => void;
     onOpenComments: () => void;
     onShare: () => void;
     onOpenReactions?: () => void;
@@ -1209,7 +1323,7 @@ export const GalleryViewer = memo(
             <ReactionButton
               currentUserReactions={myReaction}
               reactionCount={reactionCount}
-              onReact={(type) => onReact(type)}
+              onReact={(type) => onReact(post, type)}
               isGuest={!currentUser}
             />
             <button
@@ -1283,42 +1397,52 @@ export const ShareBottomSheet = memo(
     const backdropRef = useRef<HTMLDivElement>(null);
 
     const getShareEndpoint = () => {
-      const p = post as any;
-      if (p.source === 'event' || p.item_type === 'event')
-        return '/api/events/share';
-      else if (p.source === 'group_post' || p.item_type === 'group_post')
-        return '/api/groups/posts/share';
-      else if (p.source === 'product' || p.item_type === 'product')
-        return '/api/products/share';
-      else if (p.source === 'reel' || p.item_type === 'reel')
-        return '/api/reels/share';
-      else if (p.source === 'song' || p.item_type === 'song')
-        return '/api/songs/share';
-      else if (p.source === 'podcast' || p.item_type === 'podcast')
-        return '/api/podcasts/share';
-      else return '/api/posts/share';
+      const itemType = getFeedItemType(post);
+      switch (itemType) {
+        case 'event':
+          return '/api/events/share';
+        case 'group_post':
+          return '/api/groups/posts/share';
+        case 'product':
+          return '/api/products/share';
+        case 'reel':
+          return '/api/reels/share';
+        case 'music':
+          return '/api/songs/share';
+        case 'podcast':
+          return '/api/podcasts/share';
+        default:
+          return '/api/posts/share';
+      }
     };
 
     const getSharePayload = (destination: string) => {
-      const p = post as any;
+      const itemType = getFeedItemType(post);
       const base = {
         user_id: currentUser?.id,
         destination: destination,
         shared_at: new Date().toISOString(),
+        item_type: itemType,
       };
-      if (p.source === 'event' || p.item_type === 'event')
-        return { ...base, event_id: p.event_id || p.id };
-      else if (p.source === 'group_post' || p.item_type === 'group_post')
-        return { ...base, post_id: p.id, group_id: p.group_id };
-      else if (p.source === 'product' || p.item_type === 'product')
-        return { ...base, product_id: p.product_id || p.id };
-      else if (p.source === 'reel' || p.item_type === 'reel')
-        return { ...base, reel_id: p.reel_id || p.id };
-      else if (p.source === 'song' || p.item_type === 'song')
-        return { ...base, song_id: p.song_id2 || p.id };
-      else if (p.source === 'podcast' || p.item_type === 'podcast')
-        return { ...base, podcast_id: p.podcast_id || p.id };
-      else return { ...base, post_id: p.id };
+      
+      const itemId = getFeedItemId(post);
+      
+      switch (itemType) {
+        case 'event':
+          return { ...base, event_id: itemId };
+        case 'group_post':
+          return { ...base, post_id: itemId, group_id: post.group_id };
+        case 'product':
+          return { ...base, product_id: itemId };
+        case 'reel':
+          return { ...base, reel_id: itemId };
+        case 'music':
+          return { ...base, song_id: itemId };
+        case 'podcast':
+          return { ...base, podcast_id: itemId };
+        default:
+          return { ...base, post_id: itemId };
+      }
     };
 
     useEffect(() => {
@@ -1693,7 +1817,7 @@ export const ShareBottomSheet = memo(
 
               <button
                 onClick={() => {
-                  const text = `Check out this post on UNERA: ${window.location.origin}/post/${post.id}`;
+                  const text = `Check out this post on UNERA: ${window.location.origin}/post/${getFeedItemId(post)}`;
                   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
                   closeSheet();
                 }}
@@ -1714,7 +1838,7 @@ export const ShareBottomSheet = memo(
 
               <button
                 onClick={() => {
-                  const url = `${window.location.origin}/post/${post.id}`;
+                  const url = `${window.location.origin}/post/${getFeedItemId(post)}`;
                   navigator.clipboard.writeText(url);
                   alert('Link copied to clipboard!');
                   closeSheet();
@@ -1781,7 +1905,7 @@ export const ShareBottomSheet = memo(
   (prev, next) => {
     return (
       prev.isOpen === next.isOpen &&
-      prev.post?.id === next.post?.id &&
+      isSameFeedItem(prev.post, next.post) &&
       prev.currentUser?.id === next.currentUser?.id
     );
   }
@@ -2768,6 +2892,741 @@ const normalizeEventFromFeed = (item: any) => {
   };
 };
 
+// ==================== MEDIA HELPERS ====================
+const getMediaTypeInfo = (post: any) => {
+  const mediaUrl = String(post?.media_url || '');
+  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
+  const typeRaw = String(post?.type || '').toLowerCase();
+
+  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
+  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
+
+  const isImage =
+    typeRaw === 'image' ||
+    mediaTypeRaw === 'image' ||
+    mediaTypeRaw.startsWith('image/') ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(
+      ext
+    );
+
+  const isVideo =
+    typeRaw === 'video' ||
+    mediaTypeRaw === 'video' ||
+    mediaTypeRaw.startsWith('video/') ||
+    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
+
+  const isAudio =
+    typeRaw === 'audio' ||
+    mediaTypeRaw.startsWith('audio/') ||
+    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
+
+  return {
+    mediaUrl,
+    isImage,
+    isVideo,
+    isAudio,
+    extension: ext,
+    mimeType: mediaTypeRaw,
+  };
+};
+
+type NormalizedMedia = {
+  url: string;
+  thumb?: string;
+  feed?: string;
+  full?: string;
+  kind: 'image' | 'video' | 'audio';
+};
+
+const getPostMediaList = (p: any) => {
+  const out: Array<{
+    url: string;
+    thumb?: string;
+    feed?: string;
+    full?: string;
+    kind: 'image' | 'video' | 'audio';
+  }> = [];
+
+  const guessKind = (url: string, explicitType?: string) => {
+    const t = String(explicitType || '').toLowerCase();
+    const u = String(url || '').toLowerCase();
+    if (t.includes('video') || u.match(/\.(mp4|webm|mov)(\?|$)/)) return 'video';
+    if (t.includes('audio') || u.match(/\.(mp3|wav|m4a|ogg)(\?|$)/)) return 'audio';
+    return 'image';
+  };
+
+  try {
+    const rawUrls = p?.media_urls;
+    const rawTypes = p?.media_types;
+    const urls = Array.isArray(rawUrls) ? rawUrls : typeof rawUrls === 'string' ? JSON.parse(rawUrls || '[]') : [];
+    const types = Array.isArray(rawTypes) ? rawTypes : typeof rawTypes === 'string' ? JSON.parse(rawTypes || '[]') : [];
+
+    if (Array.isArray(urls)) {
+      urls.forEach((item: any, i: number) => {
+        if (typeof item === 'string') {
+          try {
+            const parsed = JSON.parse(item);
+            if (parsed && typeof parsed === 'object') {
+              const feedUrl = String(parsed.feed || parsed.feed_url || '').trim();
+              const fullUrl = String(parsed.full || parsed.full_url || feedUrl).trim();
+              const thumbUrl = String(parsed.thumb || parsed.thumbnail_url || feedUrl).trim();
+              const mainUrl = feedUrl || fullUrl || thumbUrl;
+              if (!mainUrl) return;
+              out.push({
+                url: mainUrl,
+                thumb: thumbUrl || mainUrl,
+                feed: feedUrl || mainUrl,
+                full: fullUrl || mainUrl,
+                kind: guessKind(mainUrl, types[i]),
+              });
+              return;
+            }
+          } catch {
+            // old plain string URL
+          }
+          const cleanUrl = item.trim();
+          if (!cleanUrl) return;
+          out.push({
+            url: cleanUrl,
+            feed: cleanUrl,
+            full: cleanUrl,
+            kind: guessKind(cleanUrl, types[i]),
+          });
+          return;
+        }
+        if (item && typeof item === 'object') {
+          const thumbUrl = String(item.thumb || item.thumbnail_url || '').trim();
+          const feedUrl = String(item.feed || item.feed_url || '').trim();
+          const fullUrl = String(item.full || item.full_url || '').trim();
+          const mainUrl = feedUrl || fullUrl || thumbUrl;
+          if (!mainUrl) return;
+          out.push({
+            url: mainUrl,
+            thumb: thumbUrl || mainUrl,
+            feed: feedUrl || mainUrl,
+            full: fullUrl || mainUrl,
+            kind: guessKind(mainUrl, item.type || types[i]),
+          });
+        }
+      });
+    }
+
+    if (!out.length && p?.media_url) {
+      const single = String(p.media_url).trim();
+      if (single) {
+        out.push({
+          url: single,
+          feed: single,
+          full: single,
+          kind: guessKind(single, p?.media_type),
+        });
+      }
+    }
+  } catch {
+    if (p?.media_url) {
+      const single = String(p.media_url).trim();
+      if (single) {
+        out.push({
+          url: single,
+          feed: single,
+          full: single,
+          kind: guessKind(single, p?.media_type),
+        });
+      }
+    }
+  }
+
+  return out;
+};
+
+type MediaOrientation = 'portrait' | 'landscape' | 'square';
+
+const getOrientation = (item: {
+  width?: number;
+  height?: number;
+}): MediaOrientation => {
+  const w = Number(item?.width || 0);
+  const h = Number(item?.height || 0);
+
+  if (!w || !h) return 'square';
+
+  const ratio = w / h;
+
+  if (ratio > 1.15) return 'landscape';
+  if (ratio < 0.87) return 'portrait';
+  return 'square';
+};
+
+const classifyOrientations = (
+  media: { width?: number; height?: number }[]
+): MediaOrientation[] => media.map(getOrientation);
+
+// ==================== MEDIA GRID (updated with progressive image loading) ====================
+const MediaGrid = memo(
+  ({
+    media,
+    onOpen,
+  }: {
+    media: {
+      url: string;
+      feed?: string;
+      full?: string;
+      width?: number;
+      height?: number;
+    }[];
+    onOpen: (url: string, index: number) => void;
+  }) => {
+    const total = Array.isArray(media) ? media.length : 0;
+    const [measuredMedia, setMeasuredMedia] = useState(media);
+
+    useEffect(() => {
+      let cancelled = false;
+
+      const run = async () => {
+        const next = await Promise.all(
+          media.map(
+            (item) =>
+              new Promise<{
+                url: string;
+                feed?: string;
+                full?: string;
+                width?: number;
+                height?: number;
+              }>((resolve) => {
+                if (item.width && item.height) {
+                  resolve(item);
+                  return;
+                }
+
+                const img = new Image();
+                img.onload = () => {
+                  resolve({
+                    ...item,
+                    width: img.naturalWidth,
+                    height: img.naturalHeight,
+                  });
+                };
+                img.onerror = () => resolve(item);
+                img.src = item.feed || item.url;
+              })
+          )
+        );
+
+        if (!cancelled) {
+          setMeasuredMedia(next);
+        }
+      };
+
+      run();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [media]);
+
+    const visible =
+      total <= 4
+        ? measuredMedia
+        : total === 5
+        ? measuredMedia.slice(0, 5)
+        : measuredMedia.slice(0, 6);
+
+    const extra =
+      total <= 5 ? 0 : total === 6 ? 0 : total - 6;
+
+    const orientations = classifyOrientations(visible);
+
+    const ProgressiveTileImage = ({
+      item,
+      className,
+    }: {
+      item: { url: string; feed?: string; full?: string };
+      className: string;
+    }) => {
+      const [src, setSrc] = useState(item.url);
+
+      useEffect(() => {
+        setSrc(item.url);
+        const next = item.feed;
+        if (!next || next === item.url) return;
+        const img = new Image();
+        img.src = next;
+        img.onload = () => {
+          setSrc(next);
+        };
+      }, [item.url, item.feed]);
+
+      return (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          className={className}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      );
+    };
+
+    const Tile = ({
+      item,
+      index,
+      className,
+      showOverlay = false,
+    }: {
+      item: { url: string; feed?: string; full?: string };
+      index: number;
+      className: string;
+      showOverlay?: boolean;
+    }) => (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(item.full || item.feed || item.url, index);
+        }}
+        className={`relative overflow-hidden ${className}`}
+        style={{ borderRadius: 0 }}
+      >
+        <ProgressiveTileImage item={item} className="absolute inset-0 w-full h-full object-cover" />
+
+        {showOverlay && extra > 0 && (
+          <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+            <span className="text-white font-bold text-[34px] leading-none">
+              +{extra}
+            </span>
+          </div>
+        )}
+      </button>
+    );
+
+    if (total === 0) return null;
+
+    // Single image layout
+    if (total === 1) {
+      return (
+        <div className="w-full bg-black">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(visible[0].full || visible[0].feed || visible[0].url, 0);
+            }}
+            className="w-full block"
+          >
+            <ProgressiveTileImage
+              item={visible[0]}
+              className="w-full h-auto max-h-[650px] object-contain"
+            />
+          </button>
+        </div>
+      );
+    }
+
+    // 2 images layout
+    if (total === 2) {
+      return (
+        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+          <Tile item={visible[0]} index={0} className="h-[320px] w-full" />
+          <Tile item={visible[1]} index={1} className="h-[320px] w-full" />
+        </div>
+      );
+    }
+
+    // 3 images layout
+    if (total === 3) {
+      return (
+        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+          <Tile item={visible[0]} index={0} className="h-[420px] w-full" />
+          <div className="grid grid-rows-2 gap-[2px] h-[420px]">
+            <Tile item={visible[1]} index={1} className="w-full h-full" />
+            <Tile item={visible[2]} index={2} className="w-full h-full" />
+          </div>
+        </div>
+      );
+    }
+
+    // 4 images layout
+    if (total === 4) {
+      return (
+        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+          <Tile item={visible[0]} index={0} className="h-[260px] w-full" />
+          <Tile item={visible[1]} index={1} className="h-[260px] w-full" />
+          <Tile item={visible[2]} index={2} className="h-[260px] w-full" />
+          <Tile item={visible[3]} index={3} className="h-[260px] w-full" />
+        </div>
+      );
+    }
+
+    // 5 images layout
+    if (total === 5) {
+      return (
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile item={visible[0]} index={0} className="h-[250px] w-full" />
+            <Tile item={visible[1]} index={1} className="h-[250px] w-full" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-[2px]">
+            <Tile item={visible[2]} index={2} className="h-[170px] w-full" />
+            <Tile item={visible[3]} index={3} className="h-[170px] w-full" />
+            <Tile
+              item={visible[4]}
+              index={4}
+              className="h-[170px] w-full"
+              showOverlay={extra > 0}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Smart 6-image layout based on orientation
+    if (total >= 6) {
+      const first = orientations[0];
+      const second = orientations[1];
+      const third = orientations[2];
+
+      const topPortraitPair = first === 'portrait' && second === 'portrait';
+      const firstLandscape = first === 'landscape' || second === 'landscape';
+      const tallLeft = third === 'portrait';
+
+      // Layout A: Tall left + 3 stacked right - Best when 3rd image is portrait
+      if (tallLeft) {
+        return (
+          <div className="w-full bg-black">
+            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+              <Tile item={visible[0]} index={0} className="h-[250px] w-full" />
+              <Tile item={visible[1]} index={1} className="h-[250px] w-full" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-[2px]">
+              <Tile item={visible[2]} index={2} className="h-[340px] w-full" />
+              <div className="grid grid-rows-3 gap-[2px] h-[340px]">
+                <Tile item={visible[3]} index={3} className="w-full h-full" />
+                <Tile item={visible[4]} index={4} className="w-full h-full" />
+                <Tile
+                  item={visible[5]}
+                  index={5}
+                  className="w-full h-full"
+                  showOverlay={extra > 0}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Layout B: 2 top large + 4 bottom squares - Better for landscapes/squares
+      if (firstLandscape || !topPortraitPair) {
+        return (
+          <div className="w-full bg-black">
+            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+              <Tile item={visible[0]} index={0} className="h-[230px] w-full" />
+              <Tile item={visible[1]} index={1} className="h-[230px] w-full" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-[2px]">
+              <Tile item={visible[2]} index={2} className="h-[170px] w-full" />
+              <Tile item={visible[3]} index={3} className="h-[170px] w-full" />
+              <Tile item={visible[4]} index={4} className="h-[170px] w-full" />
+              <Tile
+                item={visible[5]}
+                index={5}
+                className="h-[170px] w-full"
+                showOverlay={extra > 0}
+              />
+            </div>
+          </div>
+        );
+      }
+
+      // Layout C: 1 big left + 2 stacked right on top, then 3 bottom tiles
+      // Good for portrait-heavy first image
+      return (
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile item={visible[0]} index={0} className="h-[320px] w-full" />
+            <div className="grid grid-rows-2 gap-[2px] h-[320px]">
+              <Tile item={visible[1]} index={1} className="w-full h-full" />
+              <Tile item={visible[2]} index={2} className="w-full h-full" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-[2px]">
+            <Tile item={visible[3]} index={3} className="h-[150px] w-full" />
+            <Tile item={visible[4]} index={4} className="h-[150px] w-full" />
+            <Tile
+              item={visible[5]}
+              index={5}
+              className="h-[150px] w-full"
+              showOverlay={extra > 0}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Fallback for any other case (should not reach here)
+    return (
+      <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
+        <Tile item={visible[0]} index={0} className="h-[180px] w-full" />
+        <Tile item={visible[1]} index={1} className="h-[180px] w-full" />
+        <Tile item={visible[2]} index={2} className="h-[180px] w-full" />
+        <Tile item={visible[3]} index={3} className="h-[180px] w-full" />
+        <Tile item={visible[4]} index={4} className="h-[180px] w-full" />
+        <Tile
+          item={visible[5]}
+          index={5}
+          className="h-[180px] w-full"
+          showOverlay={extra > 0}
+        />
+      </div>
+    );
+  },
+  (prev, next) => prev.media === next.media
+);
+
+// ==================== GROUP POST HEADER (internal) ====================
+const GroupPostHeader = memo(
+  ({
+    post,
+    group,
+    author,
+    onOpenGroup,
+    onOpenProfile,
+    onOpenMenu,
+  }: {
+    post: any;
+    group?: any;
+    author?: any;
+    onOpenGroup?: (groupId: number) => void;
+    onOpenProfile?: (userId: number) => void;
+    onOpenMenu?: () => void;
+  }) => {
+    const groupName = safeStr(group?.name || post?.group_name);
+    const groupId = Number(group?.id || post?.group_id || 0);
+    const userName = safeStr(author?.name || post?.name || post?.username);
+    const userId = Number(author?.id || post?.user_id || 0);
+    const groupImg =
+      safeStr(
+        group?.profile_image || group?.avatar || group?.image || post?.group_image
+      ) || '';
+    const userImg =
+      safeStr(author?.profile_image_url || author?.avatar || post?.profile_image_url) ||
+      '';
+    const timeAgo = formatRelativeTime(post?.created_at);
+
+    return (
+      <div className="flex items-start justify-between px-3 pt-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <button
+            className="relative shrink-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (groupId && onOpenGroup) onOpenGroup(groupId);
+            }}
+            title={groupName}
+          >
+            <div className="w-10 h-10 rounded-full bg-[#3A3B3C] overflow-hidden flex items-center justify-center border border-[#4E4F50]">
+              {groupImg ? (
+                <img src={groupImg} className="w-full h-full object-cover" />
+              ) : (
+                <i className="fas fa-users text-[#B0B3B8]" />
+              )}
+            </div>
+
+            <div className="absolute -right-1 -bottom-1 w-5 h-5 rounded-full bg-[#3A3B3C] overflow-hidden border-2 border-[#242526] flex items-center justify-center">
+              {userImg ? (
+                <img src={userImg} className="w-full h-full object-cover" />
+              ) : (
+                <i className="fas fa-user text-[10px] text-[#B0B3B8]" />
+              )}
+            </div>
+          </button>
+
+          <div className="min-w-0">
+            <button
+              className="text-left font-extrabold text-[20px] leading-[1.1] text-[#E4E6EB] truncate hover:underline"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (groupId && onOpenGroup) onOpenGroup(groupId);
+              }}
+            >
+              {groupName || 'Group'}
+            </button>
+
+            <div className="flex items-center gap-2 text-[15px] text-[#B0B3B8] min-w-0">
+              <button
+                className="font-semibold text-[15px] text-[#B0B3B8] hover:underline truncate"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (userId && onOpenProfile) onOpenProfile(userId);
+                }}
+              >
+                {userName || 'User'}
+              </button>
+
+              <span>·</span>
+              <span className="truncate">{timeAgo}</span>
+
+              <span>·</span>
+              <i className="fas fa-users text-[14px]" />
+            </div>
+          </div>
+        </div>
+
+        {/* Right menu - Will be handled by PostMenu component */}
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.post?.id === next.post?.id &&
+      prev.group?.id === next.group?.id &&
+      prev.author?.id === next.author?.id
+    );
+  }
+);
+
+// ==================== EXPANDABLE RICH TEXT (internal) ====================
+const ExpandableRichText = memo(
+  ({
+    text,
+    users,
+    onProfileClick,
+    onHashtagClick,
+    maxWords = 14,
+    fontSizePx = 23,
+    forceExpanded = false,
+  }: {
+    text: string;
+    users?: User[];
+    onProfileClick: (id: number) => void;
+    onHashtagClick?: (tag: string) => void;
+    maxWords?: number;
+    fontSizePx?: number;
+    forceExpanded?: boolean;
+  }) => {
+    const [expanded, setExpanded] = useState(false);
+
+    const words = (text || '').trim().split(/\s+/).filter(Boolean);
+    const isLong = words.length > maxWords;
+
+    const showAll = forceExpanded || expanded || !isLong;
+    const shownText = showAll
+      ? text
+      : words.slice(0, maxWords).join(' ') + '…';
+
+    return (
+      <div
+        style={{ fontSize: `${fontSizePx}px` }}
+        className="text-[#E4E6EB] leading-relaxed"
+      >
+        <RichText
+          text={shownText}
+          users={users}
+          onProfileClick={onProfileClick}
+          onHashtagClick={onHashtagClick}
+        />
+
+        {isLong && !forceExpanded && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }}
+            className="ml-2 font-bold text-[#1877F2] hover:underline text-[16px]"
+          >
+            {expanded ? 'See less' : 'See more'}
+          </button>
+        )}
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.text === next.text &&
+      prev.forceExpanded === next.forceExpanded &&
+      prev.users === next.users
+    );
+  }
+);
+
+// ==================== RICH TEXT (exported) ====================
+export const RichText = ({
+  text,
+  users,
+  onProfileClick,
+  onHashtagClick,
+}: {
+  text: string;
+  users?: User[];
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+}) => {
+  if (!text) return null;
+  const parts = text.split(/(#[a-zA-Z0-9_]+|@\w+(?:\s\w+)?)/g);
+
+  return (
+    <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words text-[23px]">
+      {parts.map((part, index) => {
+        if (part.startsWith('@')) {
+          const name = part.substring(1).trim().toLowerCase();
+          const user = users?.find((u: any) => {
+            const un = String(u?.username ?? '').toLowerCase();
+            const nm = String(u?.name ?? '').toLowerCase();
+            return un === name || nm === name;
+          });
+
+          if (user) {
+            return (
+              <span
+                key={index}
+                className="text-[#1877F2] font-semibold cursor-pointer hover:underline text-[23px]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onProfileClick(safeUserId(user));
+                }}
+              >
+                {part}
+              </span>
+            );
+          }
+
+          return (
+            <span
+              key={index}
+              className="text-[#1877F2] font-semibold text-[23px]"
+            >
+              {part}
+            </span>
+          );
+        }
+
+        if (part.startsWith('#')) {
+          return (
+            <span
+              key={index}
+              className="text-[#1877F2] cursor-pointer hover:underline text-[23px]"
+              onClick={(e) => {
+                e.stopPropagation();
+                onHashtagClick && onHashtagClick(part);
+              }}
+            >
+              {part}
+            </span>
+          );
+        }
+
+        return <span key={index} className="text-[23px]">{part}</span>;
+      })}
+    </span>
+  );
+};
+
 /**
  * =========================
  * ✅ EVENT POST
@@ -2801,9 +3660,9 @@ export const EventPost = memo(
     onFollow?: (id: number) => void;
     isFollowing?: boolean;
     followLoading?: boolean;
-    onReact?: (id: number, type: ReactionType) => void;
+    onReact?: (post: PostType, type: ReactionType) => void;
     onShare?: (id: number, newShareCount: number) => void;
-    onOpenComments?: (id: number) => void;
+    onOpenComments?: (post: PostType) => void;
     groups?: Group[];
     brands?: Brand[];
     chats?: any[];
@@ -2938,17 +3797,13 @@ export const EventPost = memo(
 
     const handleReact = async (type: ReactionType) => {
       if (!currentUser || !event.id || !onReact) return;
-      const endpoint = getReactionEndpoint();
-      if (!endpoint) return;
-      try {
-        await apiFetch(endpoint, {
-          method: 'POST',
-          body: JSON.stringify({ user_id: currentUser.id, type: type }),
-        });
-        onReact(event.id, type);
-      } catch (error) {
-        console.error('Failed to react to event:', error);
-      }
+      // Create a post-like object for the event to pass to onReact
+      const eventAsPost = {
+        id: event.id,
+        type: 'event',
+        ...event,
+      };
+      onReact(eventAsPost as PostType, type);
     };
 
     const handleShare = () => {
@@ -2965,7 +3820,14 @@ export const EventPost = memo(
     };
 
     const handleOpenComments = () => {
-      if (onOpenComments && event.id) onOpenComments(event.id);
+      if (onOpenComments && event.id) {
+        const eventAsPost = {
+          id: event.id,
+          type: 'event',
+          ...event,
+        };
+        onOpenComments(eventAsPost as PostType);
+      }
     };
 
     const handleCardClick = () => {
@@ -3758,698 +4620,6 @@ export const ReactionButton = memo(
   }
 );
 
-// ==================== MEDIA HELPERS ====================
-const getMediaTypeInfo = (post: any) => {
-  const mediaUrl = String(post?.media_url || '');
-  const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
-  const typeRaw = String(post?.type || '').toLowerCase();
-
-  const cleanUrl = mediaUrl.split('?')[0].split('#')[0];
-  const ext = cleanUrl.split('.').pop()?.toLowerCase() || '';
-
-  const isImage =
-    typeRaw === 'image' ||
-    mediaTypeRaw === 'image' ||
-    mediaTypeRaw.startsWith('image/') ||
-    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'heic'].includes(
-      ext
-    );
-
-  const isVideo =
-    typeRaw === 'video' ||
-    mediaTypeRaw === 'video' ||
-    mediaTypeRaw.startsWith('video/') ||
-    ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp'].includes(ext);
-
-  const isAudio =
-    typeRaw === 'audio' ||
-    mediaTypeRaw.startsWith('audio/') ||
-    ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
-
-  return {
-    mediaUrl,
-    isImage,
-    isVideo,
-    isAudio,
-    extension: ext,
-    mimeType: mediaTypeRaw,
-  };
-};
-
-type NormalizedMedia = {
-  url: string;
-  thumb?: string;
-  feed?: string;
-  full?: string;
-  kind: 'image' | 'video' | 'audio';
-};
-
-const getPostMediaList = (p: any) => {
-  const out: Array<{
-    url: string;
-    thumb?: string;
-    feed?: string;
-    full?: string;
-    kind: 'image' | 'video' | 'audio';
-  }> = [];
-
-  const guessKind = (url: string, explicitType?: string) => {
-    const t = String(explicitType || '').toLowerCase();
-    const u = String(url || '').toLowerCase();
-    if (t.includes('video') || u.match(/\.(mp4|webm|mov)(\?|$)/)) return 'video';
-    if (t.includes('audio') || u.match(/\.(mp3|wav|m4a|ogg)(\?|$)/)) return 'audio';
-    return 'image';
-  };
-
-  try {
-    const rawUrls = p?.media_urls;
-    const rawTypes = p?.media_types;
-    const urls = Array.isArray(rawUrls) ? rawUrls : typeof rawUrls === 'string' ? JSON.parse(rawUrls || '[]') : [];
-    const types = Array.isArray(rawTypes) ? rawTypes : typeof rawTypes === 'string' ? JSON.parse(rawTypes || '[]') : [];
-
-    if (Array.isArray(urls)) {
-      urls.forEach((item: any, i: number) => {
-        if (typeof item === 'string') {
-          try {
-            const parsed = JSON.parse(item);
-            if (parsed && typeof parsed === 'object') {
-              const feedUrl = String(parsed.feed || parsed.feed_url || '').trim();
-              const fullUrl = String(parsed.full || parsed.full_url || feedUrl).trim();
-              const thumbUrl = String(parsed.thumb || parsed.thumbnail_url || feedUrl).trim();
-              const mainUrl = feedUrl || fullUrl || thumbUrl;
-              if (!mainUrl) return;
-              out.push({
-                url: mainUrl,
-                thumb: thumbUrl || mainUrl,
-                feed: feedUrl || mainUrl,
-                full: fullUrl || mainUrl,
-                kind: guessKind(mainUrl, types[i]),
-              });
-              return;
-            }
-          } catch {
-            // old plain string URL
-          }
-          const cleanUrl = item.trim();
-          if (!cleanUrl) return;
-          out.push({
-            url: cleanUrl,
-            feed: cleanUrl,
-            full: cleanUrl,
-            kind: guessKind(cleanUrl, types[i]),
-          });
-          return;
-        }
-        if (item && typeof item === 'object') {
-          const thumbUrl = String(item.thumb || item.thumbnail_url || '').trim();
-          const feedUrl = String(item.feed || item.feed_url || '').trim();
-          const fullUrl = String(item.full || item.full_url || '').trim();
-          const mainUrl = feedUrl || fullUrl || thumbUrl;
-          if (!mainUrl) return;
-          out.push({
-            url: mainUrl,
-            thumb: thumbUrl || mainUrl,
-            feed: feedUrl || mainUrl,
-            full: fullUrl || mainUrl,
-            kind: guessKind(mainUrl, item.type || types[i]),
-          });
-        }
-      });
-    }
-
-    if (!out.length && p?.media_url) {
-      const single = String(p.media_url).trim();
-      if (single) {
-        out.push({
-          url: single,
-          feed: single,
-          full: single,
-          kind: guessKind(single, p?.media_type),
-        });
-      }
-    }
-  } catch {
-    if (p?.media_url) {
-      const single = String(p.media_url).trim();
-      if (single) {
-        out.push({
-          url: single,
-          feed: single,
-          full: single,
-          kind: guessKind(single, p?.media_type),
-        });
-      }
-    }
-  }
-
-  return out;
-};
-
-type MediaOrientation = 'portrait' | 'landscape' | 'square';
-
-const getOrientation = (item: {
-  width?: number;
-  height?: number;
-}): MediaOrientation => {
-  const w = Number(item?.width || 0);
-  const h = Number(item?.height || 0);
-
-  if (!w || !h) return 'square';
-
-  const ratio = w / h;
-
-  if (ratio > 1.15) return 'landscape';
-  if (ratio < 0.87) return 'portrait';
-  return 'square';
-};
-
-const classifyOrientations = (
-  media: { width?: number; height?: number }[]
-): MediaOrientation[] => media.map(getOrientation);
-
-// ==================== MEDIA GRID (internal) ====================
-const MediaGrid = memo(
-  ({ media, onOpen }: { media: { url: string }[]; onOpen: (url: string, index: number) => void }) => {
-    const total = Array.isArray(media) ? media.length : 0;
-
-    const [measuredMedia, setMeasuredMedia] = useState(media);
-
-    useEffect(() => {
-      let cancelled = false;
-
-      const run = async () => {
-        const next = await Promise.all(
-          media.map(
-            (item) =>
-              new Promise<{ url: string; width?: number; height?: number }>(
-                (resolve) => {
-                  if (item.width && item.height) {
-                    resolve(item);
-                    return;
-                  }
-
-                  const img = new Image();
-                  img.onload = () => {
-                    resolve({
-                      ...item,
-                      width: img.naturalWidth,
-                      height: img.naturalHeight,
-                    });
-                  };
-                  img.onerror = () => resolve(item);
-                  img.src = item.url;
-                }
-              )
-          )
-        );
-
-        if (!cancelled) {
-          setMeasuredMedia(next);
-        }
-      };
-
-      run();
-
-      return () => {
-        cancelled = true;
-      };
-    }, [media]);
-
-    const visible =
-      total <= 4
-        ? measuredMedia
-        : total === 5
-        ? measuredMedia.slice(0, 5)
-        : measuredMedia.slice(0, 6);
-
-    const extra =
-      total <= 5 ? 0 : total === 6 ? 0 : total - 6;
-
-    const orientations = classifyOrientations(visible);
-
-    const Tile = ({
-      url,
-      index,
-      className,
-      showOverlay = false,
-    }: {
-      url: string;
-      index: number;
-      className: string;
-      showOverlay?: boolean;
-    }) => (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpen(url, index);
-        }}
-        className={`relative overflow-hidden ${className}`}
-        style={{ borderRadius: 0 }}
-      >
-        <img
-          src={url}
-          alt=""
-          loading="lazy"
-          className="absolute inset-0 w-full h-full object-cover"
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = 'none';
-          }}
-        />
-
-        {showOverlay && extra > 0 && (
-          <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-            <span className="text-white font-bold text-[34px] leading-none">
-              +{extra}
-            </span>
-          </div>
-        )}
-      </button>
-    );
-
-    if (total === 0) return null;
-
-    if (total === 1) {
-      return (
-        <div className="w-full bg-black">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen(visible[0].url, 0);
-            }}
-            className="w-full block"
-          >
-            <img
-              src={visible[0].url}
-              alt=""
-              loading="lazy"
-              className="w-full h-auto max-h-[650px] object-contain"
-            />
-          </button>
-        </div>
-      );
-    }
-
-    if (total === 2) {
-      return (
-        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-          <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
-          <Tile url={visible[1].url} index={1} className="h-[320px] w-full" />
-        </div>
-      );
-    }
-
-    if (total === 3) {
-      return (
-        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-          <Tile url={visible[0].url} index={0} className="h-[420px] w-full" />
-          <div className="grid grid-rows-2 gap-[2px] h-[420px]">
-            <Tile url={visible[1].url} index={1} className="w-full h-full" />
-            <Tile url={visible[2].url} index={2} className="w-full h-full" />
-          </div>
-        </div>
-      );
-    }
-
-    if (total === 4) {
-      return (
-        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-          <Tile url={visible[0].url} index={0} className="h-[260px] w-full" />
-          <Tile url={visible[1].url} index={1} className="h-[260px] w-full" />
-          <Tile url={visible[2].url} index={2} className="h-[260px] w-full" />
-          <Tile url={visible[3].url} index={3} className="h-[260px] w-full" />
-        </div>
-      );
-    }
-
-    if (total === 5) {
-      return (
-        <div className="w-full bg-black">
-          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-            <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
-            <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
-          </div>
-
-          <div className="grid grid-cols-3 gap-[2px]">
-            <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
-            <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
-            <Tile
-              url={visible[4].url}
-              index={4}
-              className="h-[170px] w-full"
-              showOverlay={extra > 0}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    // Smart 6-image layout based on orientation
-    if (total >= 6) {
-      const first = orientations[0];
-      const second = orientations[1];
-      const third = orientations[2];
-
-      const topPortraitPair = first === 'portrait' && second === 'portrait';
-      const firstLandscape = first === 'landscape' || second === 'landscape';
-      const tallLeft = third === 'portrait';
-
-      // Layout A: Tall left + 3 stacked right - Best when 3rd image is portrait
-      if (tallLeft) {
-        return (
-          <div className="w-full bg-black">
-            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-              <Tile url={visible[0].url} index={0} className="h-[250px] w-full" />
-              <Tile url={visible[1].url} index={1} className="h-[250px] w-full" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-[2px]">
-              <Tile url={visible[2].url} index={2} className="h-[340px] w-full" />
-              <div className="grid grid-rows-3 gap-[2px] h-[340px]">
-                <Tile url={visible[3].url} index={3} className="w-full h-full" />
-                <Tile url={visible[4].url} index={4} className="w-full h-full" />
-                <Tile
-                  url={visible[5].url}
-                  index={5}
-                  className="w-full h-full"
-                  showOverlay={extra > 0}
-                />
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      // Layout B: 2 top large + 4 bottom squares - Better for landscapes/squares
-      if (firstLandscape || !topPortraitPair) {
-        return (
-          <div className="w-full bg-black">
-            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-              <Tile url={visible[0].url} index={0} className="h-[230px] w-full" />
-              <Tile url={visible[1].url} index={1} className="h-[230px] w-full" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-[2px]">
-              <Tile url={visible[2].url} index={2} className="h-[170px] w-full" />
-              <Tile url={visible[3].url} index={3} className="h-[170px] w-full" />
-              <Tile url={visible[4].url} index={4} className="h-[170px] w-full" />
-              <Tile
-                url={visible[5].url}
-                index={5}
-                className="h-[170px] w-full"
-                showOverlay={extra > 0}
-              />
-            </div>
-          </div>
-        );
-      }
-
-      // Layout C: 1 big left + 2 stacked right on top, then 3 bottom tiles
-      // Good for portrait-heavy first image
-      return (
-        <div className="w-full bg-black">
-          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-            <Tile url={visible[0].url} index={0} className="h-[320px] w-full" />
-            <div className="grid grid-rows-2 gap-[2px] h-[320px]">
-              <Tile url={visible[1].url} index={1} className="w-full h-full" />
-              <Tile url={visible[2].url} index={2} className="w-full h-full" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-[2px]">
-            <Tile url={visible[3].url} index={3} className="h-[150px] w-full" />
-            <Tile url={visible[4].url} index={4} className="h-[150px] w-full" />
-            <Tile
-              url={visible[5].url}
-              index={5}
-              className="h-[150px] w-full"
-              showOverlay={extra > 0}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    // Fallback for any other case (should not reach here)
-    return (
-      <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
-        <Tile url={visible[0].url} index={0} className="h-[180px] w-full" />
-        <Tile url={visible[1].url} index={1} className="h-[180px] w-full" />
-        <Tile url={visible[2].url} index={2} className="h-[180px] w-full" />
-        <Tile url={visible[3].url} index={3} className="h-[180px] w-full" />
-        <Tile url={visible[4].url} index={4} className="h-[180px] w-full" />
-        <Tile
-          url={visible[5].url}
-          index={5}
-          className="h-[180px] w-full"
-          showOverlay={extra > 0}
-        />
-      </div>
-    );
-  },
-  (prev, next) => prev.media === next.media
-);
-
-// ==================== GROUP POST HEADER (internal) ====================
-const GroupPostHeader = memo(
-  ({
-    post,
-    group,
-    author,
-    onOpenGroup,
-    onOpenProfile,
-    onOpenMenu,
-  }: {
-    post: any;
-    group?: any;
-    author?: any;
-    onOpenGroup?: (groupId: number) => void;
-    onOpenProfile?: (userId: number) => void;
-    onOpenMenu?: () => void;
-  }) => {
-    const groupName = safeStr(group?.name || post?.group_name);
-    const groupId = Number(group?.id || post?.group_id || 0);
-    const userName = safeStr(author?.name || post?.name || post?.username);
-    const userId = Number(author?.id || post?.user_id || 0);
-    const groupImg =
-      safeStr(
-        group?.profile_image || group?.avatar || group?.image || post?.group_image
-      ) || '';
-    const userImg =
-      safeStr(author?.profile_image_url || author?.avatar || post?.profile_image_url) ||
-      '';
-    const timeAgo = formatRelativeTime(post?.created_at);
-
-    return (
-      <div className="flex items-start justify-between px-3 pt-3">
-        <div className="flex items-start gap-3 min-w-0">
-          <button
-            className="relative shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (groupId && onOpenGroup) onOpenGroup(groupId);
-            }}
-            title={groupName}
-          >
-            <div className="w-10 h-10 rounded-full bg-[#3A3B3C] overflow-hidden flex items-center justify-center border border-[#4E4F50]">
-              {groupImg ? (
-                <img src={groupImg} className="w-full h-full object-cover" />
-              ) : (
-                <i className="fas fa-users text-[#B0B3B8]" />
-              )}
-            </div>
-
-            <div className="absolute -right-1 -bottom-1 w-5 h-5 rounded-full bg-[#3A3B3C] overflow-hidden border-2 border-[#242526] flex items-center justify-center">
-              {userImg ? (
-                <img src={userImg} className="w-full h-full object-cover" />
-              ) : (
-                <i className="fas fa-user text-[10px] text-[#B0B3B8]" />
-              )}
-            </div>
-          </button>
-
-          <div className="min-w-0">
-            <button
-              className="text-left font-extrabold text-[20px] leading-[1.1] text-[#E4E6EB] truncate hover:underline"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (groupId && onOpenGroup) onOpenGroup(groupId);
-              }}
-            >
-              {groupName || 'Group'}
-            </button>
-
-            <div className="flex items-center gap-2 text-[15px] text-[#B0B3B8] min-w-0">
-              <button
-                className="font-semibold text-[15px] text-[#B0B3B8] hover:underline truncate"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (userId && onOpenProfile) onOpenProfile(userId);
-                }}
-              >
-                {userName || 'User'}
-              </button>
-
-              <span>·</span>
-              <span className="truncate">{timeAgo}</span>
-
-              <span>·</span>
-              <i className="fas fa-users text-[14px]" />
-            </div>
-          </div>
-        </div>
-
-        {/* Right menu - Will be handled by PostMenu component */}
-      </div>
-    );
-  },
-  (prev, next) => {
-    return (
-      prev.post?.id === next.post?.id &&
-      prev.group?.id === next.group?.id &&
-      prev.author?.id === next.author?.id
-    );
-  }
-);
-
-// ==================== EXPANDABLE RICH TEXT (internal) ====================
-const ExpandableRichText = memo(
-  ({
-    text,
-    users,
-    onProfileClick,
-    onHashtagClick,
-    maxWords = 14,
-    fontSizePx = 23,
-    forceExpanded = false,
-  }: {
-    text: string;
-    users?: User[];
-    onProfileClick: (id: number) => void;
-    onHashtagClick?: (tag: string) => void;
-    maxWords?: number;
-    fontSizePx?: number;
-    forceExpanded?: boolean;
-  }) => {
-    const [expanded, setExpanded] = useState(false);
-
-    const words = (text || '').trim().split(/\s+/).filter(Boolean);
-    const isLong = words.length > maxWords;
-
-    const showAll = forceExpanded || expanded || !isLong;
-    const shownText = showAll
-      ? text
-      : words.slice(0, maxWords).join(' ') + '…';
-
-    return (
-      <div
-        style={{ fontSize: `${fontSizePx}px` }}
-        className="text-[#E4E6EB] leading-relaxed"
-      >
-        <RichText
-          text={shownText}
-          users={users}
-          onProfileClick={onProfileClick}
-          onHashtagClick={onHashtagClick}
-        />
-
-        {isLong && !forceExpanded && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpanded((v) => !v);
-            }}
-            className="ml-2 font-bold text-[#1877F2] hover:underline text-[16px]"
-          >
-            {expanded ? 'See less' : 'See more'}
-          </button>
-        )}
-      </div>
-    );
-  },
-  (prev, next) => {
-    return (
-      prev.text === next.text &&
-      prev.forceExpanded === next.forceExpanded &&
-      prev.users === next.users
-    );
-  }
-);
-
-// ==================== RICH TEXT (exported) ====================
-export const RichText = ({
-  text,
-  users,
-  onProfileClick,
-  onHashtagClick,
-}: {
-  text: string;
-  users?: User[];
-  onProfileClick: (id: number) => void;
-  onHashtagClick?: (tag: string) => void;
-}) => {
-  if (!text) return null;
-  const parts = text.split(/(#[a-zA-Z0-9_]+|@\w+(?:\s\w+)?)/g);
-
-  return (
-    <span className="leading-relaxed text-[#E4E6EB] whitespace-pre-wrap break-words text-[23px]">
-      {parts.map((part, index) => {
-        if (part.startsWith('@')) {
-          const name = part.substring(1).trim().toLowerCase();
-          const user = users?.find((u: any) => {
-            const un = String(u?.username ?? '').toLowerCase();
-            const nm = String(u?.name ?? '').toLowerCase();
-            return un === name || nm === name;
-          });
-
-          if (user) {
-            return (
-              <span
-                key={index}
-                className="text-[#1877F2] font-semibold cursor-pointer hover:underline text-[23px]"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onProfileClick(safeUserId(user));
-                }}
-              >
-                {part}
-              </span>
-            );
-          }
-
-          return (
-            <span
-              key={index}
-              className="text-[#1877F2] font-semibold text-[23px]"
-            >
-              {part}
-            </span>
-          );
-        }
-
-        if (part.startsWith('#')) {
-          return (
-            <span
-              key={index}
-              className="text-[#1877F2] cursor-pointer hover:underline text-[23px]"
-              onClick={(e) => {
-                e.stopPropagation();
-                onHashtagClick && onHashtagClick(part);
-              }}
-            >
-              {part}
-            </span>
-          );
-        }
-
-        return <span key={index} className="text-[23px]">{part}</span>;
-      })}
-    </span>
-  );
-};
-
 /**
  * =========================
  * ✅ MAIN POST COMPONENT (with integrated Facebook-style sponsored support)
@@ -4512,7 +4682,7 @@ export const Post = memo(
     onFollow?: (id: number) => void;
     followLoading?: boolean;
     onEventClick?: (eventId: number) => void;
-    onOpenReactions?: (postId: number) => void;
+    onOpenReactions?: (post: PostType) => void;
     onReport?: (postId: number, reason?: string) => void;
     onHide?: (postId: number) => void;
     pushButton?: React.ReactNode;
@@ -4527,12 +4697,10 @@ export const Post = memo(
     const sponsoredMeta = p?.sponsored_meta || meta?.sponsored_meta || null;
     const sponsoredAdId = Number(sponsoredMeta?.ad_id || 0);
     
-    // Enhanced headline detection
     const sponsoredHeadline = String(
       sponsoredMeta?.headline || p?.headline || ''
     ).trim();
     
-    // Enhanced CTA text detection - supports multiple button types
     const sponsoredCtaText = String(
       sponsoredMeta?.cta_text || 
       p?.cta_text || 
@@ -4541,7 +4709,6 @@ export const Post = memo(
       'Learn More'
     ).trim();
     
-    // Enhanced URL detection
     const sponsoredCtaUrl = String(
       sponsoredMeta?.cta_url || 
       p?.cta_url || 
@@ -4549,7 +4716,6 @@ export const Post = memo(
       ''
     ).trim();
     
-    // Contact type detection (for phone/email buttons)
     const sponsoredContactType = String(
       sponsoredMeta?.contact_type || 
       p?.contact_type || 
@@ -4568,14 +4734,12 @@ export const Post = memo(
       ''
     ).trim();
     
-    // Determine if button should show
     const shouldShowSponsoredButton = isSponsored && (
       !!sponsoredCtaUrl ||
       (sponsoredContactType === 'phone' && !!sponsoredPhone) ||
       (sponsoredContactType === 'email' && !!sponsoredEmail)
     );
     
-    // Hide date for active sponsored posts (Facebook style)
     const shouldHideDateForSponsored = isSponsored;
 
     // ==================== SPONSORED IMPRESSION TRACKING ====================
@@ -4608,7 +4772,6 @@ export const Post = memo(
         }).catch((err) => console.error('Failed to record ad click:', err));
       }
       
-      // Handle different contact types
       if (sponsoredContactType === 'phone' && sponsoredPhone) {
         window.location.href = `tel:${sponsoredPhone}`;
         return;
@@ -4736,7 +4899,7 @@ export const Post = memo(
     );
 
     const createdAtLabel = formatRelativeTime(p.created_at);
-    const postId = safePostId(p);
+    const postId = getFeedItemId(p);
 
     const mediaInfo = getMediaTypeInfo(p);
     const mediaList = useMemo(() => getPostMediaList(p), [p]);
@@ -4803,35 +4966,12 @@ export const Post = memo(
       if (onFollow && a.id) onFollow(safeUserId(a));
     };
 
-    const getReactionEndpoint = (item: any) => {
-      if (item.source === 'group_post' || item.item_type === 'group_post')
-        return `/api/groups/${item.group_id}/posts/${item.id}/react`;
-      else if (item.source === 'product' || item.item_type === 'product')
-        return `/api/products/${item.product_id || item.id}/react`;
-      else if (item.source === 'reel' || item.item_type === 'reel')
-        return `/api/reels/${item.reel_id || item.id}/react`;
-      else if (item.source === 'song' || item.item_type === 'song')
-        return `/api/songs/${item.song_id2 || item.id}/react`;
-      else if (item.source === 'podcast' || item.item_type === 'podcast')
-        return `/api/podcasts/${item.podcast_id || item.id}/react`;
-      else return `/api/posts/${item.id}/react`;
-    };
-
-    const handleReactClick = async (type: ReactionType) => {
+    const handleReactClick = (type: ReactionType) => {
       if (!currentUser) {
         alert('Please login to react.');
         return;
       }
-      const endpoint = getReactionEndpoint(p);
-      try {
-        await apiFetch(endpoint, {
-          method: 'POST',
-          body: JSON.stringify({ user_id: currentUser.id, type: type }),
-        });
-        onReact(post, type);
-      } catch (error) {
-        console.error('Failed to react:', error);
-      }
+      onReact(post, type);
     };
 
     const openGallery = (urls: string[], index: number) => {
@@ -4852,6 +4992,14 @@ export const Post = memo(
       }
     };
 
+    const handleOpenReactionsSheet = () => {
+      if (onOpenReactions) {
+        onOpenReactions(post);
+      } else {
+        setShowReactionsSheet(true);
+      }
+    };
+
     return (
       <>
         <div className="w-full relative">
@@ -4866,7 +5014,6 @@ export const Post = memo(
                   onOpenGroup={(id) => onOpenGroup?.(id)}
                   onOpenProfile={(id) => onProfileClick(id)}
                 />
-                {/* Sponsored label for group posts (Facebook style) */}
                 {isSponsored && (
                   <div className="px-3 md:px-4 pb-2 text-[#B0B3B8] text-[15px] font-medium">
                     Sponsored
@@ -4892,7 +5039,6 @@ export const Post = memo(
                       {a.is_verified && (
                         <i className="fas fa-check-circle text-[#1877F2] text-[15px]"></i>
                       )}
-                      {/* SPONSORED BADGE - Facebook style (text only, no badge) */}
                       {isSponsored && (
                         <span className="text-[#B0B3B8] text-[15px] font-medium">
                           Sponsored
@@ -4900,7 +5046,6 @@ export const Post = memo(
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[15px]">
-                      {/* Hide date for active sponsored posts (Facebook style) */}
                       {!shouldHideDateForSponsored && (
                         <>
                           <span>{createdAtLabel}</span>
@@ -4965,7 +5110,6 @@ export const Post = memo(
               </div>
             )}
 
-            {/* SPONSORED HEADLINE - Show if present and different from original content */}
             {sponsoredHeadline && sponsoredHeadline !== String(p.content || '').trim() && (
               <div className="px-3 md:px-4 pb-1">
                 <h3 className="text-[#E4E6EB] font-bold text-[22px]">
@@ -4974,7 +5118,6 @@ export const Post = memo(
               </div>
             )}
 
-            {/* MARKETPLACE BADGE */}
             {isMarketplace && (
               <div className="px-4 pb-2 flex items-center gap-2 text-[#E4E6EB]">
                 <span className="text-[#1877F2] font-bold text-[15px] bg-[#1877F2]/10 px-2 py-1 rounded-full">
@@ -4989,7 +5132,6 @@ export const Post = memo(
               </div>
             )}
 
-            {/* POST CONTENT */}
             {p.content && !isMarketplace && (
               <div className="px-3 md:px-4 pb-2">
                 <ExpandableRichText
@@ -5003,7 +5145,6 @@ export const Post = memo(
               </div>
             )}
 
-            {/* MUSIC/PODCAST PLAYER */}
             {(isMusic || isPodcast) && (
               <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
                 <div className="flex items-center gap-3 p-3">
@@ -5038,7 +5179,6 @@ export const Post = memo(
               </div>
             )}
 
-            {/* LINK PREVIEW */}
             {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
               <div
                 className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
@@ -5072,7 +5212,6 @@ export const Post = memo(
               </div>
             )}
 
-            {/* BACKGROUND POST */}
             {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
               <div
                 className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
@@ -5082,7 +5221,6 @@ export const Post = memo(
               </div>
             )}
 
-            {/* MARKETPLACE RENDERING */}
             {isMarketplace ? (
               <>
                 {mpImages.length > 0 && (
@@ -5121,7 +5259,6 @@ export const Post = memo(
                   </div>
                 )}
 
-                {/* SPONSORED CTA BUTTON - Facebook position (below media, above engagement) - IMPROVED STYLING */}
                 {shouldShowSponsoredButton && (
                   <div className="px-3 pt-2 pb-1">
                     <button
@@ -5136,7 +5273,6 @@ export const Post = memo(
                   </div>
                 )}
 
-                {/* ENGAGEMENT METRICS */}
                 <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
                   <div className="flex items-center gap-2">
                     {finalReactionCount > 0 && (
@@ -5144,11 +5280,7 @@ export const Post = memo(
                         className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (onOpenReactions) {
-                            onOpenReactions(postId);
-                          } else {
-                            setShowReactionsSheet(true);
-                          }
+                          handleOpenReactionsSheet();
                         }}
                       >
                         <div className="flex -space-x-2">
@@ -5187,7 +5319,6 @@ export const Post = memo(
                   </div>
                 </div>
 
-                {/* ACTION BUTTONS */}
                 <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
                   <ReactionButton
                     currentUserReactions={finalMyReaction}
@@ -5227,10 +5358,13 @@ export const Post = memo(
               </>
             ) : (
               <>
-                {/* IMAGE MEDIA - USING PROGRESSIVE IMAGES FOR FEED */}
                 {!p.background && imageMedia.length > 0 && (
                   <MediaGrid
-                    media={imageMedia.map((m) => ({ url: m.thumb || m.feed || m.url }))}
+                    media={imageMedia.map((m) => ({
+                      url: m.thumb || m.feed || m.url,
+                      feed: m.feed || m.url,
+                      full: m.full || m.feed || m.url,
+                    }))}
                     onOpen={(url, index) => {
                       const urls = imageMedia.map((m) => m.full || m.feed || m.url);
                       openGallery(urls, index);
@@ -5238,7 +5372,6 @@ export const Post = memo(
                   />
                 )}
 
-                {/* VIDEO MEDIA */}
                 {!p.background && videoMedia.length > 0 && (
                   <div
                     className="cursor-pointer relative h-[500px] bg-black"
@@ -5261,7 +5394,6 @@ export const Post = memo(
                   </div>
                 )}
 
-                {/* AUDIO MEDIA */}
                 {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
                   <div className="my-3">
                     {(() => {
@@ -5375,7 +5507,6 @@ export const Post = memo(
                   </div>
                 )}
 
-                {/* SPONSORED CTA BUTTON - Facebook position (below media, above engagement) - IMPROVED STYLING */}
                 {shouldShowSponsoredButton && (
                   <div className="px-3 pt-2 pb-1">
                     <button
@@ -5390,7 +5521,6 @@ export const Post = memo(
                   </div>
                 )}
 
-                {/* ENGAGEMENT METRICS */}
                 <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
                   <div className="flex items-center gap-2">
                     {finalReactionCount > 0 && (
@@ -5398,11 +5528,7 @@ export const Post = memo(
                         className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (onOpenReactions) {
-                            onOpenReactions(postId);
-                          } else {
-                            setShowReactionsSheet(true);
-                          }
+                          handleOpenReactionsSheet();
                         }}
                       >
                         <div className="flex -space-x-2">
@@ -5441,7 +5567,6 @@ export const Post = memo(
                   </div>
                 </div>
 
-                {/* ACTION BUTTONS */}
                 <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
                   <ReactionButton
                     currentUserReactions={finalMyReaction}
@@ -5485,7 +5610,6 @@ export const Post = memo(
           <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
         </div>
 
-        {/* SHARE BOTTOM SHEET */}
         <ShareBottomSheet
           isOpen={showShareSheet}
           onClose={() => setShowShareSheet(false)}
@@ -5504,37 +5628,29 @@ export const Post = memo(
           onShareComplete={handleShareComplete}
         />
 
-        {/* REACTIONS SHEET */}
         <ReactionsSheet
           isOpen={showReactionsSheet}
           onClose={() => setShowReactionsSheet(false)}
-          postId={postId}
+          post={post}
           onProfileClick={onProfileClick}
-          onOpenComments={() => onOpenComments(post)}
+          onOpenComments={onOpenComments}
         />
 
-        {/* GALLERY VIEWER */}
         <GalleryViewer
           isOpen={galleryOpen}
           urls={galleryUrls}
           startIndex={galleryIndex}
           onClose={() => setGalleryOpen(false)}
-          postId={postId}
+          post={post}
           currentUser={currentUser}
           reactionCount={finalReactionCount}
           commentCount={commentCount}
           shareCount={shareCount}
           myReaction={finalMyReaction}
-          onReact={(type) => onReact(post, type)}
+          onReact={(post, type) => onReact(post, type)}
           onOpenComments={() => handleOpenComments()}
           onShare={() => setShowShareSheet(true)}
-          onOpenReactions={() => {
-            if (onOpenReactions) {
-              onOpenReactions(postId);
-            } else {
-              setShowReactionsSheet(true);
-            }
-          }}
+          onOpenReactions={handleOpenReactionsSheet}
         />
       </>
     );
@@ -6258,7 +6374,6 @@ export const CommentsSheet = memo(
     checkIsFollowing,
     onViewProductFromPost,
     onOpenAudio,
-    // Additional props to preserve full card shape
     onReact,
     onShare,
     onVideoClick,
@@ -6284,7 +6399,6 @@ export const CommentsSheet = memo(
     checkIsFollowing?: (id: number) => boolean;
     onViewProductFromPost?: (productId: number) => void;
     onOpenAudio?: (item: any) => void;
-    // New props for preserving full card shape
     onReact: (post: PostType, type: ReactionType) => void;
     onShare: (id: number, newShareCount: number) => void;
     onVideoClick: (post: PostType) => void;
@@ -6294,10 +6408,10 @@ export const CommentsSheet = memo(
     onOpenGroup?: (groupId: number) => void;
     onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
     onEventClick?: (eventId: number) => void;
-    onOpenReactions?: (postId: number) => void;
+    onOpenReactions?: (post: PostType) => void;
   }) => {
     const p: any = post as any;
-    const postId = safePostId(p);
+    const postId = getFeedItemId(p);
 
     const discussionsTopRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -6312,89 +6426,100 @@ export const CommentsSheet = memo(
 
     const getCommentEndpoint = () => {
       const viewerId = safeUserId(currentUser);
+      const itemType = getFeedItemType(p);
 
-      if (p.source === 'event' || p.item_type === 'event') {
-        const eventId = p.event_id || p.id;
-        return `/api/events/${eventId}/comments?viewerId=${viewerId}`;
-      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
-        const groupId = p.group_id;
-        const postId = p.id;
-        return `/api/groups/${groupId}/posts/${postId}/comments?viewerId=${viewerId}`;
-      } else if (p.source === 'product' || p.item_type === 'product') {
-        const productId = p.product_id || p.id;
-        return `/api/products/${productId}/reviews?viewerId=${viewerId}`;
-      } else if (p.source === 'reel' || p.item_type === 'reel') {
-        const reelId = p.reel_id || p.id;
-        return `/api/reels/${reelId}/comments?viewerId=${viewerId}`;
-      } else if (p.source === 'song' || p.item_type === 'song') {
-        const songId = p.song_id2 || p.id;
-        return `/api/songs/${songId}/comments?viewerId=${viewerId}`;
-      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
-        const podcastId = p.podcast_id || p.id;
-        return `/api/podcasts/${podcastId}/comments?viewerId=${viewerId}`;
-      } else {
-        return `/api/posts/${p.id}/comments?viewerId=${viewerId}`;
+      switch (itemType) {
+        case 'event':
+          const eventId = p.event_id || p.id;
+          return `/api/events/${eventId}/comments?viewerId=${viewerId}`;
+        case 'group_post':
+          const groupId = p.group_id;
+          const groupPostId = p.id;
+          return `/api/groups/${groupId}/posts/${groupPostId}/comments?viewerId=${viewerId}`;
+        case 'product':
+          const productId = p.product_id || p.id;
+          return `/api/products/${productId}/reviews?viewerId=${viewerId}`;
+        case 'reel':
+          const reelId = p.reel_id || p.id;
+          return `/api/reels/${reelId}/comments?viewerId=${viewerId}`;
+        case 'music':
+          const songId = p.song_id2 || p.id;
+          return `/api/songs/${songId}/comments?viewerId=${viewerId}`;
+        case 'podcast':
+          const podcastId = p.podcast_id || p.id;
+          return `/api/podcasts/${podcastId}/comments?viewerId=${viewerId}`;
+        default:
+          return `/api/posts/${p.id}/comments?viewerId=${viewerId}`;
       }
     };
 
     const getAddCommentEndpoint = () => {
-      if (p.source === 'event' || p.item_type === 'event') {
-        const eventId = p.event_id || p.id;
-        return `/api/events/${eventId}/comment`;
-      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
-        const groupId = p.group_id;
-        const postId = p.id;
-        return `/api/groups/${groupId}/posts/${postId}/comment`;
-      } else if (p.source === 'product' || p.item_type === 'product') {
-        const productId = p.product_id || p.id;
-        return `/api/products/${productId}/review`;
-      } else if (p.source === 'reel' || p.item_type === 'reel') {
-        const reelId = p.reel_id || p.id;
-        return `/api/reels/${reelId}/comment`;
-      } else if (p.source === 'song' || p.item_type === 'song') {
-        const songId = p.song_id2 || p.id;
-        return `/api/songs/${songId}/comment`;
-      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
-        const podcastId = p.podcast_id || p.id;
-        return `/api/podcasts/${podcastId}/comment`;
-      } else {
-        return `/api/posts/${p.id}/comment`;
+      const itemType = getFeedItemType(p);
+
+      switch (itemType) {
+        case 'event':
+          const eventId = p.event_id || p.id;
+          return `/api/events/${eventId}/comment`;
+        case 'group_post':
+          const groupId = p.group_id;
+          const groupPostId = p.id;
+          return `/api/groups/${groupId}/posts/${groupPostId}/comment`;
+        case 'product':
+          const productId = p.product_id || p.id;
+          return `/api/products/${productId}/review`;
+        case 'reel':
+          const reelId = p.reel_id || p.id;
+          return `/api/reels/${reelId}/comment`;
+        case 'music':
+          const songId = p.song_id2 || p.id;
+          return `/api/songs/${songId}/comment`;
+        case 'podcast':
+          const podcastId = p.podcast_id || p.id;
+          return `/api/podcasts/${podcastId}/comment`;
+        default:
+          return `/api/posts/${p.id}/comment`;
       }
     };
 
     const getReplyEndpoint = (commentId: number) => {
-      if (p.source === 'event' || p.item_type === 'event') {
-        return `/api/event-comments/${commentId}/reply`;
-      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
-        return `/api/group-post-comments/${commentId}/reply`;
-      } else if (p.source === 'product' || p.item_type === 'product') {
-        return `/api/product-reviews/${commentId}/reply`;
-      } else if (p.source === 'reel' || p.item_type === 'reel') {
-        return `/api/reel-comments/${commentId}/reply`;
-      } else if (p.source === 'song' || p.item_type === 'song') {
-        return `/api/song-comments/${commentId}/reply`;
-      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
-        return `/api/podcast-comments/${commentId}/reply`;
-      } else {
-        return `/api/comments/${commentId}/reply`;
+      const itemType = getFeedItemType(p);
+
+      switch (itemType) {
+        case 'event':
+          return `/api/event-comments/${commentId}/reply`;
+        case 'group_post':
+          return `/api/group-post-comments/${commentId}/reply`;
+        case 'product':
+          return `/api/product-reviews/${commentId}/reply`;
+        case 'reel':
+          return `/api/reel-comments/${commentId}/reply`;
+        case 'music':
+          return `/api/song-comments/${commentId}/reply`;
+        case 'podcast':
+          return `/api/podcast-comments/${commentId}/reply`;
+        default:
+          return `/api/comments/${commentId}/reply`;
       }
     };
 
     const getLikeEndpoint = (commentId: number) => {
-      if (p.source === 'event' || p.item_type === 'event') {
-        return `/api/event-comments/${commentId}/like`;
-      } else if (p.source === 'group_post' || p.item_type === 'group_post') {
-        return `/api/group-post-comments/${commentId}/like`;
-      } else if (p.source === 'product' || p.item_type === 'product') {
-        return `/api/product-reviews/${commentId}/like`;
-      } else if (p.source === 'reel' || p.item_type === 'reel') {
-        return `/api/reel-comments/${commentId}/like`;
-      } else if (p.source === 'song' || p.item_type === 'song') {
-        return `/api/song-comments/${commentId}/like`;
-      } else if (p.source === 'podcast' || p.item_type === 'podcast') {
-        return `/api/podcast-comments/${commentId}/like`;
-      } else {
-        return `/api/comments/${commentId}/like`;
+      const itemType = getFeedItemType(p);
+
+      switch (itemType) {
+        case 'event':
+          return `/api/event-comments/${commentId}/like`;
+        case 'group_post':
+          return `/api/group-post-comments/${commentId}/like`;
+        case 'product':
+          return `/api/product-reviews/${commentId}/like`;
+        case 'reel':
+          return `/api/reel-comments/${commentId}/like`;
+        case 'music':
+          return `/api/song-comments/${commentId}/like`;
+        case 'podcast':
+          return `/api/podcast-comments/${commentId}/like`;
+        default:
+          return `/api/comments/${commentId}/like`;
       }
     };
 
@@ -6796,7 +6921,6 @@ export const CommentsSheet = memo(
         </div>
 
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-smooth">
-          {/* FULL POST CARD - REUSING THE SAME Post COMPONENT TO PRESERVE ALL CARD SHAPE */}
           <div className="border-b border-[#3E4042]">
             <Post
               post={post}
@@ -6953,7 +7077,7 @@ export const CommentsSheet = memo(
       </div>
     );
   },
-  (prev, next) => prev.post?.id === next.post?.id && prev.currentUser?.id === next.currentUser?.id
+  (prev, next) => isSameFeedItem(prev.post, next.post) && prev.currentUser?.id === next.currentUser?.id
 );
 
 /**
@@ -7049,6 +7173,10 @@ export {
   avatarFrom,
   formatReelCount,
   getReelAuthorName,
+  getFeedItemType,
+  getFeedItemId,
+  getFeedKey,
+  isSameFeedItem,
 };
 
 /**
@@ -7147,22 +7275,18 @@ export const Feed = memo(({
   onLoginClick,
 }: FeedProps) => {
   
-  const getStableItemKey = (item: any, prefix: string) => {
-    return `${prefix}-${item.id}-${item.feed_key || ''}`;
-  };
+  const getStableItemKey = useCallback((item: any) => {
+    return getFeedKey(item);
+  }, []);
 
   return (
     <div className="space-y-2">
       {feedItems.map((item, idx) => {
-        // NOTE: Sponsored posts are NO LONGER handled separately
-        // They flow through the normal Post component and are detected
-        // via isSponsored flag inside the Post component
-
         // Handle reel cards
-        if (item.type === 'reel') {
+        if (getFeedItemType(item) === 'reel') {
           return (
             <ReelFeedCard
-              key={`reel-${item.id}`}
+              key={getStableItemKey(item)}
               reel={item.reel || item}
               onOpen={(reelId) => onOpenReel?.(reelId)}
               onOpenMenu={(reel) => onOpenReelMenu?.(reel)}
@@ -7178,6 +7302,8 @@ export const Feed = memo(({
         const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
         const isAdminUser = currentUser && currentUser.role === 'admin';
         const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
+        
+        const isPushed = pushedPosts?.[item.id] || false;
 
         // Track PYMK and Groups inserts
         const showFirstPymk = peopleYouMayKnow && 
@@ -7196,7 +7322,7 @@ export const Feed = memo(({
           idx === groupsYouMayJoinInsertIndex;
 
         return (
-          <React.Fragment key={getStableItemKey(item, 'post')}>
+          <React.Fragment key={getStableItemKey(item)}>
             <Post
               post={item as PostType}
               author={getPostAuthor?.(item as PostType) || item.author || item}
@@ -7221,14 +7347,14 @@ export const Feed = memo(({
               pushButton={showPushButton ? (
                 <button
                   onClick={() => onPushMore?.(item.id)}
-                  disabled={pushedPosts?.[item.id]}
+                  disabled={isPushed}
                   className={`px-3 py-1 rounded-md text-sm font-semibold ml-2 ${
-                    pushedPosts?.[item.id]
+                    isPushed
                       ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                       : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
                   }`}
                 >
-                  {pushedPosts?.[item.id] ? 'Pushed' : 'Push More'}
+                  {isPushed ? 'Pushed' : 'Push More'}
                 </button>
               ) : undefined}
             />
@@ -7281,9 +7407,12 @@ export const Feed = memo(({
     </div>
   );
 }, (prev, next) => {
-  // Custom comparison for memo
-  return prev.feedItems === next.feedItems && 
-         prev.currentUser?.id === next.currentUser?.id;
+  // Custom comparison for memo using hybrid identity
+  if (prev.feedItems.length !== next.feedItems.length) return false;
+  for (let i = 0; i < prev.feedItems.length; i++) {
+    if (!isSameFeedItem(prev.feedItems[i], next.feedItems[i])) return false;
+  }
+  return prev.currentUser?.id === next.currentUser?.id;
 });
 
 // ==================== ADDITIONAL EXPORTS ====================
@@ -7403,6 +7532,6 @@ if (typeof window !== 'undefined') {
 }
 
 export const FEED_VERSION = '2.0.0';
-export const LAST_UPDATED = '2024-03-26';
+export const LAST_UPDATED = '2024-03-27';
 
 
