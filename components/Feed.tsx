@@ -934,129 +934,6 @@ const isSameFeedItem = (a: any, b: any): boolean => {
   return aType === bType && aId > 0 && bId > 0 && aId === bId;
 };
 
-// ==================== UPDATED getPostMediaList - PRIORITIZES p.media FIRST ====================
-const getPostMediaList = (p: any) => {
-  const out: Array<{
-    url: string;
-    thumb?: string;
-    feed?: string;
-    full?: string;
-    kind: 'image' | 'video' | 'audio';
-  }> = [];
-
-  const guessKind = (url: string, explicitType?: string) => {
-    const t = String(explicitType || '').toLowerCase();
-    const u = String(url || '').toLowerCase();
-    if (t.includes('video') || /\.(mp4|webm|mov|m4v)(\?|$)/.test(u)) return 'video';
-    if (t.includes('audio') || /\.(mp3|wav|m4a|ogg)(\?|$)/.test(u)) return 'audio';
-    return 'image';
-  };
-
-  const pushMediaItem = (item: any, explicitType?: string) => {
-    if (!item) return;
-
-    if (typeof item === 'string') {
-      const cleanUrl = item.trim();
-      if (!cleanUrl) return;
-      out.push({
-        url: cleanUrl,
-        thumb: cleanUrl,
-        feed: cleanUrl,
-        full: cleanUrl,
-        kind: guessKind(cleanUrl, explicitType),
-      });
-      return;
-    }
-
-    if (typeof item === 'object') {
-      const thumbUrl = String(item.thumb || item.thumbnail_url || item.thumb_url || '').trim();
-      const feedUrl = String(item.feed || item.feed_url || '').trim();
-      const fullUrl = String(item.full || item.full_url || '').trim();
-      const legacyUrl = String(item.url || item.media_url || '').trim();
-      const mainUrl = thumbUrl || feedUrl || fullUrl || legacyUrl;
-      if (!mainUrl) return;
-
-      out.push({
-        url: thumbUrl || feedUrl || fullUrl || legacyUrl,
-        thumb: thumbUrl || feedUrl || fullUrl || legacyUrl,
-        feed: feedUrl || fullUrl || thumbUrl || legacyUrl,
-        full: fullUrl || feedUrl || thumbUrl || legacyUrl,
-        kind: guessKind(fullUrl || feedUrl || thumbUrl || legacyUrl, item.type || explicitType),
-      });
-    }
-  };
-
-  try {
-    // 1) NEW structured media field FIRST
-    if (Array.isArray(p?.media) && p.media.length > 0) {
-      p.media.forEach((item: any) => pushMediaItem(item));
-      if (out.length) return out;
-    }
-
-    // 2) fallback: media_urls/media_types
-    const rawUrls = p?.media_urls;
-    const rawTypes = p?.media_types;
-    const urls = Array.isArray(rawUrls)
-      ? rawUrls
-      : typeof rawUrls === 'string'
-      ? JSON.parse(rawUrls || '[]')
-      : [];
-    const types = Array.isArray(rawTypes)
-      ? rawTypes
-      : typeof rawTypes === 'string'
-      ? JSON.parse(rawTypes || '[]')
-      : [];
-
-    if (Array.isArray(urls)) {
-      urls.forEach((item: any, i: number) => {
-        if (typeof item === 'string') {
-          try {
-            const parsed = JSON.parse(item);
-            if (parsed && typeof parsed === 'object') {
-              pushMediaItem(parsed, types[i]);
-              return;
-            }
-          } catch {
-            // plain string url
-          }
-          pushMediaItem(item, types[i]);
-          return;
-        }
-        pushMediaItem(item, types[i]);
-      });
-    }
-
-    // 3) final fallback: single legacy media_url
-    if (!out.length && p?.media_url) {
-      pushMediaItem(
-        {
-          url: p.media_url,
-          thumb: p.thumb_url || p.media_url,
-          feed: p.feed_url || p.media_url,
-          full: p.full_url || p.media_url,
-          type: p.media_type,
-        },
-        p.media_type
-      );
-    }
-  } catch {
-    if (p?.media_url) {
-      pushMediaItem(
-        {
-          url: p.media_url,
-          thumb: p.thumb_url || p.media_url,
-          feed: p.feed_url || p.media_url,
-          full: p.full_url || p.media_url,
-          type: p.media_type,
-        },
-        p.media_type
-      );
-    }
-  }
-
-  return out;
-};
-
 // ==================== CUSTOM COMPARISON FUNCTIONS ====================
 const postPropsEqual = (prev: any, next: any) => {
   return (
@@ -1088,7 +965,7 @@ const reelCardPropsEqual = (prev: any, next: any) => {
   );
 };
 
-// ==================== EXPORTED COMPONENTS ====================
+// ==================== EXPORTED COMPONENTS (Memoized) ====================
 
 /**
  * =========================
@@ -2284,7 +2161,7 @@ export const PeopleYouMayKnowGrid = memo(
 
 /**
  * =========================
- * ✅ REEL PREVIEW CARD - DO NOT TOUCH
+ * ✅ REEL PREVIEW CARD
  * =========================
  */
 export type ReelFeedData = {
@@ -3061,7 +2938,130 @@ type NormalizedMedia = {
   kind: 'image' | 'video' | 'audio';
 };
 
-// ==================== MEDIA GRID (updated with better media fallback) ====================
+const getPostMediaList = (p: any) => {
+  const out: Array<{
+    url: string;
+    thumb?: string;
+    feed?: string;
+    full?: string;
+    kind: 'image' | 'video' | 'audio';
+  }> = [];
+
+  const guessKind = (url: string, explicitType?: string) => {
+    const t = String(explicitType || '').toLowerCase();
+    const u = String(url || '').toLowerCase();
+    if (t.includes('video') || u.match(/\.(mp4|webm|mov)(\?|$)/)) return 'video';
+    if (t.includes('audio') || u.match(/\.(mp3|wav|m4a|ogg)(\?|$)/)) return 'audio';
+    return 'image';
+  };
+
+  try {
+    const rawUrls = p?.media_urls;
+    const rawTypes = p?.media_types;
+    const urls = Array.isArray(rawUrls) ? rawUrls : typeof rawUrls === 'string' ? JSON.parse(rawUrls || '[]') : [];
+    const types = Array.isArray(rawTypes) ? rawTypes : typeof rawTypes === 'string' ? JSON.parse(rawTypes || '[]') : [];
+
+    if (Array.isArray(urls)) {
+      urls.forEach((item: any, i: number) => {
+        if (typeof item === 'string') {
+          try {
+            const parsed = JSON.parse(item);
+            if (parsed && typeof parsed === 'object') {
+              const feedUrl = String(parsed.feed || parsed.feed_url || '').trim();
+              const fullUrl = String(parsed.full || parsed.full_url || feedUrl).trim();
+              const thumbUrl = String(parsed.thumb || parsed.thumbnail_url || feedUrl).trim();
+              const mainUrl = feedUrl || fullUrl || thumbUrl;
+              if (!mainUrl) return;
+              out.push({
+                url: mainUrl,
+                thumb: thumbUrl || mainUrl,
+                feed: feedUrl || mainUrl,
+                full: fullUrl || mainUrl,
+                kind: guessKind(mainUrl, types[i]),
+              });
+              return;
+            }
+          } catch {
+            // old plain string URL
+          }
+          const cleanUrl = item.trim();
+          if (!cleanUrl) return;
+          out.push({
+            url: cleanUrl,
+            feed: cleanUrl,
+            full: cleanUrl,
+            kind: guessKind(cleanUrl, types[i]),
+          });
+          return;
+        }
+        if (item && typeof item === 'object') {
+          const thumbUrl = String(item.thumb || item.thumbnail_url || '').trim();
+          const feedUrl = String(item.feed || item.feed_url || '').trim();
+          const fullUrl = String(item.full || item.full_url || '').trim();
+          const mainUrl = feedUrl || fullUrl || thumbUrl;
+          if (!mainUrl) return;
+          out.push({
+            url: mainUrl,
+            thumb: thumbUrl || mainUrl,
+            feed: feedUrl || mainUrl,
+            full: fullUrl || mainUrl,
+            kind: guessKind(mainUrl, item.type || types[i]),
+          });
+        }
+      });
+    }
+
+    if (!out.length && p?.media_url) {
+      const single = String(p.media_url).trim();
+      if (single) {
+        out.push({
+          url: single,
+          feed: single,
+          full: single,
+          kind: guessKind(single, p?.media_type),
+        });
+      }
+    }
+  } catch {
+    if (p?.media_url) {
+      const single = String(p.media_url).trim();
+      if (single) {
+        out.push({
+          url: single,
+          feed: single,
+          full: single,
+          kind: guessKind(single, p?.media_type),
+        });
+      }
+    }
+  }
+
+  return out;
+};
+
+type MediaOrientation = 'portrait' | 'landscape' | 'square';
+
+const getOrientation = (item: {
+  width?: number;
+  height?: number;
+}): MediaOrientation => {
+  const w = Number(item?.width || 0);
+  const h = Number(item?.height || 0);
+
+  if (!w || !h) return 'square';
+
+  const ratio = w / h;
+
+  if (ratio > 1.15) return 'landscape';
+  if (ratio < 0.87) return 'portrait';
+  return 'square';
+};
+
+const classifyOrientations = (
+  media: { width?: number; height?: number }[]
+): MediaOrientation[] => media.map(getOrientation);
+
+// ==================== MEDIA GRID (updated with progressive image loading) ====================
 const MediaGrid = memo(
   ({
     media,
@@ -4622,7 +4622,7 @@ export const ReactionButton = memo(
 
 /**
  * =========================
- * ✅ MAIN POST COMPONENT (with updated video card using thumbnail)
+ * ✅ MAIN POST COMPONENT (with integrated Facebook-style sponsored support)
  * =========================
  */
 export const Post = memo(
@@ -4656,12 +4656,6 @@ export const Post = memo(
     onReport,
     onHide,
     pushButton,
-    // Reel-specific props for regular video cards
-    onReelReact,
-    onReelComment,
-    onReelEditComment,
-    onReelDeleteComment,
-    onReelShare,
   }: {
     post: PostType;
     author: User | any;
@@ -4692,12 +4686,6 @@ export const Post = memo(
     onReport?: (postId: number, reason?: string) => void;
     onHide?: (postId: number) => void;
     pushButton?: React.ReactNode;
-    // Reel-specific props for regular video cards
-    onReelReact?: (reelId: number, type?: ReactionType) => void;
-    onReelComment?: (reelId: number, payload: { text: string; parentId?: number | null; imageFile?: File | null; }) => Promise<void> | void;
-    onReelEditComment?: (commentId: number, payload: { text?: string; imageFile?: File | null; image_url?: string; }) => Promise<void> | void;
-    onReelDeleteComment?: (commentId: number) => Promise<void> | void;
-    onReelShare?: (reelId: number, type: 'feed' | 'copy') => void;
   }) => {
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
     const p: any = post as any;
@@ -4826,15 +4814,6 @@ export const Post = memo(
       !!p?.event_id ||
       !!meta?.event;
 
-    // Check if this is a video post (regular video, not reel)
-    const mediaInfo = getMediaTypeInfo(p);
-    const mediaList = useMemo(() => getPostMediaList(p), [p]);
-    const videoMedia = mediaList.filter((m) => m.kind === 'video');
-    const isVideoPost = videoMedia.length > 0 && !p?.is_reel && getFeedItemType(p) !== 'reel';
-
-    // Get reelId if available for video posts
-    const reelId = p?.reel_id || p?.id;
-
     // If it's an event post, render EventPost component
     if (isEventPost) {
       const event = normalizeEventFromFeed(p);
@@ -4922,7 +4901,10 @@ export const Post = memo(
     const createdAtLabel = formatRelativeTime(p.created_at);
     const postId = getFeedItemId(p);
 
+    const mediaInfo = getMediaTypeInfo(p);
+    const mediaList = useMemo(() => getPostMediaList(p), [p]);
     const imageMedia = mediaList.filter((m) => m.kind === 'image');
+    const videoMedia = mediaList.filter((m) => m.kind === 'video');
 
     const formatCount = (count: number): string => {
       if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
@@ -4989,48 +4971,25 @@ export const Post = memo(
         alert('Please login to react.');
         return;
       }
-      // For video posts, use reel-specific handler if available
-      if (isVideoPost && onReelReact) {
-        onReelReact(reelId, type);
-      } else {
-        onReact(post, type);
-      }
-    };
-
-    const handleShareClick = () => {
-      if (!currentUser) {
-        alert('Please login to share posts.');
-        return;
-      }
-      // For video posts, use reel-specific handler if available
-      if (isVideoPost && onReelShare) {
-        onReelShare(reelId, 'feed');
-      } else {
-        setShowShareSheet(true);
-      }
-    };
-
-    const handleOpenCommentsClick = (e?: React.MouseEvent) => {
-      if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      if (currentUser) {
-        // For video posts, use reel-specific handler if available
-        if (isVideoPost && onReelComment) {
-          onReelComment(reelId, { text: '', parentId: null, imageFile: null });
-        } else {
-          onOpenComments(post);
-        }
-      } else {
-        alert('Please login to comment');
-      }
+      onReact(post, type);
     };
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
       setGalleryIndex(index);
       setGalleryOpen(true);
+    };
+
+    const handleOpenComments = (e?: React.MouseEvent) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (currentUser) {
+        onOpenComments(post);
+      } else {
+        alert('Please login to comment');
+      }
     };
 
     const handleOpenReactionsSheet = () => {
@@ -5173,7 +5132,7 @@ export const Post = memo(
               </div>
             )}
 
-            {p.content && !isMarketplace && !isVideoPost && (
+            {p.content && !isMarketplace && (
               <div className="px-3 md:px-4 pb-2">
                 <ExpandableRichText
                   text={String(p.content)}
@@ -5220,7 +5179,7 @@ export const Post = memo(
               </div>
             )}
 
-            {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && !isVideoPost && (
+            {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
               <div
                 className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
                 onClick={() =>
@@ -5253,48 +5212,12 @@ export const Post = memo(
               </div>
             )}
 
-            {p.background && !mediaInfo.mediaUrl && !isMarketplace && !isVideoPost && (
+            {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
               <div
                 className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
                 style={{ background: p.background, backgroundSize: 'cover' }}
               >
                 {p.content}
-              </div>
-            )}
-
-            {/* UPDATED VIDEO CARD - Using thumbnail first, keeping same shape */}
-            {isVideoPost && videoMedia.length > 0 && (
-              <div
-                className="cursor-pointer relative h-[500px] bg-black"
-                onClick={() => onVideoClick(post)}
-              >
-                {/* Preview thumbnail first */}
-                <img
-                  src={videoMedia[0].thumb || videoMedia[0].feed || videoMedia[0].url}
-                  alt={p.caption || p.content || 'Video preview'}
-                  className="w-full h-full object-cover absolute inset-0"
-                  loading="lazy"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-                {/* Optional hidden/preview video layer */}
-                <video
-                  src={videoMedia[0].feed || videoMedia[0].url}
-                  poster={videoMedia[0].thumb || videoMedia[0].feed || videoMedia[0].url}
-                  className="w-full h-full object-cover"
-                  preload="metadata"
-                  playsInline
-                  muted
-                  onError={(e) => {
-                    console.error('Failed to load video:', videoMedia[0].url);
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-                {/* Play button overlay */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <i className="fas fa-play text-white text-4xl opacity-50"></i>
-                </div>
               </div>
             )}
 
@@ -5384,7 +5307,7 @@ export const Post = memo(
                   <div className="flex gap-4">
                     <span
                       className="hover:underline cursor-pointer text-[16px]"
-                      onClick={() => handleOpenCommentsClick()}
+                      onClick={() => handleOpenComments()}
                     >
                       {formatCount(commentCount)} Discussions
                     </span>
@@ -5409,7 +5332,7 @@ export const Post = memo(
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      handleOpenCommentsClick(e);
+                      handleOpenComments(e);
                     }}
                   >
                     <DiscussSignalIcon size={28} color="#1877F2" />
@@ -5419,7 +5342,13 @@ export const Post = memo(
                   </button>
                   <button
                     className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                    onClick={handleShareClick}
+                    onClick={() => {
+                      if (!currentUser) {
+                        alert('Please login to share posts.');
+                        return;
+                      }
+                      setShowShareSheet(true);
+                    }}
                   >
                     <i className="fas fa-share text-[22px]"></i>
                     <span className="text-[19px] font-bold">Share</span>
@@ -5432,18 +5361,40 @@ export const Post = memo(
                 {!p.background && imageMedia.length > 0 && (
                   <MediaGrid
                     media={imageMedia.map((m) => ({
-                      url: m.thumb || m.feed || m.full || m.url,
-                      feed: m.feed || m.full || m.thumb || m.url,
-                      full: m.full || m.feed || m.thumb || m.url,
+                      url: m.thumb || m.feed || m.url,
+                      feed: m.feed || m.url,
+                      full: m.full || m.feed || m.url,
                     }))}
                     onOpen={(url, index) => {
-                      const urls = imageMedia.map((m) => m.full || m.feed || m.thumb || m.url);
+                      const urls = imageMedia.map((m) => m.full || m.feed || m.url);
                       openGallery(urls, index);
                     }}
                   />
                 )}
 
-                {!p.background && !isVideoPost && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+                {!p.background && videoMedia.length > 0 && (
+                  <div
+                    className="cursor-pointer relative h-[500px] bg-black"
+                    onClick={() => onVideoClick(post)}
+                  >
+                    <video
+                      src={videoMedia[0].url}
+                      className="w-full h-full object-cover"
+                      preload="metadata"
+                      playsInline
+                      muted
+                      onError={(e) => {
+                        console.error('Failed to load video:', videoMedia[0].url);
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <i className="fas fa-play text-white text-4xl opacity-50"></i>
+                    </div>
+                  </div>
+                )}
+
+                {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
                   <div className="my-3">
                     {(() => {
                       const cover =
@@ -5556,7 +5507,7 @@ export const Post = memo(
                   </div>
                 )}
 
-                {shouldShowSponsoredButton && !isVideoPost && (
+                {shouldShowSponsoredButton && (
                   <div className="px-3 pt-2 pb-1">
                     <button
                       onClick={(e) => {
@@ -5604,7 +5555,7 @@ export const Post = memo(
                   <div className="flex gap-4">
                     <span
                       className="hover:underline cursor-pointer text-[16px]"
-                      onClick={() => handleOpenCommentsClick()}
+                      onClick={() => handleOpenComments()}
                     >
                       {formatCount(commentCount)} Discussions
                     </span>
@@ -5629,7 +5580,7 @@ export const Post = memo(
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      handleOpenCommentsClick(e);
+                      handleOpenComments(e);
                     }}
                   >
                     <DiscussSignalIcon size={28} color="#1877F2" />
@@ -5639,7 +5590,13 @@ export const Post = memo(
                   </button>
                   <button
                     className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                    onClick={handleShareClick}
+                    onClick={() => {
+                      if (!currentUser) {
+                        alert('Please login to share posts.');
+                        return;
+                      }
+                      setShowShareSheet(true);
+                    }}
                   >
                     <i className="fas fa-share text-[22px]"></i>
                     <span className="text-[19px] font-bold">Share</span>
@@ -5691,7 +5648,7 @@ export const Post = memo(
           shareCount={shareCount}
           myReaction={finalMyReaction}
           onReact={(post, type) => onReact(post, type)}
-          onOpenComments={() => handleOpenCommentsClick()}
+          onOpenComments={() => handleOpenComments()}
           onShare={() => setShowShareSheet(true)}
           onOpenReactions={handleOpenReactionsSheet}
         />
@@ -7273,11 +7230,11 @@ interface FeedProps {
   
   // Login
   onLoginClick?: () => void;
-  }
+}
 
 /**
  * =========================
- * ✅ MAIN FEED COMPONENT (with support for regular video cards)
+ * ✅ MAIN FEED COMPONENT (NO SPONSORED CARD - ALL POSTS GO THROUGH Post COMPONENT)
  * =========================
  */
 export const Feed = memo(({
@@ -7316,7 +7273,6 @@ export const Feed = memo(({
   gymjLoading = false,
   onOpenGroup,
   onLoginClick,
-
 }: FeedProps) => {
   
   const getStableItemKey = useCallback((item: any) => {
@@ -7326,7 +7282,7 @@ export const Feed = memo(({
   return (
     <div className="space-y-2">
       {feedItems.map((item, idx) => {
-        // Handle reel cards (don't touch these)
+        // Handle reel cards
         if (getFeedItemType(item) === 'reel') {
           return (
             <ReelFeedCard
@@ -7339,7 +7295,7 @@ export const Feed = memo(({
           );
         }
 
-        // Handle all other posts (including sponsored and regular videos) through the unified Post component
+        // Handle all other posts (including sponsored) through the unified Post component
         const postAuthorId = Number((item as any).user_id);
         const isFollowing = checkIsFollowing?.(postAuthorId) || false;
         
@@ -7388,12 +7344,6 @@ export const Feed = memo(({
               followLoading={followLoading?.[postAuthorId] || false}
               onViewProductFromPost={onViewProductFromPost}
               onRSVP={onRSVPEvent}
-              // Pass reel-specific props for regular video cards
-              onReelReact={onReelReact}
-              onReelComment={onReelComment}
-              onReelEditComment={onReelEditComment}
-              onReelDeleteComment={onReelDeleteComment}
-              onReelShare={onReelShare}
               pushButton={showPushButton ? (
                 <button
                   onClick={() => onPushMore?.(item.id)}
@@ -7583,3 +7533,4 @@ if (typeof window !== 'undefined') {
 
 export const FEED_VERSION = '2.0.0';
 export const LAST_UPDATED = '2024-03-27';
+
