@@ -12,6 +12,7 @@ import {
   GroupsYouMayJoinCard,
   ReelFeedCard,
   FeedItem,
+  SponsoredPostCard,
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
@@ -68,11 +69,12 @@ import {
 } from './types';
 
 // ============================================================================
-// ✅ FEED IDENTITY HELPERS - FIX FOR MIXED FEED TYPES
+// ✅ FEED IDENTITY HELPERS - HYBRID MIXED FEED SYSTEM
 // ============================================================================
 
 /**
  * Get feed item type for proper identification
+ * Supports: post, reel, event, product, group_post, music, podcast, sponsored
  */
 const getFeedItemType = (item: any): string => {
   if (!item || typeof item !== 'object') return 'post';
@@ -131,12 +133,13 @@ const getFeedItemType = (item: any): string => {
 
 /**
  * Get feed item ID based on type - ALWAYS returns numeric ID
+ * Supports hybrid feed items (post, reel, event, product, group_post, music, podcast, sponsored)
  */
 const getFeedItemId = (item: any): number => {
   if (!item || typeof item !== 'object') return 0;
-  
+
   const type = getFeedItemType(item);
-  
+
   switch (type) {
     case 'product':
       return Number(item?.product_id ?? item?.meta?.marketplace?.id ?? item?.id ?? 0);
@@ -146,6 +149,10 @@ const getFeedItemId = (item: any): number => {
       return Number(item?.post_id ?? item?.id ?? 0);
     case 'reel':
       return Number(item?.reel_id ?? item?.id ?? 0);
+    case 'music':
+      return Number(item?.song_id2 ?? item?.song_id ?? item?.id ?? 0);
+    case 'podcast':
+      return Number(item?.podcast_id ?? item?.id ?? 0);
     case 'sponsored':
       return Number(item?.id ?? 0);
     default:
@@ -158,44 +165,87 @@ const getFeedItemId = (item: any): number => {
  */
 const getFeedKey = (item: any): string => {
   if (!item) return "";
-  
+
   // Handle string input (already a key)
   if (typeof item === "string") return item;
-  
+
   // Handle object with feed_key
   if (item?.feed_key) return String(item.feed_key);
-  
+
   // Generate feed_key from type and numeric ID
-  if (item?.id) {
-    try {
-      const type = getFeedItemType(item);
-      const id = getFeedItemId(item);
-      return `${type}:${id}`;
-    } catch {
-      return `post:${item.id}`;
-    }
-  }
-  
-  return "";
+  const type = getFeedItemType(item);
+  const id = getFeedItemId(item);
+
+  return `${type}:${id}`;
 };
 
 /**
- * Safe item comparison using numeric IDs
+ * Safe item comparison using feed keys and numeric IDs
  */
 const isSameFeedItem = (a: any, b: any): boolean => {
   if (!a || !b) return false;
-  
-  // Compare by numeric ID first
-  const aId = getFeedItemId(a);
-  const bId = getFeedItemId(b);
-  if (aId && bId && aId === bId) return true;
-  
-  // Fallback to feed_key comparison
+
+  // First try by feed_key
   const aKey = getFeedKey(a);
   const bKey = getFeedKey(b);
-  if (aKey && bKey && aKey === bKey) return true;
-  
-  return false;
+  if (aKey && bKey) return aKey === bKey;
+
+  // Fallback to type + numeric ID comparison
+  const aType = getFeedItemType(a);
+  const bType = getFeedItemType(b);
+  const aId = getFeedItemId(a);
+  const bId = getFeedItemId(b);
+
+  return aType === bType && aId > 0 && bId > 0 && aId === bId;
+};
+
+/**
+ * Optimistic reaction update for hybrid feed items
+ * Uses identity string for matching instead of numeric ID only
+ */
+const applyOptimisticReaction = (
+  p: any,
+  targetIdentity: string,
+  type: ReactionType,
+  meId: number
+) => {
+  if (!p) return p;
+
+  // Match by feed_key instead of numeric ID
+  const same = getFeedKey(p) === targetIdentity;
+  if (!same) return p;
+
+  const prevMy = p?.my_reaction ?? p?.myReaction ?? null;
+  const nextMy = prevMy === type ? null : type;
+
+  const prevArr = safeArray<any>(p?.reactions);
+  const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== Number(meId));
+  const nextArr = nextMy ? [...withoutMe, { user_id: meId, type: nextMy }] : withoutMe;
+
+  const prevCount = safeNumber(
+    p?.reactions_count,
+    safeNumber(p?.reactionsCount, safeNumber(p?.likesCount, prevArr.length))
+  );
+
+  let nextCount = prevCount;
+
+  if (!prevMy && nextMy) {
+    nextCount = prevCount + 1;
+  } else if (prevMy && !nextMy) {
+    nextCount = Math.max(0, prevCount - 1);
+  } else if (prevMy && nextMy) {
+    nextCount = prevCount;
+  }
+
+  return {
+    ...p,
+    reactions: nextArr,
+    my_reaction: nextMy,
+    myReaction: nextMy,
+    reactions_count: nextCount,
+    reactionsCount: nextCount,
+    likesCount: nextCount,
+  };
 };
 
 /** ---------- Type for People You May Know suggestions ---------- */
@@ -685,6 +735,7 @@ const normalizePost = (p: any): PostType => {
       event_id: p?.event_id || p?.meta?.event_id,
       media_url: p?.meta?.event?.cover_url || mediaUrl,
       media_type: 'image',
+      feed_key: p?.feed_key || `event:${resolvedId}`,
       meta: {
         kind: 'event',
         event_id: p?.event_id || p?.meta?.event_id,
@@ -738,6 +789,9 @@ const normalizePost = (p: any): PostType => {
     reactions_count: safeNumber(p?.reactions_count ?? p?.reactionsCount ?? p?.likesCount ?? 0),
     reactionsCount: safeNumber(p?.reactionsCount ?? p?.reactions_count ?? p?.likesCount ?? 0),
     likesCount: safeNumber(p?.likesCount ?? p?.reactions_count ?? p?.reactionsCount ?? 0),
+
+    // ✅ IMPORTANT: Include feed_key for hybrid identification
+    feed_key: p?.feed_key || `${p?.source || p?.item_type || p?.type || 'post'}:${resolvedId}`,
 
     meta: parseJSON(p?.meta) || null,
   } as any;
@@ -985,6 +1039,7 @@ const normalizeReel = (r: any): Reel => {
     avatar_url: r?.avatar_url || r?.avatar || '',
     verified: !!(r?.verified || r?.is_verified),
     isTrimmedAudio,
+    feed_key: `reel:${resolvedId}`,
   } as any;
 };
 
@@ -1105,44 +1160,6 @@ const postJSON = async (url: string, body: any) => {
     throw new Error(data?.error || `Request failed: ${url}`);
   }
   return data;
-};
-
-/** ---------- Optimistic reaction helper - FIXED to handle IDs safely ---------- */
-const applyOptimisticReaction = (p: any, itemId: number, type: ReactionType, meId: number) => {
-  // ✅ FIX: Try to get ID safely
-  let postId = 0;
-  try {
-    postId = Number(getFeedItemId(p));
-  } catch {
-    postId = Number(p?.id);
-  }
-  
-  if (postId !== Number(itemId)) return p;
-
-  const prevMy = p?.my_reaction ?? p?.myReaction ?? null;
-  const nextMy = prevMy === type ? null : type;
-
-  const prevArr = safeArray<any>(p?.reactions);
-  const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== Number(meId));
-  const nextArr = nextMy ? [...withoutMe, { user_id: meId, type: nextMy }] : withoutMe;
-
-  const prevCount =
-    safeNumber(p?.reactions_count, safeNumber(p?.reactionsCount, safeNumber(p?.likesCount, prevArr.length)));
-
-  const nextCount =
-    prevMy
-      ? (nextMy ? prevCount : Math.max(0, prevCount - 1))
-      : (nextMy ? prevCount + 1 : prevCount);
-
-  return {
-    ...p,
-    reactions: nextArr,
-    my_reaction: nextMy,
-    myReaction: nextMy,
-    reactions_count: nextCount,
-    reactionsCount: nextCount,
-    likesCount: nextCount,
-  };
 };
 
 /** Optimistic reel reaction helper */
@@ -4019,6 +4036,7 @@ export default function App() {
         type: "event",
         event_id: newEvent.id,
         visibility: 'public',
+        feed_key: `event:${newEvent.id}`,
         meta: {
           kind: "event",
           event_id: newEvent.id,
@@ -5453,6 +5471,7 @@ export default function App() {
         tagged_users: meta?.taggedUsers,
         background: meta?.background,
         link_preview: meta?.linkPreview,
+        feed_key: `post:${Date.now()}`,
         type: (() => {
           const t = media_type || media_types[0] || null;
           if (!t) return meta?.type || 'text';
@@ -5741,8 +5760,8 @@ export default function App() {
         itemId = item;
         identity = `post:${item}`;
       } else if (item?.id) {
-        itemId = item.id;
-        identity = `post:${item.id}`;
+        itemId = Number(item.id);
+        identity = `post:${itemId}`;
       } else {
         return;
       }
@@ -5762,7 +5781,8 @@ export default function App() {
       } catch {
         return Number(p?.id) === itemId;
       }
-    });
+    }) || item;
+    
     if (!previousItem) return;
 
     // Helper to replace item by identity or ID
@@ -5780,7 +5800,7 @@ export default function App() {
     setReacting(identity, true);
 
     // Apply optimistic update
-    const optimisticItem = applyOptimisticReaction(previousItem, itemId, type, meId);
+    const optimisticItem = applyOptimisticReaction(previousItem, identity, type, meId);
     setPosts(prev => replaceItem(prev, optimisticItem));
     setProfilePosts(prev => replaceItem(prev, optimisticItem));
     
@@ -5802,6 +5822,12 @@ export default function App() {
           break;
         case 'reel':
           endpoint = `/api/reels/${itemId}/react`;
+          break;
+        case 'music':
+          endpoint = `/api/songs/${itemId}/react`;
+          break;
+        case 'podcast':
+          endpoint = `/api/podcasts/${itemId}/react`;
           break;
         default:
           endpoint = `/api/posts/${itemId}/react`;
@@ -5838,8 +5864,8 @@ export default function App() {
           };
         };
 
-        setPosts(prev => safeArray(prev).map(p => applyServerTruth(p)));
-        setProfilePosts(prev => safeArray(prev).map(p => applyServerTruth(p)));
+        setPosts(prev => safeArray(prev).map(applyServerTruth));
+        setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
         setCommentPostSnapshot(prev => prev ? applyServerTruth(prev) : prev);
       }
     } catch (error) {
@@ -5887,6 +5913,12 @@ export default function App() {
         case 'reel':
           endpoint = `/api/reels/${id}/comments?viewerId=${currentUser?.id || 0}`;
           break;
+        case 'music':
+          endpoint = `/api/songs/${id}/comments?viewerId=${currentUser?.id || 0}`;
+          break;
+        case 'podcast':
+          endpoint = `/api/podcasts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+          break;
         default:
           endpoint = `/api/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
       }
@@ -5898,6 +5930,36 @@ export default function App() {
       return [];
     }
   }, [currentUser, requireAuth]);
+
+  const handleOpenComments = useCallback((item: any) => {
+    if (!requireAuth('Viewing comments')) return;
+    if (!item) return;
+    
+    let identity = '';
+    try {
+      identity = getFeedKey(item);
+    } catch {
+      identity = `post:${item?.id}`;
+    }
+    
+    setActiveCommentsIdentity(identity);
+    
+    const source = view === 'profile' ? profilePosts : posts;
+    let found = null;
+    
+    try {
+      found = source.find((p: any) => getFeedKey(p) === identity) || null;
+    } catch {
+      found = source.find((p: any) => Number(p?.id) === Number(item?.id)) || null;
+    }
+    
+    setCommentPostSnapshot(found || item);
+  }, [requireAuth, view, posts, profilePosts]);
+
+  const handleCloseComments = useCallback(() => {
+    setActiveCommentsIdentity(null);
+    setCommentPostSnapshot(null);
+  }, []);
 
   const createComment = useCallback(async (
     item: any,
@@ -6287,36 +6349,6 @@ export default function App() {
   const getCommentAuthor = useCallback((userId: number) => {
     return users.find(u => Number(u.id) === Number(userId)) || null;
   }, [users]);
-
-  const handleOpenComments = useCallback((item: any) => {
-    if (!requireAuth('Viewing comments')) return;
-    if (!item) return;
-    
-    let identity = '';
-    try {
-      identity = getFeedKey(item);
-    } catch {
-      identity = `post:${item?.id}`;
-    }
-    
-    setActiveCommentsIdentity(identity);
-    
-    const source = view === 'profile' ? profilePosts : posts;
-    let found = null;
-    
-    try {
-      found = source.find((p: any) => getFeedKey(p) === identity) || null;
-    } catch {
-      found = source.find((p: any) => Number(p?.id) === Number(item?.id)) || null;
-    }
-    
-    setCommentPostSnapshot(found);
-  }, [requireAuth, view, posts, profilePosts]);
-
-  const handleCloseComments = useCallback(() => {
-    setActiveCommentsIdentity(null);
-    setCommentPostSnapshot(null);
-  }, []);
 
   const refreshComments = useCallback(async (item: any) => {
     if (!item) return [];
@@ -7537,5 +7569,4 @@ export default function App() {
     </div>
   );
 }
-
  
