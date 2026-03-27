@@ -11,7 +11,11 @@ const cors = {
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: {
+      ...cors,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
   });
 
 const toInt = (v: any, fallback = 0) => {
@@ -19,7 +23,8 @@ const toInt = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+const clamp = (n: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, n));
 
 const parseSeenIds = (raw: string | null, max = 250) => {
   if (!raw) return [];
@@ -31,7 +36,7 @@ const parseSeenIds = (raw: string | null, max = 250) => {
 };
 
 // --------------------
-// ✅ Multi-media helpers
+// Multi-media helpers
 // --------------------
 const cleanUrl = (v: any) => {
   const s = String(v ?? "").trim();
@@ -41,8 +46,24 @@ const cleanUrl = (v: any) => {
   return s;
 };
 
+const isHttpUrl = (v: any) => {
+  const s = String(v ?? "").trim();
+  if (!s) return false;
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
-  if (Array.isArray(raw)) return raw.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+  if (Array.isArray(raw)) {
+    return raw
+      .map(cleanUrl)
+      .filter((x) => isHttpUrl(x))
+      .slice(0, maxItems);
+  }
 
   if (typeof raw === "string") {
     const s = raw.trim();
@@ -51,14 +72,17 @@ const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
     if (s.startsWith("[")) {
       try {
         const parsed = JSON.parse(s);
-        if (Array.isArray(parsed)) return parsed.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map(cleanUrl)
+            .filter((x) => isHttpUrl(x))
+            .slice(0, maxItems);
+        }
         return [];
-      } catch {
-        // fallthrough
-      }
+      } catch {}
     }
     const one = cleanUrl(s);
-    return one ? [one] : [];
+    return one && isHttpUrl(one) ? [one] : [];
   }
 
   return [];
@@ -86,9 +110,7 @@ const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
             .slice(0, maxItems);
         }
         return [];
-      } catch {
-        // fallthrough
-      }
+      } catch {}
     }
     const one = String(s).trim();
     return one ? [one] : [];
@@ -98,15 +120,94 @@ const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
 };
 
 const guessTypeFromUrl = (url: string) => {
-  const u = url.toLowerCase();
-  if (u.includes(".mp4") || u.includes(".webm") || u.includes(".mov")) return "video";
-  if (u.includes(".mp3") || u.includes(".wav") || u.includes(".m4a")) return "audio";
+  const u = String(url || "").toLowerCase();
+  if (
+    u.includes(".mp4") ||
+    u.includes(".webm") ||
+    u.includes(".mov") ||
+    u.includes(".m3u8")
+  ) {
+    return "video";
+  }
+  if (
+    u.includes(".mp3") ||
+    u.includes(".wav") ||
+    u.includes(".m4a") ||
+    u.includes(".ogg")
+  ) {
+    return "audio";
+  }
   return "image";
 };
 
-const normalizeMedia = (row: any) => {
-  const single = cleanUrl(row?.media_url);
+const parseMediaMeta = (raw: any, maxItems = 20) => {
+  let arr: any[] = [];
 
+  if (Array.isArray(raw)) {
+    arr = raw;
+  } else if (typeof raw === "string") {
+    const s = raw.trim();
+    if (s && s.length <= 100000) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) arr = parsed;
+      } catch {}
+    }
+  }
+
+  return arr
+    .slice(0, maxItems)
+    .map((m: any) => {
+      const thumb = cleanUrl(m?.thumb);
+      const feed = cleanUrl(
+        m?.feed || m?.feed_url || m?.url || m?.full || m?.full_url
+      );
+      const full = cleanUrl(
+        m?.full || m?.full_url || m?.feed || m?.feed_url || m?.url || m?.thumb
+      );
+      const type = String(m?.type || "")
+        .trim()
+        .toLowerCase();
+
+      const finalType =
+        type === "image" || type === "video" || type === "audio"
+          ? type
+          : guessTypeFromUrl(full || feed || thumb);
+
+      return {
+        thumb: isHttpUrl(thumb) ? thumb : null,
+        feed: isHttpUrl(feed) ? feed : null,
+        full: isHttpUrl(full) ? full : null,
+        type: finalType,
+      };
+    })
+    .filter((m) => m.thumb || m.feed || m.full);
+};
+
+const normalizeMedia = (row: any) => {
+  const meta = parseMediaMeta(row?.media_meta);
+
+  if (meta.length > 0) {
+    return {
+      media: meta,
+      media_url: meta[0]?.feed || meta[0]?.full || meta[0]?.thumb || null,
+      media_urls: meta
+        .map((m: any) => m.feed || m.full || m.thumb)
+        .filter(Boolean),
+      media_types: meta.map(
+        (m: any) => m.type || guessTypeFromUrl(m.feed || m.full || m.thumb)
+      ),
+      images: meta
+        .filter((m: any) => (m.type || "").toLowerCase() === "image")
+        .map((m: any) => m.feed || m.full || m.thumb)
+        .filter(Boolean),
+      thumb_url: meta[0]?.thumb || null,
+      feed_url: meta[0]?.feed || null,
+      full_url: meta[0]?.full || null,
+    };
+  }
+
+  const single = cleanUrl(row?.media_url);
   const urls = parseJsonArrayUrls(row?.media_urls);
   const outUrls = urls.length ? urls : single ? [single] : [];
 
@@ -117,11 +218,25 @@ const normalizeMedia = (row: any) => {
     outTypes = outUrls.map(guessTypeFromUrl);
   }
 
+  const media = outUrls.map((url, i) => {
+    const type = outTypes[i] || guessTypeFromUrl(url);
+    return {
+      thumb: type === "image" ? url : null,
+      feed: url,
+      full: url,
+      type,
+    };
+  });
+
   return {
-    media_url: single || null,
+    media,
+    media_url: single || outUrls[0] || null,
     media_urls: outUrls,
     media_types: outTypes,
     images: outUrls,
+    thumb_url: media[0]?.thumb || null,
+    feed_url: media[0]?.feed || null,
+    full_url: media[0]?.full || null,
   };
 };
 
@@ -150,7 +265,8 @@ export const onRequestOptions: PagesFunction = async () =>
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
+    if (!env.DB)
+      return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
     const url = new URL(request.url);
 
@@ -162,6 +278,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const seed = toInt(url.searchParams.get("seed"), 1);
     const seen = parseSeenIds(url.searchParams.get("seen"), 250);
     const debug = url.searchParams.get("debug") === "1";
+    const pinPostId = toInt(url.searchParams.get("pinPostId"), 0);
 
     const freshCount = Math.max(5, Math.floor(limit * 0.65));
     const exploreCount = Math.max(0, limit - freshCount);
@@ -176,7 +293,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       `(p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')`
     );
 
-    // block product posts stored inside posts.content
     wherePosts.push(`(p.content IS NULL OR (
       p.content NOT LIKE '%"post_type":"product"%'
       AND p.content NOT LIKE '%"kind":"product"%'
@@ -194,7 +310,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsPosts.push(...seen);
     }
 
-    const wherePostsSql = wherePosts.length ? `WHERE ${wherePosts.join(" AND ")}` : "";
+    const wherePostsSql = wherePosts.length
+      ? `WHERE ${wherePosts.join(" AND ")}`
+      : "";
 
     const baseSelectPosts = `
       SELECT
@@ -252,6 +370,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           WHEN length(p.media_types) > 5000 THEN NULL
           ELSE p.media_types
         END AS media_types,
+
+        CASE
+          WHEN length(p.media_meta) > 100000 THEN NULL
+          ELSE p.media_meta
+        END AS media_meta,
 
         (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
 
@@ -369,7 +492,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsReels.push(...seen);
     }
 
-    const whereReelsSql = whereReels.length ? `WHERE ${whereReels.join(" AND ")}` : "";
+    const whereReelsSql = whereReels.length
+      ? `WHERE ${whereReels.join(" AND ")}`
+      : "";
 
     const baseSelectReels = `
       SELECT
@@ -409,6 +534,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         'video' AS media_type,
         NULL AS media_urls,
         NULL AS media_types,
+        NULL AS media_meta,
 
         0 AS comments_count,
 
@@ -477,7 +603,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsSongs.push(...seen);
     }
 
-    const whereSongsSql = whereSongs.length ? `WHERE ${whereSongs.join(" AND ")}` : "";
+    const whereSongsSql = whereSongs.length
+      ? `WHERE ${whereSongs.join(" AND ")}`
+      : "";
 
     const baseSelectSongs = `
       SELECT
@@ -534,6 +662,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           THEN json_array('image')
           ELSE NULL
         END AS media_types,
+
+        NULL AS media_meta,
 
         0 AS comments_count,
 
@@ -607,7 +737,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsPodcasts.push(...seen);
     }
 
-    const wherePodcastsSql = wherePodcasts.length ? `WHERE ${wherePodcasts.join(" AND ")}` : "";
+    const wherePodcastsSql = wherePodcasts.length
+      ? `WHERE ${wherePodcasts.join(" AND ")}`
+      : "";
 
     const baseSelectPodcasts = `
       SELECT
@@ -658,6 +790,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           THEN json_array('image')
           ELSE NULL
         END AS media_types,
+
+        NULL AS media_meta,
 
         0 AS comments_count,
 
@@ -717,7 +851,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
 
-    whereEvents.push(`(e.visibility IS NULL OR e.visibility = 'worldwide' OR e.visibility = 'targeted')`);
+    whereEvents.push(
+      `(e.visibility IS NULL OR e.visibility = 'worldwide' OR e.visibility = 'targeted')`
+    );
 
     if (cursor && cursor.trim()) {
       whereEvents.push(`e.created_at < ?`);
@@ -728,7 +864,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsEvents.push(...seen);
     }
 
-    const whereEventsSql = whereEvents.length ? `WHERE ${whereEvents.join(" AND ")}` : "";
+    const whereEventsSql = whereEvents.length
+      ? `WHERE ${whereEvents.join(" AND ")}`
+      : "";
 
     const baseSelectEvents = `
       SELECT
@@ -786,6 +924,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           THEN json_array('image')
           ELSE NULL
         END AS media_types,
+
+        NULL AS media_meta,
 
         0 AS comments_count,
 
@@ -862,7 +1002,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsGroupPosts.push(...seen);
     }
 
-    const whereGroupPostsSql = whereGroupPosts.length ? `WHERE ${whereGroupPosts.join(" AND ")}` : "";
+    const whereGroupPostsSql = whereGroupPosts.length
+      ? `WHERE ${whereGroupPosts.join(" AND ")}`
+      : "";
 
     const baseSelectGroupPosts = `
       SELECT
@@ -929,6 +1071,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         END AS media_urls,
 
         NULL AS media_types,
+        NULL AS media_meta,
 
         (SELECT COUNT(*) FROM group_post_comments gpc WHERE gpc.group_post_id = gp.id) AS comments_count,
 
@@ -1043,7 +1186,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsProductsFeed.push(...seen);
     }
 
-    const whereProductsFeedSql = whereProductsFeed.length ? `WHERE ${whereProductsFeed.join(" AND ")}` : "";
+    const whereProductsFeedSql = whereProductsFeed.length
+      ? `WHERE ${whereProductsFeed.join(" AND ")}`
+      : "";
 
     const baseSelectProductsFeed = `
       SELECT
@@ -1084,6 +1229,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         pr.images AS media_urls,
         NULL AS media_types,
+        NULL AS media_meta,
 
         (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = pr.id) AS comments_count,
 
@@ -1202,7 +1348,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsProducts.push(...seen);
     }
 
-    const whereProductsSql = whereProducts.length ? `WHERE ${whereProducts.join(" AND ")}` : "";
+    const whereProductsSql = whereProducts.length
+      ? `WHERE ${whereProducts.join(" AND ")}`
+      : "";
 
     const selectProducts = `
       SELECT
@@ -1244,7 +1392,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       bindsAds.push(...seen);
     }
 
-    const whereAdsSql = whereAds.length ? `WHERE ${whereAds.join(" AND ")}` : "";
+    const whereAdsSql = whereAds.length
+      ? `WHERE ${whereAds.join(" AND ")}`
+      : "";
 
     const baseSelectAds = `
       SELECT
@@ -1302,6 +1452,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           WHEN length(COALESCE(a.media_types, p.media_types)) > 5000 THEN NULL
           ELSE COALESCE(a.media_types, p.media_types)
         END AS media_types,
+
+        CASE
+          WHEN length(p.media_meta) > 100000 THEN NULL
+          ELSE p.media_meta
+        END AS media_meta,
 
         (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
 
@@ -1425,59 +1580,79 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     )
       .bind(reactionUserId, ...bindsPosts, freshCount)
       .all();
-    const freshPosts = Array.isArray(freshPostsRes?.results) ? freshPostsRes.results : [];
+    const freshPosts = Array.isArray(freshPostsRes?.results)
+      ? freshPostsRes.results
+      : [];
 
     const freshReelsRes = await env.DB.prepare(
       `${baseSelectReels} ${whereReelsSql} ORDER BY r.created_at DESC LIMIT ?`
     )
       .bind(reactionUserId, ...bindsReels, freshCount)
       .all();
-    const freshReels = Array.isArray(freshReelsRes?.results) ? freshReelsRes.results : [];
+    const freshReels = Array.isArray(freshReelsRes?.results)
+      ? freshReelsRes.results
+      : [];
 
     const freshSongsRes = await env.DB.prepare(
       `${baseSelectSongs} ${whereSongsSql} ORDER BY s.created_at DESC LIMIT ?`
     )
       .bind(reactionUserId, ...bindsSongs, freshCount)
       .all();
-    const freshSongs = Array.isArray(freshSongsRes?.results) ? freshSongsRes.results : [];
+    const freshSongs = Array.isArray(freshSongsRes?.results)
+      ? freshSongsRes.results
+      : [];
 
     const freshPodcastsRes = await env.DB.prepare(
       `${baseSelectPodcasts} ${wherePodcastsSql} ORDER BY pc.created_at DESC LIMIT ?`
     )
       .bind(...bindsPodcasts, freshCount)
       .all();
-    const freshPodcasts = Array.isArray(freshPodcastsRes?.results) ? freshPodcastsRes.results : [];
+    const freshPodcasts = Array.isArray(freshPodcastsRes?.results)
+      ? freshPodcastsRes.results
+      : [];
 
     const freshEventsRes = await env.DB.prepare(
       `${baseSelectEvents} ${whereEventsSql} ORDER BY e.created_at DESC LIMIT ?`
     )
       .bind(reactionUserId, reactionUserId, ...bindsEvents, freshCount)
       .all();
-    const freshEvents = Array.isArray(freshEventsRes?.results) ? freshEventsRes.results : [];
+    const freshEvents = Array.isArray(freshEventsRes?.results)
+      ? freshEventsRes.results
+      : [];
 
     const freshGroupPostsRes = await env.DB.prepare(
       `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY gp.created_at DESC LIMIT ?`
     )
       .bind(reactionUserId, ...bindsGroupPosts, freshCount)
       .all();
-    const freshGroupPosts = Array.isArray(freshGroupPostsRes?.results) ? freshGroupPostsRes.results : [];
+    const freshGroupPosts = Array.isArray(freshGroupPostsRes?.results)
+      ? freshGroupPostsRes.results
+      : [];
 
     const freshProductsFeedRes = await env.DB.prepare(
       `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY pr.created_at DESC LIMIT ?`
     )
       .bind(reactionUserId, ...bindsProductsFeed, freshCount)
       .all();
-    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results) ? freshProductsFeedRes.results : [];
+    const freshProductsFeed = Array.isArray(freshProductsFeedRes?.results)
+      ? freshProductsFeedRes.results
+      : [];
 
     const freshAdsRes = await env.DB.prepare(
       `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
     )
       .bind(reactionUserId, ...bindsAds, Math.min(3, freshCount))
       .all();
-    const freshAds = Array.isArray(freshAdsRes?.results) ? freshAdsRes.results : [];
+    const freshAds = Array.isArray(freshAdsRes?.results)
+      ? freshAdsRes.results
+      : [];
 
-    const freshProductsRes = await env.DB.prepare(selectProducts).bind(...bindsProducts, freshCount).all();
-    const freshProducts = Array.isArray(freshProductsRes?.results) ? freshProductsRes.results : [];
+    const freshProductsRes = await env.DB.prepare(selectProducts)
+      .bind(...bindsProducts, freshCount)
+      .all();
+    const freshProducts = Array.isArray(freshProductsRes?.results)
+      ? freshProductsRes.results
+      : [];
 
     // ============================================================
     // RUN QUERIES (Explore)
@@ -1498,56 +1673,72 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       )
         .bind(reactionUserId, ...bindsPosts, exploreCount)
         .all();
-      explorePosts = Array.isArray(explorePostsRes?.results) ? explorePostsRes.results : [];
+      explorePosts = Array.isArray(explorePostsRes?.results)
+        ? explorePostsRes.results
+        : [];
 
       const exploreReelsRes = await env.DB.prepare(
         `${baseSelectReels} ${whereReelsSql} ORDER BY RANDOM() LIMIT ?`
       )
         .bind(reactionUserId, ...bindsReels, exploreCount)
         .all();
-      exploreReels = Array.isArray(exploreReelsRes?.results) ? exploreReelsRes.results : [];
+      exploreReels = Array.isArray(exploreReelsRes?.results)
+        ? exploreReelsRes.results
+        : [];
 
       const exploreSongsRes = await env.DB.prepare(
         `${baseSelectSongs} ${whereSongsSql} ORDER BY RANDOM() LIMIT ?`
       )
         .bind(reactionUserId, ...bindsSongs, exploreCount)
         .all();
-      exploreSongs = Array.isArray(exploreSongsRes?.results) ? exploreSongsRes.results : [];
+      exploreSongs = Array.isArray(exploreSongsRes?.results)
+        ? exploreSongsRes.results
+        : [];
 
       const explorePodcastsRes = await env.DB.prepare(
         `${baseSelectPodcasts} ${wherePodcastsSql} ORDER BY RANDOM() LIMIT ?`
       )
         .bind(...bindsPodcasts, exploreCount)
         .all();
-      explorePodcasts = Array.isArray(explorePodcastsRes?.results) ? explorePodcastsRes.results : [];
+      explorePodcasts = Array.isArray(explorePodcastsRes?.results)
+        ? explorePodcastsRes.results
+        : [];
 
       const exploreEventsRes = await env.DB.prepare(
         `${baseSelectEvents} ${whereEventsSql} ORDER BY RANDOM() LIMIT ?`
       )
         .bind(reactionUserId, reactionUserId, ...bindsEvents, exploreCount)
         .all();
-      exploreEvents = Array.isArray(exploreEventsRes?.results) ? exploreEventsRes.results : [];
+      exploreEvents = Array.isArray(exploreEventsRes?.results)
+        ? exploreEventsRes.results
+        : [];
 
       const exploreGroupPostsRes = await env.DB.prepare(
         `${baseSelectGroupPosts} ${whereGroupPostsSql} ORDER BY RANDOM() LIMIT ?`
       )
         .bind(reactionUserId, ...bindsGroupPosts, exploreCount)
         .all();
-      exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results) ? exploreGroupPostsRes.results : [];
+      exploreGroupPosts = Array.isArray(exploreGroupPostsRes?.results)
+        ? exploreGroupPostsRes.results
+        : [];
 
       const exploreProductsFeedRes = await env.DB.prepare(
         `${baseSelectProductsFeed} ${whereProductsFeedSql} ORDER BY RANDOM() LIMIT ?`
       )
         .bind(reactionUserId, ...bindsProductsFeed, exploreCount)
         .all();
-      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results) ? exploreProductsFeedRes.results : [];
+      exploreProductsFeed = Array.isArray(exploreProductsFeedRes?.results)
+        ? exploreProductsFeedRes.results
+        : [];
 
       const exploreAdsRes = await env.DB.prepare(
         `${baseSelectAds} ${whereAdsSql} ORDER BY RANDOM() LIMIT ?`
       )
         .bind(reactionUserId, ...bindsAds, Math.min(2, exploreCount))
         .all();
-      exploreAds = Array.isArray(exploreAdsRes?.results) ? exploreAdsRes.results : [];
+      exploreAds = Array.isArray(exploreAdsRes?.results)
+        ? exploreAdsRes.results
+        : [];
 
       const exploreProductsRes = await env.DB.prepare(
         `
@@ -1562,7 +1753,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       )
         .bind(...bindsProducts, exploreCount)
         .all();
-      exploreProducts = Array.isArray(exploreProductsRes?.results) ? exploreProductsRes.results : [];
+      exploreProducts = Array.isArray(exploreProductsRes?.results)
+        ? exploreProductsRes.results
+        : [];
     }
 
     // ============================================================
@@ -1609,9 +1802,28 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }, null as any);
 
     const nextCursor = oldest?.created_at ?? null;
-    const orderedRaw = seededShuffle(merged, seed);
 
-    const ordered = orderedRaw.map((item: any) => ({
+    const mixed = seededShuffle(merged, seed);
+    const isFirstPage = !cursor || !cursor.trim();
+
+    let orderedRaw = mixed;
+
+    if (isFirstPage && pinPostId > 0) {
+      const pinnedIndex = mixed.findIndex(
+        (item: any) =>
+          String(item?.source) === "post" &&
+          Number(item?.id) === pinPostId &&
+          Number(item?.user_id) === userId
+      );
+
+      if (pinnedIndex >= 0) {
+        const pinnedItem = mixed[pinnedIndex];
+        const rest = mixed.filter((_: any, i: number) => i !== pinnedIndex);
+        orderedRaw = [pinnedItem, ...rest];
+      }
+    }
+
+    const ordered = orderedRaw.slice(0, limit).map((item: any) => ({
       ...item,
       ...normalizeMedia(item),
       comments_count: Number((item as any)?.comments_count ?? 0),
@@ -1675,6 +1887,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       return json({
         ...payload,
         debug: {
+          pinPostId,
           seenCount: seen.length,
           returnedFeed: ordered.length,
           returnedProducts: products.length,
