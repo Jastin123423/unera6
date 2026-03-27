@@ -7316,12 +7316,7 @@ export const Feed = memo(({
   gymjLoading = false,
   onOpenGroup,
   onLoginClick,
-  // Reel-specific props for regular video cards
-  onReelReact,
-  onReelComment,
-  onReelEditComment,
-  onReelDeleteComment,
-  onReelShare,
+
 }: FeedProps) => {
   
   const getStableItemKey = useCallback((item: any) => {
