@@ -73,6 +73,105 @@ const normCreatedAt = (v: any) => {
   return s || "1970-01-01 00:00:00";
 };
 
+const normalizeMediaType = (v: any, fallback = "image") => {
+  const t = String(v || "").trim().toLowerCase();
+  if (t === "image" || t === "video" || t === "audio") return t;
+  return fallback;
+};
+
+const inferTypeFromUrl = (url: string) => {
+  const u = String(url || "").toLowerCase();
+  if (
+    u.includes(".mp4") ||
+    u.includes(".webm") ||
+    u.includes(".mov") ||
+    u.includes(".m3u8")
+  ) {
+    return "video";
+  }
+  if (
+    u.includes(".mp3") ||
+    u.includes(".wav") ||
+    u.includes(".ogg") ||
+    u.includes(".m4a")
+  ) {
+    return "audio";
+  }
+  return "image";
+};
+
+const normalizePostMedia = (item: any) => {
+  const mediaMeta = normalizeMediaMetaArray(item?.media_meta);
+  const mediaUrls = normalizeStringArray(item?.media_urls);
+  const mediaTypes = normalizeStringArray(item?.media_types);
+
+  // 1) Best source: media_meta
+  if (mediaMeta.length > 0) {
+    const normalized = mediaMeta
+      .map((m: any) => {
+        const thumb = String(m?.thumb || "").trim();
+        const feed = String(
+          m?.feed || m?.feed_url || m?.url || m?.full || m?.full_url || ""
+        ).trim();
+        const full = String(
+          m?.full || m?.full_url || m?.feed || m?.feed_url || m?.url || ""
+        ).trim();
+
+        const chosenType = normalizeMediaType(
+          m?.type,
+          inferTypeFromUrl(full || feed || thumb)
+        );
+
+        return {
+          thumb: isHttpUrl(thumb) ? thumb : null,
+          feed: isHttpUrl(feed) ? feed : null,
+          full: isHttpUrl(full) ? full : null,
+          type: chosenType,
+        };
+      })
+      .filter((m: any) => m.thumb || m.feed || m.full);
+
+    if (normalized.length > 0) return normalized;
+  }
+
+  // 2) Fallback: media_urls + media_types
+  if (mediaUrls.length > 0) {
+    const normalized = mediaUrls
+      .map((url, i) => {
+        const clean = String(url || "").trim();
+        if (!isHttpUrl(clean)) return null;
+
+        const t = normalizeMediaType(mediaTypes[i], inferTypeFromUrl(clean));
+
+        return {
+          thumb: t === "image" ? clean : null,
+          feed: clean,
+          full: clean,
+          type: t,
+        };
+      })
+      .filter(Boolean);
+
+    if (normalized.length > 0) return normalized;
+  }
+
+  // 3) Final fallback: single media_url/media_type
+  const singleUrl = String(item?.media_url || "").trim();
+  if (isHttpUrl(singleUrl)) {
+    const t = normalizeMediaType(item?.media_type, inferTypeFromUrl(singleUrl));
+    return [
+      {
+        thumb: t === "image" ? singleUrl : null,
+        feed: singleUrl,
+        full: singleUrl,
+        type: t,
+      },
+    ];
+  }
+
+  return [];
+};
+
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: corsHeaders });
 
@@ -125,7 +224,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       filtered_types.push(t || "");
     }
 
-    // If media_meta was sent, extract feed urls from it as compatibility fallback
+    // If media_meta was sent, extract FEED urls first for compatibility
     const mediaMetaFeedUrls = media_meta_arr
       .map((item: any) =>
         String(
@@ -134,13 +233,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
             item?.url ||
             item?.full ||
             item?.full_url ||
+            item?.thumb ||
             ""
         ).trim()
       )
       .filter((u: string) => isHttpUrl(u));
 
     const mediaMetaTypes = media_meta_arr.map((item: any) =>
-      String(item?.type || "image").trim()
+      String(item?.type || inferTypeFromUrl(item?.full || item?.feed || item?.thumb || "")).trim()
     );
 
     const final_multi_urls =
@@ -149,7 +249,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const final_multi_types =
       filtered_types.length > 0 ? filtered_types : mediaMetaTypes;
 
-    // If multi provided but single missing, set single = first
+    // If multi provided but single missing, prefer FEED url as single preview URL
     const final_media_url =
       typeof media_url === "string" && media_url.trim().length > 0
         ? media_url
@@ -203,7 +303,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       ? JSON.stringify(media_meta_arr)
       : null;
 
-    // Try insert with media_meta first. If DB column doesn't exist yet, fallback.
     let result: D1Result<any>;
     let insertedWithMediaMeta = true;
 
@@ -256,6 +355,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           media_urls: media_urls_json,
           media_types: media_types_json,
           media_meta: insertedWithMediaMeta ? media_meta_json : null,
+          media: insertedWithMediaMeta
+            ? normalizePostMedia({
+                media_url: final_media_url,
+                media_type: final_media_type,
+                media_urls: media_urls_json,
+                media_types: media_types_json,
+                media_meta: media_meta_json,
+              })
+            : normalizePostMedia({
+                media_url: final_media_url,
+                media_type: final_media_type,
+                media_urls: media_urls_json,
+                media_types: media_types_json,
+              }),
           visibility: body.visibility ?? "public",
           created_at: new Date().toISOString(),
           views: 0,
@@ -293,7 +406,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const limit = clamp(toInt(url.searchParams.get("limit"), 50), 1, 80);
     const viewerId = toInt(url.searchParams.get("viewerId"), 0);
 
-    // Bigger guest fetch to show more variety before merge
     const isGuest = viewerId === 0;
     const perType = clamp(
       Math.ceil(limit * (isGuest ? 2.5 : 1.75)),
@@ -301,7 +413,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       120
     );
 
-    // ------------------ POSTS ------------------
     const qPosts = `
       SELECT
         'post' AS source,
@@ -314,29 +425,29 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
-          WHEN length(p.media_url) > 500 THEN NULL
+          WHEN length(p.media_url) > 1000 THEN NULL
           ELSE p.media_url
         END AS media_url,
 
         CASE
           WHEN p.media_url LIKE 'data:%' THEN NULL
-          WHEN length(p.media_url) > 500 THEN NULL
+          WHEN length(p.media_url) > 1000 THEN NULL
           ELSE p.media_type
         END AS media_type,
 
         CASE
           WHEN p.media_urls LIKE 'data:%' THEN NULL
-          WHEN length(p.media_urls) > 20000 THEN NULL
+          WHEN length(p.media_urls) > 50000 THEN NULL
           ELSE p.media_urls
         END AS media_urls,
 
         CASE
-          WHEN length(p.media_types) > 10000 THEN NULL
+          WHEN length(p.media_types) > 20000 THEN NULL
           ELSE p.media_types
         END AS media_types,
 
         CASE
-          WHEN length(p.media_meta) > 40000 THEN NULL
+          WHEN length(p.media_meta) > 100000 THEN NULL
           ELSE p.media_meta
         END AS media_meta,
 
@@ -361,7 +472,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
+          WHEN length(u.profile_image_url) > 500 THEN NULL
           ELSE u.profile_image_url
         END AS profile_image_url,
         COALESCE(u.is_verified, 0) AS is_verified,
@@ -415,7 +526,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ------------------ REELS ------------------
     const qReels = `
       SELECT
         'reel' AS source,
@@ -446,7 +556,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
+          WHEN length(u.profile_image_url) > 500 THEN NULL
           ELSE u.profile_image_url
         END AS profile_image_url,
         COALESCE(u.is_verified, 0) AS is_verified,
@@ -500,7 +610,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ------------------ SONGS ------------------
     const qSongs = `
       SELECT
         'song' AS source,
@@ -531,7 +640,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
+          WHEN length(u.profile_image_url) > 500 THEN NULL
           ELSE u.profile_image_url
         END AS profile_image_url,
         COALESCE(u.is_verified, 0) AS is_verified,
@@ -588,7 +697,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ------------------ PODCASTS ------------------
     const qPodcasts = `
       SELECT
         'podcast' AS source,
@@ -619,7 +727,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
+          WHEN length(u.profile_image_url) > 500 THEN NULL
           ELSE u.profile_image_url
         END AS profile_image_url,
         COALESCE(u.is_verified, 0) AS is_verified,
@@ -672,7 +780,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ------------------ PRODUCTS ------------------
     const qProducts = `
       SELECT
         'product' AS source,
@@ -703,7 +810,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.name, u.username, 'Seller') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
+          WHEN length(u.profile_image_url) > 500 THEN NULL
           ELSE u.profile_image_url
         END AS profile_image_url,
         COALESCE(u.is_verified, 0) AS is_verified,
@@ -756,7 +863,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    // ------------------ GROUP POSTS ------------------
     const qGroupPosts = `
       SELECT
         'group_post' AS source,
@@ -769,7 +875,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         CASE
           WHEN gp.media_url LIKE 'data:%' THEN NULL
-          WHEN length(gp.media_url) > 300 THEN NULL
+          WHEN length(gp.media_url) > 1000 THEN NULL
           ELSE gp.media_url
         END AS media_url,
 
@@ -819,7 +925,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.name, u.username, 'User') AS name,
         CASE
           WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
+          WHEN length(u.profile_image_url) > 500 THEN NULL
           ELSE u.profile_image_url
         END AS profile_image_url,
         COALESCE(u.is_verified, 0) AS is_verified,
@@ -904,7 +1010,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...(Array.isArray(groupPostsRes.results) ? groupPostsRes.results : []),
     ];
 
-    // dedupe by feed_key
     const map = new Map<string, any>();
     for (const it of items) {
       const k = String(it?.feed_key || `${it?.source}:${it?.id}`);
@@ -915,7 +1020,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       .sort((a, b) =>
         normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at))
       )
-      .slice(0, limit);
+      .slice(0, limit)
+      .map((item) => {
+        const normalizedMedia = normalizePostMedia(item);
+
+        return {
+          ...item,
+          media: normalizedMedia,
+          media_count: normalizedMedia.length,
+
+          // Helpful compatibility fields for frontend
+          thumb_url: normalizedMedia[0]?.thumb || null,
+          feed_url: normalizedMedia[0]?.feed || null,
+          full_url: normalizedMedia[0]?.full || null,
+        };
+      });
 
     return json(Array.isArray(merged) ? merged : [], 200);
   } catch (err: any) {
