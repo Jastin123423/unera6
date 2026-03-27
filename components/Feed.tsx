@@ -7273,14 +7273,7 @@ interface FeedProps {
   
   // Login
   onLoginClick?: () => void;
-  
-  // Reel-specific props for regular video cards
-  onReelReact?: (reelId: number, type?: ReactionType) => void;
-  onReelComment?: (reelId: number, payload: { text: string; parentId?: number | null; imageFile?: File | null; }) => Promise<void> | void;
-  onReelEditComment?: (commentId: number, payload: { text?: string; imageFile?: File | null; image_url?: string; }) => Promise<void> | void;
-  onReelDeleteComment?: (commentId: number) => Promise<void> | void;
-  onReelShare?: (reelId: number, type: 'feed' | 'copy') => void;
-}
+  }
 
 /**
  * =========================
