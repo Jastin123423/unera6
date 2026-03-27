@@ -12,7 +12,6 @@ import {
   GroupsYouMayJoinCard,
   ReelFeedCard,
   FeedItem,
-  SponsoredPostCard,
 } from './components/Feed';
 import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
 import { UserProfile } from './components/UserProfile';
