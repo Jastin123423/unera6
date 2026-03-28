@@ -5714,7 +5714,7 @@ export const CreatePost: React.FC<{
 
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-          onClick={onVideoClick}
+          onVideoClick={handleVideoClickFromCreate}
         >
           <i className="fas fa-camera text-[#F3425F] text-[24px]"></i>
           <span className="text-[#B0B3B8] font-bold text-[17px] hidden sm:block">
