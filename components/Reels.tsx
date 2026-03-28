@@ -1286,7 +1286,7 @@ interface ReelsFeedProps {
   followLoading: { [key: number]: boolean };
   initialReelId?: number | null;
   onBack?: () => void;
-  onOpenRecorder?: () => void;
+  onCreateReel?: () => void; // 👈 ADDED: For camera icon to open create reel modal
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({
@@ -1306,7 +1306,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   followLoading = {},
   initialReelId,
   onBack,
-  onOpenRecorder,
+  onCreateReel, // 👈 ADDED
 }) => {
   const [activeReelId, setActiveReelId] = useState<number | null>(
     initialReelId || reels[0]?.id || null
@@ -1331,7 +1331,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [isOffline, setIsOffline] = useState<boolean>(
     typeof navigator !== 'undefined' ? !navigator.onLine : false
   );
-  const [isBuffering, setIsBuffering] = useState<Record<number, boolean>>({});
+  // 🔥 LOADER COMPLETELY DISABLED - no buffering state
   const [videoErrors, setVideoErrors] = useState<Record<number, boolean>>({});
 
   const viewedReelsRef = useRef<Set<number>>(new Set());
@@ -1353,20 +1353,15 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [reels, activeReelId]
   );
 
-  const setBufferingState = useCallback((reelId: number, value: boolean) => {
-    setIsBuffering((prev) => {
-      if (prev[reelId] === value) return prev;
-      return { ...prev, [reelId]: value };
-    });
-  }, []);
+  // 🔥 No setBufferingState - loader completely removed
 
   const openRecorder = useCallback(() => {
-    if (onOpenRecorder) {
-      onOpenRecorder();
+    if (onCreateReel) {
+      onCreateReel();
       return;
     }
     window.location.href = '/recorder';
-  }, [onOpenRecorder]);
+  }, [onCreateReel]);
 
   useEffect(() => {
     const nav = navigator as any;
@@ -1676,7 +1671,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const video = videoRefs.current[id];
       if (!video || !reel) return;
 
-      setBufferingState(id, true);
+      // 🔥 No buffering state - removed setBufferingState
+
       setVideoErrors((prev) => ({ ...prev, [id]: false }));
 
       await resolveReelMedia(reel);
@@ -1702,7 +1698,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         if (playRequestRef.current !== requestId) return;
 
         await video.play();
-        setBufferingState(id, false);
+        // 🔥 No setBufferingState(false)
 
         if (userInteractedRef.current) {
           startAudioForReel(id);
@@ -1723,7 +1719,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       waitUntilPlayable,
       startAudioForReel,
       incrementViewCount,
-      setBufferingState,
     ]
   );
 
@@ -1875,9 +1870,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
       if (activeIdRef.current === reelId) {
         if (video.paused) {
-          setBufferingState(reelId, true);
+          // 🔥 No setBufferingState
           video.play().then(() => {
-            setBufferingState(reelId, false);
+            // 🔥 No setBufferingState(false)
           }).catch(() => {});
           if (userInteractedRef.current) {
             startAudioForReel(reelId);
@@ -1885,14 +1880,14 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         } else {
           video.pause();
           stopAudio();
-          setBufferingState(reelId, false);
+          // 🔥 No setBufferingState(false)
         }
         return;
       }
 
       playOnly(reelId);
     },
-    [playOnly, startAudioForReel, stopAudio, setBufferingState]
+    [playOnly, startAudioForReel, stopAudio]
   );
 
   const formatCount = (num: number): string => formatViewCount(num);
@@ -2163,7 +2158,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               const videoUrl = resolvedVideoUrls[reel.id] || fallbackVideoUrl;
               const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
               const isActive = activeReelId === reel.id;
-              const showLoader = isActive && (isOffline || isBuffering[reel.id]);
+              // 🔥 Loader completely removed - no showLoader or showError
               const showError = isActive && videoErrors[reel.id];
 
               return (
@@ -2201,7 +2196,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         if (bufferingTimeoutsRef.current[reel.id]) {
                           clearTimeout(bufferingTimeoutsRef.current[reel.id]);
                         }
-                        setBufferingState(reel.id, true);
                         setVideoErrors((prev) => ({ ...prev, [reel.id]: false }));
                       }}
                       onWaiting={() => {
@@ -2209,16 +2203,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                           clearTimeout(bufferingTimeoutsRef.current[reel.id]);
                         }
                         bufferingTimeoutsRef.current[reel.id] = setTimeout(() => {
-                          setBufferingState(reel.id, true);
+                          // 🔥 No setBufferingState - just log
+                          console.debug('Video buffering:', reel.id);
                         }, 120);
                       }}
-                      onStalled={() => setBufferingState(reel.id, true)}
-                      onCanPlay={() => setBufferingState(reel.id, false)}
-                      onCanPlayThrough={() => setBufferingState(reel.id, false)}
-                      onPlaying={() => setBufferingState(reel.id, false)}
-                      onSeeked={() => setBufferingState(reel.id, false)}
+                      onStalled={() => console.debug('Video stalled:', reel.id)}
+                      onCanPlay={() => console.debug('Video can play:', reel.id)}
+                      onCanPlayThrough={() => console.debug('Video can play through:', reel.id)}
+                      onPlaying={() => console.debug('Video playing:', reel.id)}
+                      onSeeked={() => console.debug('Video seeked:', reel.id)}
                       onError={() => {
-                        setBufferingState(reel.id, false);
                         setVideoErrors((prev) => ({ ...prev, [reel.id]: true }));
                       }}
                     />
@@ -2232,18 +2226,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       }}
                     />
 
-                    {showLoader && (
-                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px] pointer-events-none">
-                        <div className="flex flex-col items-center gap-3 px-5 py-4 rounded-2xl bg-black/55 border border-white/10">
-                          <div className="w-10 h-10 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          <p className="text-white text-sm font-bold">
-                            {isOffline ? 'Waiting for network...' : 'Loading reel...'}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {showError && !showLoader && (
+                    {showError && (
                       <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
                         <div className="flex flex-col items-center gap-3 px-5 py-4 rounded-2xl bg-black/55 border border-white/10">
                           <i className="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
@@ -2363,7 +2346,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       </div>
                     </div>
 
-                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && !showLoader && (
+                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
                       <div
                         className="absolute inset-0 flex items-center justify-center cursor-pointer z-30"
                         onClick={() => handleVideoClick(reel.id)}
