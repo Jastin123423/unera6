@@ -6863,8 +6863,7 @@ export default function App() {
     onBack={goBack}
     onVideoClick={handleVideoClickFromCreate}
   />
-          )}
-
+)}
           {view === 'marketplace' && (
             <MarketplacePage
               currentUser={currentUser}
