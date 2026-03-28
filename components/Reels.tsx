@@ -81,7 +81,7 @@ type ReelVideoSources = {
   hd?: string;
 };
 
-// ==================== HELPER: Get reel user ID (handles both userId and user_id) ====================
+// ==================== HELPER: Get reel user ID ====================
 const getReelUserId = (reel: any): number => {
   return Number(reel.userId ?? reel.user_id ?? 0);
 };
@@ -94,46 +94,29 @@ const getNetworkLevel = (): NetworkLevel => {
   if (!conn) return 'medium';
 
   const effectiveType = String(conn.effectiveType || '').toLowerCase();
-  const downlink = Number(conn.downlink || 0);
   const saveData = Boolean(conn.saveData);
 
   if (saveData) return 'low';
   if (effectiveType.includes('2g') || effectiveType === 'slow-2g') return 'low';
   if (effectiveType === '3g') return 'medium';
-  // Force medium even on high networks to prevent HD in feed
   return 'medium';
 };
 
-// ✅ FIX: Updated video sources mapping to match backend DB fields
 const getReelVideoSources = (reel: Reel): ReelVideoSources => ({
-  // Map backend fields correctly:
-  // video_url_low → low quality (360p)
-  // video_url_medium → medium quality (720p)
-  // HD is disabled for feed
-  low:
-    (reel as any).video_url_low ||
-    (reel as any).videoUrlLow ||
-    '',
+  low: (reel as any).video_url_low || (reel as any).videoUrlLow || '',
   medium:
     (reel as any).video_url_medium ||
     (reel as any).videoUrlMedium ||
     (reel as any).video_url ||
     (reel as any).videoUrl ||
     '',
-  hd:
-    (reel as any).video_url_hd ||
-    (reel as any).videoUrlHd ||
-    '',
+  hd: (reel as any).video_url_hd || (reel as any).videoUrlHd || '',
 });
 
-// ✅ FIX: Force medium quality even on high networks
 const pickBestVideoUrl = (sources: ReelVideoSources, networkLevel: NetworkLevel): string => {
   if (networkLevel === 'low') {
     return sources.low || sources.medium || sources.hd || '';
   }
-
-  // Force medium even on high network to prevent HD
-  // This ensures consistent performance and saves data
   return sources.medium || sources.low || sources.hd || '';
 };
 
@@ -144,17 +127,17 @@ const REACTION_EMOJIS = [
   '🤦', '🤷‍♂️', '🫂',
 ];
 
-// ==================== FORMAT VIEW COUNT HELPER ====================
+// ==================== FORMAT HELPERS ====================
 const formatViewCount = (num?: number): string => {
   const v = Number(num || 0);
 
-  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/.0$/, '') + 'B';
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/.0$/, '') + 'M';
-  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/.0$/, '') + 'K';
+  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(v);
 };
 
-// ==================== HALF-SCREEN COMMENTS SHEET ====================
+// ==================== COMMENTS SHEET ====================
 const ReelCommentsSheet: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -1101,7 +1084,6 @@ const ReelThumbnail: React.FC<{
   onClick: () => void;
 }> = ({ reel, onClick }) => {
   const sources = getReelVideoSources(reel);
-  // ✅ FIX: Add fallback to video_url/videoUrl
   const videoSrc =
     sources.low ||
     sources.medium ||
@@ -1304,6 +1286,7 @@ interface ReelsFeedProps {
   followLoading: { [key: number]: boolean };
   initialReelId?: number | null;
   onBack?: () => void;
+  onOpenRecorder?: () => void;
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({
@@ -1323,6 +1306,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   followLoading = {},
   initialReelId,
   onBack,
+  onOpenRecorder,
 }) => {
   const [activeReelId, setActiveReelId] = useState<number | null>(
     initialReelId || reels[0]?.id || null
@@ -1344,9 +1328,15 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [networkLevel, setNetworkLevel] = useState<NetworkLevel>(getNetworkLevel());
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
   const [resolvedAudioUrls, setResolvedAudioUrls] = useState<Record<number, string>>({});
+  const [isOffline, setIsOffline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? !navigator.onLine : false
+  );
+  const [isBuffering, setIsBuffering] = useState<Record<number, boolean>>({});
+  const [videoErrors, setVideoErrors] = useState<Record<number, boolean>>({});
 
   const viewedReelsRef = useRef<Set<number>>(new Set());
   const preloadLinksRef = useRef<Map<string, HTMLLinkElement>>(new Map());
+  const bufferingTimeoutsRef = useRef<Record<number, any>>({});
 
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -1363,7 +1353,21 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [reels, activeReelId]
   );
 
-  // React to network changes
+  const setBufferingState = useCallback((reelId: number, value: boolean) => {
+    setIsBuffering((prev) => {
+      if (prev[reelId] === value) return prev;
+      return { ...prev, [reelId]: value };
+    });
+  }, []);
+
+  const openRecorder = useCallback(() => {
+    if (onOpenRecorder) {
+      onOpenRecorder();
+      return;
+    }
+    window.location.href = '/recorder';
+  }, [onOpenRecorder]);
+
   useEffect(() => {
     const nav = navigator as any;
     const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
@@ -1379,11 +1383,31 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return () => conn.removeEventListener('change', handleChange);
   }, []);
 
-  // Cleanup preload links on unmount
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   useEffect(() => {
     return () => {
       preloadLinksRef.current.forEach((link) => link.remove());
       preloadLinksRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(bufferingTimeoutsRef.current).forEach((t) => {
+        if (t) clearTimeout(t);
+      });
     };
   }, []);
 
@@ -1428,14 +1452,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             setResolvedAudioUrls((prev) => (prev[id] ? prev : { ...prev, [id]: blobUrl }));
           }
         }
-
-        // DEBUG: Log video quality being used
-        console.log('VIDEO USED:', {
-          id: reel.id,
-          network: networkLevel,
-          chosen: pickedVideoUrl,
-          sources: videoSources,
-        });
       } catch (err) {
         console.warn('Failed to resolve reel media', err);
       }
@@ -1543,7 +1559,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       };
 
       video.addEventListener('canplay', onCanPlay, { once: true });
-      setTimeout(resolve, 2000);
+      setTimeout(resolve, 2500);
     });
   }, []);
 
@@ -1646,9 +1662,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         if (!video) return;
         const rid = Number(key);
         if (rid !== id) {
-          video.pause();
-          video.currentTime = 0;
-          video.muted = true;
+          try {
+            video.pause();
+            video.currentTime = 0;
+            video.muted = true;
+          } catch {}
         }
       });
 
@@ -1657,6 +1675,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const reel = reels.find((r) => r.id === id);
       const video = videoRefs.current[id];
       if (!video || !reel) return;
+
+      setBufferingState(id, true);
+      setVideoErrors((prev) => ({ ...prev, [id]: false }));
 
       await resolveReelMedia(reel);
       if (playRequestRef.current !== requestId) return;
@@ -1681,6 +1702,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         if (playRequestRef.current !== requestId) return;
 
         await video.play();
+        setBufferingState(id, false);
 
         if (userInteractedRef.current) {
           startAudioForReel(id);
@@ -1701,8 +1723,39 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       waitUntilPlayable,
       startAudioForReel,
       incrementViewCount,
+      setBufferingState,
     ]
   );
+
+  const scrollToReelByIndex = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= reels.length) return;
+
+      const nextReel = reels[index];
+      if (!nextReel) return;
+
+      const el = document.querySelector(`[data-reel-id="${nextReel.id}"]`) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      setActiveReelId(nextReel.id);
+      playOnly(nextReel.id);
+    },
+    [reels, playOnly]
+  );
+
+  const goToNextReel = useCallback(() => {
+    if (activeIndex < reels.length - 1) {
+      scrollToReelByIndex(activeIndex + 1);
+    }
+  }, [activeIndex, reels.length, scrollToReelByIndex]);
+
+  const goToPreviousReel = useCallback(() => {
+    if (activeIndex > 0) {
+      scrollToReelByIndex(activeIndex - 1);
+    }
+  }, [activeIndex, scrollToReelByIndex]);
 
   useEffect(() => {
     if (!initialReelId || reels.length === 0) return;
@@ -1784,7 +1837,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
   const extractSoundFromReel = useCallback(
     (reel: Reel): Sound => {
-      // ✅ FIX: Use getReelUserId helper
       const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
       const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
       const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
@@ -1823,20 +1875,24 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
       if (activeIdRef.current === reelId) {
         if (video.paused) {
-          video.play().catch(() => {});
+          setBufferingState(reelId, true);
+          video.play().then(() => {
+            setBufferingState(reelId, false);
+          }).catch(() => {});
           if (userInteractedRef.current) {
             startAudioForReel(reelId);
           }
         } else {
           video.pause();
           stopAudio();
+          setBufferingState(reelId, false);
         }
         return;
       }
 
       playOnly(reelId);
     },
-    [playOnly, startAudioForReel, stopAudio]
+    [playOnly, startAudioForReel, stopAudio, setBufferingState]
   );
 
   const formatCount = (num: number): string => formatViewCount(num);
@@ -1892,9 +1948,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     setShowReactionPicker(null);
   };
 
-  // ==================== NEW EFFECTS (ADDITIONS) ====================
-
-  // 4. Stop video and audio when comments open
   useEffect(() => {
     if (!showComments) return;
     const activeId = activeIdRef.current;
@@ -1909,7 +1962,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     stopAudio();
   }, [showComments, stopAudio]);
 
-  // 5. Resume active reel when comments close
   useEffect(() => {
     if (showComments) return;
     const activeId = activeIdRef.current;
@@ -1922,7 +1974,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [showComments, startAudioForReel]);
 
-  // 6. Stop everything when app/tab is hidden or user leaves app
   useEffect(() => {
     const stopPlayback = () => {
       Object.values(videoRefs.current).forEach((video) => {
@@ -1962,7 +2013,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     };
   }, [showComments, startAudioForReel, stopAudio]);
 
-  // 9. Stop audio when sound details open
   useEffect(() => {
     if (selectedSoundData) {
       stopAudio();
@@ -1978,7 +2028,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [selectedSoundData, stopAudio]);
 
-  // 10. Stop audio when opening owner menu or edit modal
   useEffect(() => {
     if (!showReelMenu && !editingReel) return;
     stopAudio();
@@ -1993,6 +2042,41 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [showReelMenu, editingReel, stopAudio]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showComments || selectedSoundData || showReelMenu || editingReel) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+        e.preventDefault();
+        goToNextReel();
+      }
+
+      if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        goToPreviousReel();
+      }
+
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (activeReelId) handleVideoClick(activeReelId);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    showComments,
+    selectedSoundData,
+    showReelMenu,
+    editingReel,
+    goToNextReel,
+    goToPreviousReel,
+    activeReelId,
+    handleVideoClick,
+  ]);
+
+  const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
+
   return (
     <div
       className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
@@ -2001,42 +2085,59 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       <audio ref={globalAudioRef} hidden playsInline preload="metadata" />
 
       <div
-        className="absolute top-0 left-0 right-0 z-30 px-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pointer-events-none"
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 8px)', height: '64px' }}
+        className="absolute top-0 left-0 right-0 z-40 px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 8px)', height: '72px' }}
       >
         <button
           onClick={onBack || (() => window.history.back())}
-          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors pointer-events-auto"
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
         >
           <i className="fas fa-arrow-left text-white text-sm" />
         </button>
 
-        {/* 3. Delete the word Reels – replaced with empty spacer */}
-        <div className="w-10 h-10 pointer-events-none" />
+        <div className="flex items-center gap-3">
+          <h2 className="text-white text-[20px] font-black tracking-tight">Reels</h2>
+        </div>
 
-        <button
-          onClick={() => {
-            const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
-            if (!reel) return;
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openRecorder}
+            className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
+            aria-label="Open recorder"
+          >
+            <i className="fas fa-camera text-white text-sm" />
+          </button>
 
-            const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
-            if (ownerId !== Number(currentUser?.id)) return;
+          <button
+            className="min-w-[44px] h-10 px-3 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center gap-2 text-white"
+            title="Views"
+          >
+            <i className="fas fa-eye text-[12px]" />
+            <span className="text-xs font-bold">{formatViewCount(activeReel?.views)}</span>
+          </button>
 
-            setMenuReelId(reel.id);
-            setShowReelMenu(true);
-          }}
-          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center pointer-events-auto"
-        >
-          <i className="fas fa-ellipsis-h text-white text-sm" />
-        </button>
+          <button
+            onClick={() => {
+              const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+              if (!reel) return;
+
+              const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+              if (ownerId !== Number(currentUser?.id)) return;
+
+              setMenuReelId(reel.id);
+              setShowReelMenu(true);
+            }}
+            className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center"
+          >
+            <i className="fas fa-ellipsis-h text-white text-sm" />
+          </button>
+        </div>
       </div>
-
-      {/* 1. Quality text removed */}
 
       <div className="w-full h-full">
         <div
           ref={scrollerRef}
-          className="reel-video-shell w-full h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-black"
+          className="reel-video-shell w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide bg-black"
         >
           {reels.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-white p-8">
@@ -2048,7 +2149,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             </div>
           ) : (
             reels.map((reel: Reel, reelIndex) => {
-              // ✅ FIX: Use getReelUserId helper to get author
               const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
               if (!author) return null;
 
@@ -2062,6 +2162,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               const fallbackVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
               const videoUrl = resolvedVideoUrls[reel.id] || fallbackVideoUrl;
               const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
+              const isActive = activeReelId === reel.id;
+              const showLoader = isActive && (isOffline || isBuffering[reel.id]);
+              const showError = isActive && videoErrors[reel.id];
 
               return (
                 <div
@@ -2094,6 +2197,30 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       draggable={false}
                       tabIndex={-1}
                       onContextMenu={(e) => e.preventDefault()}
+                      onLoadStart={() => {
+                        if (bufferingTimeoutsRef.current[reel.id]) {
+                          clearTimeout(bufferingTimeoutsRef.current[reel.id]);
+                        }
+                        setBufferingState(reel.id, true);
+                        setVideoErrors((prev) => ({ ...prev, [reel.id]: false }));
+                      }}
+                      onWaiting={() => {
+                        if (bufferingTimeoutsRef.current[reel.id]) {
+                          clearTimeout(bufferingTimeoutsRef.current[reel.id]);
+                        }
+                        bufferingTimeoutsRef.current[reel.id] = setTimeout(() => {
+                          setBufferingState(reel.id, true);
+                        }, 120);
+                      }}
+                      onStalled={() => setBufferingState(reel.id, true)}
+                      onCanPlay={() => setBufferingState(reel.id, false)}
+                      onCanPlayThrough={() => setBufferingState(reel.id, false)}
+                      onPlaying={() => setBufferingState(reel.id, false)}
+                      onSeeked={() => setBufferingState(reel.id, false)}
+                      onError={() => {
+                        setBufferingState(reel.id, false);
+                        setVideoErrors((prev) => ({ ...prev, [reel.id]: true }));
+                      }}
                     />
 
                     <div
@@ -2104,6 +2231,32 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         if (e.touches.length > 1) e.preventDefault();
                       }}
                     />
+
+                    {showLoader && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px] pointer-events-none">
+                        <div className="flex flex-col items-center gap-3 px-5 py-4 rounded-2xl bg-black/55 border border-white/10">
+                          <div className="w-10 h-10 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          <p className="text-white text-sm font-bold">
+                            {isOffline ? 'Waiting for network...' : 'Loading reel...'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {showError && !showLoader && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+                        <div className="flex flex-col items-center gap-3 px-5 py-4 rounded-2xl bg-black/55 border border-white/10">
+                          <i className="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
+                          <p className="text-white text-sm font-bold">Video failed to load</p>
+                          <button
+                            onClick={() => playOnly(reel.id)}
+                            className="px-4 py-2 rounded-xl bg-[#1877F2] text-white text-sm font-bold"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4 pointer-events-none">
                       <div className="mb-4 pointer-events-auto">
@@ -2210,15 +2363,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. Move eye/views badge to top‑20 right‑4 */}
-                    <div className="absolute top-20 right-4 z-20 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20">
-                      <div className="flex items-center gap-2 text-white text-xs font-bold">
-                        <i className="fas fa-eye text-[#1877F2]"></i>
-                        <span>{formatViewCount(reel.views)}</span>
-                      </div>
-                    </div>
-
-                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
+                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && !showLoader && (
                       <div
                         className="absolute inset-0 flex items-center justify-center cursor-pointer z-30"
                         onClick={() => handleVideoClick(reel.id)}
@@ -2235,6 +2380,34 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           )}
         </div>
       </div>
+
+      {reels.length > 1 && !showComments && !selectedSoundData && (
+        <>
+          <button
+            onClick={goToPreviousReel}
+            disabled={activeIndex <= 0}
+            className={`absolute left-3 top-1/2 -translate-y-1/2 z-40 w-11 h-11 rounded-full border backdrop-blur-md transition-all ${
+              activeIndex <= 0
+                ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed'
+                : 'bg-black/50 border-white/20 text-white active:scale-95'
+            }`}
+          >
+            <i className="fas fa-chevron-up text-sm" />
+          </button>
+
+          <button
+            onClick={goToNextReel}
+            disabled={activeIndex >= reels.length - 1}
+            className={`absolute left-3 top-[calc(50%+56px)] -translate-y-1/2 z-40 w-11 h-11 rounded-full border backdrop-blur-md transition-all ${
+              activeIndex >= reels.length - 1
+                ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed'
+                : 'bg-black/50 border-white/20 text-white active:scale-95'
+            }`}
+          >
+            <i className="fas fa-chevron-down text-sm" />
+          </button>
+        </>
+      )}
 
       {activeReelId && (
         <ReelCommentsSheet
