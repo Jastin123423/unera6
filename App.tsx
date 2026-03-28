@@ -6844,25 +6844,25 @@ export default function App() {
 
           {/* ReelsFeed render */}
           {view === 'reels' && (
-            <ReelsFeed
-              reels={safeArray(reels)}
-              users={safeArray(users)}
-              currentUser={currentUser}
-              onProfileClick={(id) => openProfile(id)}
-              onReact={reactToReel}
-              onComment={commentOnReel}
-              onEditComment={editCommentOnReel}
-              onDeleteComment={deleteCommentOnReel}
-              onEditReel={editReel}
-              onDeleteReel={deleteReel}
-              onShare={shareReel}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
-              initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
-              onBack={() => navigateTo('home')}
-              onVideoClick={handleVideoClickFromCreate} 
-            />
+  <ReelsFeed
+    reels={safeArray(reels)}
+    users={safeArray(users)}
+    currentUser={currentUser}
+    onProfileClick={(id) => openProfile(id)}
+    onReact={reactToReel}
+    onComment={commentOnReel}
+    onEditComment={editCommentOnReel}
+    onDeleteComment={deleteCommentOnReel}
+    onEditReel={editReel}
+    onDeleteReel={deleteReel}
+    onShare={shareReel}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    followLoading={followLoading}
+    initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
+    onBack={goBack}
+    onVideoClick={handleVideoClickFromCreate}
+  />
           )}
 
           {view === 'marketplace' && (
