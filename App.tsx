@@ -1589,6 +1589,7 @@ export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
   const [incomingCall, setIncomingCall] = useState<any>(null);
+  const [pendingReelFile, setPendingReelFile] = useState<File | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const reelVideoInputRef = useRef<HTMLInputElement>(null);
 
