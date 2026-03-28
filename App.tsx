@@ -7366,7 +7366,7 @@ const handleReelVideoSelected = useCallback(
             setShowCreatePostModal(false);
             setShowCreateEventModal(true);
           }}
-          onOpenRecorder={() => {
+          onVideoClick={() => {
             setShowCreatePostModal(false);
             setShowRecorder(true);
           }}
