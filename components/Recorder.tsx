@@ -1,3 +1,4 @@
+
 // Recorder.tsx – Upload-only Reel Creator (no camera, no drafts, trimming kept)
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '../types';
@@ -653,6 +654,7 @@ export interface RecorderSubmitPayload {
   filterIntensity?: number;
 }
 
+// Updated RecorderProps interface with new props
 interface RecorderProps {
   currentUser: User;
   selectedSound?: ReelSound | null;
@@ -662,6 +664,8 @@ interface RecorderProps {
   onSubmit: (payload: RecorderSubmitPayload) => Promise<void> | void;
   maxDurationSec?: number;
   brandName?: string;
+  initialVideoFile?: File | null;
+  startInPreview?: boolean;
 }
 
 const LYRIC_PRESETS: LyricPreset[] = [
@@ -1113,8 +1117,12 @@ const Recorder: React.FC<RecorderProps> = ({
   onSubmit,
   maxDurationSec = 60,
   brandName = 'UNERA',
+  initialVideoFile = null,
+  startInPreview = false,
 }) => {
-  const [mode, setMode] = useState<EditorMode>('choose');
+  const [mode, setMode] = useState<EditorMode>(
+    startInPreview && initialVideoFile ? 'preview' : 'choose'
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitState, setSubmitState] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [submitError, setSubmitError] = useState('');
@@ -1195,6 +1203,18 @@ const Recorder: React.FC<RecorderProps> = ({
       return sound.audioUrl;
     }
   }, []);
+
+  // Effect to auto-load initial video file
+  useEffect(() => {
+    if (!initialVideoFile) return;
+
+    setVideoFile(initialVideoFile);
+    setNextPreviewUrl(URL.createObjectURL(initialVideoFile));
+    setMode('preview');
+    setSubmitState('idle');
+    setSubmitError('');
+    setSubmitProgress(0);
+  }, [initialVideoFile, setNextPreviewUrl]);
 
   // Fetch popular sounds
   useEffect(() => {
@@ -1837,7 +1857,7 @@ const Recorder: React.FC<RecorderProps> = ({
       <div className="absolute top-0 left-0 right-0 z-40 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-3 bg-gradient-to-b from-black/85 to-transparent flex items-center justify-between">
         <button
           onClick={() => {
-            if (mode === 'preview') {
+            if (mode === 'preview' && !initialVideoFile) {
               setMode('choose');
               return;
             }
@@ -1864,7 +1884,7 @@ const Recorder: React.FC<RecorderProps> = ({
         </button>
       </div>
 
-      {mode === 'choose' && (
+      {mode === 'choose' && !initialVideoFile && (
         <div className="relative h-full flex flex-col items-center justify-center px-6 pb-12 pt-24 overflow-y-auto">
           <div className="w-full max-w-[420px] text-center mb-8">
             <div className="w-24 h-24 mx-auto rounded-[32px] bg-white/5 border border-white/10 flex items-center justify-center shadow-2xl mb-6">
@@ -2094,7 +2114,7 @@ const Recorder: React.FC<RecorderProps> = ({
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <button
-                      onClick={() => setMode('choose')}
+                      onClick={onBack}
                       className="rounded-2xl bg-white/8 border border-white/10 py-3 font-black uppercase tracking-[0.14em] active:scale-95"
                     >
                       Replace video
@@ -2697,3 +2717,4 @@ input[type=range]::-moz-range-track {
 `;
 
 export default Recorder;
+ 
