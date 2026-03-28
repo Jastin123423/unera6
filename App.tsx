@@ -6857,6 +6857,7 @@ const handleVideoClickFromCreate = useCallback(() => {
           )}
 
           {/* ReelsFeed render */}
+
           {view === 'reels' && (
   <ReelsFeed
     reels={safeArray(reels)}
