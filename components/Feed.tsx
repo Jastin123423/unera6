@@ -5663,14 +5663,21 @@ export const Post = memo(
  * ✅ CREATE POST CARD
  * =========================
  */
-export const CreatePost: React.FC<{
+ export const CreatePost: React.FC<{
   currentUser: User;
   onProfileClick: (id: number) => void;
   onClick: () => void;
   onPhotoClick: () => void;
   onVideoClick: () => void;
   onCreateEventClick: () => void;
-}> = ({ currentUser, onProfileClick, onClick, onPhotoClick, onVideoClick, onCreateEventClick }) => (
+}> = ({
+  currentUser,
+  onProfileClick,
+  onClick,
+  onPhotoClick,
+  onVideoClick,
+  onCreateEventClick,
+}) => (
   <div className="w-full">
     <div className="bg-[#242526] w-full p-3 md:p-4">
       <div className="flex gap-2 mb-3">
@@ -5680,6 +5687,7 @@ export const CreatePost: React.FC<{
           className="w-10 h-10 rounded-full object-cover cursor-pointer border border-[#3E4042]"
           onClick={() => onProfileClick(safeUserId(currentUser))}
         />
+
         <div
           className="flex-1 bg-[#3A3B3C] rounded-full px-4 py-2 hover:bg-[#4E4F50] cursor-pointer flex items-center transition-colors"
           onClick={onClick}
@@ -5692,6 +5700,7 @@ export const CreatePost: React.FC<{
       </div>
 
       <div className="border-t border-[#3E4042] pt-2 flex justify-between">
+        {/* Live Video */}
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onClick}
@@ -5702,6 +5711,7 @@ export const CreatePost: React.FC<{
           </span>
         </div>
 
+        {/* Photo */}
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onPhotoClick}
@@ -5712,9 +5722,10 @@ export const CreatePost: React.FC<{
           </span>
         </div>
 
+        {/* Reel Video → opens gallery picker */}
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
-          onVideoClick={handleVideoClickFromCreate}
+          onClick={onVideoClick}
         >
           <i className="fas fa-camera text-[#F3425F] text-[24px]"></i>
           <span className="text-[#B0B3B8] font-bold text-[17px] hidden sm:block">
@@ -5722,6 +5733,7 @@ export const CreatePost: React.FC<{
           </span>
         </div>
 
+        {/* Create Event */}
         <div
           className="flex items-center justify-center flex-1 gap-2 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer transition-colors"
           onClick={onCreateEventClick}
@@ -5737,7 +5749,7 @@ export const CreatePost: React.FC<{
     <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
   </div>
 );
-
+  
 /**
  * =========================
  * ✅ CREATE POST MODAL (with image compression support)
