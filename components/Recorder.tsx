@@ -1204,18 +1204,6 @@ const Recorder: React.FC<RecorderProps> = ({
     }
   }, []);
 
-  // Effect to auto-load initial video file
-  useEffect(() => {
-    if (!initialVideoFile) return;
-
-    setVideoFile(initialVideoFile);
-    setNextPreviewUrl(URL.createObjectURL(initialVideoFile));
-    setMode('preview');
-    setSubmitState('idle');
-    setSubmitError('');
-    setSubmitProgress(0);
-  }, [initialVideoFile, setNextPreviewUrl]);
-
   // Fetch popular sounds
   useEffect(() => {
     const fetchPopularSounds = async () => {
@@ -1403,6 +1391,23 @@ const Recorder: React.FC<RecorderProps> = ({
     },
     [cleanupPreviewUrl]
   );
+
+  // ✅ CORRECT PLACEMENT - Effect moved here, after setNextPreviewUrl is defined
+  useEffect(() => {
+    if (!initialVideoFile) return;
+    
+    const objectUrl = URL.createObjectURL(initialVideoFile);
+    setVideoFile(initialVideoFile);
+    setNextPreviewUrl(objectUrl);
+    setMode('preview');
+    setSubmitState('idle');
+    setSubmitError('');
+    setSubmitProgress(0);
+    
+    return () => {
+      safeRevoke(objectUrl);
+    };
+  }, [initialVideoFile, setNextPreviewUrl]);
 
   const resetAll = useCallback(() => {
     stopSoundPreview();
