@@ -7357,21 +7357,18 @@ const handleReelVideoSelected = useCallback(
       )}
 
       {showCreatePostModal && currentUser && (
-        <CreatePostModal
-          currentUser={currentUser}
-          users={users}
-          onClose={() => setShowCreatePostModal(false)}
-          onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
-          onCreateEventClick={() => {
-            setShowCreatePostModal(false);
-            setShowCreateEventModal(true);
-          }}
-          onVideoClick={() => {
-            setShowCreatePostModal(false);
-            setShowRecorder(true);
-          }}
-        />
-      )}
+  <CreatePostModal
+    currentUser={currentUser}
+    users={users}
+    onClose={() => setShowCreatePostModal(false)}
+    onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
+    onCreateEventClick={() => {
+      setShowCreatePostModal(false);
+      setShowCreateEventModal(true);
+    }}
+    onVideoClick={handleVideoClickFromCreate}
+  />
+)}
 
       {showRecorder && currentUser && (
         <Recorder
