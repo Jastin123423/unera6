@@ -6861,6 +6861,7 @@ export default function App() {
               followLoading={followLoading}
               initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
               onBack={() => navigateTo('home')}
+              onVideoClick={handleVideoClickFromCreate} 
             />
           )}
 
