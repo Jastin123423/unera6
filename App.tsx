@@ -7132,7 +7132,7 @@ const handleVideoClickFromCreate = useCallback(() => {
             />
           )}
 
-          {view === 'recorder' && (
+         {view === 'recorder' && (
   <Recorder
     currentUser={currentUser}
     selectedSound={selectedReelSound}
