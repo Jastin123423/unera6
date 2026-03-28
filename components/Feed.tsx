@@ -5762,7 +5762,7 @@ export const CreatePostModal = memo(
     onClose,
     onCreatePost,
     onCreateEventClick,
-    onOpenRecorder,
+    onVideoClick,
   }: {
     currentUser: User;
     users: User[];
@@ -5781,7 +5781,7 @@ export const CreatePostModal = memo(
       }
     ) => void;
     onCreateEventClick?: () => void;
-    onOpenRecorder?: () => void;
+    onVideoClick?: () => void;
   }) => {
     const [view, setView] = useState<'main' | 'tag' | 'feeling' | 'location'>('main');
     const [text, setText] = useState('');
