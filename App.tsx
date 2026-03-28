@@ -6655,7 +6655,7 @@ const handleReelVideoSelected = useCallback(
                     if (!requireAuth('Creating posts')) return;
                     setShowCreatePostModal(true);
                   }}
-                  onPhotoClick={handlePhotoClick
+                  onPhotoClick={handlePhotoClick}
                   onVideoClick={handleVideoClickFromCreate}
                   onCreateEventClick={() => {
                     if (!requireAuth('Creating events')) return;
