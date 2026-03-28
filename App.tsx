@@ -5657,11 +5657,25 @@ export default function App() {
     setShowCreatePostModal(true);
   }, [requireAuth]);
 
-  // Handle video click from create
-  const handleVideoClickFromCreate = useCallback(() => {
-    if (!requireAuth('Creating videos')) return;
-    setShowRecorder(true);
-  }, [requireAuth]);
+// Handle video click from create
+const handleVideoClickFromCreate = useCallback(() => {
+  if (!requireAuth('Creating videos')) return;
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/*';
+  input.capture = 'environment';
+
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (!file) return;
+
+    setPendingReelFile(file);
+    setView('recorder');
+  };
+
+  input.click();
+}, [requireAuth]);
 
   // Event Detail Modal
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
