@@ -5657,23 +5657,28 @@ export default function App() {
     setShowCreatePostModal(true);
   }, [requireAuth]);
 
-// Handle video click from create
-const handleVideoClickFromCreate = useCallback(() => {
+ const handleVideoClickFromCreate = useCallback(() => {
   if (!requireAuth('Creating videos')) return;
+  reelVideoInputRef.current?.click();
+}, [requireAuth]);
 
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'video/*';
-  input.capture = 'environment';
+const handleReelVideoSelected = useCallback(
+  (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
 
-  input.onchange = () => {
-    const file = input.files?.[0];
     if (!file) return;
+
+    if (!file.type.startsWith('video/')) {
+      alert('Please select a video file');
+      return;
+    }
 
     setPendingReelFile(file);
     setView('recorder');
-  };
-
+  },
+  []
+);
   input.click();
 }, [requireAuth]);
 
