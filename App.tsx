@@ -1590,6 +1590,7 @@ export default function App() {
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const reelVideoInputRef = useRef<HTMLInputElement>(null);
 
   // ===== NOTIFICATION & AD STATES =====
   const [notifications, setNotifications] = useState<any[]>([]);
