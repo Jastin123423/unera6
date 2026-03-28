@@ -127,6 +127,72 @@ const REACTION_EMOJIS = [
   '🤦', '🤷‍♂️', '🫂',
 ];
 
+// ==================== SPARK REACT ICON (from Feed.tsx) ====================
+const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <defs>
+      <linearGradient id="reelSparkGrad" x1="12" y1="52" x2="52" y2="12">
+        <stop offset="0%" stopColor="#FF7A45" />
+        <stop offset="55%" stopColor="#FF5A6A" />
+        <stop offset="100%" stopColor="#FF8A3D" />
+      </linearGradient>
+      <filter id="reelSparkGlow" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="2.2" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+    <circle
+      cx="32"
+      cy="32"
+      r="18"
+      fill="url(#reelSparkGrad)"
+      opacity="0.14"
+    />
+    <g
+      stroke="url(#reelSparkGrad)"
+      strokeWidth="5.2"
+      strokeLinecap="round"
+      filter="url(#reelSparkGlow)"
+    >
+      <line x1="32" y1="10" x2="32" y2="18" />
+      <line x1="32" y1="46" x2="32" y2="54" />
+      <line x1="10" y1="32" x2="18" y2="32" />
+      <line x1="46" y1="32" x2="54" y2="32" />
+      <line x1="17" y1="17" x2="22.8" y2="22.8" />
+      <line x1="41.2" y1="41.2" x2="47" y2="47" />
+      <line x1="47" y1="17" x2="41.2" y2="22.8" />
+      <line x1="22.8" y1="41.2" x2="17" y2="47" />
+    </g>
+    <circle cx="32" cy="32" r="6.2" fill="url(#reelSparkGrad)" />
+  </svg>
+);
+
+// ==================== DISCUSS SIGNAL ICON (from Feed.tsx) ====================
+const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
+  size = 28,
+  color = '#1877F2',
+}) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <g
+      fill="none"
+      stroke={color}
+      strokeWidth="4.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
+      <circle cx="27" cy="30" r="2.2" />
+      <circle cx="33" cy="30" r="2.2" />
+      <circle cx="39" cy="30" r="2.2" />
+      <path d="M48 18c3 2 5 5 6 9" />
+      <path d="M44 22c2 1 3 3 4 6" />
+    </g>
+  </svg>
+);
+
 // ==================== FORMAT HELPERS ====================
 const formatViewCount = (num?: number): string => {
   const v = Number(num || 0);
@@ -135,6 +201,167 @@ const formatViewCount = (num?: number): string => {
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
   if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(v);
+};
+
+// ==================== REEL REACTION BUTTON (icon only, no text) ====================
+const ReelReactionButton: React.FC<{
+  hasReacted: boolean;
+  reactionCount: number;
+  onReact: () => void;
+  isLoading?: boolean;
+}> = ({ hasReacted, reactionCount, onReact, isLoading = false }) => {
+  const [showDock, setShowDock] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
+  const timerRef = useRef<any>(null);
+  const longPressTimerRef = useRef<any>(null);
+
+  const reactionConfig = [
+    { type: 'like', icon: '👍', color: '#1877F2' },
+    { type: 'love', icon: '❤️', color: '#F3425F' },
+    { type: 'haha', icon: '😂', color: '#F7B928' },
+    { type: 'wow', icon: '😮', color: '#F7B928' },
+    { type: 'sad', icon: '😢', color: '#F7B928' },
+    { type: 'angry', icon: '😡', color: '#E41E3F' },
+    { type: 'fire', icon: '🔥', color: '#FF6B35' },
+    { type: 'party', icon: '🎉', color: '#9C27B0' },
+    { type: 'clap', icon: '👏', color: '#4CAF50' },
+    { type: 'star', icon: '⭐', color: '#FFD700' },
+    { type: 'thinking', icon: '🤔', color: '#607D8B' },
+    { type: 'crying', icon: '😭', color: '#2196F3' },
+    { type: 'heart_eyes', icon: '🥰', color: '#E91E63' },
+    { type: 'kiss', icon: '😘', color: '#FF4081' },
+    { type: 'sunglasses', icon: '😎', color: '#00BCD4' },
+    { type: 'rocket', icon: '🚀', color: '#3F51B5' },
+    { type: 'trophy', icon: '🏆', color: '#FF9800' },
+    { type: 'crown', icon: '👑', color: '#FFC107' },
+    { type: 'unicorn', icon: '🦄', color: '#E040FB' },
+    { type: 'rainbow', icon: '🌈', color: '#00E676' },
+    { type: 'money', icon: '💰', color: '#4CAF50' },
+    { type: 'muscle', icon: '💪', color: '#FF5722' },
+    { type: 'brain', icon: '🧠', color: '#9C27B0' },
+    { type: 'lightning', icon: '⚡', color: '#FFEB3B' },
+    { type: 'gem', icon: '💎', color: '#00BCD4' },
+  ];
+
+  const handleMouseEnter = () => {
+    timerRef.current = setTimeout(() => setShowDock(true), 500);
+  };
+
+  const handleMouseLeave = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setTimeout(() => setShowDock(false), 250);
+    setShowPreview(false);
+  };
+
+  const handleTouchStart = () => {
+    longPressTimerRef.current = setTimeout(() => {
+      setShowDock(true);
+      setShowPreview(true);
+      setPreviewEmoji('👍');
+    }, 600);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    setTimeout(() => setShowPreview(false), 300);
+  };
+
+  const handleClick = () => {
+    if (hasReacted) {
+      setIsAnimating(true);
+      onReact();
+      setTimeout(() => setIsAnimating(false), 300);
+    } else {
+      setShowDock(!showDock);
+    }
+  };
+
+  const handleDockReact = (type: any) => {
+    setIsAnimating(true);
+    onReact();
+    setShowDock(false);
+    setShowPreview(false);
+    setTimeout(() => setIsAnimating(false), 300);
+  };
+
+  const handleEmojiHover = (emoji: string) => {
+    if (showPreview) {
+      setPreviewEmoji(emoji);
+    }
+  };
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+    >
+      {showPreview && (
+        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
+          <div className="text-4xl">{previewEmoji}</div>
+        </div>
+      )}
+
+      {showDock && (
+        <div
+          className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
+        >
+          <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
+            {reactionConfig.map((r) => (
+              <div
+                key={r.type}
+                className="text-3xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDockReact(r.type);
+                }}
+                onMouseEnter={() => handleEmojiHover(r.icon)}
+                title={r.type}
+              >
+                {r.icon}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        disabled={isLoading}
+        className={`flex items-center justify-center gap-1 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all ${
+          isAnimating ? 'scale-110' : ''
+        } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+      >
+        <SparkReactIcon size={24} />
+        <span className="text-white text-sm font-bold ml-1">{formatViewCount(reactionCount)}</span>
+      </button>
+    </div>
+  );
+};
+
+// ==================== REEL DISCUSS BUTTON (icon only, no text) ====================
+const ReelDiscussButton: React.FC<{
+  commentCount: number;
+  onClick: () => void;
+}> = ({ commentCount, onClick }) => {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center justify-center gap-1 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
+    >
+      <DiscussSignalIcon size={24} color="#1877F2" />
+      <span className="text-white text-sm font-bold ml-1">{formatViewCount(commentCount)}</span>
+    </button>
+  );
 };
 
 // ==================== COMMENTS SHEET ====================
@@ -1286,7 +1513,7 @@ interface ReelsFeedProps {
   followLoading: { [key: number]: boolean };
   initialReelId?: number | null;
   onBack?: () => void;
-  onCreateReel?: () => void; // 👈 ADDED: For camera icon to open create reel modal
+  onVideoClick?: () => void; // 👈 ADDED: For camera icon to open recorder (same as Feed's Video button)
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({
@@ -1306,7 +1533,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   followLoading = {},
   initialReelId,
   onBack,
-  onCreateReel, // 👈 ADDED
+  onVideoClick, // 👈 ADDED
 }) => {
   const [activeReelId, setActiveReelId] = useState<number | null>(
     initialReelId || reels[0]?.id || null
@@ -1324,6 +1551,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [editingReelVisibility, setEditingReelVisibility] = useState<'public' | 'followers' | 'private'>('public');
   const [savingReelEdit, setSavingReelEdit] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
+  const [reactingReelId, setReactingReelId] = useState<number | null>(null);
 
   const [networkLevel, setNetworkLevel] = useState<NetworkLevel>(getNetworkLevel());
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
@@ -1331,7 +1559,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [isOffline, setIsOffline] = useState<boolean>(
     typeof navigator !== 'undefined' ? !navigator.onLine : false
   );
-  // 🔥 LOADER COMPLETELY DISABLED - no buffering state
   const [videoErrors, setVideoErrors] = useState<Record<number, boolean>>({});
 
   const viewedReelsRef = useRef<Set<number>>(new Set());
@@ -1353,15 +1580,21 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [reels, activeReelId]
   );
 
-  // 🔥 No setBufferingState - loader completely removed
-
-  const openRecorder = useCallback(() => {
-    if (onCreateReel) {
-      onCreateReel();
-      return;
+  // Camera button handler - same as Feed's Video button
+  const handleCameraClick = useCallback(() => {
+    if (onVideoClick) {
+      onVideoClick();
     }
-    window.location.href = '/recorder';
-  }, [onCreateReel]);
+  }, [onVideoClick]);
+
+  // Reaction handler with loading state
+  const handleReaction = useCallback((reelId: number, emoji: string) => {
+    if (reactingReelId === reelId) return;
+    setReactingReelId(reelId);
+    onReact(reelId, emoji as any);
+    setTimeout(() => setReactingReelId(null), 300);
+    setShowReactionPicker(null);
+  }, [onReact, reactingReelId]);
 
   useEffect(() => {
     const nav = navigator as any;
@@ -1671,8 +1904,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const video = videoRefs.current[id];
       if (!video || !reel) return;
 
-      // 🔥 No buffering state - removed setBufferingState
-
       setVideoErrors((prev) => ({ ...prev, [id]: false }));
 
       await resolveReelMedia(reel);
@@ -1698,7 +1929,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         if (playRequestRef.current !== requestId) return;
 
         await video.play();
-        // 🔥 No setBufferingState(false)
 
         if (userInteractedRef.current) {
           startAudioForReel(id);
@@ -1870,17 +2100,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
       if (activeIdRef.current === reelId) {
         if (video.paused) {
-          // 🔥 No setBufferingState
-          video.play().then(() => {
-            // 🔥 No setBufferingState(false)
-          }).catch(() => {});
+          video.play().then(() => {}).catch(() => {});
           if (userInteractedRef.current) {
             startAudioForReel(reelId);
           }
         } else {
           video.pause();
           stopAudio();
-          // 🔥 No setBufferingState(false)
         }
         return;
       }
@@ -1937,11 +2163,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       alert(e?.message || 'Failed to delete reel');
     }
   }, [menuReelId, onDeleteReel]);
-
-  const handleReaction = (reelId: number, emoji: string) => {
-    onReact(reelId, emoji as any);
-    setShowReactionPicker(null);
-  };
 
   useEffect(() => {
     if (!showComments) return;
@@ -2095,10 +2316,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Camera Button - same as Feed's Video button */}
           <button
-            onClick={openRecorder}
+            onClick={handleCameraClick}
             className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
-            aria-label="Open recorder"
+            aria-label="Create reel"
           >
             <i className="fas fa-camera text-white text-sm" />
           </button>
@@ -2152,13 +2374,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               const hasReacted = reel.reactions?.some(
                 (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
               );
+              const isReacting = reactingReelId === reel.id;
 
               const videoSources = getReelVideoSources(reel);
               const fallbackVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
               const videoUrl = resolvedVideoUrls[reel.id] || fallbackVideoUrl;
               const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
               const isActive = activeReelId === reel.id;
-              // 🔥 Loader completely removed - no showLoader or showError
               const showError = isActive && videoErrors[reel.id];
 
               return (
@@ -2203,7 +2425,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                           clearTimeout(bufferingTimeoutsRef.current[reel.id]);
                         }
                         bufferingTimeoutsRef.current[reel.id] = setTimeout(() => {
-                          // 🔥 No setBufferingState - just log
                           console.debug('Video buffering:', reel.id);
                         }, 120);
                       }}
@@ -2293,53 +2514,30 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       </div>
 
                       <div className="flex items-center justify-around py-2 pointer-events-auto">
-                        <div className="relative">
-                          <button
-                            onClick={() => setShowReactionPicker(showReactionPicker === reel.id ? null : reel.id)}
-                            className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
-                          >
-                            <i className={`fas fa-smile text-lg ${hasReacted ? 'text-[#1877F2]' : 'text-white'}`} />
-                            <span className="text-white text-sm font-bold">
-                              {formatCount(reel.reactions?.length || 0)}
-                            </span>
-                          </button>
+                        {/* React Button - Spark icon only, no text */}
+                        <ReelReactionButton
+                          hasReacted={hasReacted || false}
+                          reactionCount={reel.reactions?.length || 0}
+                          onReact={() => setShowReactionPicker(showReactionPicker === reel.id ? null : reel.id)}
+                          isLoading={isReacting}
+                        />
 
-                          {showReactionPicker === reel.id && (
-                            <div className="absolute bottom-full left-0 mb-2 bg-[#242526] rounded-2xl p-3 border border-white/10 shadow-2xl z-50">
-                              <div className="flex overflow-x-auto gap-2 max-w-[300px] scrollbar-hide pb-1">
-                                {REACTION_EMOJIS.map((emoji) => (
-                                  <button
-                                    key={emoji}
-                                    onClick={() => handleReaction(reel.id, emoji)}
-                                    className="text-2xl hover:scale-125 transition-transform flex-shrink-0"
-                                  >
-                                    {emoji}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <button
+                        {/* Discuss Button - Speech bubble icon only, no text */}
+                        <ReelDiscussButton
+                          commentCount={reel.comments?.length || 0}
                           onClick={() => {
                             setActiveReelId(reel.id);
                             setShowComments(true);
                           }}
-                          className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
-                        >
-                          <i className="fas fa-comment text-lg text-white" />
-                          <span className="text-white text-sm font-bold">
-                            {formatCount(reel.comments?.length || 0)}
-                          </span>
-                        </button>
+                        />
 
+                        {/* Share Button */}
                         <button
                           onClick={() => onShare(reel.id, 'feed')}
-                          className="flex items-center gap-2 px-6 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
+                          className="flex items-center justify-center gap-1 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 active:scale-95 transition-all"
                         >
                           <i className="fas fa-share text-lg text-white" />
-                          <span className="text-white text-sm font-bold">
+                          <span className="text-white text-sm font-bold ml-1">
                             {formatCount(reel.shares || 0)}
                           </span>
                         </button>
