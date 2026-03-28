@@ -5679,8 +5679,6 @@ const handleReelVideoSelected = useCallback(
   },
   []
 );
-  input.click();
-}, [requireAuth]);
 
   // Event Detail Modal
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
@@ -6601,6 +6599,13 @@ const handleReelVideoSelected = useCallback(
         )}
 
         <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
+          <input
+    ref={reelVideoInputRef}
+    type="file"
+    accept="video/*"
+    className="hidden"
+    onChange={handleReelVideoSelected}
+  />
           {view === 'home' && (
             <div className="w-full pt-4 md:px-8 pb-10">
               {activeHashtag && (
