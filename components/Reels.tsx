@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
 
@@ -1690,6 +1691,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     });
   }, []);
 
+  // ==================== UPDATED playOnly ====================
   const playOnly = useCallback(
     async (id: number) => {
       const requestId = ++playRequestRef.current;
@@ -1702,11 +1704,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             video.pause();
             video.currentTime = 0;
             video.muted = true;
+            video.volume = 0;
           } catch {}
         }
       });
-
-      stopAudio();
 
       const reel = reels.find((r) => r.id === id);
       const video = videoRefs.current[id];
@@ -1729,12 +1730,19 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
       setActiveReelId(id);
       setPlayingReelId(id);
-
-      video.muted = !userInteractedRef.current;
+      activeIdRef.current = id;
 
       try {
         await waitUntilPlayable(video);
         if (playRequestRef.current !== requestId) return;
+
+        if (userInteractedRef.current) {
+          video.muted = false;
+          video.volume = 1;
+        } else {
+          video.muted = true;
+          video.volume = 0;
+        }
 
         await video.play();
         incrementViewCount(id);
@@ -1743,7 +1751,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       }
     },
     [
-      stopAudio,
       reels,
       resolveReelMedia,
       resolvedVideoUrls,
@@ -1792,32 +1799,26 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [activeIndex, scrollToReelByIndex]);
 
+  // ==================== UPDATED handleCameraClick ====================
   const handleCameraClick = useCallback(() => {
     stopActivePlayback();
-    const activeId = activeIdRef.current;
-    if (activeId) {
-      const video = videoRefs.current[activeId];
-      if (video) {
-        try {
-          video.pause();
-        } catch {}
-      }
-    }
     if (onVideoClick) {
       onVideoClick();
     }
   }, [onVideoClick, stopActivePlayback]);
 
-  // ==================== VIDEO CLICK HANDLER ====================
+  // ==================== UPDATED handleVideoClick ====================
   const handleVideoClick = useCallback(
     (reelId: number) => {
       const video = videoRefs.current[reelId];
       if (!video) return;
+      activeIdRef.current = reelId;
+      userInteractedRef.current = true;
+
       if (activeIdRef.current === reelId) {
         if (video.paused) {
-          if (userInteractedRef.current) {
-            video.muted = false;
-          }
+          video.muted = false;
+          video.volume = 1;
           video.play().catch(() => {});
         } else {
           video.pause();
@@ -1912,15 +1913,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return () => clearTimeout(timer);
   }, [initialReelId, reels, playOnly]);
 
-  // Unlock effect - no audio sync needed
+  // ==================== UPDATED unlock effect ====================
   useEffect(() => {
     const unlock = () => {
       userInteractedRef.current = true;
-      const id = activeIdRef.current;
+      const id = activeIdRef.current ?? activeReelId;
       if (!id) return;
       const video = videoRefs.current[id];
       if (video) {
         video.muted = false;
+        video.volume = 1;
         if (video.paused) {
           video.play().catch(() => {});
         }
@@ -1932,7 +1934,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       window.removeEventListener('click', unlock);
       window.removeEventListener('touchstart', unlock);
     };
-  }, []);
+  }, [activeReelId]);
 
   useEffect(() => {
     const rootEl = scrollerRef.current;
@@ -1980,7 +1982,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [showComments]);
 
-  // Resume after comments close
+  // ==================== UPDATED resume after comments close ====================
   useEffect(() => {
     if (showComments) return;
     const activeId = activeIdRef.current;
@@ -1989,11 +1991,15 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     if (!video) return;
     if (userInteractedRef.current) {
       video.muted = false;
+      video.volume = 1;
+    } else {
+      video.muted = true;
+      video.volume = 0;
     }
     video.play().catch(() => {});
   }, [showComments]);
 
-  // Visibility change effect
+  // ==================== UPDATED visibility change effect ====================
   useEffect(() => {
     const stopPlayback = () => {
       Object.values(videoRefs.current).forEach((video) => {
@@ -2012,6 +2018,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         if (video) {
           if (userInteractedRef.current) {
             video.muted = false;
+            video.volume = 1;
+          } else {
+            video.muted = true;
+            video.volume = 0;
           }
           video.play().catch(() => {});
         }
@@ -2071,7 +2081,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [stopActivePlayback]);
 
-  // Keyboard navigation - MOVED AFTER handleVideoClick declaration
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (showComments || selectedSoundData || showReelMenu || editingReel) return;
@@ -2219,7 +2229,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Bigger transparent Facebook-style Create Reel button */}
           <button
             onClick={handleCameraClick}
             className="w-14 h-14 rounded-full bg-white/5 backdrop-blur-sm border border-white/20 flex items-center justify-center active:scale-95 transition-all"
@@ -2228,7 +2237,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             <i className="fas fa-camera text-white text-xl" />
           </button>
 
-          {/* Transparent views button */}
           <button
             className="min-w-[52px] h-12 px-4 rounded-full bg-transparent border border-white/25 flex items-center justify-center gap-2 text-white"
             title="Views"
@@ -2237,7 +2245,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             <span className="text-sm font-bold">{formatViewCount(activeReel?.views)}</span>
           </button>
 
-          {/* Transparent three-dots button */}
           <button
             onClick={() => {
               const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
@@ -2312,7 +2319,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         WebkitUserSelect: 'none',
                         userSelect: 'none',
                       }}
-                      muted={playingReelId !== reel.id || !userInteractedRef.current}
+                      // UPDATED: Removed userInteractedRef condition
+                      muted={playingReelId !== reel.id}
                       draggable={false}
                       tabIndex={-1}
                       onContextMenu={(e) => e.preventDefault()}
@@ -2372,15 +2380,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                     )}
 
                     <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4 pointer-events-none">
-                      {/* Facebook-like progress line */}
-                      <div className="mb-4 pointer-events-none">
-                        <div className="w-full h-[3px] bg-white/25 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-white rounded-full transition-[width] duration-100 ease-linear" 
-                            style={{ width: `${(reelProgress[reel.id] || 0) * 100}%` }} 
-                          />
-                        </div>
-                      </div>
+                      {/* REMOVED old progress bar from here */}
 
                       <div className="mb-4 pointer-events-auto">
                         <div className="flex items-center gap-3 mb-2">
@@ -2456,6 +2456,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                             {formatCount(reel.shares || 0)}
                           </span>
                         </button>
+                      </div>
+
+                      {/* NEW progress bar below action buttons */}
+                      <div className="mt-2 px-1 pointer-events-none">
+                        <div className="w-full h-[3px] bg-white/20 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-white rounded-full transition-[width] duration-100 ease-linear" 
+                            style={{ width: `${(reelProgress[reel.id] || 0) * 100}%` }} 
+                          />
+                        </div>
                       </div>
                     </div>
 
