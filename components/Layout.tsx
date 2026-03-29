@@ -48,7 +48,6 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
     { id: 'birthdays', title: 'Birthdays', icon: 'fas fa-birthday-cake', color: '#F7B928', desc: 'See upcoming birthdays.' },
     { id: 'memories', title: 'Memories', icon: 'fas fa-history', color: '#1877F2', desc: 'Browse your old photos, videos and posts.' },
     { id: 'notifications', title: 'Notifications', icon: 'fas fa-bell', color: '#E41E3F', desc: 'See your notifications.' },
-    // 👇 ADD ADS DASHBOARD HERE
     { id: 'ads', title: 'Ad Dashboard', icon: 'fas fa-chart-line', color: '#10B981', desc: 'Manage your ad campaigns and boost posts.' },
   ];
 
@@ -156,7 +155,6 @@ interface HeaderProps {
   onReelsClick: () => void;
   onMarketplaceClick: () => void;
   onGroupsClick: () => void;
-  // 👇 ADD ADS CLICK PROP
   onAdsClick: () => void;
   currentUser: User | null;
   notifications: Notification[];
@@ -175,7 +173,7 @@ export const Header: React.FC<HeaderProps> = ({
   onReelsClick,
   onMarketplaceClick,
   onGroupsClick,
-  onAdsClick, // 👈 ADD THIS
+  onAdsClick,
   currentUser,
   notifications,
   users,
@@ -195,13 +193,9 @@ export const Header: React.FC<HeaderProps> = ({
   const profileRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  // ✅ Calculate unread count for badge
   const unreadCount = notifications.filter(n => !n.is_read).length;
-
-  // ✅ Global presence heartbeat
   const presenceTimer = useRef<number | null>(null);
 
-  // ✅ Auto-fetch notifications every 20 seconds
   useEffect(() => {
     if (!currentUser) return;
 
@@ -231,17 +225,14 @@ export const Header: React.FC<HeaderProps> = ({
 
     const heartbeat = () => sendHeartbeat(userId);
 
-    // Send immediately when app loads
     heartbeat();
 
-    // Keep user online every 15s
     presenceTimer.current = window.setInterval(() => {
       if (document.visibilityState === "visible") {
         heartbeat();
       }
     }, 15000);
 
-    // Send heartbeat when tab becomes active
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
         heartbeat();
@@ -265,6 +256,7 @@ export const Header: React.FC<HeaderProps> = ({
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) setShowProfileMenu(false);
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) setSearchResults([]);
     };
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
@@ -295,25 +287,36 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      {/* ✅ Global spin keyframes */}
       <style>{`
-        @keyframes uneraGlobalSpin {
+        @keyframes uneraEarthSpin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        .unera-global-spin {
+
+        .unera-earth-wrap {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transform: rotate(-23.5deg);
+          transform-origin: 50% 50%;
+          flex-shrink: 0;
+        }
+
+        .unera-earth-spin {
           display: inline-block;
           transform-origin: 50% 50%;
-          animation: uneraGlobalSpin 4.5s linear infinite;
+          animation: uneraEarthSpin 8s linear infinite;
           will-change: transform;
+          backface-visibility: hidden;
         }
       `}</style>
 
       <div className="sticky top-0 z-50 bg-[#242526] shadow-sm h-14 flex items-center justify-between px-4 w-full border-b border-[#3E4042]">
         <div className="flex items-center gap-2">
           <div className="flex items-center cursor-pointer gap-2 mr-2" onClick={onHomeClick}>
-            {/* ✅ Rotating globe icon */}
-            <i className="fas fa-globe-americas text-[#1877F2] text-[28px] sm:text-[32px] unera-global-spin"></i>
+            <span className="unera-earth-wrap">
+              <i className="fas fa-globe-americas text-[#1877F2] text-[28px] sm:text-[32px] unera-earth-spin"></i>
+            </span>
 
             <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
               UNERA
@@ -366,7 +369,6 @@ export const Header: React.FC<HeaderProps> = ({
             <i className="fas fa-users text-[24px]"></i>
           </div>
 
-          {/* 👇 ADD ADS ICON IN HEADER (optional) */}
           <div
             onClick={onAdsClick}
             className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
@@ -439,15 +441,13 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           ) : (
             <>
-              {/* ✅ Updated Bell with Facebook-style badge */}
               <div className="relative" ref={notifRef}>
                 <div
                   className="flex items-center justify-center w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] cursor-pointer relative"
                   onClick={() => onNavigate('notifications')}
                 >
                   <i className="fas fa-bell text-[#E4E6EB] text-lg"></i>
-                  
-                  {/* 🔴 Red badge with unread count - Facebook style */}
+
                   {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-[#E41E3F] text-white text-[11px] font-bold px-1.5 py-[1px] rounded-full min-w-[18px] text-center">
                       {unreadCount > 9 ? "9+" : unreadCount}
@@ -455,7 +455,6 @@ export const Header: React.FC<HeaderProps> = ({
                   )}
                 </div>
 
-                {/* Dropdown for quick preview (optional) */}
                 {showNotifications && (
                   <NotificationDropdown
                     notifications={notifications}
@@ -522,7 +521,6 @@ interface SidebarProps {
   onMarketplaceClick: () => void;
   onGroupsClick: () => void;
   onEventsClick: () => void;
-  // 👇 ADD ADS CLICK PROP
   onAdsClick: () => void;
 }
 
@@ -533,7 +531,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onMarketplaceClick,
   onGroupsClick,
   onEventsClick,
-  onAdsClick, // 👈 ADD THIS
+  onAdsClick,
 }) => {
   const items = [
     { id: 'friends', label: 'Friends', icon: 'fas fa-user-friends', color: '#1877F2' },
@@ -543,7 +541,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'marketplace', label: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', onClick: onMarketplaceClick },
     { id: 'reels', label: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F', onClick: onReelsClick },
     { id: 'events', label: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', onClick: onEventsClick },
-    // 👇 ADD ADS DASHBOARD TO SIDEBAR
     { id: 'ads', label: 'Ad Dashboard', icon: 'fas fa-chart-line', color: '#10B981', onClick: onAdsClick },
   ];
 
