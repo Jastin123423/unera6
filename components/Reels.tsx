@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
 
@@ -128,7 +127,7 @@ const REACTION_EMOJIS = [
   '🤦', '🤷‍♂️', '🫂',
 ];
 
-// ==================== SPARK REACT ICON (from Feed.tsx) ====================
+// ==================== SPARK REACT ICON ====================
 const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
     <defs>
@@ -171,7 +170,7 @@ const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
   </svg>
 );
 
-// ==================== DISCUSS SIGNAL ICON (from Feed.tsx) ====================
+// ==================== DISCUSS SIGNAL ICON ====================
 const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
   size = 28,
   color = '#1877F2',
@@ -1809,6 +1808,27 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [onVideoClick, stopActivePlayback]);
 
+  // ==================== VIDEO CLICK HANDLER ====================
+  const handleVideoClick = useCallback(
+    (reelId: number) => {
+      const video = videoRefs.current[reelId];
+      if (!video) return;
+      if (activeIdRef.current === reelId) {
+        if (video.paused) {
+          if (userInteractedRef.current) {
+            video.muted = false;
+          }
+          video.play().catch(() => {});
+        } else {
+          video.pause();
+        }
+        return;
+      }
+      playOnly(reelId);
+    },
+    [playOnly]
+  );
+
   // ==================== EFFECTS ====================
   
   useEffect(() => {
@@ -2051,7 +2071,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [stopActivePlayback]);
 
-  // Keyboard navigation
+  // Keyboard navigation - MOVED AFTER handleVideoClick declaration
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (showComments || selectedSoundData || showReelMenu || editingReel) return;
@@ -2117,26 +2137,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       setSelectedSoundData(sound);
     },
     [extractSoundFromReel]
-  );
-
-  const handleVideoClick = useCallback(
-    (reelId: number) => {
-      const video = videoRefs.current[reelId];
-      if (!video) return;
-      if (activeIdRef.current === reelId) {
-        if (video.paused) {
-          if (userInteractedRef.current) {
-            video.muted = false;
-          }
-          video.play().catch(() => {});
-        } else {
-          video.pause();
-        }
-        return;
-      }
-      playOnly(reelId);
-    },
-    [playOnly]
   );
 
   const formatCount = (num: number): string => formatViewCount(num);
