@@ -1,26 +1,26 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Notification } from '../types';
 import { NotificationDropdown } from './Notifications';
-import { NotificationsPage } from './NotificationsPage';
 
 /* ============================================================
-   ✅ GLOBAL ONLINE PRESENCE (runs while UNERA is open)
+   GLOBAL ONLINE PRESENCE
 ============================================================ */
 const sendHeartbeat = async (userId: number) => {
-  const token = localStorage.getItem("unera_token");
+  const token = localStorage.getItem('unera_token');
 
   try {
-    await fetch("/api/presence/heartbeat", {
-      method: "POST",
+    await fetch('/api/presence/heartbeat', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        "x-user-id": String(userId),
+        'x-user-id': String(userId),
       },
       body: JSON.stringify({ user_id: userId }),
     });
   } catch {
-    // ignore errors - heartbeat is best effort
+    // best effort
   }
 };
 
@@ -38,17 +38,17 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
   onLogout,
 }) => {
   const menuItems = [
-    { id: 'marketplace', title: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', desc: 'Buy and sell in your community.' },
-    { id: 'events', title: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F', desc: 'Discover events near you.' },
-    { id: 'profiles', title: 'Profiles', icon: 'fas fa-user-friends', color: '#1877F2', desc: 'See friends and profiles.' },
-    { id: 'groups', title: 'Groups', icon: 'fas fa-users', color: '#1877F2', desc: 'Connect with people who share your interests.' },
-    { id: 'music', title: 'UNERA Music', icon: 'fas fa-music', color: '#0055FF', desc: 'Listen to music and podcasts.' },
-    { id: 'tools', title: 'UNERA Tools', icon: 'fas fa-briefcase', color: '#2ABBA7', desc: 'PDF Tools, AI Chat, Image Tools.' },
-    { id: 'reels', title: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F', desc: 'Watch and create short videos.' },
-    { id: 'birthdays', title: 'Birthdays', icon: 'fas fa-birthday-cake', color: '#F7B928', desc: 'See upcoming birthdays.' },
-    { id: 'memories', title: 'Memories', icon: 'fas fa-history', color: '#1877F2', desc: 'Browse your old photos, videos and posts.' },
-    { id: 'notifications', title: 'Notifications', icon: 'fas fa-bell', color: '#E41E3F', desc: 'See your notifications.' },
-    { id: 'ads', title: 'Ad Dashboard', icon: 'fas fa-chart-line', color: '#10B981', desc: 'Manage your ad campaigns and boost posts.' },
+    { id: 'marketplace', title: 'Marketplace', icon: 'fas fa-store', color: '#1877F2' },
+    { id: 'events', title: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F' },
+    { id: 'profiles', title: 'Profiles', icon: 'fas fa-user-friends', color: '#1877F2' },
+    { id: 'groups', title: 'Groups', icon: 'fas fa-users', color: '#1877F2' },
+    { id: 'music', title: 'UNERA Music', icon: 'fas fa-music', color: '#0055FF' },
+    { id: 'tools', title: 'UNERA Tools', icon: 'fas fa-briefcase', color: '#2ABBA7' },
+    { id: 'reels', title: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F' },
+    { id: 'birthdays', title: 'Birthdays', icon: 'fas fa-birthday-cake', color: '#F7B928' },
+    { id: 'memories', title: 'Memories', icon: 'fas fa-history', color: '#1877F2' },
+    { id: 'notifications', title: 'Notifications', icon: 'fas fa-bell', color: '#E41E3F' },
+    { id: 'ads', title: 'Ad Dashboard', icon: 'fas fa-chart-line', color: '#10B981' },
   ];
 
   const bottomItems = [
@@ -108,7 +108,9 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
             >
               <i className={`${item.icon} text-[28px]`} style={{ color: item.color }}></i>
               <div>
-                <h4 className="font-semibold text-[#E4E6EB] text-[16px] leading-tight mb-0.5">{item.title}</h4>
+                <h4 className="font-semibold text-[#E4E6EB] text-[16px] leading-tight mb-0.5">
+                  {item.title}
+                </h4>
               </div>
             </div>
           ))}
@@ -189,27 +191,28 @@ export const Header: React.FC<HeaderProps> = ({
   const [showFullMenu, setShowFullMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
+
   const notifRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
-
-  const unreadCount = notifications.filter(n => !n.is_read).length;
   const presenceTimer = useRef<number | null>(null);
+
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   useEffect(() => {
     if (!currentUser) return;
 
     const fetchNotifications = async () => {
       try {
-        const res = await fetch("/api/notifications", {
+        const res = await fetch('/api/notifications', {
           headers: {
-            "x-user-id": String(currentUser.id)
-          }
+            'x-user-id': String(currentUser.id),
+          },
         });
         const data = await res.json();
         setNotifications(data);
       } catch (error) {
-        console.error("Failed to fetch notifications:", error);
+        console.error('Failed to fetch notifications:', error);
       }
     };
 
@@ -220,7 +223,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, [currentUser, setNotifications]);
 
   useEffect(() => {
-    const userId = Number(localStorage.getItem("unera_user_id") || 0);
+    const userId = Number(localStorage.getItem('unera_user_id') || 0);
     if (!userId || !currentUser) return;
 
     const heartbeat = () => sendHeartbeat(userId);
@@ -228,33 +231,39 @@ export const Header: React.FC<HeaderProps> = ({
     heartbeat();
 
     presenceTimer.current = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === 'visible') {
         heartbeat();
       }
     }, 15000);
 
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === 'visible') {
         heartbeat();
       }
     };
 
-    document.addEventListener("visibilitychange", handleVisibility);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       if (presenceTimer.current) {
         clearInterval(presenceTimer.current);
         presenceTimer.current = null;
       }
-      document.removeEventListener("visibilitychange", handleVisibility);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [currentUser]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(event.target as Node)) setShowNotifications(false);
-      if (profileRef.current && !profileRef.current.contains(event.target as Node)) setShowProfileMenu(false);
-      if (searchRef.current && !searchRef.current.contains(event.target as Node)) setSearchResults([]);
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+        setShowProfileMenu(false);
+      }
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setSearchResults([]);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -288,34 +297,98 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <style>{`
-        @keyframes uneraEarthSpin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+        @keyframes uneraEarthSurface {
+          from { background-position: 0% 50%; }
+          to { background-position: 200% 50%; }
         }
 
-        .unera-earth-wrap {
+        @keyframes uneraEarthGlow {
+          0%, 100% { box-shadow: 0 0 10px rgba(24,119,242,0.25), inset -8px 0 12px rgba(0,0,0,0.28); }
+          50% { box-shadow: 0 0 14px rgba(24,119,242,0.35), inset -10px 0 14px rgba(0,0,0,0.34); }
+        }
+
+        .unera-earth-scene {
+          width: 30px;
+          height: 30px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          transform: rotate(-23.5deg);
-          transform-origin: 50% 50%;
+          perspective: 900px;
           flex-shrink: 0;
+          transform: rotate(-23.5deg);
         }
 
-        .unera-earth-spin {
-          display: inline-block;
-          transform-origin: 50% 50%;
-          animation: uneraEarthSpin 8s linear infinite;
-          will-change: transform;
-          backface-visibility: hidden;
+        .unera-earth-globe {
+          width: 30px;
+          height: 30px;
+          border-radius: 9999px;
+          position: relative;
+          overflow: hidden;
+          background:
+            radial-gradient(circle at 30% 30%, #4fc3ff 0%, #1d8af2 35%, #1565c0 68%, #0d47a1 100%);
+          animation: uneraEarthGlow 4s ease-in-out infinite;
+          transform-style: preserve-3d;
+        }
+
+        .unera-earth-globe::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: 9999px;
+          background:
+            radial-gradient(circle at 22% 28%, rgba(255,255,255,0.95) 0 10%, transparent 11%),
+            radial-gradient(circle at 36% 62%, rgba(91, 214, 122, 0.95) 0 9%, transparent 10%),
+            radial-gradient(circle at 58% 30%, rgba(76, 175, 80, 0.95) 0 12%, transparent 13%),
+            radial-gradient(circle at 70% 64%, rgba(129, 199, 132, 0.95) 0 8%, transparent 9%),
+            linear-gradient(
+              90deg,
+              transparent 0%,
+              rgba(86, 204, 242, 0.12) 10%,
+              rgba(76, 175, 80, 0.85) 22%,
+              rgba(56, 142, 60, 0.95) 32%,
+              rgba(102, 187, 106, 0.85) 42%,
+              rgba(46, 125, 50, 0.95) 52%,
+              rgba(102, 187, 106, 0.85) 62%,
+              rgba(76, 175, 80, 0.9) 72%,
+              rgba(86, 204, 242, 0.12) 84%,
+              transparent 100%
+            );
+          background-size: auto, auto, auto, auto, 200% 100%;
+          background-position: center, center, center, center, 0% 50%;
+          animation: uneraEarthSurface 8s linear infinite;
+          filter: saturate(1.05);
+        }
+
+        .unera-earth-globe::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: 9999px;
+          background:
+            radial-gradient(circle at 30% 28%, rgba(255,255,255,0.42), transparent 22%),
+            radial-gradient(circle at 78% 50%, rgba(0,0,0,0.34), transparent 48%),
+            linear-gradient(90deg, rgba(255,255,255,0.05), rgba(0,0,0,0.22));
+          pointer-events: none;
+        }
+
+        @media (min-width: 640px) {
+          .unera-earth-scene {
+            width: 34px;
+            height: 34px;
+          }
+
+          .unera-earth-globe {
+            width: 34px;
+            height: 34px;
+          }
         }
       `}</style>
 
       <div className="sticky top-0 z-50 bg-[#242526] shadow-sm h-14 flex items-center justify-between px-4 w-full border-b border-[#3E4042]">
         <div className="flex items-center gap-2">
           <div className="flex items-center cursor-pointer gap-2 mr-2" onClick={onHomeClick}>
-            <span className="unera-earth-wrap">
-              <i className="fas fa-globe-americas text-[#1877F2] text-[28px] sm:text-[32px] unera-earth-spin"></i>
+            <span className="unera-earth-scene" aria-hidden="true">
+              <span className="unera-earth-globe"></span>
             </span>
 
             <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
@@ -421,7 +494,9 @@ export const Header: React.FC<HeaderProps> = ({
                         className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
                       />
                       <div className="flex flex-col overflow-hidden">
-                        <span className="font-semibold text-[15px] text-[#E4E6EB] truncate">{user.name}</span>
+                        <span className="font-semibold text-[15px] text-[#E4E6EB] truncate">
+                          {user.name}
+                        </span>
                       </div>
                     </div>
                   ))
@@ -450,7 +525,7 @@ export const Header: React.FC<HeaderProps> = ({
 
                   {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-[#E41E3F] text-white text-[11px] font-bold px-1.5 py-[1px] rounded-full min-w-[18px] text-center">
-                      {unreadCount > 9 ? "9+" : unreadCount}
+                      {unreadCount > 9 ? '9+' : unreadCount}
                     </span>
                   )}
                 </div>
@@ -469,7 +544,11 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
 
-              <div className="relative cursor-pointer" onClick={() => setShowProfileMenu(!showProfileMenu)} ref={profileRef}>
+              <div
+                className="relative cursor-pointer"
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                ref={profileRef}
+              >
                 <img
                   src={currentUser.profile_image_url}
                   alt="Profile"
@@ -482,13 +561,22 @@ export const Header: React.FC<HeaderProps> = ({
                       className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-2"
                       onClick={() => onProfileClick(currentUser.id)}
                     >
-                      <img src={currentUser.profile_image_url} alt="" className="w-10 h-10 rounded-full object-cover" />
-                      <span className="font-semibold text-[17px] text-[#E4E6EB]">{currentUser.name}</span>
+                      <img
+                        src={currentUser.profile_image_url}
+                        alt=""
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
+                      <span className="font-semibold text-[17px] text-[#E4E6EB]">
+                        {currentUser.name}
+                      </span>
                     </div>
 
                     <div className="border-b border-[#3E4042] my-1"></div>
 
-                    <div className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer" onClick={onLogout}>
+                    <div
+                      className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
+                      onClick={onLogout}
+                    >
                       <div className="w-9 h-9 bg-[#3A3B3C] rounded-full flex items-center justify-center">
                         <i className="fas fa-sign-out-alt text-[#E4E6EB]"></i>
                       </div>
@@ -575,10 +663,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 };
 
-export const RightSidebar: React.FC<{ contacts: User[]; onProfileClick: (id: number) => void }> = ({
-  contacts,
-  onProfileClick,
-}) => {
+export const RightSidebar: React.FC<{
+  contacts: User[];
+  onProfileClick: (id: number) => void;
+}> = ({ contacts, onProfileClick }) => {
   return (
     <div className="w-[280px] h-full overflow-y-auto pt-4 pr-2 bg-[#18191A] hidden xl:block scrollbar-hide">
       <div className="flex items-center justify-between px-2 mb-2">
@@ -610,3 +698,4 @@ export const RightSidebar: React.FC<{ contacts: User[]; onProfileClick: (id: num
     </div>
   );
 };
+
