@@ -1527,6 +1527,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   onBack,
   onVideoClick,
 }) => {
+  // ==================== STATE ====================
   const [activeReelId, setActiveReelId] = useState<number | null>(
     initialReelId || reels[0]?.id || null
   );
@@ -1550,16 +1551,15 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [resolvedAudioUrls, setResolvedAudioUrls] = useState<Record<number, string>>({});
   const [videoErrors, setVideoErrors] = useState<Record<number, boolean>>({});
 
-  // New refs for faster swipe and playback control
+  // ==================== REFS ====================
   const touchStartYRef = useRef<number | null>(null);
   const touchStartTimeRef = useRef<number>(0);
   const swipeLockRef = useRef(false);
   const pendingPlayTimeoutRef = useRef<any>(null);
-
+  
   const viewedReelsRef = useRef<Set<number>>(new Set());
   const preloadLinksRef = useRef<Map<string, HTMLLinkElement>>(new Map());
   const bufferingTimeoutsRef = useRef<Record<number, any>>({});
-
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -1575,69 +1575,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [reels, activeReelId]
   );
 
-  // Hard stop helper
-  const stopActivePlayback = useCallback(() => {
-    if (pendingPlayTimeoutRef.current) {
-      clearTimeout(pendingPlayTimeoutRef.current);
-      pendingPlayTimeoutRef.current = null;
-    }
-    Object.values(videoRefs.current).forEach((video) => {
-      if (!video) return;
-      try {
-        video.pause();
-      } catch {}
-    });
-    stopAudio();
-  }, [stopAudio]);
-
-  // Updated Create Reel button handler
-  const handleCameraClick = useCallback(() => {
-    stopActivePlayback();
-    const activeId = activeIdRef.current;
-    if (activeId) {
-      const video = videoRefs.current[activeId];
-      if (video) {
-        try {
-          video.pause();
-        } catch {}
-      }
-    }
-    if (onVideoClick) {
-      onVideoClick();
-    }
-  }, [onVideoClick, stopActivePlayback]);
-
-  // Swipe gesture navigation helpers
-  const handleSwipeStart = useCallback((clientY: number) => {
-    touchStartYRef.current = clientY;
-    touchStartTimeRef.current = Date.now();
-    swipeLockRef.current = false;
-  }, []);
-
-  const handleSwipeEnd = useCallback(
-    (clientY: number) => {
-      if (touchStartYRef.current === null || swipeLockRef.current) return;
-      const deltaY = clientY - touchStartYRef.current;
-      const elapsed = Date.now() - touchStartTimeRef.current;
-      const absDelta = Math.abs(deltaY);
-      const isFastSwipe = elapsed < 260 && absDelta > 45;
-      const isStrongSwipe = absDelta > 90;
-      if (isFastSwipe || isStrongSwipe) {
-        swipeLockRef.current = true;
-        if (deltaY < 0) {
-          goToNextReel();
-        } else {
-          goToPreviousReel();
-        }
-        setTimeout(() => {
-          swipeLockRef.current = false;
-        }, 260);
-      }
-      touchStartYRef.current = null;
-    },
-    [goToNextReel, goToPreviousReel]
-  );
-
+  // ==================== HELPER FUNCTIONS (Declared in correct order) ====================
+  
   const addPreloadLink = useCallback((href: string) => {
     if (!href || preloadLinksRef.current.has(href)) return;
 
@@ -1731,45 +1670,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     },
     [reels]
   );
-
-  // Improved warm preload with faster timing and more targets
-  useEffect(() => {
-    if (!activeReelId || reels.length === 0) return;
-
-    const currentIndex = reels.findIndex((r) => r.id === activeReelId);
-    if (currentIndex === -1) return;
-
-    if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
-
-    warmupTimerRef.current = setTimeout(() => {
-      const targets = [
-        reels[currentIndex],
-        reels[currentIndex + 1],
-        reels[currentIndex + 2],
-        reels[currentIndex + 3],
-        reels[currentIndex - 1],
-      ].filter(Boolean) as Reel[];
-
-      targets.forEach((targetReel) => {
-        warmReelMedia(targetReel);
-        resolveReelMedia(targetReel);
-      });
-    }, 80);
-
-    return () => {
-      if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
-    };
-  }, [activeReelId, reels, warmReelMedia, resolveReelMedia]);
-
-  useEffect(() => {
-    if (!activeReelId) return;
-    const reel = reels.find((r) => r.id === activeReelId);
-    if (reel) resolveReelMedia(reel);
-  }, [activeReelId, reels, resolveReelMedia]);
-
-  useEffect(() => {
-    activeIdRef.current = playingReelId;
-  }, [playingReelId]);
 
   const waitUntilPlayable = useCallback((video: HTMLVideoElement) => {
     return new Promise<void>((resolve) => {
@@ -1879,6 +1779,20 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     audio.currentTime = 0;
   }, []);
 
+  const stopActivePlayback = useCallback(() => {
+    if (pendingPlayTimeoutRef.current) {
+      clearTimeout(pendingPlayTimeoutRef.current);
+      pendingPlayTimeoutRef.current = null;
+    }
+    Object.values(videoRefs.current).forEach((video) => {
+      if (!video) return;
+      try {
+        video.pause();
+      } catch {}
+    });
+    stopAudio();
+  }, [stopAudio]);
+
   const playOnly = useCallback(
     async (id: number) => {
       const requestId = ++playRequestRef.current;
@@ -1949,7 +1863,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     ]
   );
 
-  // Faster next/previous switch with pending timeout
   const scrollToReelByIndex = useCallback(
     (index: number) => {
       if (index < 0 || index >= reels.length) return;
@@ -1987,6 +1900,123 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       scrollToReelByIndex(activeIndex - 1);
     }
   }, [activeIndex, scrollToReelByIndex]);
+
+  const handleSwipeStart = useCallback((clientY: number) => {
+    touchStartYRef.current = clientY;
+    touchStartTimeRef.current = Date.now();
+    swipeLockRef.current = false;
+  }, []);
+
+  const handleSwipeEnd = useCallback(
+    (clientY: number) => {
+      if (touchStartYRef.current === null || swipeLockRef.current) return;
+      const deltaY = clientY - touchStartYRef.current;
+      const elapsed = Date.now() - touchStartTimeRef.current;
+      const absDelta = Math.abs(deltaY);
+      const isFastSwipe = elapsed < 260 && absDelta > 45;
+      const isStrongSwipe = absDelta > 90;
+      if (isFastSwipe || isStrongSwipe) {
+        swipeLockRef.current = true;
+        if (deltaY < 0) {
+          goToNextReel();
+        } else {
+          goToPreviousReel();
+        }
+        setTimeout(() => {
+          swipeLockRef.current = false;
+        }, 260);
+      }
+      touchStartYRef.current = null;
+    },
+    [goToNextReel, goToPreviousReel]
+  );
+
+  const handleCameraClick = useCallback(() => {
+    stopActivePlayback();
+    const activeId = activeIdRef.current;
+    if (activeId) {
+      const video = videoRefs.current[activeId];
+      if (video) {
+        try {
+          video.pause();
+        } catch {}
+      }
+    }
+    if (onVideoClick) {
+      onVideoClick();
+    }
+  }, [onVideoClick, stopActivePlayback]);
+
+  // ==================== EFFECTS ====================
+  
+  useEffect(() => {
+    const nav = navigator as any;
+    const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+    if (!conn?.addEventListener) return;
+
+    const handleChange = () => {
+      const next = getNetworkLevel();
+      setNetworkLevel(next);
+      setResolvedVideoUrls({});
+    };
+
+    conn.addEventListener('change', handleChange);
+    return () => conn.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      preloadLinksRef.current.forEach((link) => link.remove());
+      preloadLinksRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(bufferingTimeoutsRef.current).forEach((t) => {
+        if (t) clearTimeout(t);
+      });
+    };
+  }, []);
+
+  // Improved warm preload
+  useEffect(() => {
+    if (!activeReelId || reels.length === 0) return;
+
+    const currentIndex = reels.findIndex((r) => r.id === activeReelId);
+    if (currentIndex === -1) return;
+
+    if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
+
+    warmupTimerRef.current = setTimeout(() => {
+      const targets = [
+        reels[currentIndex],
+        reels[currentIndex + 1],
+        reels[currentIndex + 2],
+        reels[currentIndex + 3],
+        reels[currentIndex - 1],
+      ].filter(Boolean) as Reel[];
+
+      targets.forEach((targetReel) => {
+        warmReelMedia(targetReel);
+        resolveReelMedia(targetReel);
+      });
+    }, 80);
+
+    return () => {
+      if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
+    };
+  }, [activeReelId, reels, warmReelMedia, resolveReelMedia]);
+
+  useEffect(() => {
+    if (!activeReelId) return;
+    const reel = reels.find((r) => r.id === activeReelId);
+    if (reel) resolveReelMedia(reel);
+  }, [activeReelId, reels, resolveReelMedia]);
+
+  useEffect(() => {
+    activeIdRef.current = playingReelId;
+  }, [playingReelId]);
 
   useEffect(() => {
     if (!initialReelId || reels.length === 0) return;
@@ -2065,118 +2095,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
     return () => observerRef.current?.disconnect();
   }, [reels, playOnly]);
-
-  const extractSoundFromReel = useCallback(
-    (reel: Reel): Sound => {
-      const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
-      const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
-      const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
-      const songName = reel.songName || (reel as any).song_name || 'Original Sound';
-      const audioStart = reel.audioStart || (reel as any).audio_start || 0;
-      const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
-
-      return {
-        id: soundKey,
-        name: songName,
-        url: audioUrl,
-        originalUrl: audioUrl,
-        start: audioStart,
-        end: audioEnd,
-        creator: author,
-        creationCount: 0,
-        isOriginal: String(soundKey).startsWith('original:'),
-        soundKey,
-      };
-    },
-    [users]
-  );
-
-  const handleSoundClick = useCallback(
-    (reel: Reel) => {
-      const sound = extractSoundFromReel(reel);
-      setSelectedSoundData(sound);
-    },
-    [extractSoundFromReel]
-  );
-
-  const handleVideoClick = useCallback(
-    (reelId: number) => {
-      const video = videoRefs.current[reelId];
-      if (!video) return;
-
-      if (activeIdRef.current === reelId) {
-        if (video.paused) {
-          video.play().then(() => {}).catch(() => {});
-          if (userInteractedRef.current) {
-            startAudioForReel(reelId);
-          }
-        } else {
-          video.pause();
-          stopAudio();
-        }
-        return;
-      }
-
-      playOnly(reelId);
-    },
-    [playOnly, startAudioForReel, stopAudio]
-  );
-
-  const formatCount = (num: number): string => formatViewCount(num);
-
-  const openEditReel = useCallback(() => {
-    const reel = reels.find((r) => Number(r.id) === Number(menuReelId));
-    if (!reel) return;
-
-    setEditingReel(reel);
-    setEditingReelCaption(reel.caption || '');
-    setEditingReelLocation((reel as any).location || '');
-    setEditingReelVisibility(((reel as any).visibility || 'public') as 'public' | 'followers' | 'private');
-    setShowReelMenu(false);
-  }, [reels, menuReelId]);
-
-  const handleSaveReelEdit = useCallback(async () => {
-    if (!editingReel) return;
-
-    try {
-      setSavingReelEdit(true);
-      await Promise.resolve(
-        onEditReel(editingReel.id, {
-          caption: editingReelCaption,
-          location: editingReelLocation,
-          visibility: editingReelVisibility,
-        })
-      );
-      setEditingReel(null);
-    } catch (e: any) {
-      alert(e?.message || 'Failed to update reel');
-    } finally {
-      setSavingReelEdit(false);
-    }
-  }, [editingReel, editingReelCaption, editingReelLocation, editingReelVisibility, onEditReel]);
-
-  const handleDeleteOwnedReel = useCallback(async () => {
-    if (!menuReelId) return;
-
-    const ok = window.confirm('Delete this reel?');
-    if (!ok) return;
-
-    try {
-      await Promise.resolve(onDeleteReel(menuReelId));
-      setShowReelMenu(false);
-      setMenuReelId(null);
-    } catch (e: any) {
-      alert(e?.message || 'Failed to delete reel');
-    }
-  }, [menuReelId, onDeleteReel]);
-
-  const handleReaction = useCallback((reelId: number, emoji: string) => {
-    if (reactingReelId === reelId) return;
-    setReactingReelId(reelId);
-    onReact(reelId, emoji as any);
-    setTimeout(() => setReactingReelId(null), 300);
-    setShowReactionPicker(null);
-  }, [onReact, reactingReelId]);
 
   useEffect(() => {
     if (!showComments) return;
@@ -2319,11 +2237,124 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     goToNextReel,
     goToPreviousReel,
     activeReelId,
-    handleVideoClick,
   ]);
+
+  // ==================== HANDLERS ====================
+  const extractSoundFromReel = useCallback(
+    (reel: Reel): Sound => {
+      const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
+      const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
+      const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
+      const songName = reel.songName || (reel as any).song_name || 'Original Sound';
+      const audioStart = reel.audioStart || (reel as any).audio_start || 0;
+      const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
+
+      return {
+        id: soundKey,
+        name: songName,
+        url: audioUrl,
+        originalUrl: audioUrl,
+        start: audioStart,
+        end: audioEnd,
+        creator: author,
+        creationCount: 0,
+        isOriginal: String(soundKey).startsWith('original:'),
+        soundKey,
+      };
+    },
+    [users]
+  );
+
+  const handleSoundClick = useCallback(
+    (reel: Reel) => {
+      const sound = extractSoundFromReel(reel);
+      setSelectedSoundData(sound);
+    },
+    [extractSoundFromReel]
+  );
+
+  const handleVideoClick = useCallback(
+    (reelId: number) => {
+      const video = videoRefs.current[reelId];
+      if (!video) return;
+
+      if (activeIdRef.current === reelId) {
+        if (video.paused) {
+          video.play().then(() => {}).catch(() => {});
+          if (userInteractedRef.current) {
+            startAudioForReel(reelId);
+          }
+        } else {
+          video.pause();
+          stopAudio();
+        }
+        return;
+      }
+
+      playOnly(reelId);
+    },
+    [playOnly, startAudioForReel, stopAudio]
+  );
+
+  const formatCount = (num: number): string => formatViewCount(num);
+
+  const openEditReel = useCallback(() => {
+    const reel = reels.find((r) => Number(r.id) === Number(menuReelId));
+    if (!reel) return;
+
+    setEditingReel(reel);
+    setEditingReelCaption(reel.caption || '');
+    setEditingReelLocation((reel as any).location || '');
+    setEditingReelVisibility(((reel as any).visibility || 'public') as 'public' | 'followers' | 'private');
+    setShowReelMenu(false);
+  }, [reels, menuReelId]);
+
+  const handleSaveReelEdit = useCallback(async () => {
+    if (!editingReel) return;
+
+    try {
+      setSavingReelEdit(true);
+      await Promise.resolve(
+        onEditReel(editingReel.id, {
+          caption: editingReelCaption,
+          location: editingReelLocation,
+          visibility: editingReelVisibility,
+        })
+      );
+      setEditingReel(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to update reel');
+    } finally {
+      setSavingReelEdit(false);
+    }
+  }, [editingReel, editingReelCaption, editingReelLocation, editingReelVisibility, onEditReel]);
+
+  const handleDeleteOwnedReel = useCallback(async () => {
+    if (!menuReelId) return;
+
+    const ok = window.confirm('Delete this reel?');
+    if (!ok) return;
+
+    try {
+      await Promise.resolve(onDeleteReel(menuReelId));
+      setShowReelMenu(false);
+      setMenuReelId(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to delete reel');
+    }
+  }, [menuReelId, onDeleteReel]);
+
+  const handleReaction = useCallback((reelId: number, emoji: string) => {
+    if (reactingReelId === reelId) return;
+    setReactingReelId(reelId);
+    onReact(reelId, emoji as any);
+    setTimeout(() => setReactingReelId(null), 300);
+    setShowReactionPicker(null);
+  }, [onReact, reactingReelId]);
 
   const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
 
+  // ==================== RENDER ====================
   return (
     <div
       className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
@@ -2413,8 +2444,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               const fallbackVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
               const videoUrl = resolvedVideoUrls[reel.id] || fallbackVideoUrl;
               const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
-              const isActive = activeReelId === reel.id;
-              const showError = isActive && videoErrors[reel.id];
+              const showError = activeReelId === reel.id && videoErrors[reel.id];
 
               return (
                 <div
