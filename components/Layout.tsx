@@ -335,24 +335,26 @@ export const Header: React.FC<HeaderProps> = ({
           border-radius: 9999px;
           overflow: hidden;
           background:
-            radial-gradient(circle at 32% 28%, rgba(128, 219, 255, 0.75) 0%, rgba(61, 174, 255, 0.25) 16%, transparent 28%),
-            radial-gradient(circle at 48% 46%, #0d56c7 0%, #0a3ea4 46%, #062b7d 72%, #031d58 100%);
+            radial-gradient(circle at 32% 28%, rgba(128, 219, 255, 0.8) 0%, rgba(61, 174, 255, 0.28) 16%, transparent 30%),
+            radial-gradient(circle at 48% 46%, #0d56c7 0%, #0a3ea4 44%, #062b7d 70%, #031d58 100%);
           border: 1px solid rgba(163, 227, 255, 0.55);
           animation: uneraEarthGlow 4s ease-in-out infinite;
         }
 
         .unera-earth-map {
           position: absolute;
-          inset: 0;
-          width: 200%;
-          height: 100%;
+          inset: -3% -12%;
+          width: 228%;
+          height: 104%;
           background-repeat: repeat-x;
           background-size: 50% 100%;
           background-position: 0 0;
           animation: uneraEarthRotate 9s linear infinite;
-          opacity: 0.98;
-          background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 400'><defs><linearGradient id='g1' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%231D8AF2'/><stop offset='100%' stop-color='%231877F2'/></linearGradient><linearGradient id='g2' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%2377d7ff'/><stop offset='100%' stop-color='%231D8AF2'/></linearGradient></defs><g fill='url(%23g1)'><path d='M70 150l18-27 26-10 20 6 13 18-3 20-18 14-25 4-18-7-7-18z'/><path d='M126 186l16-6 18 7 8 13-10 19-14 18-9 29-12 18-14-7-3-21 7-19 8-16-8-14z'/><path d='M220 90l17-12 24 0 18 6 13 13-8 19-16 4-16-5-19 4-16-8z'/><path d='M255 123l18-5 13 11 8 21 15 8 17 17-9 16-17 6-10 13-15 0-12-9 1-16-9-17 0-20z'/><path d='M372 92l26-10 26 4 20 14 1 21-13 14-29 2-22 10-27-7-10-22 8-16z'/><path d='M425 142l17-6 15 7 13-3 17 12 8 23-6 24-14 16-16 0-8-12-8-17-16-9-5-18z'/><path d='M504 101l18-7 22 2 16 11 1 19-13 10-18 0-15 8-17-5-9-15 5-16z'/><path d='M565 127l14 6 17-4 20 7 8 13-6 10-20 2-19 8-12-9-5-16z'/><path d='M594 186l14 4 12 17-5 22-10 18-5 25-15 7-13-8 0-27 6-19 7-17z'/><path d='M661 255l13-4 10 10-3 15-10 9-11-6-2-13z'/></g><g fill='url(%23g2)' opacity='0.92'><path d='M220 90l17-12 24 0 18 6 13 13-8 19-16 4-16-5-19 4-16-8z'/><path d='M372 92l26-10 26 4 20 14 1 21-13 14-29 2-22 10-27-7-10-22 8-16z'/><path d='M504 101l18-7 22 2 16 11 1 19-13 10-18 0-15 8-17-5-9-15 5-16z'/></g></svg>");
-          filter: drop-shadow(0 0 1px rgba(100, 210, 255, 0.35));
+          opacity: 1;
+          background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 400'><defs><linearGradient id='g1' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%2377d7ff'/><stop offset='45%' stop-color='%231D8AF2'/><stop offset='100%' stop-color='%231877F2'/></linearGradient><linearGradient id='g2' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%2396e3ff'/><stop offset='100%' stop-color='%231D8AF2'/></linearGradient></defs><g fill='url(%23g1)'><path d='M48 150l28-34 40-15 29 7 20 23-4 27-24 20-37 7-27-9-10-26z'/><path d='M118 192l24-9 28 10 13 19-14 28-20 25-11 39-16 24-22-10-4-28 9-27 13-21-10-19z'/><path d='M204 84l26-18 37-3 31 8 22 17-8 28-23 10-24-3-28 8-28-8-16-18z'/><path d='M254 122l28-8 22 10 12 23 22 8 27 14 18 18-8 18-27 10-17 19-26 4-18-9 2-18-13-18 0-22z'/><path d='M340 196l18 8 21 18 5 21-12 20-18 7-18-4-10-18 3-20z'/><path d='M368 82l36-14 40 4 32 17 7 27-17 19-37 6-30 13-39-7-13-26 10-22z'/><path d='M434 134l24-8 25 8 17-4 27 15 14 24-5 28-15 21-24 6-12-12-11-18-26-10-9-20z'/><path d='M514 94l27-10 32 3 23 13 5 21-16 14-24 1-22 11-26-4-11-19 5-20z'/><path d='M572 127l18 7 23-4 27 8 11 16-6 13-28 3-24 10-17-10-6-19z'/><path d='M604 184l20 6 16 18-4 25-11 19-6 30-18 10-18-8-2-31 7-22 9-18z'/><path d='M693 257l18-5 12 12-2 17-13 11-14-5-4-15z'/></g><g fill='url(%23g2)' opacity='0.98'><path d='M204 84l26-18 37-3 31 8 22 17-8 28-23 10-24-3-28 8-28-8-16-18z'/><path d='M368 82l36-14 40 4 32 17 7 27-17 19-37 6-30 13-39-7-13-26 10-22z'/><path d='M514 94l27-10 32 3 23 13 5 21-16 14-24 1-22 11-26-4-11-19 5-20z'/></g></svg>");
+          filter:
+            drop-shadow(0 0 1px rgba(160, 235, 255, 0.5))
+            drop-shadow(0 0 2px rgba(24, 119, 242, 0.22));
         }
 
         .unera-earth-lines {
