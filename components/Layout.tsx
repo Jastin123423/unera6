@@ -343,9 +343,9 @@ export const Header: React.FC<HeaderProps> = ({
 
         .unera-earth-map {
           position: absolute;
-          inset: -3% -12%;
-          width: 228%;
-          height: 104%;
+          inset: -6% -20%;
+          width: 248%;
+          height: 112%;
           background-repeat: repeat-x;
           background-size: 50% 100%;
           background-position: 0 0;
@@ -390,6 +390,24 @@ export const Header: React.FC<HeaderProps> = ({
           pointer-events: none;
         }
 
+        @media (max-width: 639px) {
+          .unera-earth-scene {
+            width: 34px;
+            height: 34px;
+          }
+
+          .unera-earth-globe {
+            width: 34px;
+            height: 34px;
+          }
+
+          .unera-earth-map {
+            inset: -7% -24%;
+            width: 258%;
+            height: 114%;
+          }
+        }
+
         @media (min-width: 640px) {
           .unera-earth-scene {
             width: 34px;
@@ -399,6 +417,12 @@ export const Header: React.FC<HeaderProps> = ({
           .unera-earth-globe {
             width: 34px;
             height: 34px;
+          }
+
+          .unera-earth-map {
+            inset: -5% -18%;
+            width: 240%;
+            height: 110%;
           }
         }
       `}</style>
