@@ -301,20 +301,20 @@ export const Header: React.FC<HeaderProps> = ({
           to { transform: translateX(-50%); }
         }
 
-        @keyframes uneraEarthPulse {
+        @keyframes uneraEarthGlow {
           0%, 100% {
             box-shadow:
-              0 0 10px rgba(62, 189, 255, 0.30),
-              0 0 22px rgba(24, 119, 242, 0.18),
-              inset -7px -7px 12px rgba(0, 0, 0, 0.28),
-              inset 7px 7px 12px rgba(255, 255, 255, 0.10);
+              0 0 8px rgba(29, 138, 242, 0.35),
+              0 0 16px rgba(24, 119, 242, 0.24),
+              inset -6px -6px 10px rgba(0, 0, 0, 0.30),
+              inset 5px 5px 8px rgba(255, 255, 255, 0.08);
           }
           50% {
             box-shadow:
-              0 0 14px rgba(62, 189, 255, 0.42),
-              0 0 28px rgba(24, 119, 242, 0.22),
-              inset -8px -8px 14px rgba(0, 0, 0, 0.30),
-              inset 8px 8px 14px rgba(255, 255, 255, 0.12);
+              0 0 12px rgba(29, 138, 242, 0.5),
+              0 0 22px rgba(24, 119, 242, 0.30),
+              inset -7px -7px 12px rgba(0, 0, 0, 0.34),
+              inset 6px 6px 10px rgba(255, 255, 255, 0.10);
           }
         }
 
@@ -324,7 +324,6 @@ export const Header: React.FC<HeaderProps> = ({
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          perspective: 1000px;
           flex-shrink: 0;
           transform: rotate(-18deg);
         }
@@ -336,10 +335,10 @@ export const Header: React.FC<HeaderProps> = ({
           border-radius: 9999px;
           overflow: hidden;
           background:
-            radial-gradient(circle at 32% 28%, rgba(180, 235, 255, 0.95) 0%, rgba(109, 210, 255, 0.52) 12%, transparent 26%),
-            radial-gradient(circle at 50% 50%, #0f5fd6 0%, #0a3da8 45%, #072b7f 72%, #041f60 100%);
-          border: 1px solid rgba(190, 240, 255, 0.55);
-          animation: uneraEarthPulse 4s ease-in-out infinite;
+            radial-gradient(circle at 32% 28%, rgba(128, 219, 255, 0.75) 0%, rgba(61, 174, 255, 0.25) 16%, transparent 28%),
+            radial-gradient(circle at 48% 46%, #0d56c7 0%, #0a3ea4 46%, #062b7d 72%, #031d58 100%);
+          border: 1px solid rgba(163, 227, 255, 0.55);
+          animation: uneraEarthGlow 4s ease-in-out infinite;
         }
 
         .unera-earth-map {
@@ -347,13 +346,13 @@ export const Header: React.FC<HeaderProps> = ({
           inset: 0;
           width: 200%;
           height: 100%;
-          animation: uneraEarthRotate 8s linear infinite;
-          opacity: 0.98;
           background-repeat: repeat-x;
           background-size: 50% 100%;
           background-position: 0 0;
-          background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 400'><rect width='800' height='400' fill='none'/><g fill='%23d8f7ef'><path d='M71 153l11-24 24-10 19 4 12 17-2 18-18 14-23 5-17-6-6-18z'/><path d='M126 188l15-6 17 6 7 13-10 19-14 18-8 27-11 17-14-7-2-20 6-20 8-16-7-13z'/><path d='M214 92l17-13 24 0 18 6 13 14-8 18-16 4-16-5-19 4-16-9z'/><path d='M251 125l18-5 13 11 8 22 15 8 16 18-9 16-16 5-10 13-16 0-12-9 2-16-9-17 0-21z'/><path d='M374 94l26-10 26 4 20 14 1 21-13 14-28 2-22 10-27-7-10-22 8-17z'/><path d='M427 144l16-6 15 7 13-3 17 12 8 24-6 23-14 17-16 0-8-12-8-17-16-9-5-19z'/><path d='M503 102l18-7 22 2 16 11 1 19-13 10-17 0-15 8-18-5-8-15 4-16z'/><path d='M565 128l13 6 17-4 20 7 8 13-6 10-20 2-19 8-12-9-5-16z'/><path d='M594 187l14 4 12 17-5 22-10 17-5 26-15 7-13-8 0-27 6-19 7-17z'/><path d='M661 255l13-4 10 10-3 15-10 9-11-6-2-13z'/></g><g fill='%23bdeee0' opacity='0.65'><path d='M214 92l17-13 24 0 18 6 13 14-8 18-16 4-16-5-19 4-16-9z'/><path d='M374 94l26-10 26 4 20 14 1 21-13 14-28 2-22 10-27-7-10-22 8-17z'/><path d='M503 102l18-7 22 2 16 11 1 19-13 10-17 0-15 8-18-5-8-15 4-16z'/></g></svg>");
-          filter: drop-shadow(0 0 1px rgba(210,255,245,0.22));
+          animation: uneraEarthRotate 9s linear infinite;
+          opacity: 0.98;
+          background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 400'><defs><linearGradient id='g1' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%231D8AF2'/><stop offset='100%' stop-color='%231877F2'/></linearGradient><linearGradient id='g2' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%2377d7ff'/><stop offset='100%' stop-color='%231D8AF2'/></linearGradient></defs><g fill='url(%23g1)'><path d='M70 150l18-27 26-10 20 6 13 18-3 20-18 14-25 4-18-7-7-18z'/><path d='M126 186l16-6 18 7 8 13-10 19-14 18-9 29-12 18-14-7-3-21 7-19 8-16-8-14z'/><path d='M220 90l17-12 24 0 18 6 13 13-8 19-16 4-16-5-19 4-16-8z'/><path d='M255 123l18-5 13 11 8 21 15 8 17 17-9 16-17 6-10 13-15 0-12-9 1-16-9-17 0-20z'/><path d='M372 92l26-10 26 4 20 14 1 21-13 14-29 2-22 10-27-7-10-22 8-16z'/><path d='M425 142l17-6 15 7 13-3 17 12 8 23-6 24-14 16-16 0-8-12-8-17-16-9-5-18z'/><path d='M504 101l18-7 22 2 16 11 1 19-13 10-18 0-15 8-17-5-9-15 5-16z'/><path d='M565 127l14 6 17-4 20 7 8 13-6 10-20 2-19 8-12-9-5-16z'/><path d='M594 186l14 4 12 17-5 22-10 18-5 25-15 7-13-8 0-27 6-19 7-17z'/><path d='M661 255l13-4 10 10-3 15-10 9-11-6-2-13z'/></g><g fill='url(%23g2)' opacity='0.92'><path d='M220 90l17-12 24 0 18 6 13 13-8 19-16 4-16-5-19 4-16-8z'/><path d='M372 92l26-10 26 4 20 14 1 21-13 14-29 2-22 10-27-7-10-22 8-16z'/><path d='M504 101l18-7 22 2 16 11 1 19-13 10-18 0-15 8-17-5-9-15 5-16z'/></g></svg>");
+          filter: drop-shadow(0 0 1px rgba(100, 210, 255, 0.35));
         }
 
         .unera-earth-lines {
@@ -361,11 +360,11 @@ export const Header: React.FC<HeaderProps> = ({
           inset: 0;
           border-radius: 9999px;
           background:
-            linear-gradient(transparent 22%, rgba(140, 220, 255, 0.16) 24%, transparent 26%, transparent 46%, rgba(140, 220, 255, 0.12) 48%, transparent 50%, transparent 70%, rgba(140, 220, 255, 0.14) 72%, transparent 74%),
-            linear-gradient(90deg, transparent 24%, rgba(140, 220, 255, 0.10) 26%, transparent 28%, transparent 48%, rgba(140, 220, 255, 0.08) 50%, transparent 52%, transparent 72%, rgba(140, 220, 255, 0.08) 74%, transparent 76%);
-          opacity: 0.45;
-          pointer-events: none;
+            linear-gradient(transparent 20%, rgba(110, 210, 255, 0.14) 22%, transparent 24%, transparent 46%, rgba(110, 210, 255, 0.10) 48%, transparent 50%, transparent 72%, rgba(110, 210, 255, 0.12) 74%, transparent 76%),
+            linear-gradient(90deg, transparent 24%, rgba(110, 210, 255, 0.08) 26%, transparent 28%, transparent 48%, rgba(110, 210, 255, 0.06) 50%, transparent 52%, transparent 72%, rgba(110, 210, 255, 0.06) 74%, transparent 76%);
+          opacity: 0.42;
           mix-blend-mode: screen;
+          pointer-events: none;
         }
 
         .unera-earth-shade {
@@ -373,9 +372,9 @@ export const Header: React.FC<HeaderProps> = ({
           inset: 0;
           border-radius: 9999px;
           background:
-            radial-gradient(circle at 32% 26%, rgba(255,255,255,0.40) 0%, rgba(255,255,255,0.12) 18%, transparent 34%),
-            radial-gradient(circle at 78% 54%, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.24) 26%, transparent 52%),
-            linear-gradient(90deg, rgba(255,255,255,0.08) 0%, transparent 30%, transparent 62%, rgba(0,0,0,0.24) 100%);
+            radial-gradient(circle at 30% 26%, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.10) 18%, transparent 32%),
+            radial-gradient(circle at 78% 58%, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.24) 26%, transparent 54%),
+            linear-gradient(90deg, rgba(255,255,255,0.06) 0%, transparent 28%, transparent 65%, rgba(0,0,0,0.24) 100%);
           pointer-events: none;
         }
 
@@ -385,7 +384,7 @@ export const Header: React.FC<HeaderProps> = ({
           border-radius: 9999px;
           box-shadow:
             inset 0 0 0 1px rgba(220, 248, 255, 0.24),
-            0 0 8px rgba(77, 190, 255, 0.28);
+            0 0 8px rgba(77, 190, 255, 0.24);
           pointer-events: none;
         }
 
